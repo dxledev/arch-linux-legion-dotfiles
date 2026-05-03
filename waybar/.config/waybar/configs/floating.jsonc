@@ -34,6 +34,7 @@
         "modules": [
             "custom/menu",
             "custom/wallpapers",
+            "network",
             "custom/bluetooth",
             "custom/power"
         ]
@@ -42,11 +43,9 @@
         "orientation": "horizontal",
         "modules": [
           "pulseaudio",
-          "network",
           "cpu",
           "memory",
-          "temperature",
-          "battery"
+          "temperature"
         ],
     },
     "group/custom-bg1": {
@@ -178,18 +177,18 @@
         "on-click": "/home/dxle/bin/toggle-dashboard",
     },
     "cpu": {
-        "format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span> {usage}%",
         "tooltip": true
     },
     "memory": {
-        "format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>"
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span> {used:0.1G}%"
     },
     "temperature": {
         // "thermal-zone": 2,
         // "hwmon-path": "/sys/class/hwmon/hwmon2/temp1_input",
         "critical-threshold": 80,
         // "format-critical": "{temperatureC}°C <span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span>",
-        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span>",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span> {temperatureF}°F",
         "format-icons": [""]
     },
     "battery": {
@@ -235,7 +234,7 @@
     },
     "pulseaudio": {
         // "scroll-step": 1, // %, can be a float
-        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span>",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span>{volume}%",
         "format-bluetooth": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span><span font_desc=\"JetBrainsMono Nerd Font\"></span>",
         "format-bluetooth-muted": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>  <span font_desc=\"JetBrainsMono Nerd Font\"></span>",
         "format-muted": "<span font_desc=\"JetBrainsMono Nerd Font\"></span> ",

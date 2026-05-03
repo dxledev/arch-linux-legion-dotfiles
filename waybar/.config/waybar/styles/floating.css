@@ -36,7 +36,7 @@ tooltip label {
 
 .modules-center {
   border-radius: 2rem;
-  background: linear-gradient(45deg, @primary, @bright-cyan);
+  background: linear-gradient(45deg, @bright-magenta, @bright-cyan, @yellow);
   padding: 2px;
 }
 
@@ -46,7 +46,7 @@ tooltip label {
 #custom-bg4 {
   padding: 2px;
   border-radius: 2rem;
-  background: linear-gradient(45deg, @primary, @bright-cyan);
+  background: linear-gradient(45deg, @bright-magenta, @bright-cyan, @yellow);
 }
 
 #custom-bg2 {
@@ -78,18 +78,18 @@ tooltip label {
     border: none;
 }
 
+#workspaces button.empty {
+    font-weight: bolder;
+    transition: all 0.3s ease-in-out;
+    color: alpha(@foreground, 0.4);
+}
+
 #workspaces button.active {
     background: linear-gradient(45deg, @cyan, @yellow, @magenta);
     transition: all 0.3s ease-in-out;
     color: @background;
     border-radius: 20px;
     min-width: 45px;
-}
-
-#workspaces button.empty {
-    font-weight: bolder;
-    transition: all 0.3s ease-in-out;
-    color: alpha(@background, 0.7);
 }
 
 #workspaces button.urgent {
@@ -162,7 +162,7 @@ tooltip label {
 #network,
 #cpu,
 #memory {
-    padding-right: 30px;
+    padding-right: 15px;
 }
 
 #pulseaudio {
@@ -170,7 +170,7 @@ tooltip label {
 }
 
 #temperature {
-    padding-right: 25px;
+    padding-right: 2px;
 }
 
 #clock {
