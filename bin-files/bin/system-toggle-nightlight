@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-FILTER=3700
+FILTER=4500
 STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/system-toggle-nightlight.state"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"

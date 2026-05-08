@@ -87,6 +87,12 @@ QFrame#headerBar {
     border-radius: var(--header-radius);
 }
 
+QFrame#paletteSavePrompt {
+    background: var(--panel-bg);
+    border: var(--panel-border-width) solid var(--border-color);
+    border-radius: var(--content-radius);
+}
+
 QLabel#headerTitle {
     color: var(--text-color);
     font-size: var(--title-size);
@@ -99,6 +105,7 @@ QLabel#headerSubtitle {
 }
 
 QPushButton#closeButton,
+QPushButton#saveButton,
 QPushButton#eyedropperButton {
     min-height: var(--button-height);
     min-width: var(--button-height);
@@ -109,6 +116,7 @@ QPushButton#eyedropperButton {
     font-weight: 700;
 }
 
+QPushButton#saveButton:hover,
 QPushButton#eyedropperButton:hover {
     background: var(--color-surface-alt);
     border-color: var(--color-primary);
@@ -304,6 +312,8 @@ QLineEdit#rgbaInput {
     padding: 0 10px;
     color: var(--text-color);
     background: var(--input-bg);
+    selection-background-color: var(--color-primary);
+    selection-color: var(--panel-bg);
 }
 
 QPushButton#inlineCopyButton {
@@ -335,6 +345,7 @@ QPushButton#applyButton {
     color: var(--button-primary-fg);
 }
 
+QPushButton#saveButton,
 QPushButton#eyedropperButton {
     font-family: var(--header-icon-font-family), var(--font-family);
     font-size: var(--header-icon-font-size);
@@ -360,6 +371,8 @@ QFrame#paletteInputRow QLineEdit#paletteInput {
     padding: 0 10px;
     color: var(--text-color);
     background: var(--input-bg);
+    selection-background-color: var(--color-primary);
+    selection-color: var(--panel-bg);
 }
 
 QFrame#paletteInputRow QPushButton#paletteGenerateButton {
@@ -372,6 +385,19 @@ QFrame#paletteInputRow QPushButton#paletteGenerateButton {
 }
 
 QFrame#paletteInputRow QPushButton#paletteGenerateButton:hover {
+    border-color: var(--text-color);
+}
+
+QFrame#paletteSavePrompt QPushButton#paletteGenerateButton {
+    min-height: var(--input-height);
+    border-radius: var(--input-radius);
+    border: var(--control-border-width) solid var(--border-color);
+    background: var(--input-bg);
+    color: var(--text-color);
+    padding: 0 10px;
+}
+
+QFrame#paletteSavePrompt QPushButton#paletteGenerateButton:hover {
     border-color: var(--text-color);
 }
 

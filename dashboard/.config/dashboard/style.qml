@@ -1,1 +1,1 @@
-/home/dxle/.config/dashboard/styles/floating.qml
+/home/dxle/dotfiles/dashboard/.config/dashboard/styles/pill.qml
