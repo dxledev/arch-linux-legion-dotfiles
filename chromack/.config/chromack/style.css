@@ -88,9 +88,9 @@ QFrame#headerBar {
 }
 
 QFrame#paletteSavePrompt {
-    background: var(--panel-bg);
+    background: var(--header-bg);
     border: var(--panel-border-width) solid var(--border-color);
-    border-radius: var(--content-radius);
+    border-radius: var(--header-radius);
 }
 
 QLabel#headerTitle {
