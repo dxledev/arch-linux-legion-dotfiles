@@ -2,17 +2,23 @@
 set -euo pipefail
 
 TOPDASH_BIN="${TOPDASH_BIN:-/home/dxle/builds/dashboard/build/topdash}"
-PGREP_BIN="/usr/bin/pgrep"
+AWK_BIN="/usr/bin/awk"
 KILL_BIN="/usr/bin/kill"
+PGREP_BIN="/usr/bin/pgrep"
+PKILL_BIN="/usr/bin/pkill"
 READLINK_BIN="/usr/bin/readlink"
 SLEEP_BIN="/usr/bin/sleep"
+FLOCK_BIN="/usr/bin/flock"
 SETSID_BIN="/usr/bin/setsid"
 NOHUP_BIN="/usr/bin/nohup"
 NOTIFY_SEND_BIN="/home/dxle/bin/notify-send"
-TERM_WAIT_ATTEMPTS="${TERM_WAIT_ATTEMPTS:-20}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+LOCK_FILE="${TOPDASH_RESTART_LOCK_FILE:-$RUNTIME_DIR/restart-dashboard.v2.lock}"
+TERM_WAIT_ATTEMPTS="${TERM_WAIT_ATTEMPTS:-6}"
 TERM_WAIT_SECONDS="${TERM_WAIT_SECONDS:-0.05}"
-START_WAIT_ATTEMPTS="${START_WAIT_ATTEMPTS:-40}"
+START_WAIT_ATTEMPTS="${START_WAIT_ATTEMPTS:-10}"
 START_WAIT_SECONDS="${START_WAIT_SECONDS:-0.05}"
+WAIT_FOR_START="${WAIT_FOR_START:-0}"
 
 usage() {
     printf 'Usage: restart-dashboard [--dry-run]\n'
@@ -55,10 +61,19 @@ validate_inputs() {
         exit 1
     fi
 
+    if [[ -z "$LOCK_FILE" ]]; then
+        notify_error "restart lock path is empty."
+        exit 1
+    fi
+
     validate_positive_integer "TERM_WAIT_ATTEMPTS" "$TERM_WAIT_ATTEMPTS"
     validate_positive_number "TERM_WAIT_SECONDS" "$TERM_WAIT_SECONDS"
     validate_positive_integer "START_WAIT_ATTEMPTS" "$START_WAIT_ATTEMPTS"
     validate_positive_number "START_WAIT_SECONDS" "$START_WAIT_SECONDS"
+    if [[ "$WAIT_FOR_START" != "0" && "$WAIT_FOR_START" != "1" ]]; then
+        notify_error "WAIT_FOR_START must be 0 or 1."
+        exit 1
+    fi
 }
 
 topdash_real_path() {
@@ -67,19 +82,13 @@ topdash_real_path() {
 
 collect_topdash_pids() {
     local expected_exe=""
-    local exe=""
-    local pid=""
 
     expected_exe="$(topdash_real_path)"
 
-    while IFS= read -r pid; do
-        [[ -n "$pid" ]] || continue
-
-        exe="$("$READLINK_BIN" -f "/proc/$pid/exe" 2>/dev/null || true)"
-        if [[ "$exe" == "$expected_exe" ]]; then
-            printf '%s\n' "$pid"
-        fi
-    done < <("$PGREP_BIN" -x topdash 2>/dev/null || true)
+    {
+        "$PGREP_BIN" -x topdash 2>/dev/null || true
+        "$PGREP_BIN" -f -- "$expected_exe" 2>/dev/null || true
+    } | "$AWK_BIN" -v self="$$" 'NF && $1 != self { print $1 }' | "$AWK_BIN" '!seen[$1]++'
 }
 
 stop_topdash() {
@@ -88,7 +97,8 @@ stop_topdash() {
     mapfile -t pids < <(collect_topdash_pids)
     [[ ${#pids[@]} -gt 0 ]] || return 0
 
-    "$KILL_BIN" -TERM "${pids[@]}" >/dev/null 2>&1 || true
+    "$PKILL_BIN" -x topdash >/dev/null 2>&1 || true
+    "$PKILL_BIN" -f -- "$(topdash_real_path)" >/dev/null 2>&1 || true
 
     for ((attempt = 0; attempt < TERM_WAIT_ATTEMPTS; attempt++)); do
         mapfile -t pids < <(collect_topdash_pids)
@@ -98,8 +108,17 @@ stop_topdash() {
 
     mapfile -t pids < <(collect_topdash_pids)
     if [[ ${#pids[@]} -gt 0 ]]; then
-        "$KILL_BIN" -KILL "${pids[@]}" >/dev/null 2>&1 || true
+        "$KILL_BIN" -9 "${pids[@]}" >/dev/null 2>&1 || true
     fi
+
+    for ((attempt = 0; attempt < TERM_WAIT_ATTEMPTS; attempt++)); do
+        mapfile -t pids < <(collect_topdash_pids)
+        [[ ${#pids[@]} -eq 0 ]] && return 0
+        "$SLEEP_BIN" "$TERM_WAIT_SECONDS"
+    done
+
+    notify_error "Failed to stop topdash."
+    exit 1
 }
 
 start_topdash() {
@@ -128,14 +147,21 @@ wait_for_topdash() {
 restart_topdash() {
     stop_topdash
     start_topdash
-    wait_for_topdash
+    if [[ "$WAIT_FOR_START" == "1" ]]; then
+        wait_for_topdash
+    fi
 }
 
 main() {
     local dry_run=0
+    local locked=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --locked)
+                locked=1
+                shift
+                ;;
             --dry-run)
                 dry_run=1
                 shift
@@ -157,7 +183,12 @@ main() {
         return 0
     fi
 
-    restart_topdash
+    if [[ "$locked" -eq 1 ]]; then
+        restart_topdash
+        return 0
+    fi
+
+    "$FLOCK_BIN" -n -o "$LOCK_FILE" "$0" --locked
 }
 
 main "$@"

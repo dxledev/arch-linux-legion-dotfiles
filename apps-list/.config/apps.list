@@ -23,4 +23,5 @@ org.pulseaudio.pavucontrol.desktop|/home/dxle/.local/share/icons/volume.png|Volu
 org.prismlauncher.PrismLauncher.desktop|/home/dxle/.local/share/icons/prismlauncher.png|Prism Launcher
 steam.desktop|/home/dxle/.local/share/icons/steam.png|Steam
 zoom-webapp.desktop|/home/dxle/.local/share/icons/zoom.png|Zoom
+io.github.Qalculate.qalculate-qt.desktop|/usr/share/icons/hicolor/128x128/apps/qalculate-qt.png|Calculator
 Alacritty.desktop|/home/dxle/.local/share/icons/alacritty.png|Alacritty

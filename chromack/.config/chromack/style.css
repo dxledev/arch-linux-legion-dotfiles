@@ -89,7 +89,7 @@ QFrame#headerBar {
 
 QFrame#paletteSavePrompt {
     background: var(--header-bg);
-    border: var(--panel-border-width) solid var(--border-color);
+    border: none;
     border-radius: var(--header-radius);
 }
 
