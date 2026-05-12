@@ -10,11 +10,5 @@
     "recurrence_type": "weekly",
     "recurrence_value": "Sun,Wed",
     "created_at": "2026-03-01T09:09:19Z"
-  },
-  {
-    "task": "CS4310 Project",
-    "recurrence_type": "daily",
-    "recurrence_value": "daily",
-    "created_at": "2026-05-08T08:34:09Z"
   }
 ]

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 STEP=5
-MIN_PERCENT=10
+MIN_PERCENT="${SYSTEM_BRIGHTNESS_MIN_PERCENT:-0}"
 MAX_PERCENT=100
 CACHE_TTL=2
 
@@ -15,9 +15,23 @@ state_file="${state_dir}/${connector_type}.state"
 lock_file="${state_dir}/${connector_type}.lock"
 
 if [[ -z "$connector_type" || -z "$label" ]]; then
-    echo "usage: $(basename "$0") <connector-type> <label> [up|down]" >&2
+    echo "usage: $(basename "$0") <connector-type> <label> [up|down|min]" >&2
     exit 1
 fi
+
+if ! [[ "$MIN_PERCENT" =~ ^[0-9]+$ ]] || (( MIN_PERCENT > MAX_PERCENT )); then
+    echo "SYSTEM_BRIGHTNESS_MIN_PERCENT must be an integer from 0 to $MAX_PERCENT" >&2
+    exit 1
+fi
+
+case "$direction" in
+    "") direction="down" ;;
+    up|down|min) ;;
+    *)
+        echo "direction must be one of: up, down, min" >&2
+        exit 1
+        ;;
+esac
 
 mkdir -p "$state_dir"
 
@@ -127,6 +141,12 @@ refresh_state() {
 }
 
 compute_target() {
+    if [[ "$direction" == "min" ]]; then
+        new_percent=0
+        new_value=$(( (new_percent * device_max + 50) / 100 ))
+        return
+    fi
+
     rounded_percent=$(( (current_percent + STEP / 2) / STEP * STEP ))
     new_percent=$((rounded_percent + delta))
 
