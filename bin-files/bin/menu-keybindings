@@ -122,6 +122,7 @@ awk -F'|' -v arrow="$arrow" -v width="$max_width" '
 
 chosen=$(echo "$formatted" | rofi -dmenu -i \
     -pid "$PID_FILE" \
+    -kb-accept-entry "" \
     -p "" \
     -theme-str '
         window { width: 1075px; }
