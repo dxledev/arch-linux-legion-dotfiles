@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-nohup swayosd-server >/dev/null 2>&1 &
+readonly NOHUP_BIN="/usr/bin/nohup"
+readonly SWAYOSD_SERVER="/home/dxle/bin/swayosd-server"
+
+"${NOHUP_BIN}" "${SWAYOSD_SERVER}" >/dev/null 2>&1 &

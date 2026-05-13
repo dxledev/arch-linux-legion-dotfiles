@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-pkill -x swayosd-server 2>/dev/null
-  swayosd-server >/dev/null 2>&1 &
+readonly SWAYOSD_SERVER="/home/dxle/bin/swayosd-server"
+readonly PKILL_BIN="/usr/bin/pkill"
+readonly PGREP_BIN="/usr/bin/pgrep"
+readonly SLEEP_BIN="/usr/bin/sleep"
+
+"${PKILL_BIN}" -x swayosd-server 2>/dev/null || true
+
+for _ in {1..20}; do
+	if ! "${PGREP_BIN}" -x swayosd-server >/dev/null 2>&1; then
+		break
+	fi
+	"${SLEEP_BIN}" 0.05
+done
+
+"${SWAYOSD_SERVER}" >/dev/null 2>&1 &
