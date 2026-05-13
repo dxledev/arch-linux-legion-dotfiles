@@ -73,8 +73,8 @@ tooltip label {
   border: 2px solid @primary; 
   border-radius: 20pt;
   min-width: 40px;
-  transition: all 0.3s ease-in-out;
-	background: linear-gradient(135deg, @blue 5%, @magenta 50%, red 100%);
+  transition: all 0.25s ease-in-out;
+	background: linear-gradient(225deg, @bright-cyan 25%, @bright-magenta 70%, @bright-green 5%);
 }
 
 #workspaces button.empty {
