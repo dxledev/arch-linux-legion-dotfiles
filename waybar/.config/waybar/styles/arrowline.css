@@ -55,7 +55,7 @@ tooltip label {
 
 #workspaces {
   padding-right: 5pt;
-  background: @background;
+  background: alpha(@background-alt, 1);
 }
 
 #workspaces button {
@@ -75,6 +75,10 @@ tooltip label {
   min-width: 40px;
   transition: all 0.25s ease-in-out;
 	background: linear-gradient(225deg, @bright-cyan 25%, @bright-magenta 70%, @bright-green 5%);
+}
+
+#workspaces button:hover {
+  background: linear-gradient(45deg, @magenta 25%, @bright-red 70%, @cyan 5%)
 }
 
 #workspaces button.empty {
@@ -176,7 +180,7 @@ tooltip label {
 
 #custom-arrow10 {
 	font-size: 16pt;
-	color: @background-alt;
+	color: alpha(@background-alt, 1.0);
 	background: @foreground;
 }
 

@@ -8,5 +8,5 @@ style = "~/.config/swayosd/style.css"
 slide = true
 slide_duration = 150
 slide_hide_duration = 120
-slide_fps = 60
+slide_fps = 120
 slide_offscreen_padding = 16
