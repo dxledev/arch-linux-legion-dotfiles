@@ -12,7 +12,13 @@
 # Zsh completion system
 # -------------------------
 autoload -Uz compinit
-compinit
+ZSH_COMPDUMP="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump"
+mkdir -p "${ZSH_COMPDUMP:h}"
+if [[ -n "$ZSH_COMPDUMP"(#qN.mh+24) ]]; then
+  compinit -d "$ZSH_COMPDUMP"
+else
+  compinit -C -d "$ZSH_COMPDUMP"
+fi
 
 # Case-insensitive completion
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
@@ -82,15 +88,35 @@ ZSH_HIGHLIGHT_STYLES[precommand]='fg=default'
 export PATH="$PATH:/home/dxle/.lmstudio/bin"
 # End of LM Studio CLI section
 
-# Start SSH agent if not already running
-if [ -z "$SSH_AUTH_SOCK" ]; then
-  eval "$(ssh-agent -s)" > /dev/null 2>&1
+if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+  latest_agent_socket=("$HOME"/.ssh/agent/*(N.om[1]))
+  if [[ -S "${latest_agent_socket[1]:-}" ]]; then
+    export SSH_AUTH_SOCK="${latest_agent_socket[1]}"
+  fi
+  unset latest_agent_socket
 fi
 
-# Add key if not already loaded
-ssh-add -l > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-  ssh-add ~/.ssh/id_ed25519 > /dev/null 2>&1
-fi
+load-nvm() {
+  unset -f load-nvm nvm node npm npx
+  source /usr/share/nvm/init-nvm.sh
+}
 
-source /usr/share/nvm/init-nvm.sh
+nvm() {
+  load-nvm
+  nvm "$@"
+}
+
+node() {
+  load-nvm
+  node "$@"
+}
+
+npm() {
+  load-nvm
+  npm "$@"
+}
+
+npx() {
+  load-nvm
+  npx "$@"
+}

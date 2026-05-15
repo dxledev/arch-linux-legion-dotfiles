@@ -188,9 +188,9 @@
            "America/Los_Angeles",
         ],
        "actions":  {
-           "on-click":"~/bin/toggle-dashboard",
+           "on-click":"~/bin/toggle-dashboard --open --dashboard",
         },
-       "on-click":"~/bin/toggle-dashboard",
+       "on-click":"~/bin/toggle-dashboard --open --dashboard",
     },
     "mpris": {
        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{player_icon}</span> {title}",
