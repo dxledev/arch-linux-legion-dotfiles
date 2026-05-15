@@ -9,6 +9,10 @@ NotificationPopup {
     --notification-card-padding: 12px 16px 12px 16px;
     --notification-card-gap: 12px;
     --notification-card-blur-radius: 12px;
+    --notification-progress-active-color: var(--border-color);
+    --notification-progress-trough-color: var(--background);
+    --notification-progress-size: 18px;
+    --notification-progress-thickness: 2px;
 }
 
 QFrame#notificationCard {

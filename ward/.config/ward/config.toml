@@ -17,6 +17,8 @@ text_gap = 2
 
 [animation]
 enabled = true
+slide_in = true
+slide_out = false
 enter_duration_ms = 180
 exit_duration_ms = 140
 move_duration_ms = 140

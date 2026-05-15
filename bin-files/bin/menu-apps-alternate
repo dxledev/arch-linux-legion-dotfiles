@@ -1,87 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_LIST="${APP_LIST:-$HOME/.config/apps.list}"
-MENU_ID="menu-apps-alt"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+MENU_ID="menu-apps"
 PID_FILE="/tmp/menu-rofi.pid"
-ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/theme.rasi"
 GTK4_SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/settings.ini"
 GTK3_SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/settings.ini"
-
-ROFI_BIN="$(command -v rofi || true)"
-GTK_LAUNCH_BIN="$(command -v gtk-launch || true)"
-SETSID_BIN="$(command -v setsid || true)"
-NOTIFY_SEND_BIN="$(command -v notify-send || true)"
-SEARCH_ICON="󰍉"
-
-notify_error() {
-    local message="$1"
-
-    if [[ -n "$NOTIFY_SEND_BIN" ]]; then
-        "$NOTIFY_SEND_BIN" -t 4000 "Apps" "$message"
-    fi
-}
-
-require_command() {
-    local command_path="$1"
-    local command_name="$2"
-
-    if [[ -z "$command_path" ]]; then
-        notify_error "$command_name is not installed."
-        exit 1
-    fi
-}
-
-escape_rofi_string() {
-    printf '%s\n' "$1" | /usr/bin/sed \
-        -e 's/\\/\\\\/g' \
-        -e 's/"/\\"/g'
-}
-
-current_rofi_font_family() {
-    local font_value=""
-
-    if [[ -f "$ROFI_THEME" ]]; then
-        font_value="$(
-            /usr/bin/sed -nE 's/^[[:space:]]*font:[[:space:]]*"(.+) [0-9][0-9.]*";[[:space:]]*$/\1/p' "$ROFI_THEME" |
-                /usr/bin/head -n 1
-        )"
-    fi
-
-    if [[ -n "$font_value" ]]; then
-        printf '%s\n' "$font_value"
-        return
-    fi
-
-    printf 'CaskaydiaMono Nerd Font\n'
-}
-
-current_rofi_font_size() {
-    local font_size=""
-
-    if [[ -f "$ROFI_THEME" ]]; then
-        font_size="$(
-            /usr/bin/sed -nE 's/^[[:space:]]*font:[[:space:]]*".+ ([0-9][0-9.]*)";[[:space:]]*$/\1/p' "$ROFI_THEME" |
-                /usr/bin/head -n 1
-        )"
-    fi
-
-    if [[ "$font_size" =~ ^[0-9]+$ ]]; then
-        printf '%s\n' "$font_size"
-        return
-    fi
-
-    printf '16\n'
-}
-
-element_font_size() {
-    local font_size="$1"
-    local smaller_size=$((font_size - 1))
-
-    (( smaller_size < 1 )) && smaller_size=1
-    printf '%s\n' "$smaller_size"
-}
 
 icon_override_enabled() {
     local value=""
@@ -105,7 +30,6 @@ icon_override_enabled() {
             return 1
             ;;
         *)
-            notify_error "Invalid icon-override value in $APP_LIST."
             exit 1
             ;;
     esac
@@ -294,22 +218,13 @@ launch_app() {
     [[ -n "$launcher" ]] || exit 0
 
     if [[ "$launcher" == *.desktop ]]; then
-        [[ -n "$GTK_LAUNCH_BIN" ]] || exit 1
-        "$SETSID_BIN" "$GTK_LAUNCH_BIN" "${launcher%.desktop}" >/dev/null 2>&1 &
+        setsid gtk-launch "${launcher%.desktop}" >/dev/null 2>&1 &
     elif [[ -x "$SCRIPT_DIR/$launcher" ]]; then
-        "$SETSID_BIN" "$SCRIPT_DIR/$launcher" >/dev/null 2>&1 &
+        setsid "$SCRIPT_DIR/$launcher" >/dev/null 2>&1 &
     elif command -v "$launcher" >/dev/null 2>&1; then
-        "$SETSID_BIN" "$launcher" >/dev/null 2>&1 &
+        setsid "$launcher" >/dev/null 2>&1 &
     fi
 }
-
-require_command "$ROFI_BIN" "rofi"
-require_command "$SETSID_BIN" "setsid"
-
-if [[ ! -r "$APP_LIST" ]]; then
-    notify_error "Could not read $APP_LIST."
-    exit 1
-fi
 
 if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
     exit 0
@@ -321,8 +236,6 @@ mapfile -t launchers < <(/usr/bin/awk -F'|' 'NF >= 3 { print $1 }' "$APP_LIST")
 
 [[ ${#launchers[@]} -gt 0 ]] || exit 0
 
-MENU_FONT_FAMILY="$(escape_rofi_string "$(current_rofi_font_family)")"
-ELEMENT_FONT_SIZE="$(element_font_size "$(current_rofi_font_size)")"
 ICON_OVERRIDE="true"
 GTK_ICON_THEME="$(current_gtk_icon_theme)"
 
@@ -330,67 +243,31 @@ if ! icon_override_enabled; then
     ICON_OVERRIDE="false"
 fi
 
-chosen_index="$(
-    print_menu_rows "$ICON_OVERRIDE" "$GTK_ICON_THEME" |
-    "$ROFI_BIN" -dmenu -i -show-icons \
-        -pid "$PID_FILE" \
-        -p "$SEARCH_ICON" \
-        -format i \
-        -no-custom \
-        -theme-str "
-            window {
-                width: 755px;
-                border-radius: 0px;
-                padding: 12px;
-            }
-            mainbox {
-                spacing: 7px;
-            }
-            inputbar {
-                children: [ prompt, entry ];
-                spacing: 10px;
-                padding: 10px 16px;
-            }
-            prompt {
-                width: 28px;
-                horizontal-align: 0.5;
-                vertical-align: 0.5;
-                margin: -4px 0px 4px 0px;
-                padding: 0px 4px;
-            }
-            entry {
-                placeholder: \"Launch...\";
-            }
-            listview {
-                columns: 4;
-                lines: 4;
-                spacing: 2px;
-                cycle: false;
-                dynamic: false;
-                fixed-columns: true;
-                scrollbar: false;
-                flow: horizontal;
-                layout: vertical;
-            }
-            element {
-                orientation: vertical;
-                children: [ element-icon, element-text ];
-                spacing: 2px;
-                padding: 14px 4px;
-                border-radius: 0px;
-            }
-            element-icon {
-                size: 38px;
-                horizontal-align: 0.5;
-            }
-            element-text {
-                width: 160px;
-                horizontal-align: 0.5;
-                padding: 4px 2px;
-                font: \"${MENU_FONT_FAMILY} ${ELEMENT_FONT_SIZE}\";
-            }
-        "
-)"
+chosen_index=$(
+print_menu_rows "$ICON_OVERRIDE" "$GTK_ICON_THEME" |
+rofi -dmenu -i -show-icons \
+    -pid "$PID_FILE" \
+    -p "" \
+    -format i \
+    -no-custom \
+    -theme-str '
+        window { width: 300px; }
+        entry { placeholder: "Launch…"; }
+        element {
+            orientation: horizontal;
+            children: [ element-icon, element-text ];
+            spacing: 8px;
+            padding: 8px 8px;
+        }
+        element-icon { 
+            size: 26px; 
+        }
+        element-text {
+            horizontal-align: 0.0;
+            padding: 0px 6px;
+        }
+    '
+)
 
 [[ -n "$chosen_index" ]] || exit 0
 
