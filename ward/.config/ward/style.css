@@ -12,7 +12,7 @@ NotificationPopup {
     --notification-progress-active-color: var(--border-color);
     --notification-progress-trough-color: var(--background);
     --notification-progress-size: 18px;
-    --notification-progress-thickness: 2px;
+    --notification-progress-thickness: 3px;
 }
 
 QFrame#notificationCard {

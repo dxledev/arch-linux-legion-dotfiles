@@ -381,6 +381,7 @@ SELECTED_WALLPAPER="${WALLPAPERS[CHOSEN_INDEX]:-}"
 ln -sfn "$SELECTED_WALLPAPER" "$CURRENT_LINK"
 
 formatted_name="$(format_wallpaper_name_with_mode "$SELECTED_WALLPAPER" "plain")"
+formatted_name_markup="$(escape_markup "$formatted_name")"
 
 apply_wallpaper "$SELECTED_WALLPAPER"
-notify-send -t 5000 "Background" "Updated to '$formatted_name'."
+notify-send -t 5000 "Background" "Updated to <b><span foreground=\"var(--border-color)\">$formatted_name_markup</span></b>."

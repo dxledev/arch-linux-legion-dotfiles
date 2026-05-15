@@ -5,6 +5,7 @@ WARDNC_BIN="${WARDNC_BIN:-/home/dxle/builds/wardnc/build/wardnc}"
 WARDNC_RELOAD_SIGNAL="${WARDNC_RELOAD_SIGNAL:-SIGUSR1}"
 PGREP_BIN="/usr/bin/pgrep"
 KILL_BIN="/usr/bin/kill"
+BUSCTL_BIN="/usr/bin/busctl"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
 
 WARDNC_NOTIFY_APP_NAME="${WARDNC_NOTIFY_APP_NAME:-reload-wardnc}"
@@ -28,11 +29,32 @@ notify_error() {
     fi
 }
 
+wardnc_control_pid() {
+    [[ -x "$BUSCTL_BIN" ]] || return 1
+
+    local owner=""
+    owner="$("$BUSCTL_BIN" --user call \
+        org.freedesktop.DBus \
+        /org/freedesktop/DBus \
+        org.freedesktop.DBus \
+        GetNameOwner \
+        s org.dxle.wardnc 2>/dev/null | /usr/bin/awk '{ print $2 }' | /usr/bin/tr -d '"' || true)"
+    [[ -n "$owner" ]] || return 1
+
+    "$BUSCTL_BIN" --user call \
+        org.freedesktop.DBus \
+        /org/freedesktop/DBus \
+        org.freedesktop.DBus \
+        GetConnectionUnixProcessID \
+        s "$owner" 2>/dev/null | /usr/bin/awk '{ print $2 }'
+}
+
 collect_wardnc_pids() {
     {
         "$PGREP_BIN" -x wardnc 2>/dev/null || true
         "$PGREP_BIN" -f -- "$WARDNC_BIN" 2>/dev/null || true
-    } | /usr/bin/awk 'NF { print $1 }' | /usr/bin/awk '!seen[$1]++'
+        wardnc_control_pid 2>/dev/null || true
+    } | /usr/bin/awk '$1 ~ /^[0-9]+$/ { print $1 }' | /usr/bin/awk '!seen[$1]++'
 }
 
 validate_signal() {
