@@ -132,4 +132,4 @@ if [[ "$INCLUDE_WARD" -eq 1 ]]; then
     "$SCRIPT_DIR/reload-ward" || true
 fi
 
-notify-send -t 5000 "Font" "Updated to $FONT_NAME." >/dev/null 2>&1 || true
+notify-send -t 5000 "Font" "Updated to <b>$FONT_NAME</b>." >/dev/null 2>&1 || true

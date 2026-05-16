@@ -72,7 +72,7 @@ if [[ "${THEME_SUPPRESS_NOTIFY:-0}" != "1" ]]; then
         done
 
         if [[ -x "$NOTIFY_SEND_BIN" ]]; then
-            "$NOTIFY_SEND_BIN" -t 5000 "Theme" "Updated to $FORMATTED_NAME." >/dev/null 2>&1 || true
+      "$NOTIFY_SEND_BIN" -t 5000 "Theme" "Updated to <b><span foreground=\"var(--primary-color)\">$FORMATTED_NAME</span></b>." >/dev/null 2>&1 || true
         fi
     ) >/dev/null 2>&1 &
 fi

@@ -100,4 +100,4 @@ done
 FORMATTED_NAME="$(format_style_display "${resolved_chosen}")"
 
 sleep 0.5
-notify-send -t 5000 "Waybar" "Updated to ${FORMATTED_NAME}."
+notify-send -t 5000 "Waybar" "Updated to <b><span foreground=\"var(--secondary-color)\">${FORMATTED_NAME}.</span></b>"

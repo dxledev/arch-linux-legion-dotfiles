@@ -19,7 +19,7 @@ if pgrep -x livepaper >/dev/null 2>&1; then
     exit 0
 fi
 
-notify-send -t 2000 "Background" "Opened $THEME live gallery."
+notify-send -t 2000 "Background" "Opened <b><span foreground=\"var(--primary-color)\">$THEME</span></b> live gallery."
 
 if [ ! -x "$LIVEPAPER_BIN" ]; then
     notify-send -t 4000 "Background" "livepaper binary not found at $LIVEPAPER_BIN"

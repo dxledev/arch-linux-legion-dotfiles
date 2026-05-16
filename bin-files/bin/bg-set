@@ -301,7 +301,7 @@ MENU_INPUT="$tmp_dir/menu-input"
 MENU_FONT="$(escape_rofi_string "$(current_menu_font)")"
 
 mkdir -p "$CACHE_DIR"
-notify-send -t 3000 "Background" "Opened $THEME_PRETTY gallery."
+notify-send -t 3000 "Background" "Opened <b><span foreground=\"var(--primary-color)\">$THEME_PRETTY</span></b> gallery."
 
 for wallpaper_path in "${WALLPAPERS[@]}"; do
     display_name="$(format_wallpaper_name "$wallpaper_path")"
@@ -384,4 +384,4 @@ formatted_name="$(format_wallpaper_name_with_mode "$SELECTED_WALLPAPER" "plain")
 formatted_name_markup="$(escape_markup "$formatted_name")"
 
 apply_wallpaper "$SELECTED_WALLPAPER"
-notify-send -t 5000 "Background" "Updated to <b><span foreground=\"var(--border-color)\">$formatted_name_markup</span></b>."
+notify-send -t 5000 "Background" "Updated to <b><span foreground=\"var(--secondary-color)\">$formatted_name_markup</span></b>."

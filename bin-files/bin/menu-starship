@@ -100,4 +100,4 @@ FORMATTED_NAME="$(format_style_display "${chosen}")"
 sleep 0.5
 ~/bin/reload-terminal
 refresh_terminal_prompts
-notify-send -t 5000 "Terminal Prompt" "Updated to ${FORMATTED_NAME}"
+notify-send -t 5000 "Terminal Prompt" "Updated to <b>${FORMATTED_NAME}</b>."

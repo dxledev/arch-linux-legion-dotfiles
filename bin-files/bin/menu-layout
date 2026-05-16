@@ -613,13 +613,13 @@ if ! apply_runtime_changes "$TARGET_APPLIED_LAYOUT" "$LAYOUT_CHANGED" "$WORKSPAC
     restore_hyprland_autoreload
 
     if reload_hyprland; then
-        notify_success "Set to $(format_layout_display "$SELECTED_LAYOUT")"
+        notify_success "Set to <b><span foreground=\"var(--border-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>."
         exit 0
     fi
 
-    notify "Set to $(format_layout_display "$SELECTED_LAYOUT"), but Hyprland update failed."
+    notify "Set to <b><span foreground=\"var(--border-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>, but Hyprland update failed."
     exit 1
 fi
 
 restore_hyprland_autoreload
-notify_success "Set to $(format_layout_display "$SELECTED_LAYOUT")"
+notify_success "Set to <b><span foreground=\"var(--secondary-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>."

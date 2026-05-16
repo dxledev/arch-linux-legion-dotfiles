@@ -40,11 +40,11 @@ fi
 
 if [ "$state" = "on" ]; then
   hyprctl hyprsunset identity
-  notify "Night-light: <b>OFF</b>"
+  notify "Nightlight: <b>OFF</b>"
   printf 'off\n' > "$STATE_FILE"
 else
   ensure_hyprsunset
   hyprctl hyprsunset temperature "$FILTER"
-  notify "Night-light: <b>ON</b>"
+  notify "Nightlight: <b><span foreground=\"var(--secondary-color)\">ON</span></b>"
   printf 'on\n' > "$STATE_FILE"
 fi
