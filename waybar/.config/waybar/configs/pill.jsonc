@@ -32,7 +32,7 @@
 	"user": {
        "format":"{user}'S DESK",
        "cursor": false,
-       "interval": 60,
+       "interval": 60
 	},
    // "hyprland/workspaces": {
    //      "disable-scroll": true,

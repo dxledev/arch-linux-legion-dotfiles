@@ -172,7 +172,7 @@ spotify_track_markup() {
   title="$("$PLAYERCTL_BIN" -p "$SPOTIFY_PLAYER" metadata --format '{{title}}' 2>/dev/null || printf '')"
   artist="$(spotify_track_artists)"
 
-  printf '<b>%s</b>\n<span foreground="var(--border-color)">%s</span>' \
+  printf '<b>%s</b>\n<span foreground="var(--primary-color)">%s</span>' \
     "$(spotify_escape_markup "$title")" \
     "$(spotify_escape_markup "$artist")"
 }

@@ -59,7 +59,6 @@ decode_entities() {
 
 sanitize_text() {
     local value="$1"
-    value="$(strip_markup "$value")"
     value="$(decode_entities "$value")"
     printf '%s' "$value"
 }
@@ -210,7 +209,7 @@ main() {
     SUMMARY="$(sanitize_text "$SUMMARY")"
     BODY="$(sanitize_text "$BODY")"
 
-    if [[ -n "$SUMMARY" || -n "$BODY" ]]; then
+    if (( dry_run == 0 )) && [[ -n "$SUMMARY" || -n "$BODY" ]]; then
         append_history "$APP_NAME" "$SUMMARY" "$BODY" "$ICON_NAME"
     fi
 

@@ -8,11 +8,17 @@ PID_FILE="/tmp/menu-rofi.pid"
 ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/theme.rasi"
 GTK4_SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/settings.ini"
 GTK3_SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/settings.ini"
+ICON_CACHE_DIR="${MENU_APPS_ICON_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/menu-apps/icons}"
+ICON_BASE_SIZE="${MENU_APPS_ICON_SIZE:-38}"
 
 ROFI_BIN="$(command -v rofi || true)"
 GTK_LAUNCH_BIN="$(command -v gtk-launch || true)"
 SETSID_BIN="$(command -v setsid || true)"
 NOTIFY_SEND_BIN="$(command -v notify-send || true)"
+MAGICK_BIN="$(command -v magick || true)"
+SHA256SUM_BIN="$(command -v sha256sum || true)"
+STAT_BIN="$(command -v stat || true)"
+MKDIR_BIN="$(command -v mkdir || true)"
 SEARCH_ICON="󰍉"
 
 notify_error() {
@@ -33,10 +39,36 @@ require_command() {
     fi
 }
 
+trim_value() {
+    printf '%s\n' "$1" | /usr/bin/sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
 escape_rofi_string() {
     printf '%s\n' "$1" | /usr/bin/sed \
         -e 's/\\/\\\\/g' \
         -e 's/"/\\"/g'
+}
+
+validate_icon_base_size() {
+    if [[ ! "$ICON_BASE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
+        notify_error "MENU_APPS_ICON_SIZE must be a positive integer."
+        exit 1
+    fi
+}
+
+valid_icon_scale() {
+    local icon_scale="$1"
+
+    [[ "$icon_scale" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || return 1
+
+    /usr/bin/awk -v scale="$icon_scale" 'BEGIN { exit !(scale > 0) }'
+}
+
+scale_is_default() {
+    local icon_scale="$1"
+
+    [[ -z "$icon_scale" ]] && return 0
+    /usr/bin/awk -v scale="$icon_scale" 'BEGIN { exit !(scale == 1) }'
 }
 
 current_rofi_font_family() {
@@ -218,6 +250,21 @@ icon_exists_in_theme() {
     \) -print -quit | /usr/bin/grep -q .
 }
 
+icon_path_in_theme() {
+    local icon_name="$1"
+    local theme="$2"
+    local theme_dir
+
+    theme_dir="$(theme_directory "$theme" || true)"
+    [[ -n "$theme_dir" ]] || return 1
+
+    /usr/bin/find "$theme_dir" -type f \( \
+        -name "$icon_name.png" -o \
+        -name "$icon_name.svg" -o \
+        -name "$icon_name.xpm" \
+    \) -print -quit
+}
+
 gtk_icon_exists() {
     local icon_name="$1"
     local gtk_icon_theme="$2"
@@ -251,6 +298,42 @@ gtk_icon_exists() {
     return 1
 }
 
+gtk_icon_file() {
+    local icon_name="$1"
+    local gtk_icon_theme="$2"
+    local theme
+    local icon_file
+    local inherited_theme
+    local -a checked_themes=()
+    local -a pending_themes=()
+
+    [[ -n "$icon_name" && "$icon_name" != /* ]] || return 1
+    [[ -n "$gtk_icon_theme" ]] || return 1
+
+    pending_themes=("$gtk_icon_theme" hicolor)
+
+    while ((${#pending_themes[@]} > 0)); do
+        theme="${pending_themes[0]}"
+        pending_themes=("${pending_themes[@]:1}")
+
+        [[ -n "$theme" ]] || continue
+        [[ " ${checked_themes[*]} " == *" $theme "* ]] && continue
+        checked_themes+=("$theme")
+
+        icon_file="$(icon_path_in_theme "$icon_name" "$theme" || true)"
+        if [[ -n "$icon_file" ]]; then
+            printf '%s\n' "$icon_file"
+            return 0
+        fi
+
+        while IFS= read -r inherited_theme; do
+            [[ -n "$inherited_theme" ]] && pending_themes+=("$inherited_theme")
+        done < <(theme_inherits "$(theme_directory "$theme" || true)")
+    done
+
+    return 1
+}
+
 row_icon() {
     local launcher="$1"
     local defined_icon="$2"
@@ -272,18 +355,113 @@ row_icon() {
     printf '%s\n' "$defined_icon"
 }
 
+icon_source_file() {
+    local icon="$1"
+    local gtk_icon_theme="$2"
+    local icon_file
+
+    if [[ "$icon" == /* && -r "$icon" ]]; then
+        printf '%s\n' "$icon"
+        return 0
+    fi
+
+    icon_file="$(gtk_icon_file "$icon" "$gtk_icon_theme" || true)"
+    [[ -n "$icon_file" ]] || return 1
+
+    printf '%s\n' "$icon_file"
+}
+
+scaled_icon_dimension() {
+    local icon_scale="$1"
+
+    /usr/bin/awk -v size="$ICON_BASE_SIZE" -v scale="$icon_scale" 'BEGIN {
+        scaled = int((size * scale) + 0.5)
+        if (scaled < 1) {
+            scaled = 1
+        }
+        print scaled
+    }'
+}
+
+cached_scaled_icon_path() {
+    local source_icon="$1"
+    local icon_scale="$2"
+    local source_mtime
+    local cache_key
+
+    source_mtime="$("$STAT_BIN" -c '%Y' "$source_icon")"
+    cache_key="$(
+        printf '%s|%s|%s|%s\n' "$source_icon" "$source_mtime" "$ICON_BASE_SIZE" "$icon_scale" |
+            "$SHA256SUM_BIN" |
+            /usr/bin/awk '{ print $1 }'
+    )"
+
+    printf '%s/%s.png\n' "$ICON_CACHE_DIR" "$cache_key"
+}
+
+scaled_icon() {
+    local icon="$1"
+    local icon_scale="$2"
+    local gtk_icon_theme="$3"
+    local source_icon
+    local cache_icon
+    local scaled_dimension
+
+    icon_scale="$(trim_value "$icon_scale")"
+    scale_is_default "$icon_scale" && {
+        printf '%s\n' "$icon"
+        return
+    }
+
+    if ! valid_icon_scale "$icon_scale"; then
+        notify_error "Invalid icon scale '$icon_scale' in $APP_LIST."
+        exit 1
+    fi
+
+    require_command "$MAGICK_BIN" "ImageMagick"
+    require_command "$SHA256SUM_BIN" "sha256sum"
+    require_command "$STAT_BIN" "stat"
+    require_command "$MKDIR_BIN" "mkdir"
+
+    source_icon="$(icon_source_file "$icon" "$gtk_icon_theme" || true)"
+    if [[ -z "$source_icon" ]]; then
+        printf '%s\n' "$icon"
+        return
+    fi
+
+    "$MKDIR_BIN" -p "$ICON_CACHE_DIR"
+
+    cache_icon="$(cached_scaled_icon_path "$source_icon" "$icon_scale")"
+    if [[ -r "$cache_icon" ]]; then
+        printf '%s\n' "$cache_icon"
+        return
+    fi
+
+    scaled_dimension="$(scaled_icon_dimension "$icon_scale")"
+    "$MAGICK_BIN" "$source_icon" \
+        -resize "${scaled_dimension}x${scaled_dimension}" \
+        -background none \
+        -gravity center \
+        -extent "${ICON_BASE_SIZE}x${ICON_BASE_SIZE}" \
+        "$cache_icon"
+
+    printf '%s\n' "$cache_icon"
+}
+
 print_menu_rows() {
     local icon_override="$1"
     local gtk_icon_theme="$2"
     local launcher
     local defined_icon
     local app_name
+    local icon_scale
     local resolved_icon
 
-    while IFS='|' read -r launcher defined_icon app_name _; do
+    while IFS='|' read -r launcher defined_icon app_name icon_scale _; do
         [[ -n "$launcher" && -n "$defined_icon" && -n "$app_name" ]] || continue
 
         resolved_icon="$(row_icon "$launcher" "$defined_icon" "$icon_override" "$gtk_icon_theme")"
+        resolved_icon="$(scaled_icon "$resolved_icon" "${icon_scale:-}" "$gtk_icon_theme")"
         printf "%s\0icon\x1f%s\n" "$app_name" "$resolved_icon"
     done < <(/usr/bin/awk -F'|' 'NF >= 3 { print }' "$APP_LIST")
 }
@@ -305,6 +483,7 @@ launch_app() {
 
 require_command "$ROFI_BIN" "rofi"
 require_command "$SETSID_BIN" "setsid"
+validate_icon_base_size
 
 if [[ ! -r "$APP_LIST" ]]; then
     notify_error "Could not read $APP_LIST."
@@ -380,7 +559,7 @@ chosen_index="$(
                 border-radius: 0px;
             }
             element-icon {
-                size: 38px;
+                size: ${ICON_BASE_SIZE}px;
                 horizontal-align: 0.5;
             }
             element-text {

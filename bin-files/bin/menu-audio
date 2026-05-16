@@ -53,7 +53,7 @@ profile_label() {
 
 notify_audio_switched() {
     local audio_label="$1"
-    notify-send -t 5000 "Audio" "Switched to: $audio_label"
+    notify-send -t 5000 "Audio" "Switched to <b><span foreground=\"var(--secondary-color)\">$audio_label</span></b>."
 }
 
 switch_hdmi_monitor() {

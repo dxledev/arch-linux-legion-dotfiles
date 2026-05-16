@@ -19,6 +19,8 @@ CTRL ALT + SCROLL UP | Zoom In
 CTRL ALT + SCROLL DOWN | Zoom Out
 SHIFT + ALT + SCROLL | Reset Zoom
 SUPER + Scroll | Change Workspace
+Knob | Volume
+SUPER + Knob | Volume +5/-5
 Press Knob | Mute Audio
 Hold Knob | Audio Menu
 [TMUX] CTRL + ALT + Left | Close Terminal Pane
