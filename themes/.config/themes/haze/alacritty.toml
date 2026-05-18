@@ -1,0 +1,23 @@
+[colors.primary]
+background = "#1A1515" # Base
+foreground = "#DCC9BC" # Text
+
+[colors.normal]
+black   = "#1A1515"  # base00 - Deep background; primary canvas for terminals
+red     = "#CF223E"  # base08 - Error/critical accents
+green   = "#959A6B"  # base0B - Success/positive accents
+yellow  = "#D48A3D"  # base0A - Warning/attention accents
+blue    = "#756D94"  # base0D - Primary accent (links, active, emphasis)
+magenta = "#7B3D79"  # base0E - Secondary accent (special highlights)
+cyan    = "#B85A8E"  # base0C - Informational accents
+white   = "#DCC9BC"
+
+[colors.bright]
+black   = "#453636"  # base03 - Dim text, inactive UI, subtle borders
+red     = "#F07342"  # base08 - Bright/error variant
+green   = "#AAB07D"  # base0B - Bright/success variant
+yellow  = "#F0B25B"  # base0A - Bright/warning variant
+blue    = "#8B82AB"  # base0D - Bright primary accent variant
+magenta = "#9B4A96"  # base0E - Bright secondary accent variant
+cyan    = "#D06AA4"  # base0C - Bright informational accent variant
+white   = "#FFE9C7"

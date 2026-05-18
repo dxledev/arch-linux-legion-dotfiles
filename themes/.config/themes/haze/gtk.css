@@ -1,0 +1,18 @@
+/* Haze */
+
+@define-color base        #1A1515;
+@define-color mantle      #241D1D;
+@define-color crust       #120F0F;
+
+@define-color surface0    #362A2A;
+@define-color surface1    #453636;
+@define-color surface2    #5A4747;
+
+@define-color text        #FFE9C7;
+@define-color subtext     #DCC9BC;
+
+@define-color accent      #AE3F82;
+@define-color blue        #756D94;
+@define-color green       #959A6B;
+@define-color red         #F07342;
+@define-color orange      #E39C45;

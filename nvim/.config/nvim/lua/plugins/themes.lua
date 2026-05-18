@@ -14,6 +14,7 @@ return {
   { "OldJobobo/retro-82.nvim", name = "retro-82" },
   { "bjarneo/aether.nvim", name = "aether" },
   { "somerocketeer/bauhaus.nvim", name = "bauhaus" },
+  { "Biscuit-Theme/nvim", name="biscuit" },
 
   {
     "LazyVim/LazyVim",

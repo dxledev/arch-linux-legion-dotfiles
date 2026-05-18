@@ -28,6 +28,10 @@ case "$MODE" in
         THEME="text"
         FLAVOR="Akane"
         ;;
+    bauhaus)
+        THEME="text"
+        FLAVOR="Theme"
+        ;;
     catppuccin)
         THEME="text"
         FLAVOR="CatppuccinMocha"
@@ -43,6 +47,10 @@ case "$MODE" in
     gruvbox)
         THEME="text"
         FLAVOR="Gruvbox"
+        ;;
+    haze)
+        THEME="text"
+        FLAVOR="Haze"
         ;;
     matte-black)
         THEME="Sleek"
