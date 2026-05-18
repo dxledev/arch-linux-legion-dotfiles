@@ -13,6 +13,7 @@ return {
   { "gthelding/monokai-pro.nvim", name = "monokai-pro" },
   { "OldJobobo/retro-82.nvim", name = "retro-82" },
   { "bjarneo/aether.nvim", name = "aether" },
+  { "somerocketeer/bauhaus.nvim", name = "bauhaus" },
 
   {
     "LazyVim/LazyVim",

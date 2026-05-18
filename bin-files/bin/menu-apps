@@ -538,7 +538,7 @@ chosen_index="$(
                 padding: 0px 4px;
             }
             entry {
-                placeholder: \"Launch...\";
+                placeholder: \"Launch…\";
             }
             listview {
                 columns: 4;
