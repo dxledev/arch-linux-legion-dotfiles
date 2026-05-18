@@ -32,6 +32,10 @@ case "$MODE" in
         THEME="text"
         FLAVOR="Theme"
         ;;
+    brutalism)
+        THEME="text"
+        FLAVOR="brutalism"
+        ;;
     catppuccin)
         THEME="text"
         FLAVOR="CatppuccinMocha"
