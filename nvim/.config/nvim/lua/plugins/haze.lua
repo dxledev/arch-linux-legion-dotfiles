@@ -4,9 +4,11 @@ return {
 		name = "biscuit",
 		priority = 1000,
 		config = function()
-			vim.cmd.colorscheme("biscuit")
-
 			local function fix_popup_highlights()
+				if vim.g.colors_name ~= "biscuit" then
+					return
+				end
+
 				-- Force popup/float UI to a consistent palette after any colorscheme/plugin reload.
 				local bg = "#1A1515"
 				local light_bg = "#453636"
@@ -162,7 +164,7 @@ return {
 	{
 		"LazyVim/LazyVim",
 		opts = {
-			colorscheme = "biscuit",
+			colorscheme = nil,
 		},
 	},
 }

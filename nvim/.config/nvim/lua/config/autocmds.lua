@@ -57,7 +57,7 @@ vim.api.nvim_set_hl(0, "FloatBorder", {
 })
 
 vim.api.nvim_set_hl(0, "NormalFloat", { bg = "NONE" })
-vim.api.nvim_set_hl(0, "FloatTitle",  { bg = "NONE" })
+vim.api.nvim_set_hl(0, "FloatTitle", { bg = "NONE" })
 vim.api.nvim_set_hl(0, "FloatShadow", { bg = "NONE" })
 
 vim.api.nvim_create_autocmd("FileType", {

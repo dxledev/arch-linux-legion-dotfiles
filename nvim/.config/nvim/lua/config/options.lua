@@ -20,10 +20,11 @@ local groups = {
 
 local function force_transparent()
   for _, group in ipairs(groups) do
-    -- Remove any link first
-    vim.api.nvim_set_hl(0, group, { link = "NONE" })
-    -- Then set background to none
-    vim.api.nvim_set_hl(0, group, { bg = "none" })
+    local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
+    if ok then
+      hl.bg = nil
+      vim.api.nvim_set_hl(0, group, hl)
+    end
   end
 end
 
