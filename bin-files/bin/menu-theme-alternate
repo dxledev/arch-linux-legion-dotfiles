@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+THEME_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/themes"
+THEME_DIR_RESOLVED="$(readlink -f "$THEME_DIR" 2>/dev/null || printf '%s' "$THEME_DIR")"
+MENU_ID="menu-theme"
+PID_FILE="/tmp/menu-rofi.pid"
+NOTIFY_SEND_BIN="/home/dxle/bin/notify-send"
+
+if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
+    exit 0
+fi
+
+trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
+
+format_theme_display() {
+    printf '%s\n' "$1" | sed -E '
+        s/rose-pine/Rosé Pine/;
+        s/[-_]/ /g;
+        s/\b(.)/\U\1/g
+    '
+}
+
+[ ! -d "$THEME_DIR_RESOLVED" ] && {
+    if [[ -x "$NOTIFY_SEND_BIN" ]]; then
+        "$NOTIFY_SEND_BIN" -t 4000 "Theme" "Themes directory not found: $THEME_DIR"
+    fi
+    exit 1
+}
+
+CURRENT_THEME="$(basename "$(readlink -f "$THEME_DIR_RESOLVED/current")")"
+
+mapfile -t THEMES < <(
+    find "$THEME_DIR_RESOLVED" -mindepth 1 -maxdepth 1 -type d \
+        ! -name "current" \
+        ! -name ".*" \
+        -printf "%f\n" | sort
+)
+
+[[ ${#THEMES[@]} -gt 0 ]] || exit 0
+
+DISPLAY_THEMES=()
+
+for theme in "${THEMES[@]}"; do
+    pretty="$(format_theme_display "$theme")"
+
+    if [[ "$theme" == "$CURRENT_THEME" ]]; then
+        pretty="<i>$pretty</i>"
+    fi
+
+    DISPLAY_THEMES+=("$pretty")
+done
+
+CHOSEN_INDEX="$(
+    printf '%s\n' "${DISPLAY_THEMES[@]}" | rofi -dmenu -i -markup-rows -format i \
+        -pid "$PID_FILE" \
+        -p "" \
+        -theme-str '
+            window { width: 235px; }
+            entry { placeholder: "Theme…"; }
+            element {
+                orientation: horizontal;
+                children: [ element-text ];
+                spacing: 0px;
+                padding: 8px 8px;
+            }
+            element-text {
+                horizontal-align: 0.0;
+                padding-left: 0px;
+                margin: 0 2px;
+            }
+        '
+)"
+
+[[ -n "$CHOSEN_INDEX" ]] || exit 0
+
+SELECTED="${THEMES[CHOSEN_INDEX]}"
+
+[[ -n "$SELECTED" ]] || exit 0
+[[ "$SELECTED" != "$CURRENT_THEME" ]] || exit 0
+
+"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"
+trap - EXIT
+
+if [[ -x /usr/bin/setsid ]]; then
+    /usr/bin/setsid -f "$SCRIPT_DIR/theme" "$SELECTED" >/dev/null 2>&1 || true
+else
+    /usr/bin/nohup "$SCRIPT_DIR/theme" "$SELECTED" >/dev/null 2>&1 &
+fi

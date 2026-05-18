@@ -1,0 +1,18 @@
+/* Crimson */
+
+@define-color base        #181a1f;
+@define-color mantle      #20232a;
+@define-color crust       #1f0606;
+
+@define-color surface0    #2b2f37;
+@define-color surface1    #4b515b;
+@define-color surface2    #8f949c;
+
+@define-color text        #b9bec6;
+@define-color subtext     #8f949c;
+
+@define-color accent      #ad2222;
+@define-color blue        #ad2222;
+@define-color green       #d12b2b;
+@define-color red         #b31414;
+@define-color orange      #9e1a1a;

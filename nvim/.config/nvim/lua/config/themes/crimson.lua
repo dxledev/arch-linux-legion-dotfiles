@@ -1,0 +1,21 @@
+return {
+  transparent = false,
+  colors = {
+    base00 = "#1F1F1F",
+    base01 = "#d12b2b",
+    base02 = "#d12b2b",
+    base03 = "#4b515b",
+    base04 = "#ad2222",
+    base05 = "#b9bec6",
+    base06 = "#eceff2",
+    base07 = "#332222",
+    base08 = "#d12b2b",
+    base09 = "#d12b2b",
+    base0A = "#9e1a1a",
+    base0B = "#eceff2",
+    base0C = "#b9bec6",
+    base0D = "#ad2222",
+    base0E = "#c3c8d0",
+    base0F = "#8f949c",
+  },
+}
