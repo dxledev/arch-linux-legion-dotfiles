@@ -9,7 +9,9 @@ ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/theme.rasi"
 GTK4_SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/settings.ini"
 GTK3_SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/settings.ini"
 ICON_CACHE_DIR="${MENU_APPS_ICON_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/menu-apps/icons}"
+MENU_CACHE_DIR="${MENU_APPS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/menu-apps}"
 ICON_BASE_SIZE="${MENU_APPS_ICON_SIZE:-38}"
+CACHE_VERSION="2"
 
 ROFI_BIN="$(command -v rofi || true)"
 GTK_LAUNCH_BIN="$(command -v gtk-launch || true)"
@@ -19,6 +21,7 @@ MAGICK_BIN="$(command -v magick || true)"
 SHA256SUM_BIN="$(command -v sha256sum || true)"
 STAT_BIN="$(command -v stat || true)"
 MKDIR_BIN="$(command -v mkdir || true)"
+MV_BIN="$(command -v mv || true)"
 SEARCH_ICON="󰍉"
 
 notify_error() {
@@ -399,6 +402,32 @@ cached_scaled_icon_path() {
     printf '%s/%s.png\n' "$ICON_CACHE_DIR" "$cache_key"
 }
 
+file_cache_token() {
+    local file_path="$1"
+
+    if [[ -e "$file_path" ]]; then
+        "$STAT_BIN" -c '%n:%s:%Y' "$file_path"
+        return
+    fi
+
+    printf '%s:missing\n' "$file_path"
+}
+
+menu_cache_key() {
+    local icon_override="$1"
+    local gtk_icon_theme="$2"
+
+    {
+        printf 'version=%s\n' "$CACHE_VERSION"
+        printf 'app_list=%s\n' "$(file_cache_token "$APP_LIST")"
+        printf 'gtk4=%s\n' "$(file_cache_token "$GTK4_SETTINGS")"
+        printf 'gtk3=%s\n' "$(file_cache_token "$GTK3_SETTINGS")"
+        printf 'icon_override=%s\n' "$icon_override"
+        printf 'gtk_icon_theme=%s\n' "$gtk_icon_theme"
+        printf 'icon_base_size=%s\n' "$ICON_BASE_SIZE"
+    } | "$SHA256SUM_BIN" | /usr/bin/awk '{ print $1 }'
+}
+
 scaled_icon() {
     local icon="$1"
     local icon_scale="$2"
@@ -466,6 +495,38 @@ print_menu_rows() {
     done < <(/usr/bin/awk -F'|' 'NF >= 3 { print }' "$APP_LIST")
 }
 
+build_menu_cache() {
+    local rows_cache="$1"
+    local launchers_cache="$2"
+    local icon_override="$3"
+    local gtk_icon_theme="$4"
+    local rows_tmp="${rows_cache}.$$"
+    local launchers_tmp="${launchers_cache}.$$"
+
+    print_menu_rows "$icon_override" "$gtk_icon_theme" >"$rows_tmp"
+    /usr/bin/awk -F'|' 'NF >= 3 { print $1 }' "$APP_LIST" >"$launchers_tmp"
+
+    "$MV_BIN" "$rows_tmp" "$rows_cache"
+    "$MV_BIN" "$launchers_tmp" "$launchers_cache"
+}
+
+menu_cache_paths() {
+    local icon_override="$1"
+    local gtk_icon_theme="$2"
+    local cache_key
+
+    require_command "$SHA256SUM_BIN" "sha256sum"
+    require_command "$STAT_BIN" "stat"
+    require_command "$MKDIR_BIN" "mkdir"
+    require_command "$MV_BIN" "mv"
+
+    "$MKDIR_BIN" -p "$MENU_CACHE_DIR"
+    cache_key="$(menu_cache_key "$icon_override" "$gtk_icon_theme")"
+
+    printf '%s\n' "$MENU_CACHE_DIR/$cache_key.rows"
+    printf '%s\n' "$MENU_CACHE_DIR/$cache_key.launchers"
+}
+
 launch_app() {
     local launcher="$1"
 
@@ -496,10 +557,6 @@ fi
 
 trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
-mapfile -t launchers < <(/usr/bin/awk -F'|' 'NF >= 3 { print $1 }' "$APP_LIST")
-
-[[ ${#launchers[@]} -gt 0 ]] || exit 0
-
 MENU_FONT_FAMILY="$(escape_rofi_string "$(current_rofi_font_family)")"
 ELEMENT_FONT_SIZE="$(element_font_size "$(current_rofi_font_size)")"
 ICON_OVERRIDE="true"
@@ -509,8 +566,19 @@ if ! icon_override_enabled; then
     ICON_OVERRIDE="false"
 fi
 
+mapfile -t cache_paths < <(menu_cache_paths "$ICON_OVERRIDE" "$GTK_ICON_THEME")
+ROWS_CACHE="${cache_paths[0]}"
+LAUNCHERS_CACHE="${cache_paths[1]}"
+
+if [[ ! -r "$ROWS_CACHE" || ! -r "$LAUNCHERS_CACHE" ]]; then
+    build_menu_cache "$ROWS_CACHE" "$LAUNCHERS_CACHE" "$ICON_OVERRIDE" "$GTK_ICON_THEME"
+fi
+
+mapfile -t launchers <"$LAUNCHERS_CACHE"
+
+[[ ${#launchers[@]} -gt 0 ]] || exit 0
+
 chosen_index="$(
-    print_menu_rows "$ICON_OVERRIDE" "$GTK_ICON_THEME" |
     "$ROFI_BIN" -dmenu -i -show-icons \
         -pid "$PID_FILE" \
         -p "$SEARCH_ICON" \
@@ -568,7 +636,7 @@ chosen_index="$(
                 padding: 4px 2px;
                 font: \"${MENU_FONT_FAMILY} ${ELEMENT_FONT_SIZE}\";
             }
-        "
+        " <"$ROWS_CACHE"
 )"
 
 [[ -n "$chosen_index" ]] || exit 0

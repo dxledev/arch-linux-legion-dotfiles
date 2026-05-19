@@ -11,12 +11,11 @@ PID_FILE="/tmp/menu-rofi.pid"
 ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/theme.rasi"
 ICON_CACHE_DIR="${MENU_THEME_ALT_ICON_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/menu-theme-alt/icons}"
 ICON_BASE_SIZE="${MENU_THEME_ALT_ICON_SIZE:-38}"
+ICON_CACHE_VERSION="${MENU_THEME_ALT_ICON_CACHE_VERSION:-wheel-v14}"
 SEARCH_ICON="󰏘"
 
 ROFI_BIN="$(command -v rofi || true)"
 MAGICK_BIN="$(command -v magick || true)"
-SHA256SUM_BIN="$(command -v sha256sum || true)"
-STAT_BIN="$(command -v stat || true)"
 MKDIR_BIN="$(command -v mkdir || true)"
 NOTIFY_SEND_BIN="/home/dxle/bin/notify-send"
 
@@ -39,11 +38,22 @@ require_command() {
 }
 
 format_theme_display() {
-    /usr/bin/printf '%s\n' "$1" | /usr/bin/sed -E '
-        s/rose-pine/Rosé Pine/;
-        s/[-_]/ /g;
-        s/\b(.)/\U\1/g
-    '
+    local theme_name="${1//-/ }"
+    local display_name=""
+    local word
+
+    theme_name="${theme_name//_/ }"
+
+    if [[ "$1" == "rose-pine" ]]; then
+        printf 'Rosé Pine\n'
+        return
+    fi
+
+    for word in $theme_name; do
+        display_name+="${word^} "
+    done
+
+    printf '%s\n' "${display_name% }"
 }
 
 escape_rofi_string() {
@@ -60,39 +70,45 @@ validate_icon_base_size() {
 }
 
 current_rofi_font_family() {
+    local line
     local font_value=""
 
     if [[ -f "$ROFI_THEME" ]]; then
-        font_value="$(
-            /usr/bin/sed -nE 's/^[[:space:]]*font:[[:space:]]*"(.+) [0-9][0-9.]*";[[:space:]]*$/\1/p' "$ROFI_THEME" |
-                /usr/bin/head -n 1
-        )"
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*font:[[:space:]]*\"(.+)[[:space:]]+[0-9][0-9.]*\"\;[[:space:]]*$ ]]; then
+                font_value="${BASH_REMATCH[1]}"
+                break
+            fi
+        done <"$ROFI_THEME"
     fi
 
     if [[ -n "$font_value" ]]; then
-        /usr/bin/printf '%s\n' "$font_value"
+        printf '%s\n' "$font_value"
         return
     fi
 
-    /usr/bin/printf 'CaskaydiaMono Nerd Font\n'
+    printf 'CaskaydiaMono Nerd Font\n'
 }
 
 current_rofi_font_size() {
+    local line
     local font_size=""
 
     if [[ -f "$ROFI_THEME" ]]; then
-        font_size="$(
-            /usr/bin/sed -nE 's/^[[:space:]]*font:[[:space:]]*".+ ([0-9][0-9.]*)";[[:space:]]*$/\1/p' "$ROFI_THEME" |
-                /usr/bin/head -n 1
-        )"
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*font:[[:space:]]*\".+[[:space:]]+([0-9][0-9.]*)\"\;[[:space:]]*$ ]]; then
+                font_size="${BASH_REMATCH[1]}"
+                break
+            fi
+        done <"$ROFI_THEME"
     fi
 
     if [[ "$font_size" =~ ^[0-9]+$ ]]; then
-        /usr/bin/printf '%s\n' "$font_size"
+        printf '%s\n' "$font_size"
         return
     fi
 
-    /usr/bin/printf '16\n'
+    printf '16\n'
 }
 
 element_font_size() {
@@ -100,41 +116,82 @@ element_font_size() {
     local smaller_size=$((font_size - 1))
 
     ((smaller_size < 1)) && smaller_size=1
-    /usr/bin/printf '%s\n' "$smaller_size"
+    printf '%s\n' "$smaller_size"
 }
 
-theme_palette() {
+kitty_color_candidates() {
     local kitty_conf="$1"
-    local waybar_css="$2"
-    local kitty_color_count=0
 
-    if [[ -r "$kitty_conf" ]]; then
-        kitty_color_count="$(
-            /usr/bin/awk '
-                $1 == "background" || $1 == "foreground" || $1 ~ /^color([0-9]|1[0-5])$/ {
-                    if ($2 ~ /^#[0-9A-Fa-f]{6}$/) {
-                        print tolower($2)
-                    }
+    [[ -r "$kitty_conf" ]] || return 0
+
+    /usr/bin/awk '
+        $1 == "background" || $1 == "foreground" || $1 ~ /^color([0-9]|1[0-5])$/ {
+            if ($2 ~ /^#[0-9A-Fa-f]{6}$/) {
+                print 1, tolower($2)
+            }
+        }
+    ' "$kitty_conf"
+}
+
+theme_variable_color_candidates() {
+    local theme_path="$1"
+
+    [[ -d "$theme_path" ]] || return 0
+
+    /usr/bin/find -L "$theme_path" -type f \
+        ! -path "*/wallpapers/*" \
+        ! -iname "*.png" \
+        ! -iname "*.jpg" \
+        ! -iname "*.jpeg" \
+        ! -iname "*.webp" \
+        ! -iname "*.gif" \
+        ! -iname "*.svg" \
+        -print0 |
+        /usr/bin/xargs -0 -r /usr/bin/awk '
+            function normalize_hex(color) {
+                color = tolower(color)
+                if (color !~ /^#/) {
+                    color = "#" color
                 }
-            ' "$kitty_conf" | /usr/bin/sort -u | /usr/bin/wc -l
-        )"
-    fi
 
-    {
-        if [[ -r "$kitty_conf" ]]; then
-            /usr/bin/awk '
-                $1 == "background" || $1 == "foreground" || $1 ~ /^color([0-9]|1[0-5])$/ {
-                    if ($2 ~ /^#[0-9A-Fa-f]{6}$/) {
-                        print $2
-                    }
+                return substr(color, 1, 7)
+            }
+
+            function print_weighted_colors(line, weight,    match_text) {
+                while (match(line, /#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?/)) {
+                    print weight, normalize_hex(substr(line, RSTART, RLENGTH))
+                    line = substr(line, RSTART + RLENGTH)
                 }
-            ' "$kitty_conf"
-        fi
 
-        if [[ -r "$waybar_css" && "$kitty_color_count" -lt 8 ]]; then
-            /usr/bin/grep -Eio '#[0-9a-f]{6}' "$waybar_css" || true
-        fi
-    } | /usr/bin/awk '
+                while (match(line, /(^|[^#[:alnum:]])[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?([^[:alnum:]]|$)/)) {
+                    match_text = substr(line, RSTART, RLENGTH)
+                    if (match(match_text, /[0-9A-Fa-f]{6}/)) {
+                        print weight, normalize_hex(substr(match_text, RSTART, RLENGTH))
+                    }
+                    line = substr(line, RSTART + RLENGTH)
+                }
+            }
+
+            tolower($0) ~ /(^|[-_$[:space:]])(color[-_])?primary([-_]color)?([[:space:]]|:|=|$)/ {
+                print_weighted_colors($0, 10)
+                next
+            }
+
+            tolower($0) ~ /(^|[-_$[:space:]])(color[-_])?accent([-_]color)?([[:space:]]|:|=|$)/ {
+                print_weighted_colors($0, 9)
+                next
+            }
+
+            tolower($0) ~ /(^|[-_$[:space:]])(color[-_])?secondary([-_]color)?([[:space:]]|:|=|$)/ {
+                print_weighted_colors($0, 8)
+            }
+        '
+}
+
+select_primary_colors() {
+    local max_colors="$1"
+
+    /usr/bin/awk -v max_colors="$max_colors" '
         function hex_digit(value) {
             return index("0123456789abcdef", value) - 1
         }
@@ -184,39 +241,85 @@ theme_palette() {
             if (hue < 0) hue += 360
         }
 
+        function color_distance(a, b,    av, bv, ar, ag, ab, br, bg, bb, dr, dg, db) {
+            av = substr(a, 2)
+            bv = substr(b, 2)
+            ar = channel(substr(av, 1, 2)) / 255
+            ag = channel(substr(av, 3, 2)) / 255
+            ab = channel(substr(av, 5, 2)) / 255
+            br = channel(substr(bv, 1, 2)) / 255
+            bg = channel(substr(bv, 3, 2)) / 255
+            bb = channel(substr(bv, 5, 2)) / 255
+            dr = ar - br
+            dg = ag - bg
+            db = ab - bb
+            return sqrt((dr * dr) + (dg * dg) + (db * db))
+        }
+
         {
-            color = tolower($0)
-            if (!seen[color]++) {
+            color = tolower($2)
+            if (color ~ /^#[0-9a-f]{6}$/) {
+                score[color] += $1
+            }
+        }
+
+        END {
+            for (color in score) {
                 analyze_color(color)
 
-                if (chroma >= 0.18 && lightness >= 0.16 && lightness <= 0.88) {
-                    group = 0
-                } else if (chroma >= 0.12 && lightness >= 0.12 && lightness <= 0.92) {
-                    group = 1
+                if (lightness < 0.08 || lightness > 0.94) {
+                    color_weight = 0.28
+                } else if (chroma < 0.06) {
+                    color_weight = 0.48
                 } else {
-                    group = 2
+                    color_weight = 0.85 + chroma
                 }
 
-                sector = int((hue + 22.5) / 45) % 8
-                score = (chroma * 2) - abs(lightness - 0.55)
-                print group, sector, score, color
+                adjusted_score = score[color] * color_weight * (1 - (abs(lightness - 0.52) * 0.35))
+                printf "%012.3f %s\n", adjusted_score, color
             }
         }
-    ' | /usr/bin/sort -n -k1,1 -k3,3r | /usr/bin/awk '
+    ' | /usr/bin/sort -nr -k1,1 | /usr/bin/awk -v max_colors="$max_colors" '
         {
             count++
-            group[count] = $1
-            color_sector[count] = $2
-            color[count] = $4
-
-            if ($1 < 2 && !(color_sector[count] in best_color)) {
-                best_index[color_sector[count]] = count
-                best_color[color_sector[count]] = color[count]
-            }
+            color[count] = $2
         }
 
-        function select_color(row) {
-            if (total >= 8 || selected[color[row]]) {
+        function color_channel(value) {
+            return index("0123456789abcdef", value) - 1
+        }
+
+        function channel(value) {
+            return color_channel(substr(value, 1, 1)) * 16 + color_channel(substr(value, 2, 1))
+        }
+
+        function color_distance(a, b,    av, bv, ar, ag, ab, br, bg, bb, dr, dg, db) {
+            av = substr(a, 2)
+            bv = substr(b, 2)
+            ar = channel(substr(av, 1, 2)) / 255
+            ag = channel(substr(av, 3, 2)) / 255
+            ab = channel(substr(av, 5, 2)) / 255
+            br = channel(substr(bv, 1, 2)) / 255
+            bg = channel(substr(bv, 3, 2)) / 255
+            bb = channel(substr(bv, 5, 2)) / 255
+            dr = ar - br
+            dg = ag - bg
+            db = ab - bb
+            return sqrt((dr * dr) + (dg * dg) + (db * db))
+        }
+
+        function far_enough(candidate, threshold,    row) {
+            for (row = 1; row <= total; row++) {
+                if (color_distance(candidate, output[row]) < threshold) {
+                    return 0
+                }
+            }
+
+            return 1
+        }
+
+        function select_color(row, threshold) {
+            if (total >= max_colors || selected[color[row]] || !far_enough(color[row], threshold)) {
                 return
             }
 
@@ -225,20 +328,16 @@ theme_palette() {
         }
 
         END {
-            for (sector = 0; sector < 8; sector++) {
-                if (sector in best_color) {
-                    select_color(best_index[sector])
-                }
+            for (row = 1; row <= count && total < max_colors; row++) {
+                select_color(row, 0.24)
             }
 
-            for (row = 1; row <= count && total < 8; row++) {
-                if (group[row] < 2) {
-                    select_color(row)
-                }
+            for (row = 1; row <= count && total < max_colors; row++) {
+                select_color(row, 0.14)
             }
 
-            for (row = 1; row <= count && total < 8; row++) {
-                select_color(row)
+            for (row = 1; row <= count && total < max_colors; row++) {
+                select_color(row, 0)
             }
 
             for (row = 1; row <= total; row++) {
@@ -248,10 +347,77 @@ theme_palette() {
     '
 }
 
-fill_palette() {
+select_prevalent_colors() {
+    local max_colors="$1"
+
+    /usr/bin/awk -v max_colors="$max_colors" '
+        {
+            color = tolower($2)
+            if (color ~ /^#[0-9a-f]{6}$/) {
+                score[color] += $1
+            }
+        }
+
+        END {
+            for (color in score) {
+                printf "%012.3f %s\n", score[color], color
+            }
+        }
+    ' | /usr/bin/sort -nr -k1,1 | /usr/bin/awk -v max_colors="$max_colors" '
+        !seen[$2]++ && count < max_colors {
+            print $2
+            count++
+        }
+    '
+}
+
+derive_palette_colors() {
     /usr/bin/awk '
+        function hex_digit(value) {
+            return index("0123456789abcdef", value) - 1
+        }
+
+        function hex_pair(value) {
+            value = int(value + 0.5)
+            if (value < 0) value = 0
+            if (value > 255) value = 255
+            return substr(hex_chars, int(value / 16) + 1, 1) substr(hex_chars, (value % 16) + 1, 1)
+        }
+
+        function channel(value) {
+            return hex_digit(substr(value, 1, 1)) * 16 + hex_digit(substr(value, 2, 1))
+        }
+
+        function shade(color,    value, r, g, b, lightness, target, ratio) {
+            value = substr(color, 2)
+            r = channel(substr(value, 1, 2))
+            g = channel(substr(value, 3, 2))
+            b = channel(substr(value, 5, 2))
+            lightness = (r + g + b) / 765
+            target = lightness < 0.45 ? 255 : 0
+            ratio = 0.22
+
+            return "#" hex_pair(r + ((target - r) * ratio)) hex_pair(g + ((target - g) * ratio)) hex_pair(b + ((target - b) * ratio))
+        }
+
         BEGIN {
-            fallback_count = split("#d72638 #f46036 #ffba08 #2e933c #1b998b #2e86ab #5f4bb6 #db2b8f", fallback_colors, " ")
+            hex_chars = "0123456789abcdef"
+        }
+
+        /^#[0-9a-f]{6}$/ && !seen[$0]++ {
+            print $0
+            derived = shade($0)
+            if (!seen[derived]++) {
+                print derived
+            }
+        }
+    '
+}
+
+algorithm_palette() {
+    /usr/bin/awk -v max_colors="$1" '
+        BEGIN {
+            fallback_count = split("#d72638 #f46036 #ffba08 #2e933c", fallback_colors, " ")
         }
 
         {
@@ -261,11 +427,11 @@ fill_palette() {
         }
 
         END {
-            for (row = 1; row <= count && row <= 8; row++) {
+            for (row = 1; row <= count && row <= max_colors; row++) {
                 print colors[row]
             }
 
-            for (row = 1; row <= fallback_count && count < 8; row++) {
+            for (row = 1; row <= fallback_count && count < max_colors; row++) {
                 if (!seen[fallback_colors[row]]++) {
                     print fallback_colors[row]
                     count++
@@ -275,32 +441,21 @@ fill_palette() {
     '
 }
 
+theme_palette() {
+    local theme_path="$1"
+    local kitty_conf="$theme_path/kitty.conf"
+
+    {
+        theme_variable_color_candidates "$theme_path" | select_prevalent_colors 2 | derive_palette_colors
+        kitty_color_candidates "$kitty_conf" | select_primary_colors 4
+    } | algorithm_palette 4
+}
+
 cached_palette_icon_path() {
     local theme="$1"
-    local kitty_conf="$2"
-    local waybar_css="$3"
-    local source_mtime="missing"
-    local waybar_mtime="missing"
-    local cache_key
+    local safe_theme="${theme//[^[:alnum:]._-]/_}"
 
-    if [[ -r "$kitty_conf" ]]; then
-        source_mtime="$("$STAT_BIN" -c '%Y' "$kitty_conf")"
-    fi
-
-    if [[ -r "$waybar_css" ]]; then
-        waybar_mtime="$("$STAT_BIN" -c '%Y' "$waybar_css")"
-    fi
-
-    cache_key="$(
-        {
-            /usr/bin/printf '%s|%s|%s|%s|wheel-v8\n' "$theme" "$source_mtime" "$waybar_mtime" "$ICON_BASE_SIZE"
-            theme_palette "$kitty_conf" "$waybar_css" | fill_palette
-        } |
-            "$SHA256SUM_BIN" |
-            /usr/bin/awk '{ print $1 }'
-    )"
-
-    /usr/bin/printf '%s/%s.png\n' "$ICON_CACHE_DIR" "$cache_key"
+    printf '%s/%s-%s-%s.png\n' "$ICON_CACHE_DIR" "$ICON_CACHE_VERSION" "$ICON_BASE_SIZE" "$safe_theme"
 }
 
 write_palette_svg() {
@@ -351,30 +506,35 @@ write_palette_svg() {
     '
 }
 
+write_icon_file() {
+    local icon_path="$1"
+    shift
+
+    /usr/bin/printf '%s\n' "$@" |
+        write_palette_svg |
+        "$MAGICK_BIN" -background none svg:- \
+            "PNG32:$icon_path"
+}
+
 palette_icon() {
     local theme="$1"
     local theme_path="$2"
     local kitty_conf="$theme_path/kitty.conf"
-    local waybar_css="$theme_path/waybar.css"
     local cache_icon
     local colors=()
 
-    cache_icon="$(cached_palette_icon_path "$theme" "$kitty_conf" "$waybar_css")"
+    cache_icon="$(cached_palette_icon_path "$theme")"
     if [[ -r "$cache_icon" ]]; then
-        /usr/bin/printf '%s\n' "$cache_icon"
+        printf '%s\n' "$cache_icon"
         return
     fi
 
     "$MKDIR_BIN" -p "$ICON_CACHE_DIR"
 
-    mapfile -t colors < <(theme_palette "$kitty_conf" "$waybar_css" | fill_palette)
+    mapfile -t colors < <(theme_palette "$theme_path")
+    write_icon_file "$cache_icon" "${colors[@]}"
 
-    /usr/bin/printf '%s\n' "${colors[@]}" |
-        write_palette_svg |
-        "$MAGICK_BIN" -background none svg:- \
-            "PNG32:$cache_icon"
-
-    /usr/bin/printf '%s\n' "$cache_icon"
+    printf '%s\n' "$cache_icon"
 }
 
 print_menu_rows() {
@@ -390,14 +550,12 @@ print_menu_rows() {
         fi
 
         icon="$(palette_icon "$theme" "$THEME_DIR_RESOLVED/$theme")"
-        /usr/bin/printf "%s\0icon\x1f%s\n" "$pretty" "$icon"
+        printf "%s\0icon\x1f%s\n" "$pretty" "$icon"
     done
 }
 
 require_command "$ROFI_BIN" "rofi"
 require_command "$MAGICK_BIN" "ImageMagick"
-require_command "$SHA256SUM_BIN" "sha256sum"
-require_command "$STAT_BIN" "stat"
 require_command "$MKDIR_BIN" "mkdir"
 validate_icon_base_size
 
@@ -412,14 +570,16 @@ if [[ ! -d "$THEME_DIR_RESOLVED" ]]; then
     exit 1
 fi
 
-CURRENT_THEME="$(/usr/bin/basename "$(/usr/bin/readlink -f "$THEME_DIR_RESOLVED/current")")"
+CURRENT_THEME_PATH="$(/usr/bin/readlink -f "$THEME_DIR_RESOLVED/current")"
+CURRENT_THEME="${CURRENT_THEME_PATH##*/}"
 
-mapfile -t THEMES < <(
-    /usr/bin/find "$THEME_DIR_RESOLVED" -mindepth 1 -maxdepth 1 -type d \
-        ! -name "current" \
-        ! -name ".*" \
-        -printf "%f\n" | /usr/bin/sort
-)
+THEMES=()
+for theme_path in "$THEME_DIR_RESOLVED"/*; do
+    [[ -d "$theme_path" ]] || continue
+    theme="${theme_path##*/}"
+    [[ "$theme" != "current" && "$theme" != .* ]] || continue
+    THEMES+=("$theme")
+done
 
 [[ ${#THEMES[@]} -gt 0 ]] || exit 0
 
