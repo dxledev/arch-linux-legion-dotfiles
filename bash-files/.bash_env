@@ -64,4 +64,5 @@ export OBS_WEBSOCKET_URL="obsws://localhost:4455/OJaIW5hECIC73gYI"
 export KEYBINDINGS="$HOME/.config/hypr/keybindings.conf"
 
 export QT_QPA_PLATFORMTHEME=qt6ct
+export FZF_DEFAULT_OPTS="--ansi"
 

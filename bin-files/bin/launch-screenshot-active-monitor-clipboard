@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+NOTIFICATION_ICON="/usr/share/icons/hicolor/scalable/apps/satty.svg"
+OUTPUT_DIR="${HOME}/files/pictures/screenshots"
+
+usage() {
+    printf 'Usage: %s [--dry-run|-n]\n' "${0##*/}"
+}
+
+resolve_command() {
+    local command_name="$1"
+    command -v "$command_name" 2>/dev/null || return 1
+}
+
+notify_message() {
+    local title="$1"
+    local body="$2"
+
+    if [[ -n "${NOTIFY_SEND:-}" ]]; then
+        "$NOTIFY_SEND" -i "$NOTIFICATION_ICON" -t 3000 "$title" "$body" >/dev/null 2>&1 || true
+    fi
+}
+
+notify_missing_dep() {
+    local dep="$1"
+
+    if [[ -n "${NOTIFY_SEND:-}" ]]; then
+        "$NOTIFY_SEND" -i "$NOTIFICATION_ICON" -t 5000 "Screenshot" "Missing dependency: $dep" >/dev/null 2>&1 \
+            || printf 'launch-screenshot-active-monitor-clipboard: missing dependency: %s\n' "$dep" >&2
+    else
+        printf 'launch-screenshot-active-monitor-clipboard: missing dependency: %s\n' "$dep" >&2
+    fi
+}
+
+require_command() {
+    local var_name="$1"
+    local command_name="$2"
+    local command_path
+
+    if ! command_path="$(resolve_command "$command_name")"; then
+        notify_missing_dep "$command_name"
+        exit 1
+    fi
+
+    printf -v "$var_name" '%s' "$command_path"
+}
+
+parse_args() {
+    DRY_RUN=0
+
+    while (($# > 0)); do
+        case "$1" in
+            -n|--dry-run)
+                DRY_RUN=1
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                exit 2
+                ;;
+        esac
+        shift
+    done
+}
+
+get_focused_monitor_name() {
+    local monitors_json
+
+    monitors_json="$("$HYPRCTL" -j monitors 2>/dev/null)" || return 1
+    printf '%s\n' "$monitors_json" | "$JQ" -er '.[] | select(.focused == true) | .name' 2>/dev/null | "$HEAD" -n1
+}
+
+capture_active_monitor_to_file() {
+    local monitor_name="$1"
+    local output_file="$2"
+
+    [[ -n "$monitor_name" ]] || return 1
+
+    "$GRIM" -o "$monitor_name" "$output_file"
+    [[ -s "$output_file" ]]
+}
+
+main() {
+    local focused_monitor_name output_file
+
+    NOTIFY_SEND="$(resolve_command notify-send || true)"
+
+    require_command HYPRCTL hyprctl
+    require_command JQ jq
+    require_command GRIM grim
+    require_command WL_COPY wl-copy
+    require_command MKDIR mkdir
+    require_command DATE date
+    require_command HEAD head
+
+    parse_args "$@"
+
+    focused_monitor_name="$(get_focused_monitor_name || true)"
+    if [[ -z "$focused_monitor_name" ]]; then
+        notify_message "Screenshot" "Active monitor capture failed."
+        exit 1
+    fi
+
+    if ((DRY_RUN)); then
+        printf 'Would capture active monitor %s to %s\n' "$focused_monitor_name" "$OUTPUT_DIR"
+        exit 0
+    fi
+
+    "$MKDIR" -p "$OUTPUT_DIR"
+    output_file="${OUTPUT_DIR}/screenshot-$("$DATE" +%Y-%m-%d_%H-%M-%S).png"
+
+    if ! capture_active_monitor_to_file "$focused_monitor_name" "$output_file"; then
+        notify_message "Screenshot" "Active monitor capture failed."
+        exit 1
+    fi
+
+    "$WL_COPY" --type image/png < "$output_file"
+    notify_message "Screenshot" "Active monitor saved and copied."
+}
+
+main "$@"

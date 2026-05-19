@@ -30,15 +30,15 @@ case "$MODE" in
         ;;
     bauhaus)
         THEME="text"
-        FLAVOR="Theme"
+        FLAVOR="Bauhaus"
         ;;
     brutalism)
         THEME="text"
-        FLAVOR="brutalism"
+        FLAVOR="Brutalism"
         ;;
     crimson)
         THEME="text"
-        FLAVOR="crimson"
+        FLAVOR="Crimson"
         ;;
     catppuccin)
         THEME="text"

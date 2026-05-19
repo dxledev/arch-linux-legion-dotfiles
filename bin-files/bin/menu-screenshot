@@ -254,7 +254,8 @@ case "$target_label" in
         fi
         ;;
     "Clipboard Only")
-        wl-copy --type image/png < "$tmp_input"
-        notify_message "Screenshot" "Saved to clipboard."
+        cp "$tmp_input" "$output_file"
+        wl-copy --type image/png < "$output_file"
+        notify_message "Screenshot" "${capture_label} saved and copied."
         ;;
 esac

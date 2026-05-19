@@ -1,0 +1,68 @@
+hl.config({
+  general = {
+    gaps_in = 5,
+    gaps_out = 10,
+    border_size = 2,
+    resize_on_border = false,
+    allow_tearing = false,
+    layout = "dwindle",
+  },
+  decoration = {
+    rounding = 0,
+    rounding_power = 10.0,
+    active_opacity = 1.0,
+    inactive_opacity = 0.92,
+    shadow = {
+      enabled = true,
+      range = 10,
+      render_power = 1,
+      color = "rgba(0000004d)",
+      offset = { 0, 4 },
+      sharp = false,
+      scale = 1.0,
+    },
+    blur = {
+      enabled = true,
+      size = 5,
+      passes = 1,
+      ignore_opacity = true,
+      noise = 0.05,
+      contrast = 1.1,
+      xray = false,
+      new_optimizations = true,
+      vibrancy = 1.1,
+    },
+  },
+  dwindle = {
+    pseudotile = true,
+    preserve_split = true,
+    force_split = 2,
+  },
+  master = {
+    new_status = "slave",
+    orientation = "left",
+  },
+  scrolling = {
+    fullscreen_on_one_column = false,
+    explicit_column_widths = "0.5, 0.75, 0.95",
+    focus_fit_method = 0,
+    column_width = 0.95,
+    follow_focus = true,
+    direction = "right",
+  },
+  misc = {
+    force_default_wallpaper = 1,
+    disable_hyprland_logo = true,
+    focus_on_activate = true,
+    anr_missed_pings = 3,
+    on_focus_under_fullscreen = 1,
+  },
+  cursor = {
+    no_hardware_cursors = true,
+    hide_on_key_press = true,
+    warp_on_change_workspace = 1,
+  },
+  binds = {
+    hide_special_on_workspace_change = true,
+  },
+})

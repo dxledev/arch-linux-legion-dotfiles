@@ -1,6 +1,6 @@
 @define-color window-background rgba(24, 26, 31, 0);
-@define-color app-background rgba(24, 26, 31, 0.6);
-@define-color button-background rgba(75, 81, 91, 0.25);
+@define-color app-background rgba(24, 26, 31, 0.7);
+@define-color button-background rgba(75, 81, 91, 0.7);
 @define-color indicator-point #ad2222;
 @define-color preview-item-background rgba(43, 47, 55, 0.47);
 @define-color preview-item-border rgba(173, 34, 34, 0.18);
