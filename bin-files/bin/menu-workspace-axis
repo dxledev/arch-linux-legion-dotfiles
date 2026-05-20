@@ -14,12 +14,14 @@ HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations
 LAYOUT_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
 MENU_ID="menu-workspace-axis"
 PID_FILE="/tmp/menu-rofi.pid"
+RELOAD_HYPRLAND="${MENU_WORKSPACE_AXIS_RELOAD_HYPRLAND:-0}"
 DRY_RUN=0
 SELECTED_AXIS=""
+HYPR_AUTORELOAD_SUSPENDED=0
 AXES=("horizontal" "vertical")
 
 usage() {
-    printf 'Usage: %s [--axis horizontal|vertical] [--config PATH] [--layout-config PATH] [--dry-run]\n' "$(basename "$0")"
+    printf 'Usage: %s [--axis horizontal|vertical] [--config PATH] [--layout-config PATH] [--reload] [--dry-run]\n' "$(basename "$0")"
 }
 
 notify() {
@@ -147,6 +149,34 @@ reload_hyprland() {
     "$HYPRCTL_BIN" reload >/dev/null 2>&1
 }
 
+should_reload_hyprland() {
+    hypr_is_enabled_value "$RELOAD_HYPRLAND"
+}
+
+suspend_hyprland_autoreload() {
+    hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
+    HYPR_AUTORELOAD_SUSPENDED=1
+}
+
+restore_hyprland_autoreload() {
+    [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]] || return 0
+
+    HYPR_AUTORELOAD_SUSPENDED=0
+    hypr_restore_autoreload "$HYPRCTL_BIN"
+}
+
+apply_runtime_workspace_animation() {
+    local target_style="$1"
+
+    hypr_apply_animation_rule "$HYPRCTL_BIN" "workspaces, 1, 4.9, overshot, ${target_style} 100%"
+}
+
+cleanup() {
+    restore_hyprland_autoreload
+}
+
+trap cleanup EXIT
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --axis)
@@ -172,6 +202,10 @@ while [[ $# -gt 0 ]]; do
             }
             LAYOUT_CONF="$2"
             shift 2
+            ;;
+        --reload)
+            RELOAD_HYPRLAND=1
+            shift
             ;;
         --dry-run)
             DRY_RUN=1
@@ -214,19 +248,33 @@ CURRENT_LAYOUT="$(normalize_layout "$CURRENT_LAYOUT")"
 if [[ "$CURRENT_LAYOUT" == "scrolling" ]]; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
         printf 'Scrolling layout is active; would force workspace axis to vertical (slidevert) in %s\n' "$HYPR_CONF"
+        if should_reload_hyprland; then
+            printf 'Would reload Hyprland after applying runtime changes\n'
+        fi
         exit 0
     fi
 
     if [[ "$CURRENT_AXIS" != "vertical" ]]; then
+        suspend_hyprland_autoreload
+
         update_workspace_animation "slidevert" || {
             notify "Failed to force vertical workspace axis."
             exit 1
         }
 
-        reload_hyprland || {
-            notify "Forced vertical axis for scrolling, but reload failed."
+        apply_runtime_workspace_animation "slidevert" || {
+            notify "Saved vertical axis, but failed to apply runtime changes."
             exit 1
         }
+
+        restore_hyprland_autoreload
+
+        if should_reload_hyprland; then
+            reload_hyprland || {
+                notify "Forced vertical axis for scrolling, but reload failed."
+                exit 1
+            }
+        fi
     fi
 
     notify "Workspace axis locked to Vertical while layout is Scrolling."
@@ -238,7 +286,7 @@ if [[ -z "$SELECTED_AXIS" ]]; then
         exit 0
     fi
 
-    trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
+    trap 'cleanup; "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
     SELECTED_AXIS="$(choose_axis "$CURRENT_AXIS" || true)"
     [[ -n "$SELECTED_AXIS" ]] || exit 0
@@ -255,17 +303,31 @@ TARGET_STYLE="$(axis_to_animation_style "$SELECTED_AXIS")"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
     printf 'Would set workspace axis to %s (%s) in %s\n' "$SELECTED_AXIS" "$TARGET_STYLE" "$HYPR_CONF"
+    if should_reload_hyprland; then
+        printf 'Would reload Hyprland after applying runtime changes\n'
+    fi
     exit 0
 fi
+
+suspend_hyprland_autoreload
 
 update_workspace_animation "$TARGET_STYLE" || {
     notify "Failed to update workspace animation."
     exit 1
 }
 
-if ! reload_hyprland; then
-    notify "Set to $(format_axis_display "$SELECTED_AXIS"), but reload failed."
+apply_runtime_workspace_animation "$TARGET_STYLE" || {
+    notify "Saved $(format_axis_display "$SELECTED_AXIS"), but failed to apply runtime changes."
     exit 1
+}
+
+restore_hyprland_autoreload
+
+if should_reload_hyprland; then
+    if ! reload_hyprland; then
+        notify "Set to $(format_axis_display "$SELECTED_AXIS"), but reload failed."
+        exit 1
+    fi
 fi
 
 notify "Set to $(format_axis_display "$SELECTED_AXIS")."

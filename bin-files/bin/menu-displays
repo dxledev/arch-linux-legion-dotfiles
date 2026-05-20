@@ -10,12 +10,23 @@ PID_FILE="/tmp/menu-rofi.pid"
 MONITORS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.conf")"
 BACKUP_FILE="${XDG_RUNTIME_DIR:-/tmp}/menu-displays.$(basename "$MONITORS_CONF").bak"
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+RELOAD_HYPRLAND="${MENU_DISPLAYS_RELOAD_HYPRLAND:-0}"
+HYPR_AUTORELOAD_SUSPENDED=0
 
 if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
     exit 0
 fi
 
-trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
+cleanup() {
+    if [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]]; then
+        HYPR_AUTORELOAD_SUSPENDED=0
+        hypr_restore_autoreload "$HYPRCTL_BIN"
+    fi
+
+    "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID" || true
+}
+
+trap cleanup EXIT
 
 if [[ ! -x "$HYPRCTL_BIN" ]] || ! command -v jq >/dev/null 2>&1; then
     notify-send -t 4000 "Displays" "Missing dependency: hyprctl or jq"
@@ -154,6 +165,131 @@ set_monitor_state_in_config() {
     mv "$tmp_file" "$MONITORS_CONF"
 }
 
+should_reload_hyprland() {
+    hypr_is_enabled_value "$RELOAD_HYPRLAND"
+}
+
+suspend_hyprland_autoreload() {
+    hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
+    HYPR_AUTORELOAD_SUSPENDED=1
+}
+
+restore_hyprland_autoreload() {
+    [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]] || return 0
+
+    HYPR_AUTORELOAD_SUSPENDED=0
+    hypr_restore_autoreload "$HYPRCTL_BIN"
+}
+
+get_enabled_monitor_rule() {
+    local target_monitor="$1"
+
+    if hypr_is_lua_file "$MONITORS_CONF"; then
+        awk -v target_monitor="$target_monitor" '
+            function clean(value) {
+                sub(/^[[:space:]]+/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                sub(/^[^=]+=[[:space:]]*/, "", value)
+                sub(/,[[:space:]]*$/, "", value)
+                gsub(/^"|"$/, "", value)
+                return value
+            }
+
+            function print_rule() {
+                if (output == "") {
+                    return 1
+                }
+                if (mode == "") {
+                    mode = "preferred"
+                }
+                if (position == "") {
+                    position = "auto"
+                }
+                if (scale == "") {
+                    scale = "1"
+                }
+                print output "," mode "," position "," scale
+                return 0
+            }
+
+            /^[[:space:]]*\{[[:space:]]*$/ {
+                in_block = 1
+                output = ""
+                mode = ""
+                position = ""
+                scale = ""
+                next
+            }
+
+            in_block && /^[[:space:]]*output[[:space:]]*=/ {
+                output = clean($0)
+            }
+            in_block && /^[[:space:]]*mode[[:space:]]*=/ {
+                mode = clean($0)
+            }
+            in_block && /^[[:space:]]*position[[:space:]]*=/ {
+                position = clean($0)
+            }
+            in_block && /^[[:space:]]*scale[[:space:]]*=/ {
+                scale = clean($0)
+            }
+            in_block && /^[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/ {
+                if (output == target_monitor) {
+                    if (print_rule() != 0) {
+                        exit 1
+                    }
+                    found = 1
+                    exit
+                }
+                in_block = 0
+            }
+
+            END {
+                if (!found) {
+                    exit 1
+                }
+            }
+        ' "$MONITORS_CONF"
+        return
+    fi
+
+    awk -v target_monitor="$target_monitor" '
+        /^[[:space:]]*#?[[:space:]]*monitor[[:space:]]*=/ {
+            line = $0
+            sub(/^[[:space:]]*#?[[:space:]]*monitor[[:space:]]*=[[:space:]]*/, "", line)
+            sub(/[[:space:]]+#.*$/, "", line)
+            monitor_id = line
+            sub(/,.*/, "", monitor_id)
+            if (monitor_id == target_monitor && line !~ /^[^,]+,disable/) {
+                print line
+                found = 1
+                exit
+            }
+        }
+
+        END {
+            if (!found) {
+                exit 1
+            }
+        }
+    ' "$MONITORS_CONF"
+}
+
+apply_runtime_monitor_state() {
+    local config_monitor="$1"
+    local target_state="$2"
+    local monitor_rule=""
+
+    if [[ "$target_state" == "disabled" ]]; then
+        hypr_apply_keyword "$HYPRCTL_BIN" "monitor" "${config_monitor},disable"
+        return
+    fi
+
+    monitor_rule="$(get_enabled_monitor_rule "$config_monitor" 2>/dev/null || true)"
+    [[ -n "$monitor_rule" ]] || monitor_rule="${config_monitor},preferred,auto,1"
+    hypr_apply_keyword "$HYPRCTL_BIN" "monitor" "$monitor_rule"
+}
+
 ensure_backup() {
     mkdir -p "$(dirname "$BACKUP_FILE")"
     [[ -f "$BACKUP_FILE" ]] || cp "$MONITORS_CONF" "$BACKUP_FILE"
@@ -268,12 +404,20 @@ selected_display_name="$(jq -r --arg name "$selected_monitor" '
 ensure_backup
 
 if [[ "$selected_disabled" == "false" ]]; then
+    suspend_hyprland_autoreload
     set_monitor_state_in_config "$selected_config_monitor" "disabled"
+    apply_runtime_monitor_state "$selected_config_monitor" "disabled" || notify-send -t 4000 "Displays" "Monitor config updated, but runtime apply failed."
+    restore_hyprland_autoreload
     monitor_status="Disabled"
 else
+    suspend_hyprland_autoreload
     set_monitor_state_in_config "$selected_config_monitor" "enabled"
+    apply_runtime_monitor_state "$selected_config_monitor" "enabled" || notify-send -t 4000 "Displays" "Monitor config updated, but runtime apply failed."
+    restore_hyprland_autoreload
     monitor_status="Enabled"
 fi
 
-"$HYPRCTL_BIN" reload >/dev/null
+if should_reload_hyprland; then
+    "$HYPRCTL_BIN" reload >/dev/null
+fi
 notify-send -t 5000 "System" "Monitor: ${selected_display_name} ${monitor_status}"

@@ -20,6 +20,8 @@ STATE_SNAPSHOT_DIR="${STATE_DIR}/snapshots"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
 ZEN_NOTIFY_APP_NAME="${ZEN_NOTIFY_APP_NAME:-toggle-zen-mode}"
 ZEN_NOTIFY_STACK_TAG="${ZEN_NOTIFY_STACK_TAG:-toggle-zen-mode}"
+ZEN_RELOAD_HYPRLAND="${ZEN_RELOAD_HYPRLAND:-auto}"
+HYPR_AUTORELOAD_SUSPENDED=0
 
 WAYBAR_MARGIN_MIN=2
 WAYBAR_MARGIN_FILES=(
@@ -177,6 +179,20 @@ set_gap_values() {
 
     hypr_set_config_value "$HYPR_DECORATIONS_CONF" "general" "gaps_out" "$new_out"
     hypr_set_config_value "$HYPR_DECORATIONS_CONF" "general" "gaps_in" "$new_in"
+}
+
+apply_runtime_animation_enabled() {
+    local new_value="$1"
+
+    hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "$new_value"
+}
+
+apply_runtime_gap_values() {
+    local new_out="$1"
+    local new_in="$2"
+
+    hypr_apply_keyword "$HYPRCTL_BIN" "general:gaps_out" "$new_out" || return 1
+    hypr_apply_keyword "$HYPRCTL_BIN" "general:gaps_in" "$new_in" || return 1
 }
 
 update_waybar_margins() {
@@ -490,6 +506,48 @@ reload_hyprland() {
     fi
 }
 
+should_reload_hyprland() {
+    case "$ZEN_RELOAD_HYPRLAND" in
+        auto|yes|1|true|on)
+            return 0
+            ;;
+        no|0|false|off)
+            return 1
+            ;;
+        *)
+            notify "Invalid ZEN_RELOAD_HYPRLAND: $ZEN_RELOAD_HYPRLAND"
+            exit 1
+            ;;
+    esac
+}
+
+suspend_hyprland_autoreload() {
+    hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
+    HYPR_AUTORELOAD_SUSPENDED=1
+}
+
+restore_hyprland_autoreload() {
+    [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]] || return 0
+
+    HYPR_AUTORELOAD_SUSPENDED=0
+    hypr_restore_autoreload "$HYPRCTL_BIN"
+}
+
+apply_runtime_hypr_values() {
+    local animation_enabled="$1"
+    local gaps_out="$2"
+    local gaps_in="$3"
+
+    apply_runtime_animation_enabled "$animation_enabled" || true
+    apply_runtime_gap_values "$gaps_out" "$gaps_in" || true
+}
+
+cleanup() {
+    restore_hyprland_autoreload
+}
+
+trap cleanup EXIT
+
 validate_bindings_mode() {
     case "$ZEN_BINDINGS_MODE" in
         comment|uncomment)
@@ -540,6 +598,8 @@ apply_zen_mode() {
         "$current_keybinding_states"
     save_snapshots
 
+    suspend_hyprland_autoreload
+
     set_animation_enabled "$ZEN_ANIMATIONS_ENABLED"
     set_gap_values "$ZEN_GAPS_OUT" "$ZEN_GAPS_IN"
     sync_gap_related_waybar_margins "$ZEN_GAPS_OUT"
@@ -552,7 +612,13 @@ apply_zen_mode() {
 
     apply_starship_style "$ZEN_STARSHIP_STYLE"
 
-    reload_hyprland
+    apply_runtime_hypr_values "$ZEN_ANIMATIONS_ENABLED" "$ZEN_GAPS_OUT" "$ZEN_GAPS_IN"
+    restore_hyprland_autoreload
+
+    if should_reload_hyprland; then
+        reload_hyprland
+    fi
+
     notify $'Zen Mode: <b>ON</b>\nUse SUPER + Z to disable.'
 }
 
@@ -581,6 +647,8 @@ restore_zen_mode() {
 
     apply_waybar_style "$saved_waybar_style"
 
+    suspend_hyprland_autoreload
+
     if ! restore_snapshots; then
         set_gap_values "$saved_gaps_out" "$saved_gaps_in"
         sync_gap_related_waybar_margins "$saved_gaps_out"
@@ -590,7 +658,13 @@ restore_zen_mode() {
 
     apply_starship_style "$saved_starship_style"
 
-    reload_hyprland
+    apply_runtime_hypr_values "$saved_animation_enabled" "$saved_gaps_out" "$saved_gaps_in"
+    restore_hyprland_autoreload
+
+    if should_reload_hyprland; then
+        reload_hyprland
+    fi
+
     clear_state
     notify "Zen Mode: <b>OFF</b>"
 }

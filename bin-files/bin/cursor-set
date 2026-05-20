@@ -9,6 +9,8 @@ HYPR_ENV_FILE="$(hypr_config_path "$HOME/.config/hypr/environment.conf")"
 HYPR_MAIN_CONF="$(hypr_config_path "$HOME/.config/hypr/hyprland.conf")"
 HYPR_CURSOR_CONF="$(hypr_config_path "$HOME/.config/hypr/cursor.conf")"
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+RELOAD_HYPRLAND="${CURSOR_SET_RELOAD_HYPRLAND:-0}"
+HYPR_AUTORELOAD_SUSPENDED=0
 GTK3_SETTINGS="$HOME/.config/gtk-3.0/settings.ini"
 GTK4_SETTINGS="$HOME/.config/gtk-4.0/settings.ini"
 XCURSOR_INDEX="$HOME/.icons/default/index.theme"
@@ -266,6 +268,28 @@ reload_hyprland() {
     "$HYPRCTL_BIN" reload >/dev/null 2>&1 || true
 }
 
+should_reload_hyprland() {
+    hypr_is_enabled_value "$RELOAD_HYPRLAND"
+}
+
+suspend_hyprland_autoreload() {
+    hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
+    HYPR_AUTORELOAD_SUSPENDED=1
+}
+
+restore_hyprland_autoreload() {
+    [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]] || return 0
+
+    HYPR_AUTORELOAD_SUSPENDED=0
+    hypr_restore_autoreload "$HYPRCTL_BIN"
+}
+
+cleanup() {
+    restore_hyprland_autoreload
+}
+
+trap cleanup EXIT
+
 CURSOR="${1:-}"
 
 if [ -z "$CURSOR" ] && [ -f "$CURSOR_FILE" ]; then
@@ -285,10 +309,15 @@ SIZE="$(read_current_size)"
 echo "Applying cursor theme: $CURSOR ($SIZE)"
 
 ensure_local_cursor_theme "$CURSOR"
+suspend_hyprland_autoreload
 upsert_hypr_env "$HYPR_ENV_FILE" "$CURSOR" "$SIZE"
 ensure_hypr_cursor_source "$HYPR_MAIN_CONF" "$HYPR_CURSOR_CONF"
 write_hypr_cursor_conf "$HYPR_CURSOR_CONF" "$CURSOR" "$SIZE"
-reload_hyprland
+restore_hyprland_autoreload
+
+if should_reload_hyprland; then
+    reload_hyprland
+fi
 
 upsert_kv_file "$GTK3_SETTINGS" "gtk-cursor-theme-name" "$CURSOR"
 upsert_kv_file "$GTK3_SETTINGS" "gtk-cursor-theme-size" "$SIZE"

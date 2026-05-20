@@ -14,12 +14,14 @@ MKTEMP_BIN="${MKTEMP_BIN:-/usr/bin/mktemp}"
 MV_BIN="${MV_BIN:-/usr/bin/mv}"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+RELOAD_HYPRLAND="${HYPR_TOGGLE_ANIMATIONS_RELOAD_HYPRLAND:-0}"
 
 DRY_RUN=0
+HYPR_AUTORELOAD_SUSPENDED=0
 
 usage() {
     cat <<'EOF'
-Usage: hypr-toggle-animations [--dry-run]
+Usage: hypr-toggle-animations [--reload] [--dry-run]
 
 Toggle Hyprland animations between enabled = yes and enabled = no.
 EOF
@@ -73,8 +75,35 @@ set_enabled_value() {
     hypr_set_config_value "$config_file" "animations" "enabled" "$lua_value" "$conf_value"
 }
 
+should_reload_hyprland() {
+    hypr_is_enabled_value "$RELOAD_HYPRLAND"
+}
+
+apply_runtime_value() {
+    local new_value="$1"
+
+    hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "$new_value"
+}
+
+suspend_hyprland_autoreload() {
+    hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
+    HYPR_AUTORELOAD_SUSPENDED=1
+}
+
+restore_hyprland_autoreload() {
+    [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]] || return 0
+
+    HYPR_AUTORELOAD_SUSPENDED=0
+    hypr_restore_autoreload "$HYPRCTL_BIN"
+}
+
+trap restore_hyprland_autoreload EXIT
+
 for arg in "$@"; do
     case "$arg" in
+        --reload)
+            RELOAD_HYPRLAND=1
+            ;;
         --dry-run|-n)
             DRY_RUN=1
             ;;
@@ -116,12 +145,18 @@ esac
 
 if (( DRY_RUN )); then
     printf 'Would set %s to enabled = %s\n' "$config_file" "$new_value"
+    if should_reload_hyprland; then
+        printf 'Would reload Hyprland after applying runtime changes\n'
+    fi
     exit 0
 fi
 
+suspend_hyprland_autoreload
 set_enabled_value "$config_file" "$new_value"
+apply_runtime_value "$new_value" || true
+restore_hyprland_autoreload
 
-if [[ -x "$HYPRCTL_BIN" ]]; then
+if should_reload_hyprland; then
     "$HYPRCTL_BIN" reload >/dev/null 2>&1 || true
 fi
 

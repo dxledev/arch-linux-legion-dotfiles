@@ -8,6 +8,8 @@ HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decoration
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 MENU_ID="menu-border-rounding-power"
 PID_FILE="/tmp/menu-rofi.pid"
+RELOAD_HYPRLAND="${MENU_BORDER_ROUNDING_POWER_RELOAD_HYPRLAND:-0}"
+HYPR_AUTORELOAD_SUSPENDED=0
 BORDER_ROUNDING_POWER_MIN=0
 BORDER_ROUNDING_POWER_MAX=10.0
 
@@ -15,7 +17,7 @@ if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
     exit 0
 fi
 
-trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
+trap 'cleanup' EXIT
 
 get_current_value() {
     hypr_get_config_value "$HYPR_CONF" "decoration" "rounding_power"
@@ -61,6 +63,33 @@ update_value() {
     local new_value="$1"
 
     hypr_set_config_value "$HYPR_CONF" "decoration" "rounding_power" "$new_value"
+}
+
+should_reload_hyprland() {
+    hypr_is_enabled_value "$RELOAD_HYPRLAND"
+}
+
+suspend_hyprland_autoreload() {
+    hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
+    HYPR_AUTORELOAD_SUSPENDED=1
+}
+
+restore_hyprland_autoreload() {
+    [[ "$HYPR_AUTORELOAD_SUSPENDED" -eq 1 ]] || return 0
+
+    HYPR_AUTORELOAD_SUSPENDED=0
+    hypr_restore_autoreload "$HYPRCTL_BIN"
+}
+
+apply_runtime_value() {
+    local new_value="$1"
+
+    hypr_apply_keyword "$HYPRCTL_BIN" "decoration:rounding_power" "$new_value"
+}
+
+cleanup() {
+    restore_hyprland_autoreload
+    "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID" || true
 }
 
 [[ -f "$HYPR_CONF" ]] || {
@@ -113,9 +142,13 @@ while true; do
         continue
     fi
 
-    update_value "$new_value"
+    suspend_hyprland_autoreload
 
-    if [[ -x "$HYPRCTL_BIN" ]]; then
+    update_value "$new_value"
+    apply_runtime_value "$new_value" || notify-send -t 4000 "Border" "Rounding Smoothness updated, but runtime apply failed."
+    restore_hyprland_autoreload
+
+    if should_reload_hyprland; then
         "$HYPRCTL_BIN" reload >/dev/null 2>&1 || notify-send -t 4000 "Border" "Rounding Smoothness updated, but Hyprland reload failed."
     fi
 

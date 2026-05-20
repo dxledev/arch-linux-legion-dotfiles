@@ -38,7 +38,7 @@ local animations = {
   { "layersOut", false, 0.9, "linear", "fade" },
   { "fadeLayersIn", true, 4, "easeOutQuint" },
   { "fadeLayersOut", false, 1, "linear" },
-  { "workspaces", true, 4.9, "overshot", "slidevert 100%" },
+  { "workspaces", true, 4.9, "overshot", "slide 100%" },
   { "specialWorkspace", true, 4, "overshotOverkill", "slidevert 100%" },
   { "specialWorkspaceIn", true, 4, "overshotOverkill", "slidevert 100%" },
   { "specialWorkspaceOut", true, 4, "anticipate", "slidevert 100%" },
