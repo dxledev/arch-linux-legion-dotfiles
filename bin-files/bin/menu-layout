@@ -23,6 +23,9 @@ MENU_ID="menu-layouts"
 PID_FILE="/tmp/menu-rofi.pid"
 NOTIFY_SUCCESS_DELAY="${MENU_LAYOUT_NOTIFY_SUCCESS_DELAY:-0.2}"
 RELOAD_HYPRLAND="${MENU_LAYOUT_RELOAD_HYPRLAND:-0}"
+RELOAD_WORKSPACE_ANIMATION="${MENU_LAYOUT_RELOAD_WORKSPACE_ANIMATION:-0}"
+REFRESH_WORKSPACE_ANIMATION="${MENU_LAYOUT_REFRESH_WORKSPACE_ANIMATION:-1}"
+APPLY_RUNTIME_WORKSPACE_ANIMATION="${MENU_LAYOUT_APPLY_RUNTIME_WORKSPACE_ANIMATION:-0}"
 SUSPEND_WINDOW_MOVE_ANIMATION="${MENU_LAYOUT_SUSPEND_WINDOW_MOVE_ANIMATION:-1}"
 WINDOW_MOVE_ANIMATION_FALLBACK="${MENU_LAYOUT_WINDOW_MOVE_ANIMATION_FALLBACK:-windowsMove, 1, 5, mango, slide}"
 DRY_RUN=0
@@ -253,6 +256,18 @@ should_reload_hyprland() {
     is_enabled_value "$RELOAD_HYPRLAND"
 }
 
+should_reload_workspace_animation() {
+    is_enabled_value "$RELOAD_WORKSPACE_ANIMATION"
+}
+
+should_refresh_workspace_animation() {
+    is_enabled_value "$REFRESH_WORKSPACE_ANIMATION"
+}
+
+should_apply_runtime_workspace_animation() {
+    is_enabled_value "$APPLY_RUNTIME_WORKSPACE_ANIMATION"
+}
+
 suspend_hyprland_autoreload() {
     hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
     HYPR_AUTORELOAD_SUSPENDED=1
@@ -300,11 +315,31 @@ get_workspace_animation_rule() {
 
 apply_runtime_workspace_animation() {
     local animation_rule=""
+    local animations_enabled=""
+    local apply_status=0
 
     animation_rule="$(get_workspace_animation_rule)"
     [[ -n "$animation_rule" ]] || return 1
 
-    hypr_apply_animation_rule "$HYPRCTL_BIN" "$animation_rule"
+    if should_refresh_workspace_animation; then
+        animations_enabled="$(hypr_lua_unquote "$(hypr_get_config_value "$ANIMATIONS_CONF" "animations" "enabled" 2>/dev/null || true)")"
+        hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "false" || true
+    fi
+
+    hypr_apply_animation_rule "$HYPRCTL_BIN" "$animation_rule" || apply_status=$?
+
+    if should_refresh_workspace_animation; then
+        case "${animations_enabled,,}" in
+            no|0|false|off)
+                hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "false" || true
+                ;;
+            *)
+                hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "true" || true
+                ;;
+        esac
+    fi
+
+    return "$apply_status"
 }
 
 apply_runtime_changes() {
@@ -316,7 +351,7 @@ apply_runtime_changes() {
         apply_runtime_layout "$applied_layout" || return 1
     fi
 
-    if [[ "$workspace_animation_changed" -eq 1 ]]; then
+    if [[ "$workspace_animation_changed" -eq 1 ]] && should_apply_runtime_workspace_animation; then
         apply_runtime_workspace_animation || return 1
     fi
 }
@@ -441,7 +476,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
         fi
     fi
 
-    if should_reload_hyprland; then
+    if should_reload_hyprland || { [[ "$SELECTED_LAYOUT" == "scrolling" || "$CURRENT_LAYOUT" == "scrolling" ]] && should_reload_workspace_animation; }; then
         printf 'Would reload Hyprland after applying runtime changes\n'
     fi
 
@@ -451,22 +486,11 @@ fi
 LAYOUT_CHANGED=0
 WORKSPACE_ANIMATION_CHANGED=0
 
-suspend_hyprland_autoreload
-
 if [[ "$CURRENT_LAYOUT" != "scrolling" && "$SELECTED_LAYOUT" == "scrolling" ]]; then
     write_previous_axis "$CURRENT_AXIS" || {
         notify "Failed to save previous workspace axis."
         exit 1
     }
-fi
-
-if [[ "$TARGET_APPLIED_LAYOUT" != "$CURRENT_APPLIED_LAYOUT" ]]; then
-    update_layout "$TARGET_APPLIED_LAYOUT" || {
-        notify "Failed to update layout."
-        exit 1
-    }
-
-    LAYOUT_CHANGED=1
 fi
 
 if [[ "$SELECTED_LAYOUT" == "scrolling" ]]; then
@@ -492,6 +516,17 @@ if [[ "$CURRENT_LAYOUT" == "scrolling" && "$SELECTED_LAYOUT" != "scrolling" ]]; 
     fi
 fi
 
+suspend_hyprland_autoreload
+
+if [[ "$TARGET_APPLIED_LAYOUT" != "$CURRENT_APPLIED_LAYOUT" ]]; then
+    update_layout "$TARGET_APPLIED_LAYOUT" || {
+        notify "Failed to update layout."
+        exit 1
+    }
+
+    LAYOUT_CHANGED=1
+fi
+
 if [[ "$LAYOUT_CHANGED" -eq 1 ]]; then
     suspend_window_move_animation
 fi
@@ -502,7 +537,7 @@ apply_runtime_changes "$TARGET_APPLIED_LAYOUT" "$LAYOUT_CHANGED" "$WORKSPACE_ANI
 restore_window_move_animation
 restore_hyprland_autoreload
 
-if should_reload_hyprland; then
+if should_reload_hyprland || { [[ "$WORKSPACE_ANIMATION_CHANGED" -eq 1 ]] && should_reload_workspace_animation; }; then
     if ! reload_hyprland; then
         notify "Set to <b><span foreground=\"var(--border-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>, but Hyprland reload failed."
         exit 1

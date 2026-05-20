@@ -58,8 +58,6 @@ local function dispatch_command(dispatcher, arg)
     return hl.dsp.workspace.swap_monitors({ monitor1 = monitor1, monitor2 = monitor2 })
   elseif dispatcher == "layoutmsg" then
     return hl.dsp.layout(arg)
-  elseif dispatcher == "hyprexpo:expo" then
-    return hl.dsp.exec_cmd("hyprctl dispatch hyprexpo:expo " .. arg)
   elseif dispatcher == "sendshortcut" then
     local mods, key, window = arg:match("^%s*([^,]+),%s*([^,]+),%s*(.+)%s*$")
     return hl.dsp.send_shortcut({ mods = normalize_mods(mods), key = key, window = window })
@@ -241,7 +239,7 @@ bind("bindd", mainMod, "Q", "Kill Active Window", "killactive", "")
 bind("bindd", mainMod .. " SHIFT", "Q", "Kill Active Window", "killactive", "")
 bind("bindd", mainMod .. " SHIFT CTRL", "F12", "Swap Active Workspaces Between Monitors", "swapactiveworkspaces", "DP-1 HDMI-A-1")
 bind("binddl", mainMod, "L", "Toggle Nightlight", "exec", "~/bin/system-toggle-nightlight")
-bind("bindd", mainMod, "TAB", "Toggle Workspace Overview", "hyprexpo:expo", "toggle")
+bind_exec(mainMod, "TAB", "Toggle Workspace Overview", "hyprctl dispatch overview:toggle all || notify-send 'Hyprspace unavailable' 'The overview plugin is not loaded.'")
 bind("bind", mainMod .. " SHIFT", "mouse_down", "", "workspace", "+1")
 bind("bind", mainMod .. " SHIFT", "mouse_up", "", "workspace", "-1")
 bind("bind", mainMod, "mouse_down", "", "layoutmsg", "focus right")

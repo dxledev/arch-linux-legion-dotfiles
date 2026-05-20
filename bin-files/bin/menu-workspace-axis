@@ -15,6 +15,8 @@ LAYOUT_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorati
 MENU_ID="menu-workspace-axis"
 PID_FILE="/tmp/menu-rofi.pid"
 RELOAD_HYPRLAND="${MENU_WORKSPACE_AXIS_RELOAD_HYPRLAND:-0}"
+REFRESH_WORKSPACE_ANIMATION="${MENU_WORKSPACE_AXIS_REFRESH_WORKSPACE_ANIMATION:-1}"
+APPLY_RUNTIME_WORKSPACE_ANIMATION="${MENU_WORKSPACE_AXIS_APPLY_RUNTIME_WORKSPACE_ANIMATION:-0}"
 DRY_RUN=0
 SELECTED_AXIS=""
 HYPR_AUTORELOAD_SUSPENDED=0
@@ -153,6 +155,14 @@ should_reload_hyprland() {
     hypr_is_enabled_value "$RELOAD_HYPRLAND"
 }
 
+should_refresh_workspace_animation() {
+    hypr_is_enabled_value "$REFRESH_WORKSPACE_ANIMATION"
+}
+
+should_apply_runtime_workspace_animation() {
+    hypr_is_enabled_value "$APPLY_RUNTIME_WORKSPACE_ANIMATION"
+}
+
 suspend_hyprland_autoreload() {
     hypr_suspend_autoreload "$HYPRCTL_BIN" || return 0
     HYPR_AUTORELOAD_SUSPENDED=1
@@ -167,8 +177,28 @@ restore_hyprland_autoreload() {
 
 apply_runtime_workspace_animation() {
     local target_style="$1"
+    local animations_enabled=""
+    local apply_status=0
 
-    hypr_apply_animation_rule "$HYPRCTL_BIN" "workspaces, 1, 4.9, overshot, ${target_style} 100%"
+    if should_refresh_workspace_animation; then
+        animations_enabled="$(hypr_lua_unquote "$(hypr_get_config_value "$HYPR_CONF" "animations" "enabled" 2>/dev/null || true)")"
+        hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "false" || true
+    fi
+
+    hypr_apply_animation_rule "$HYPRCTL_BIN" "workspaces, 1, 4.9, overshot, ${target_style} 100%" || apply_status=$?
+
+    if should_refresh_workspace_animation; then
+        case "${animations_enabled,,}" in
+            no|0|false|off)
+                hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "false" || true
+                ;;
+            *)
+                hypr_apply_keyword "$HYPRCTL_BIN" "animations:enabled" "true" || true
+                ;;
+        esac
+    fi
+
+    return "$apply_status"
 }
 
 cleanup() {
@@ -255,19 +285,17 @@ if [[ "$CURRENT_LAYOUT" == "scrolling" ]]; then
     fi
 
     if [[ "$CURRENT_AXIS" != "vertical" ]]; then
-        suspend_hyprland_autoreload
-
         update_workspace_animation "slidevert" || {
             notify "Failed to force vertical workspace axis."
             exit 1
         }
 
-        apply_runtime_workspace_animation "slidevert" || {
-            notify "Saved vertical axis, but failed to apply runtime changes."
-            exit 1
-        }
-
-        restore_hyprland_autoreload
+        if should_apply_runtime_workspace_animation; then
+            apply_runtime_workspace_animation "slidevert" || {
+                notify "Saved vertical axis, but failed to apply runtime changes."
+                exit 1
+            }
+        fi
 
         if should_reload_hyprland; then
             reload_hyprland || {
@@ -309,19 +337,17 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     exit 0
 fi
 
-suspend_hyprland_autoreload
-
 update_workspace_animation "$TARGET_STYLE" || {
     notify "Failed to update workspace animation."
     exit 1
 }
 
-apply_runtime_workspace_animation "$TARGET_STYLE" || {
-    notify "Saved $(format_axis_display "$SELECTED_AXIS"), but failed to apply runtime changes."
-    exit 1
-}
-
-restore_hyprland_autoreload
+if should_apply_runtime_workspace_animation; then
+    apply_runtime_workspace_animation "$TARGET_STYLE" || {
+        notify "Saved $(format_axis_display "$SELECTED_AXIS"), but failed to apply runtime changes."
+        exit 1
+    }
+fi
 
 if should_reload_hyprland; then
     if ! reload_hyprland; then
