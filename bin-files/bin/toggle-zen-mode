@@ -2,15 +2,21 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
 
-HYPR_ANIMATIONS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf"
-HYPR_DECORATIONS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf"
-HYPR_KEYBINDINGS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/keybindings.conf"
+HYPR_ANIMATIONS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf")"
+HYPR_DECORATIONS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
+HYPR_KEYBINDINGS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/keybindings.conf")"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+CP_BIN="${CP_BIN:-/usr/bin/cp}"
+MKDIR_BIN="${MKDIR_BIN:-/usr/bin/mkdir}"
+RM_BIN="${RM_BIN:-/usr/bin/rm}"
 STARSHIP_CONFIG_LINK="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"
 WAYBAR_STYLE_LINK="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/style.css"
 THEMES_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/themes"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/toggle-zen-mode"
 STATE_FILE="${STATE_DIR}/state"
+STATE_SNAPSHOT_DIR="${STATE_DIR}/snapshots"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
 ZEN_NOTIFY_APP_NAME="${ZEN_NOTIFY_APP_NAME:-toggle-zen-mode}"
 ZEN_NOTIFY_STACK_TAG="${ZEN_NOTIFY_STACK_TAG:-toggle-zen-mode}"
@@ -19,6 +25,12 @@ WAYBAR_MARGIN_MIN=2
 WAYBAR_MARGIN_FILES=(
     "${XDG_CONFIG_HOME:-$HOME/.config}/waybar/configs/floating.jsonc"
     "${XDG_CONFIG_HOME:-$HOME/.config}/waybar/configs/island.jsonc"
+)
+SNAPSHOT_FILES=(
+    "$HYPR_ANIMATIONS_CONF"
+    "$HYPR_DECORATIONS_CONF"
+    "$HYPR_KEYBINDINGS_CONF"
+    "${WAYBAR_MARGIN_FILES[@]}"
 )
 
 ZEN_ANIMATIONS_ENABLED="no"
@@ -64,6 +76,61 @@ require_file() {
     }
 }
 
+snapshot_name() {
+    local path="$1"
+
+    path="${path#/}"
+    path="${path//\//__}"
+    printf '%s\n' "$path"
+}
+
+snapshot_path() {
+    local path="$1"
+
+    printf '%s/%s\n' "$STATE_SNAPSHOT_DIR" "$(snapshot_name "$path")"
+}
+
+clear_snapshots() {
+    [[ "$STATE_SNAPSHOT_DIR" == "$STATE_DIR"/snapshots ]] || return 1
+    "$RM_BIN" -rf "$STATE_SNAPSHOT_DIR"
+}
+
+save_snapshots() {
+    local file=""
+    local target=""
+
+    clear_snapshots
+    "$MKDIR_BIN" -p "$STATE_SNAPSHOT_DIR"
+
+    for file in "${SNAPSHOT_FILES[@]}"; do
+        [[ -f "$file" ]] || continue
+        target="$(snapshot_path "$file")"
+        "$CP_BIN" -p "$file" "$target"
+    done
+}
+
+restore_snapshots() {
+    local file=""
+    local snapshot=""
+    local restored=0
+
+    [[ -d "$STATE_SNAPSHOT_DIR" ]] || return 1
+
+    for file in "${SNAPSHOT_FILES[@]}"; do
+        snapshot="$(snapshot_path "$file")"
+        [[ -f "$snapshot" ]] || continue
+        "$CP_BIN" -p "$snapshot" "$file"
+        restored=1
+    done
+
+    [[ "$restored" == "1" ]]
+}
+
+clear_state() {
+    "$RM_BIN" -f "$STATE_FILE"
+    clear_snapshots
+}
+
 resolve_link_basename() {
     local link_path="$1"
     local suffix="${2:-}"
@@ -82,126 +149,34 @@ resolve_link_basename() {
 }
 
 get_animation_enabled() {
-    awk '
-        /^[[:space:]]*animations[[:space:]]*\{/ {
-            in_section = 1
-            next
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        in_section && match($0, /^[[:space:]]*enabled[[:space:]]*=[[:space:]]*([^[:space:],#]+)/, captures) {
-            print captures[1]
-            exit
-        }
-    ' "$HYPR_ANIMATIONS_CONF"
+    hypr_lua_unquote "$(hypr_get_config_value "$HYPR_ANIMATIONS_CONF" "animations" "enabled")"
 }
 
 set_animation_enabled() {
     local new_value="$1"
-    local tmp_file=""
+    local lua_value=""
+    local conf_value=""
 
-    tmp_file="$(mktemp)"
-
-    awk -v new_value="$new_value" '
-        /^[[:space:]]*animations[[:space:]]*\{/ {
-            in_section = 1
-        }
-
-        in_section && !updated && /^[[:space:]]*enabled[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:],#]+/, "= " new_value)
-            updated = 1
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        { print }
-
-        END {
-            if (!updated) {
-                exit 1
-            }
-        }
-    ' "$HYPR_ANIMATIONS_CONF" > "$tmp_file"
-
-    mv "$tmp_file" "$HYPR_ANIMATIONS_CONF"
+    lua_value="$(hypr_bool_to_lua "$new_value")"
+    conf_value="$(hypr_bool_to_conf "$new_value")"
+    hypr_set_config_value "$HYPR_ANIMATIONS_CONF" "animations" "enabled" "$lua_value" "$conf_value"
 }
 
 get_gap_values() {
-    awk '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-            next
-        }
+    local gaps_out=""
+    local gaps_in=""
 
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        in_section && /^[[:space:]]*gaps_out[[:space:]]*=/ {
-            value = $0
-            sub(/^[[:space:]]*gaps_out[[:space:]]*=[[:space:]]*/, "", value)
-            sub(/[[:space:]]*(#.*)?$/, "", value)
-            gaps_out = value
-        }
-
-        in_section && /^[[:space:]]*gaps_in[[:space:]]*=/ {
-            value = $0
-            sub(/^[[:space:]]*gaps_in[[:space:]]*=[[:space:]]*/, "", value)
-            sub(/[[:space:]]*(#.*)?$/, "", value)
-            gaps_in = value
-        }
-
-        END {
-            if (gaps_out == "" || gaps_in == "") {
-                exit 1
-            }
-
-            printf "%s,%s\n", gaps_out, gaps_in
-        }
-    ' "$HYPR_DECORATIONS_CONF"
+    gaps_out="$(hypr_get_config_value "$HYPR_DECORATIONS_CONF" "general" "gaps_out")"
+    gaps_in="$(hypr_get_config_value "$HYPR_DECORATIONS_CONF" "general" "gaps_in")"
+    printf '%s,%s\n' "$gaps_out" "$gaps_in"
 }
 
 set_gap_values() {
     local new_out="$1"
     local new_in="$2"
-    local tmp_file=""
 
-    tmp_file="$(mktemp)"
-
-    awk -v new_out="$new_out" -v new_in="$new_in" '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-        }
-
-        in_section && !updated_out && /^[[:space:]]*gaps_out[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:]#]+/, "= " new_out)
-            updated_out = 1
-        }
-
-        in_section && !updated_in && /^[[:space:]]*gaps_in[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:]#]+/, "= " new_in)
-            updated_in = 1
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        { print }
-
-        END {
-            if (!updated_out || !updated_in) {
-                exit 1
-            }
-        }
-    ' "$HYPR_DECORATIONS_CONF" > "$tmp_file"
-
-    mv "$tmp_file" "$HYPR_DECORATIONS_CONF"
+    hypr_set_config_value "$HYPR_DECORATIONS_CONF" "general" "gaps_out" "$new_out"
+    hypr_set_config_value "$HYPR_DECORATIONS_CONF" "general" "gaps_in" "$new_in"
 }
 
 update_waybar_margins() {
@@ -251,6 +226,42 @@ sync_gap_related_waybar_margins() {
 }
 
 get_keybinding_comment_states() {
+    if hypr_is_lua_file "$HYPR_KEYBINDINGS_CONF"; then
+        awk '
+            /^[[:space:]]*local[[:space:]]+simple_binds[[:space:]]*=[[:space:]]*\{/ {
+                in_block = 1
+                next
+            }
+
+            in_block && /^[[:space:]]*\}/ {
+                exit
+            }
+
+            in_block && /^[[:space:]]*(--[[:space:]]*)?\{/ {
+                if ($0 ~ /"Terminal"/) {
+                    exit
+                }
+
+                if ($0 ~ /^[[:space:]]*--/) {
+                    states[++count] = "1"
+                } else {
+                    states[++count] = "0"
+                }
+            }
+
+            END {
+                if (count == 0) {
+                    exit 1
+                }
+
+                for (i = 1; i <= count; i++) {
+                    printf "%s%s", states[i], (i < count ? "," : ORS)
+                }
+            }
+        ' "$HYPR_KEYBINDINGS_CONF"
+        return
+    fi
+
     awk -v start_marker="$ZEN_BINDINGS_START_MARKER" -v end_marker="$ZEN_BINDINGS_END_MARKER" '
         tolower($0) == tolower(start_marker) {
             in_block = 1
@@ -287,6 +298,77 @@ set_keybinding_comment_states() {
     local tmp_file=""
 
     tmp_file="$(mktemp)"
+
+    if hypr_is_lua_file "$HYPR_KEYBINDINGS_CONF"; then
+        awk -v mode="$mode" -v states_csv="$states_csv" '
+            BEGIN {
+                saved_count = split(states_csv, saved_states, /,/)
+            }
+
+            /^[[:space:]]*local[[:space:]]+simple_binds[[:space:]]*=[[:space:]]*\{/ {
+                in_block = 1
+                print
+                next
+            }
+
+            in_block && /^[[:space:]]*\}/ {
+                in_block = 0
+                print
+                next
+            }
+
+            in_block && /^[[:space:]]*(--[[:space:]]*)?\{/ {
+                if ($0 ~ /"Terminal"/) {
+                    in_zen_entries = 0
+                    print
+                    next
+                }
+
+                bind_index++
+                line = $0
+                match(line, /^[[:space:]]*/)
+                indent = substr(line, RSTART, RLENGTH)
+                rest = substr(line, RLENGTH + 1)
+                sub(/^--[[:space:]]*/, "", rest)
+
+                should_comment = 1
+                if (mode == "restore") {
+                    if (bind_index > saved_count) {
+                        exit 1
+                    }
+
+                    should_comment = (saved_states[bind_index] == "1")
+                } else if (mode == "uncomment") {
+                    should_comment = 0
+                }
+
+                if (should_comment) {
+                    print indent "-- " rest
+                } else {
+                    print indent rest
+                }
+                next
+            }
+
+            { print }
+
+            END {
+                if (mode == "restore" && bind_index != saved_count) {
+                    exit 1
+                }
+
+                if (bind_index == 0) {
+                    exit 1
+                }
+            }
+        ' "$HYPR_KEYBINDINGS_CONF" > "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+
+        mv "$tmp_file" "$HYPR_KEYBINDINGS_CONF"
+        return
+    fi
 
     awk -v start_marker="$ZEN_BINDINGS_START_MARKER" -v end_marker="$ZEN_BINDINGS_END_MARKER" -v mode="$mode" -v states_csv="$states_csv" '
         BEGIN {
@@ -403,8 +485,8 @@ apply_theme_if_needed() {
 }
 
 reload_hyprland() {
-    if command -v hyprctl >/dev/null 2>&1; then
-        hyprctl reload >/dev/null 2>&1 || true
+    if [[ -x "$HYPRCTL_BIN" ]]; then
+        "$HYPRCTL_BIN" reload >/dev/null 2>&1 || true
     fi
 }
 
@@ -456,6 +538,7 @@ apply_zen_mode() {
         "$current_theme_name" \
         "$theme_restore_enabled" \
         "$current_keybinding_states"
+    save_snapshots
 
     set_animation_enabled "$ZEN_ANIMATIONS_ENABLED"
     set_gap_values "$ZEN_GAPS_OUT" "$ZEN_GAPS_IN"
@@ -492,20 +575,23 @@ restore_zen_mode() {
     require_file "$HYPR_DECORATIONS_CONF"
     require_file "$HYPR_KEYBINDINGS_CONF"
 
-    set_gap_values "$saved_gaps_out" "$saved_gaps_in"
-    sync_gap_related_waybar_margins "$saved_gaps_out"
-    set_animation_enabled "$saved_animation_enabled"
-    set_keybinding_comment_states "restore" "$saved_keybinding_states"
-    apply_waybar_style "$saved_waybar_style"
-
     if [[ "$saved_theme_restore_enabled" == "1" ]]; then
         apply_theme_if_needed "$saved_theme_name"
+    fi
+
+    apply_waybar_style "$saved_waybar_style"
+
+    if ! restore_snapshots; then
+        set_gap_values "$saved_gaps_out" "$saved_gaps_in"
+        sync_gap_related_waybar_margins "$saved_gaps_out"
+        set_animation_enabled "$saved_animation_enabled"
+        set_keybinding_comment_states "restore" "$saved_keybinding_states"
     fi
 
     apply_starship_style "$saved_starship_style"
 
     reload_hyprland
-    rm -f "$STATE_FILE"
+    clear_state
     notify "Zen Mode: <b>OFF</b>"
 }
 

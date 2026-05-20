@@ -1,3 +1,122 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-sleep 0.24 && hyprctl dispatch hyprexpo:expo toggle
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+SLEEP_BIN="${SLEEP_BIN:-/usr/bin/sleep}"
+NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
+
+DRY_RUN=0
+DELAY_SECONDS="${HYPR_EXPO_TOGGLE_DELAY:-0.24}"
+
+usage() {
+    cat <<'USAGE'
+Usage: hypr-toggle-expo [--dry-run]
+
+Toggle Hyprland hyprexpo overview.
+USAGE
+}
+
+notify_status() {
+    local text="$1"
+    "$NOTIFY_SEND_BIN" \
+        -a "hypr-toggle-expo" \
+        -h "string:x-dunst-stack-tag:hypr-toggle-expo" \
+        -t 2200 \
+        "Hyprland" \
+        "$text" >/dev/null 2>&1 || true
+}
+
+is_hyprexpo_loaded() {
+    local plugin_output=""
+
+    plugin_output="$("$HYPRCTL_BIN" plugin list 2>/dev/null || true)"
+    [[ "$plugin_output" == *"hyprexpo"* ]]
+}
+
+run_dispatch() {
+    local dispatcher="$1"
+    local argument="$2"
+
+    if (( DRY_RUN )); then
+        printf 'Would run: %s dispatch %s %s\n' "$HYPRCTL_BIN" "$dispatcher" "$argument"
+        return 0
+    fi
+
+    "$HYPRCTL_BIN" dispatch "$dispatcher" "$argument" >/dev/null 2>&1
+}
+
+run_dispatch_lua() {
+    local lua_args="$1"
+
+    if (( DRY_RUN )); then
+        printf 'Would run: %s dispatch %s\n' "$HYPRCTL_BIN" "$lua_args"
+        return 0
+    fi
+
+    "$HYPRCTL_BIN" dispatch "$lua_args" >/dev/null 2>&1
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n)
+            DRY_RUN=1
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ! -x "$HYPRCTL_BIN" ]]; then
+    notify_status "Missing hyprctl binary"
+    exit 1
+fi
+
+if [[ ! -x "$SLEEP_BIN" ]]; then
+    notify_status "Missing sleep binary"
+    exit 1
+fi
+
+if ! is_hyprexpo_loaded; then
+    if (( DRY_RUN )); then
+        printf 'Would fail: hyprexpo plugin is not loaded\n'
+    else
+        notify_status "hyprexpo plugin is not loaded (run: hyprpm enable hyprexpo && hyprpm reload)"
+        exit 1
+    fi
+fi
+
+"$SLEEP_BIN" "$DELAY_SECONDS"
+
+if run_dispatch_lua '"hyprexpo:expo", "toggle"'; then
+    notify_status "Expo: <b>Toggled</b>"
+    exit 0
+fi
+
+if run_dispatch_lua 'hl.dsp["hyprexpo:expo"]("toggle")'; then
+    notify_status "Expo: <b>Toggled</b>"
+    exit 0
+fi
+
+if run_dispatch "hyprexpo:expo" "toggle"; then
+    notify_status "Expo: <b>Toggled</b>"
+    exit 0
+fi
+
+if run_dispatch_lua '"expo", "toggle"'; then
+    notify_status "Expo: <b>Toggled</b>"
+    exit 0
+fi
+
+if run_dispatch "expo" "toggle"; then
+    notify_status "Expo: <b>Toggled</b>"
+    exit 0
+fi
+
+notify_status "Expo toggle failed"
+exit 1

@@ -2,16 +2,21 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
 MENU_ID="menu-style"
 PID_FILE="/tmp/menu-rofi.pid"
 HYPR_ANIMATIONS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf"
+HYPR_ANIMATIONS_LUA="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.lua"
 HYPR_ANIMATIONS_ALT="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations"
 
 get_animations_status() {
     local config_file=""
     local enabled_value=""
 
-    if [[ -f "$HYPR_ANIMATIONS_CONF" ]]; then
+    if [[ -f "$HYPR_ANIMATIONS_LUA" ]]; then
+        config_file="$HYPR_ANIMATIONS_LUA"
+    elif [[ -f "$HYPR_ANIMATIONS_CONF" ]]; then
         config_file="$HYPR_ANIMATIONS_CONF"
     elif [[ -f "$HYPR_ANIMATIONS_ALT" ]]; then
         config_file="$HYPR_ANIMATIONS_ALT"
@@ -20,23 +25,8 @@ get_animations_status() {
         return 0
     fi
 
-    enabled_value="$(
-        awk '
-            /^[[:space:]]*animations[[:space:]]*\{/ {
-                in_section = 1
-                next
-            }
-
-            in_section && /^[[:space:]]*\}/ {
-                in_section = 0
-            }
-
-            in_section && match($0, /^[[:space:]]*enabled[[:space:]]*=[[:space:]]*([^[:space:],#]+)/, captures) {
-                print captures[1]
-                exit
-            }
-        ' "$config_file" 2>/dev/null || true
-    )"
+    enabled_value="$(hypr_get_config_value "$config_file" "animations" "enabled" 2>/dev/null || true)"
+    enabled_value="$(hypr_lua_unquote "$enabled_value")"
 
     case "${enabled_value,,}" in
         yes|1|true|on)

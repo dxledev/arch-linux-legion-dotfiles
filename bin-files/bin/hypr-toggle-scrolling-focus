@@ -1,15 +1,114 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-STATE_FILE="/tmp/hypr_toggle_scrolling_focus"
-COMMAND=(hyprctl keyword scrolling:focus_fit_method)
-NOTIFY_COMMAND=(notify-send -t 3000 "Hyprland")
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
 
-if [[ -f "$STATE_FILE" ]]; then
-  rm "$STATE_FILE"
-  "${COMMAND[@]}" 0
-  "${NOTIFY_COMMAND[@]}" "Set Scrolling Focus to: <b>Center</b>"
-else
-  touch "$STATE_FILE"
-  "${COMMAND[@]}" 1
-  "${NOTIFY_COMMAND[@]}" "Set Scrolling Focus to: <b>Fit</b>"
+DRY_RUN=0
+
+usage() {
+    cat <<'USAGE'
+Usage: hypr-toggle-scrolling-focus [--dry-run]
+
+Toggle scrolling:focus_fit_method between 0 (Center) and 1 (Fit).
+USAGE
+}
+
+notify_status() {
+    local text="$1"
+
+    "$NOTIFY_SEND_BIN" \
+        -a "hypr-toggle-scrolling-focus" \
+        -h "string:x-dunst-stack-tag:hypr-toggle-scrolling-focus" \
+        -t 2500 \
+        "Hyprland" \
+        "$text" >/dev/null 2>&1 || true
+}
+
+get_focus_method() {
+    local option_json=""
+
+    option_json="$("$HYPRCTL_BIN" getoption scrolling:focus_fit_method -j)"
+    printf '%s\n' "$option_json" | /usr/bin/awk -F'[:,]' '
+        /"int"[[:space:]]*:/ {
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /"int"/) {
+                    value = $(i + 1)
+                    gsub(/[^0-9-]/, "", value)
+                    print value
+                    exit
+                }
+            }
+        }
+    '
+}
+
+set_focus_method() {
+    local value="$1"
+
+    "$HYPRCTL_BIN" eval "hl.config({ scrolling = { focus_fit_method = ${value} } })" >/dev/null
+}
+
+label_for_method() {
+    case "$1" in
+        0) printf 'Center\n' ;;
+        1) printf 'Fit\n' ;;
+        *) printf 'Unknown\n' ;;
+    esac
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n)
+            DRY_RUN=1
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ! -x "$HYPRCTL_BIN" ]]; then
+    notify_status "Missing hyprctl binary"
+    exit 1
 fi
+
+current_method="$(get_focus_method)" || {
+    notify_status "Could not read scrolling focus method"
+    exit 1
+}
+
+case "$current_method" in
+    0) next_method=1 ;;
+    1) next_method=0 ;;
+    *)
+        notify_status "Unsupported scrolling focus method: $current_method"
+        exit 1
+        ;;
+esac
+
+next_label="$(label_for_method "$next_method")"
+
+if (( DRY_RUN )); then
+    printf 'Would set scrolling:focus_fit_method from %s to %s (%s)\n' "$current_method" "$next_method" "$next_label"
+    exit 0
+fi
+
+set_focus_method "$next_method"
+
+applied_method="$(get_focus_method)" || {
+    notify_status "Could not verify scrolling focus method"
+    exit 1
+}
+
+if [[ "$applied_method" != "$next_method" ]]; then
+    notify_status "Scrolling Focus unchanged: expected $next_method, got $applied_method"
+    exit 1
+fi
+
+notify_status "Set Scrolling Focus to: <b>${next_label}</b>"

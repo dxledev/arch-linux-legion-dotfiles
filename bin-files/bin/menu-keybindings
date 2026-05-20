@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-HYPERLAND_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/keybindings.conf"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
+HYPERLAND_FILE="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/keybindings.conf")"
 FILE="$SCRIPT_DIR/scans/keybindings"
 arrow=" "
 MENU_ID="menu-keybindings"
@@ -24,7 +27,102 @@ fi
 combined_file="$(mktemp)"
 trap 'rm -f "$combined_file"; "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
-awk '
+if hypr_is_lua_file "$HYPERLAND_FILE"; then
+    awk '
+function trim(str) {
+    sub(/^[[:space:]]+/, "", str)
+    sub(/[[:space:]]+$/, "", str)
+    return str
+}
+
+function unquote(str) {
+    str = trim(str)
+    if (str ~ /^".*"$/) {
+        sub(/^"/, "", str)
+        sub(/"$/, "", str)
+    }
+    return str
+}
+
+function lua_expr(str,    out) {
+    out = trim(str)
+    gsub(/mainMod/, vars["mainMod"], out)
+    gsub(/[[:space:]]*\.\.[[:space:]]*/, " ", out)
+    gsub(/"/, "", out)
+    return trim(out)
+}
+
+function normalize_mods(str,    n, i, parts, out) {
+    str = trim(str)
+    if (str == "") {
+        return ""
+    }
+
+    n = split(str, parts, /[[:space:]]+/)
+    out = ""
+    for (i = 1; i <= n; i++) {
+        if (parts[i] == "") {
+            continue
+        }
+        if (out != "") {
+            out = out " + "
+        }
+        out = out parts[i]
+    }
+    return out
+}
+
+function print_binding(mods, key, desc,    left) {
+    mods = normalize_mods(lua_expr(mods))
+    key = lua_expr(key)
+    desc = unquote(desc)
+
+    if (desc == "") {
+        return
+    }
+
+    left = mods
+    if (left != "" && key != "") {
+        left = left " + " key
+    } else if (key != "") {
+        left = key
+    }
+
+    print left " | " desc
+}
+
+/^[[:space:]]*local[[:space:]]+mainMod[[:space:]]*=/ {
+    vars["mainMod"] = unquote(substr($0, index($0, "=") + 1))
+    next
+}
+
+/^[[:space:]]*--/ {
+    next
+}
+
+/^[[:space:]]*\{.*\}[[:space:]]*,?[[:space:]]*$/ {
+    line = $0
+    sub(/^[[:space:]]*\{[[:space:]]*/, "", line)
+    sub(/[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/, "", line)
+    count = split(line, fields, /,[[:space:]]*/)
+    if (count >= 3) {
+        print_binding(fields[1], fields[2], fields[3])
+    }
+    next
+}
+
+/^[[:space:]]*bind_exec\(/ {
+    line = $0
+    sub(/^[[:space:]]*bind_exec\([[:space:]]*/, "", line)
+    sub(/[[:space:]]*\)[[:space:]]*$/, "", line)
+    count = split(line, fields, /,[[:space:]]*/)
+    if (count >= 3) {
+        print_binding(fields[1], fields[2], fields[3])
+    }
+}
+' "$HYPERLAND_FILE" > "$combined_file"
+else
+    awk '
 function trim(str) {
     sub(/^[[:space:]]+/, "", str)
     sub(/[[:space:]]+$/, "", str)
@@ -95,6 +193,7 @@ function replace_vars(str,    changed, name) {
     print left " | " desc
 }
 ' "$HYPERLAND_FILE" > "$combined_file"
+fi
 
 cat "$FILE" >> "$combined_file"
 

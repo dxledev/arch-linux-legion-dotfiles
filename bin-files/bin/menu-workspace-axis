@@ -2,14 +2,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
 ROFI_BIN="/usr/bin/rofi"
 NOTIFY_BIN="/home/dxle/bin/notify-send"
 AWK_BIN="/usr/bin/awk"
 MKTEMP_BIN="/usr/bin/mktemp"
 MV_BIN="/usr/bin/mv"
 HYPRCTL_BIN="/usr/bin/hyprctl"
-HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf"
-LAYOUT_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf"
+HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf")"
+LAYOUT_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
 MENU_ID="menu-workspace-axis"
 PID_FILE="/tmp/menu-rofi.pid"
 DRY_RUN=0
@@ -64,50 +66,20 @@ axis_to_animation_style() {
 }
 
 get_current_axis() {
-    "$AWK_BIN" '
-        {
-            line = $0
-            sub(/[[:space:]]*#.*/, "", line)
-        }
+    local style=""
 
-        line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
-            count = split(line, parts, ",")
-            style = (count >= 5) ? parts[5] : ""
-
-            if (style ~ /slidevert/) {
-                print "vertical"
-                exit
-            }
-
-            if (style ~ /slide/) {
-                print "horizontal"
-                exit
-            }
-
-            exit
-        }
-    ' "$HYPR_CONF"
+    style="$(hypr_get_animation_style "$HYPR_CONF")" || return 1
+    if [[ "$style" == *slidevert* ]]; then
+        printf 'vertical\n'
+        return
+    fi
+    if [[ "$style" == *slide* ]]; then
+        printf 'horizontal\n'
+    fi
 }
 
 get_current_layout() {
-    "$AWK_BIN" '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-            next
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        in_section && /^[[:space:]]*layout[[:space:]]*=/ {
-            value = $0
-            sub(/^[[:space:]]*layout[[:space:]]*=[[:space:]]*/, "", value)
-            sub(/[[:space:]]*(#.*)?$/, "", value)
-            print value
-            exit
-        }
-    ' "$LAYOUT_CONF"
+    hypr_lua_unquote "$(hypr_get_config_value "$LAYOUT_CONF" "general" "layout")"
 }
 
 normalize_layout() {
@@ -167,64 +139,7 @@ choose_axis() {
 
 update_workspace_animation() {
     local target_style="$1"
-    local tmp_file=""
-
-    tmp_file="$("$MKTEMP_BIN")"
-
-    "$AWK_BIN" -v target_style="$target_style" '
-        {
-            raw_line = $0
-            test_line = raw_line
-            sub(/[[:space:]]*#.*/, "", test_line)
-        }
-
-        !updated && test_line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
-            comment = ""
-            body = raw_line
-
-            if (match(raw_line, /[[:space:]]+#.*/)) {
-                comment = substr(raw_line, RSTART)
-                body = substr(raw_line, 1, RSTART - 1)
-            }
-
-            count = split(body, parts, ",")
-
-            if (count >= 5) {
-                style = parts[5]
-
-                if (style ~ /slidevert/) {
-                    sub(/slidevert/, target_style, style)
-                } else if (style ~ /slide/) {
-                    sub(/slide/, target_style, style)
-                } else {
-                    style = style " " target_style
-                }
-
-                parts[5] = style
-                body = parts[1]
-
-                for (i = 2; i <= count; i++) {
-                    body = body "," parts[i]
-                }
-            } else {
-                body = body ", " target_style
-            }
-
-            print body comment
-            updated = 1
-            next
-        }
-
-        { print raw_line }
-
-        END {
-            if (!updated) {
-                exit 1
-            }
-        }
-    ' "$HYPR_CONF" > "$tmp_file"
-
-    "$MV_BIN" "$tmp_file" "$HYPR_CONF"
+    hypr_set_animation_style "$HYPR_CONF" "$target_style"
 }
 
 reload_hyprland() {

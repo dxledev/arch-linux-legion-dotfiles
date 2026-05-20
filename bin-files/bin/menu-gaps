@@ -2,7 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
+HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 MENU_ID="menu-gaps"
 PID_FILE="/tmp/menu-rofi.pid"
 GAPS_MIN=0
@@ -26,24 +29,7 @@ fi
 trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
 get_current_gap() {
-    awk '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-            next
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        in_section && /^[[:space:]]*gaps_out[[:space:]]*=/ {
-            value = $0
-            sub(/^[[:space:]]*gaps_out[[:space:]]*=[[:space:]]*/, "", value)
-            sub(/[[:space:]]*(#.*)?$/, "", value)
-            print value
-            exit
-        }
-    ' "$HYPR_CONF"
+    hypr_get_config_value "$HYPR_CONF" "general" "gaps_out"
 }
 
 normalize_value() {
@@ -74,39 +60,9 @@ normalize_value() {
 update_values() {
     local new_out="$1"
     local new_in="$2"
-    local tmp_file
 
-    tmp_file="$(mktemp)"
-
-    awk -v new_out="$new_out" -v new_in="$new_in" '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-        }
-
-        in_section && !updated_out && /^[[:space:]]*gaps_out[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:]#]+/, "= " new_out)
-            updated_out = 1
-        }
-
-        in_section && !updated_in && /^[[:space:]]*gaps_in[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:]#]+/, "= " new_in)
-            updated_in = 1
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        { print }
-
-        END {
-            if (!updated_out || !updated_in) {
-                exit 1
-            }
-        }
-    ' "$HYPR_CONF" > "$tmp_file"
-
-    mv "$tmp_file" "$HYPR_CONF"
+    hypr_set_config_value "$HYPR_CONF" "general" "gaps_out" "$new_out"
+    hypr_set_config_value "$HYPR_CONF" "general" "gaps_in" "$new_in"
 }
 
 is_valid_waybar_bool() {
@@ -299,8 +255,8 @@ while true; do
         fi
     done
 
-    if command -v hyprctl >/dev/null 2>&1; then
-        hyprctl reload >/dev/null 2>&1 || notify-send -t 4000 "Gaps" "Gaps updated, but Hyprland reload failed."
+    if [[ -x "$HYPRCTL_BIN" ]]; then
+        "$HYPRCTL_BIN" reload >/dev/null 2>&1 || notify-send -t 4000 "Gaps" "Gaps updated, but Hyprland reload failed."
     fi
 
     ~/bin/reload-waybar

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
 ROFI_BIN="/usr/bin/rofi"
 NOTIFY_BIN="/home/dxle/bin/notify-send"
 AWK_BIN="/usr/bin/awk"
@@ -12,9 +14,8 @@ RM_BIN="/usr/bin/rm"
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 SLEEP_BIN="${SLEEP_BIN:-/usr/bin/sleep}"
 READLINK_BIN="/usr/bin/readlink"
-HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf"
-ANIMATIONS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf"
-PLUGINS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/plugins.conf"
+HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
+ANIMATIONS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/animations.conf")"
 XDG_STATE_HOME_DEFAULT="${HOME}/.local/state"
 STATE_DIR="${XDG_STATE_HOME:-$XDG_STATE_HOME_DEFAULT}/menu-layout"
 AXIS_STATE_FILE="${STATE_DIR}/workspace-axis.state"
@@ -28,7 +29,7 @@ HYPR_AUTORELOAD_SUSPENDED=0
 LAYOUTS=("dwindle" "scrolling" "master" "monocle")
 
 usage() {
-    printf 'Usage: %s [--layout master|dwindle|scrolling|monocle] [--config PATH] [--animations-config PATH] [--plugins-config PATH] [--dry-run]\n' "$(basename "$0")"
+    printf 'Usage: %s [--layout master|dwindle|scrolling|monocle] [--config PATH] [--animations-config PATH] [--dry-run]\n' "$(basename "$0")"
 }
 
 notify() {
@@ -85,10 +86,6 @@ require_config() {
         exit 1
     }
 
-    [[ -f "$PLUGINS_CONF" ]] || {
-        notify "Config not found: $PLUGINS_CONF"
-        exit 1
-    }
 }
 
 resolve_config_path() {
@@ -100,95 +97,33 @@ resolve_config_path() {
     resolved_path="$("$READLINK_BIN" -f "$ANIMATIONS_CONF" 2>/dev/null || true)"
     [[ -n "$resolved_path" ]] && ANIMATIONS_CONF="$resolved_path"
 
-    resolved_path="$("$READLINK_BIN" -f "$PLUGINS_CONF" 2>/dev/null || true)"
-    [[ -n "$resolved_path" ]] && PLUGINS_CONF="$resolved_path"
 }
 
 get_current_layout() {
-    "$AWK_BIN" '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-            next
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        in_section && /^[[:space:]]*layout[[:space:]]*=/ {
-            value = $0
-            sub(/^[[:space:]]*layout[[:space:]]*=[[:space:]]*/, "", value)
-            sub(/[[:space:]]*(#.*)?$/, "", value)
-            print value
-            exit
-        }
-    ' "$HYPR_CONF"
+    hypr_lua_unquote "$(hypr_get_config_value "$HYPR_CONF" "general" "layout")"
 }
 
 normalize_layout() {
-    case "$1" in
-        scrollingfix)
-            printf 'scrolling\n'
-            ;;
-        *)
-            printf '%s\n' "$1"
-            ;;
-    esac
+    printf '%s\n' "$1"
 }
 
 get_applied_layout() {
     local layout="$1"
 
-    if [[ "$layout" == "scrolling" ]] && has_scrolling_fix_plugin; then
-        printf 'scrollingfix\n'
-        return
-    fi
-
     printf '%s\n' "$layout"
 }
 
-has_scrolling_fix_plugin() {
-    "$AWK_BIN" '
-        {
-            line = $0
-            sub(/[[:space:]]*#.*/, "", line)
-        }
-
-        line ~ /hypr-scrolling-fix/ || line ~ /hyprscrollingfix\.so/ {
-            found = 1
-            exit
-        }
-
-        END {
-            exit found ? 0 : 1
-        }
-    ' "$PLUGINS_CONF"
-}
-
 get_current_axis() {
-    "$AWK_BIN" '
-        {
-            line = $0
-            sub(/[[:space:]]*#.*/, "", line)
-        }
+    local style=""
 
-        line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
-            count = split(line, parts, ",")
-            style = (count >= 5) ? parts[5] : ""
-
-            if (style ~ /slidevert/) {
-                print "vertical"
-                exit
-            }
-
-            if (style ~ /slide/) {
-                print "horizontal"
-                exit
-            }
-
-            exit
-        }
-    ' "$ANIMATIONS_CONF"
+    style="$(hypr_get_animation_style "$ANIMATIONS_CONF")" || return 1
+    if [[ "$style" == *slidevert* ]]; then
+        printf 'vertical\n'
+        return
+    fi
+    if [[ "$style" == *slide* ]]; then
+        printf 'horizontal\n'
+    fi
 }
 
 axis_to_animation_style() {
@@ -289,96 +224,15 @@ choose_layout() {
 
 update_layout() {
     local new_layout="$1"
-    local tmp_file=""
+    local lua_layout=""
 
-    tmp_file="$("$MKTEMP_BIN")"
-
-    "$AWK_BIN" -v new_layout="$new_layout" '
-        /^[[:space:]]*general[[:space:]]*\{/ {
-            in_section = 1
-        }
-
-        in_section && !updated && /^[[:space:]]*layout[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:]#]+/, "= " new_layout)
-            updated = 1
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        { print }
-
-        END {
-            if (!updated) {
-                exit 1
-            }
-        }
-    ' "$HYPR_CONF" > "$tmp_file"
-
-    "$MV_BIN" "$tmp_file" "$HYPR_CONF"
+    lua_layout="$(hypr_lua_quote "$new_layout")"
+    hypr_set_config_value "$HYPR_CONF" "general" "layout" "$lua_layout" "$new_layout"
 }
 
 update_workspace_animation() {
     local target_style="$1"
-    local tmp_file=""
-
-    tmp_file="$("$MKTEMP_BIN")"
-
-    "$AWK_BIN" -v target_style="$target_style" '
-        {
-            raw_line = $0
-            test_line = raw_line
-            sub(/[[:space:]]*#.*/, "", test_line)
-        }
-
-        !updated && test_line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
-            comment = ""
-            body = raw_line
-
-            if (match(raw_line, /[[:space:]]+#.*/)) {
-                comment = substr(raw_line, RSTART)
-                body = substr(raw_line, 1, RSTART - 1)
-            }
-
-            count = split(body, parts, ",")
-
-            if (count >= 5) {
-                style = parts[5]
-
-                if (style ~ /slidevert/) {
-                    sub(/slidevert/, target_style, style)
-                } else if (style ~ /slide/) {
-                    sub(/slide/, target_style, style)
-                } else {
-                    style = style " " target_style
-                }
-
-                parts[5] = style
-                body = parts[1]
-
-                for (i = 2; i <= count; i++) {
-                    body = body "," parts[i]
-                }
-            } else {
-                body = body ", " target_style
-            }
-
-            print body comment
-            updated = 1
-            next
-        }
-
-        { print raw_line }
-
-        END {
-            if (!updated) {
-                exit 1
-            }
-        }
-    ' "$ANIMATIONS_CONF" > "$tmp_file"
-
-    "$MV_BIN" "$tmp_file" "$ANIMATIONS_CONF"
+    hypr_set_animation_style "$ANIMATIONS_CONF" "$target_style"
 }
 
 reload_hyprland() {
@@ -408,19 +262,10 @@ apply_runtime_layout() {
 }
 
 get_workspace_animation_rule() {
-    "$AWK_BIN" '
-        {
-            raw_line = $0
-            test_line = raw_line
-            sub(/[[:space:]]*#.*/, "", test_line)
-        }
+    local style=""
 
-        test_line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
-            sub(/^[[:space:]]*animation[[:space:]]*=[[:space:]]*/, "", test_line)
-            print test_line
-            exit
-        }
-    ' "$ANIMATIONS_CONF"
+    style="$(hypr_get_animation_style "$ANIMATIONS_CONF")" || return 1
+    printf 'workspaces, 1, 4.9, overshot, %s\n' "$style"
 }
 
 apply_runtime_workspace_animation() {
@@ -484,14 +329,6 @@ while [[ $# -gt 0 ]]; do
             ANIMATIONS_CONF="$2"
             shift 2
             ;;
-        --plugins-config)
-            [[ $# -ge 2 ]] || {
-                usage
-                exit 1
-            }
-            PLUGINS_CONF="$2"
-            shift 2
-            ;;
         --dry-run)
             DRY_RUN=1
             shift
@@ -534,6 +371,8 @@ if [[ -z "$SELECTED_LAYOUT" ]]; then
     SELECTED_LAYOUT="$(choose_layout "$CURRENT_LAYOUT" || true)"
     [[ -n "$SELECTED_LAYOUT" ]] || exit 0
 fi
+
+SELECTED_LAYOUT="$(normalize_layout "$SELECTED_LAYOUT")"
 
 is_valid_layout "$SELECTED_LAYOUT" || {
     notify "Invalid layout: $SELECTED_LAYOUT"
@@ -609,17 +448,12 @@ if [[ "$CURRENT_LAYOUT" == "scrolling" && "$SELECTED_LAYOUT" != "scrolling" ]]; 
     fi
 fi
 
-if ! apply_runtime_changes "$TARGET_APPLIED_LAYOUT" "$LAYOUT_CHANGED" "$WORKSPACE_ANIMATION_CHANGED"; then
-    restore_hyprland_autoreload
+apply_runtime_changes "$TARGET_APPLIED_LAYOUT" "$LAYOUT_CHANGED" "$WORKSPACE_ANIMATION_CHANGED" || true
+restore_hyprland_autoreload
 
-    if reload_hyprland; then
-        notify_success "Set to <b><span foreground=\"var(--border-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>."
-        exit 0
-    fi
-
-    notify "Set to <b><span foreground=\"var(--border-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>, but Hyprland update failed."
+if ! reload_hyprland; then
+    notify "Set to <b><span foreground=\"var(--border-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>, but Hyprland reload failed."
     exit 1
 fi
 
-restore_hyprland_autoreload
 notify_success "Set to <b><span foreground=\"var(--secondary-color)\">$(format_layout_display "$SELECTED_LAYOUT")</span></b>."

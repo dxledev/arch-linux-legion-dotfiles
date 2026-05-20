@@ -1,0 +1,379 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+hypr_config_path() {
+    local base_path="$1"
+    local lua_path="${base_path%.conf}.lua"
+
+    if [[ -f "$lua_path" ]]; then
+        printf '%s\n' "$lua_path"
+        return 0
+    fi
+
+    if [[ -f "$base_path" ]]; then
+        printf '%s\n' "$base_path"
+        return 0
+    fi
+
+    printf '%s\n' "$lua_path"
+}
+
+hypr_is_lua_file() {
+    [[ "$1" == *.lua ]]
+}
+
+hypr_lua_quote() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '"%s"\n' "$value"
+}
+
+hypr_lua_unquote() {
+    local value="$1"
+
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+
+    if [[ "$value" =~ ^\"(.*)\"$ ]]; then
+        value="${BASH_REMATCH[1]}"
+        value="${value//\\\"/\"}"
+        value="${value//\\\\/\\}"
+    fi
+
+    printf '%s\n' "$value"
+}
+
+hypr_bool_to_lua() {
+    case "${1,,}" in
+        yes|1|true|on)
+            printf 'true\n'
+            ;;
+        no|0|false|off)
+            printf 'false\n'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+hypr_bool_to_conf() {
+    case "${1,,}" in
+        yes|1|true|on)
+            printf 'yes\n'
+            ;;
+        no|0|false|off)
+            printf 'no\n'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+hypr_get_config_value() {
+    local file="$1"
+    local section="$2"
+    local key="$3"
+
+    if hypr_is_lua_file "$file"; then
+        awk -v section="$section" -v key="$key" '
+            function trim(value) {
+                sub(/^[[:space:]]+/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                return value
+            }
+
+            $0 ~ "^[[:space:]]*" section "[[:space:]]*=[[:space:]]*\\{" {
+                in_section = 1
+                depth = 1
+                next
+            }
+
+            in_section {
+                line = $0
+                sub(/[[:space:]]*--.*/, "", line)
+
+                if (depth == 1 && line ~ "^[[:space:]]*" key "[[:space:]]*=") {
+                    sub("^[[:space:]]*" key "[[:space:]]*=[[:space:]]*", "", line)
+                    sub(/[[:space:]]*,[[:space:]]*$/, "", line)
+                    print trim(line)
+                    found = 1
+                    exit
+                }
+
+                opens = gsub(/\{/, "{", line)
+                closes = gsub(/\}/, "}", line)
+                depth += opens - closes
+                if (depth <= 0) {
+                    in_section = 0
+                }
+            }
+
+            END {
+                if (!found) {
+                    exit 1
+                }
+            }
+        ' "$file"
+        return
+    fi
+
+    awk -v section="$section" -v key="$key" '
+        $0 ~ "^[[:space:]]*" section "[[:space:]]*\\{" {
+            in_section = 1
+            next
+        }
+
+        in_section && /^[[:space:]]*\}/ {
+            in_section = 0
+        }
+
+        in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            value = $0
+            sub("^[[:space:]]*" key "[[:space:]]*=[[:space:]]*", "", value)
+            sub(/[[:space:]]*(#.*)?$/, "", value)
+            print value
+            found = 1
+            exit
+        }
+
+        END {
+            if (!found) {
+                exit 1
+            }
+        }
+    ' "$file"
+}
+
+hypr_set_config_value() {
+    local file="$1"
+    local section="$2"
+    local key="$3"
+    local lua_value="$4"
+    local conf_value="${5:-$4}"
+    local tmp_file=""
+
+    tmp_file="$(mktemp)"
+
+    if hypr_is_lua_file "$file"; then
+        awk -v section="$section" -v key="$key" -v new_value="$lua_value" '
+            $0 ~ "^[[:space:]]*" section "[[:space:]]*=[[:space:]]*\\{" {
+                in_section = 1
+                depth = 1
+                print
+                next
+            }
+
+            in_section {
+                raw = $0
+                line = raw
+                sub(/[[:space:]]*--.*/, "", line)
+
+                if (depth == 1 && !updated && line ~ "^[[:space:]]*" key "[[:space:]]*=") {
+                    match(raw, /^[[:space:]]*/)
+                    indent = substr(raw, RSTART, RLENGTH)
+                    comment = ""
+                    if (match(raw, /[[:space:]]*--.*/)) {
+                        comment = substr(raw, RSTART)
+                    }
+                    print indent key " = " new_value "," comment
+                    updated = 1
+                    next
+                }
+
+                opens = gsub(/\{/, "{", line)
+                closes = gsub(/\}/, "}", line)
+                depth += opens - closes
+                if (depth <= 0) {
+                    in_section = 0
+                }
+            }
+
+            { print }
+
+            END {
+                if (!updated) {
+                    exit 1
+                }
+            }
+        ' "$file" > "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+    else
+        awk -v section="$section" -v key="$key" -v new_value="$conf_value" '
+            $0 ~ "^[[:space:]]*" section "[[:space:]]*\\{" {
+                in_section = 1
+            }
+
+            in_section && !updated && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+                sub(/=[[:space:]]*[^[:space:],#]+/, "= " new_value)
+                updated = 1
+            }
+
+            in_section && /^[[:space:]]*\}/ {
+                in_section = 0
+            }
+
+            { print }
+
+            END {
+                if (!updated) {
+                    exit 1
+                }
+            }
+        ' "$file" > "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+    fi
+
+    mv "$tmp_file" "$file"
+}
+
+hypr_get_animation_style() {
+    local file="$1"
+
+    if hypr_is_lua_file "$file"; then
+        awk '
+            /^[[:space:]]*\{[[:space:]]*"workspaces"[[:space:]]*,/ {
+                line = $0
+                sub(/[[:space:]]*--.*/, "", line)
+                if (match(line, /"[^"]*"[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/)) {
+                    style = substr(line, RSTART, RLENGTH)
+                    sub(/[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/, "", style)
+                    gsub(/^"|"$/, "", style)
+                    print style
+                    found = 1
+                    exit
+                }
+            }
+
+            END {
+                if (!found) {
+                    exit 1
+                }
+            }
+        ' "$file"
+        return
+    fi
+
+    awk '
+        {
+            line = $0
+            sub(/[[:space:]]*#.*/, "", line)
+        }
+
+        line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
+            count = split(line, parts, ",")
+            if (count >= 5) {
+                style = parts[5]
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", style)
+                print style
+                found = 1
+            }
+            exit
+        }
+
+        END {
+            if (!found) {
+                exit 1
+            }
+        }
+    ' "$file"
+}
+
+hypr_set_animation_style() {
+    local file="$1"
+    local target_style="$2"
+    local tmp_file=""
+
+    tmp_file="$(mktemp)"
+
+    if hypr_is_lua_file "$file"; then
+        awk -v target_style="$target_style" '
+            function trim(value) {
+                sub(/^[[:space:]]+/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                return value
+            }
+
+            !updated && /^[[:space:]]*\{[[:space:]]*"workspaces"[[:space:]]*,/ {
+                raw = $0
+                comment = ""
+                if (match(raw, /[[:space:]]*--.*/)) {
+                    comment = substr(raw, RSTART)
+                    raw = substr(raw, 1, RSTART - 1)
+                }
+
+                count = split(raw, parts, ",")
+                if (count >= 5) {
+                    line = "  " trim(parts[1]) ", " trim(parts[2]) ", " trim(parts[3]) ", " trim(parts[4]) ", \"" target_style " 100%\" },"
+                    print line comment
+                    updated = 1
+                    next
+                }
+            }
+
+            { print }
+
+            END {
+                if (!updated) {
+                    exit 1
+                }
+            }
+        ' "$file" > "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+    else
+        awk -v target_style="$target_style" '
+            {
+                raw_line = $0
+                test_line = raw_line
+                sub(/[[:space:]]*#.*/, "", test_line)
+            }
+
+            !updated && test_line ~ /^[[:space:]]*animation[[:space:]]*=[[:space:]]*workspaces([[:space:]]*,.*)?$/ {
+                comment = ""
+                body = raw_line
+
+                if (match(raw_line, /[[:space:]]+#.*/)) {
+                    comment = substr(raw_line, RSTART)
+                    body = substr(raw_line, 1, RSTART - 1)
+                }
+
+                count = split(body, parts, ",")
+                if (count >= 5) {
+                    parts[5] = " " target_style
+                    body = parts[1]
+                    for (i = 2; i <= count; i++) {
+                        body = body "," parts[i]
+                    }
+                } else {
+                    body = body ", " target_style
+                }
+
+                print body comment
+                updated = 1
+                next
+            }
+
+            { print raw_line }
+
+            END {
+                if (!updated) {
+                    exit 1
+                }
+            }
+        ' "$file" > "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+    fi
+
+    mv "$tmp_file" "$file"
+}

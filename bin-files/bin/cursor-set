@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
 CURSOR_FILE="$HOME/.config/themes/current/cursor"
-HYPR_ENV_FILE="$HOME/.config/hypr/environment.conf"
-HYPR_MAIN_CONF="$HOME/.config/hypr/hyprland.conf"
-HYPR_CURSOR_CONF="$HOME/.config/hypr/cursor.conf"
+HYPR_ENV_FILE="$(hypr_config_path "$HOME/.config/hypr/environment.conf")"
+HYPR_MAIN_CONF="$(hypr_config_path "$HOME/.config/hypr/hyprland.conf")"
+HYPR_CURSOR_CONF="$(hypr_config_path "$HOME/.config/hypr/cursor.conf")"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 GTK3_SETTINGS="$HOME/.config/gtk-3.0/settings.ini"
 GTK4_SETTINGS="$HOME/.config/gtk-4.0/settings.ini"
 XCURSOR_INDEX="$HOME/.icons/default/index.theme"
@@ -59,7 +63,18 @@ ensure_local_cursor_theme() {
 read_current_size() {
     if [ -f "$HYPR_ENV_FILE" ]; then
         local configured_size
-        configured_size="$(sed -n 's/^[[:space:]]*env = XCURSOR_SIZE,\(.*\)$/\1/p' "$HYPR_ENV_FILE" | tail -n 1 | trim)"
+        if hypr_is_lua_file "$HYPR_ENV_FILE"; then
+            configured_size="$(awk '
+                /^[[:space:]]*hl\.env\("XCURSOR_SIZE"[[:space:]]*,/ {
+                    line = $0
+                    sub(/^[[:space:]]*hl\.env\("XCURSOR_SIZE"[[:space:]]*,[[:space:]]*"/, "", line)
+                    sub(/"[[:space:]]*\).*$/, "", line)
+                    print line
+                }
+            ' "$HYPR_ENV_FILE" | tail -n 1 | trim)"
+        else
+            configured_size="$(sed -n 's/^[[:space:]]*env = XCURSOR_SIZE,\(.*\)$/\1/p' "$HYPR_ENV_FILE" | tail -n 1 | trim)"
+        fi
         if [ -n "${configured_size:-}" ]; then
             printf '%s\n' "$configured_size"
             return
@@ -101,6 +116,43 @@ upsert_hypr_env() {
 
     local tmp
     tmp="$(mktemp "${file}.XXXXXX")"
+
+    if hypr_is_lua_file "$file"; then
+        awk '
+            BEGIN {
+                seen_xcursor_theme = 0
+                seen_xcursor_size = 0
+            }
+            /^[[:space:]]*hl\.env\("XCURSOR_THEME"[[:space:]]*,/ {
+                print "hl.env(\"XCURSOR_THEME\", \"" cursor "\")"
+                seen_xcursor_theme = 1
+                next
+            }
+            /^[[:space:]]*hl\.env\("HYPRCURSOR_THEME"[[:space:]]*,/ {
+                next
+            }
+            /^[[:space:]]*hl\.env\("XCURSOR_SIZE"[[:space:]]*,/ {
+                print "hl.env(\"XCURSOR_SIZE\", \"" size "\")"
+                seen_xcursor_size = 1
+                next
+            }
+            /^[[:space:]]*hl\.env\("HYPRCURSOR_SIZE"[[:space:]]*,/ {
+                next
+            }
+            { print }
+            END {
+                if (!seen_xcursor_theme) {
+                    print "hl.env(\"XCURSOR_THEME\", \"" cursor "\")"
+                }
+                if (!seen_xcursor_size) {
+                    print "hl.env(\"XCURSOR_SIZE\", \"" size "\")"
+                }
+            }
+        ' cursor="$cursor" size="$size" "$file" > "$tmp"
+
+        mv "$tmp" "$file"
+        return
+    fi
 
     awk -F',' '
         BEGIN {
@@ -145,6 +197,30 @@ ensure_hypr_cursor_source() {
     mkdir -p "$(dirname "$main_conf")"
     touch "$main_conf"
 
+    if hypr_is_lua_file "$main_conf"; then
+        if rg -qxF 'require("cursor")' "$main_conf"; then
+            return
+        fi
+
+        local tmp
+        tmp="$(mktemp "${main_conf}.XXXXXX")"
+        awk '
+            { print }
+            /^require\("environment"\)$/ && !inserted {
+                print "require(\"cursor\")"
+                inserted = 1
+            }
+            END {
+                if (!inserted) {
+                    print "require(\"cursor\")"
+                }
+            }
+        ' "$main_conf" > "$tmp"
+
+        mv "$tmp" "$main_conf"
+        return
+    fi
+
     if rg -qxF "$source_line" "$main_conf"; then
         return
     fi
@@ -174,9 +250,20 @@ write_hypr_cursor_conf() {
     local size="$3"
 
     mkdir -p "$(dirname "$file")"
+
+    if hypr_is_lua_file "$file"; then
+        printf 'hl.on("hyprland.start", function()\n  hl.exec_cmd("hyprctl setcursor %s %s")\nend)\n' "$cursor" "$size" > "$file"
+        return
+    fi
+
     cat > "$file" <<EOF
 exec-once = hyprctl setcursor $cursor $size
 EOF
+}
+
+reload_hyprland() {
+    [[ -x "$HYPRCTL_BIN" ]] || return 0
+    "$HYPRCTL_BIN" reload >/dev/null 2>&1 || true
 }
 
 CURSOR="${1:-}"
@@ -201,6 +288,7 @@ ensure_local_cursor_theme "$CURSOR"
 upsert_hypr_env "$HYPR_ENV_FILE" "$CURSOR" "$SIZE"
 ensure_hypr_cursor_source "$HYPR_MAIN_CONF" "$HYPR_CURSOR_CONF"
 write_hypr_cursor_conf "$HYPR_CURSOR_CONF" "$CURSOR" "$SIZE"
+reload_hyprland
 
 upsert_kv_file "$GTK3_SETTINGS" "gtk-cursor-theme-name" "$CURSOR"
 upsert_kv_file "$GTK3_SETTINGS" "gtk-cursor-theme-size" "$SIZE"
@@ -216,4 +304,4 @@ EOF
 gsettings set org.gnome.desktop.interface cursor-theme "$CURSOR" >/dev/null 2>&1 || true
 gsettings set org.gnome.desktop.interface cursor-size "$SIZE" >/dev/null 2>&1 || true
 
-hyprctl setcursor "$CURSOR" "$SIZE" >/dev/null 2>&1 || true
+[[ -x "$HYPRCTL_BIN" ]] && "$HYPRCTL_BIN" setcursor "$CURSOR" "$SIZE" >/dev/null 2>&1 || true

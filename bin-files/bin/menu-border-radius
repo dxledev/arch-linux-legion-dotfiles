@@ -2,7 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
+HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 MENU_ID="menu-border-radius"
 PID_FILE="/tmp/menu-rofi.pid"
 BORDER_RADIUS_MIN=0
@@ -15,23 +18,7 @@ fi
 trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
 get_current_value() {
-    awk '
-        /^[[:space:]]*decoration[[:space:]]*\{/ {
-            in_section = 1
-            next
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        in_section && /^[[:space:]]*rounding[[:space:]]*=/ {
-            sub(/^[[:space:]]*rounding[[:space:]]*=[[:space:]]*/, "", $0)
-            sub(/[[:space:]]*(#.*)?$/, "", $0)
-            print $0
-            exit
-        }
-    ' "$HYPR_CONF"
+    hypr_get_config_value "$HYPR_CONF" "decoration" "rounding"
 }
 
 normalize_value() {
@@ -61,34 +48,8 @@ normalize_value() {
 
 update_value() {
     local new_value="$1"
-    local tmp_file
 
-    tmp_file="$(mktemp)"
-
-    awk -v new_value="$new_value" '
-        /^[[:space:]]*decoration[[:space:]]*\{/ {
-            in_section = 1
-        }
-
-        in_section && !updated && /^[[:space:]]*rounding[[:space:]]*=/ {
-            sub(/=[[:space:]]*[^[:space:]#]+/, "= " new_value)
-            updated = 1
-        }
-
-        in_section && /^[[:space:]]*\}/ {
-            in_section = 0
-        }
-
-        { print }
-
-        END {
-            if (!updated) {
-                exit 1
-            }
-        }
-    ' "$HYPR_CONF" > "$tmp_file"
-
-    mv "$tmp_file" "$HYPR_CONF"
+    hypr_set_config_value "$HYPR_CONF" "decoration" "rounding" "$new_value"
 }
 
 [[ -f "$HYPR_CONF" ]] || {
@@ -143,8 +104,8 @@ while true; do
 
     update_value "$new_value"
 
-    if command -v hyprctl >/dev/null 2>&1; then
-        hyprctl reload >/dev/null 2>&1 || notify-send -t 4000 "Border" "Roundness updated, but Hyprland reload failed."
+    if [[ -x "$HYPRCTL_BIN" ]]; then
+        "$HYPRCTL_BIN" reload >/dev/null 2>&1 || notify-send -t 4000 "Border" "Roundness updated, but Hyprland reload failed."
     fi
 
     notify-send -t 3000 "Border" "Roundness set to $new_value"

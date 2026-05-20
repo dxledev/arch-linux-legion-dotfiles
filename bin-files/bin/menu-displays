@@ -3,10 +3,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
 MENU_ID="menu-displays"
 PID_FILE="/tmp/menu-rofi.pid"
-MONITORS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.conf"
-BACKUP_FILE="${XDG_RUNTIME_DIR:-/tmp}/menu-displays.monitors.conf.bak"
+MONITORS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.conf")"
+BACKUP_FILE="${XDG_RUNTIME_DIR:-/tmp}/menu-displays.$(basename "$MONITORS_CONF").bak"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 
 if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
     exit 0
@@ -14,12 +17,12 @@ fi
 
 trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
-if ! command -v hyprctl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+if [[ ! -x "$HYPRCTL_BIN" ]] || ! command -v jq >/dev/null 2>&1; then
     notify-send -t 4000 "Displays" "Missing dependency: hyprctl or jq"
     exit 1
 fi
 
-if ! monitors_json="$(hyprctl -j monitors all 2>/dev/null)"; then
+if ! monitors_json="$("$HYPRCTL_BIN" -j monitors all 2>/dev/null)"; then
     notify-send -t 4000 "Displays" "Unable to read Hyprland monitors"
     exit 1
 fi
@@ -38,6 +41,83 @@ set_monitor_state_in_config() {
     [[ -f "$MONITORS_CONF" ]] || return 1
 
     tmp_file="$(mktemp)"
+
+    if hypr_is_lua_file "$MONITORS_CONF"; then
+        awk -v target_monitor="$target_monitor" -v target_state="$target_state" '
+            function indent_of(line) {
+                match(line, /^[[:space:]]*/)
+                return substr(line, RSTART, RLENGTH)
+            }
+
+            function print_monitor_block(    i, has_disabled, output_indent) {
+                has_disabled = 0
+                output_indent = "    "
+
+                for (i = 1; i <= block_count; i++) {
+                    if (block[i] ~ /^[[:space:]]*output[[:space:]]*=/) {
+                        output_indent = indent_of(block[i])
+                    }
+                    if (block[i] ~ /^[[:space:]]*disabled[[:space:]]*=/) {
+                        has_disabled = 1
+                        if (target_state == "disabled") {
+                            print output_indent "disabled = true,"
+                        }
+                        continue
+                    }
+                    print block[i]
+                    if (i == block_count - 1 && target_state == "disabled" && !has_disabled) {
+                        print output_indent "disabled = true,"
+                    }
+                }
+            }
+
+            /^[[:space:]]*\{[[:space:]]*$/ {
+                in_block = 1
+                block_count = 1
+                block[block_count] = $0
+                block_matches = 0
+                next
+            }
+
+            in_block {
+                block[++block_count] = $0
+                if ($0 ~ /^[[:space:]]*output[[:space:]]*=/) {
+                    line = $0
+                    sub(/^[[:space:]]*output[[:space:]]*=[[:space:]]*"/, "", line)
+                    sub(/"[[:space:]]*,[[:space:]]*$/, "", line)
+                    if (line == target_monitor) {
+                        block_matches = 1
+                    }
+                }
+                if ($0 ~ /^[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/) {
+                    if (block_matches) {
+                        print_monitor_block()
+                        changed = 1
+                    } else {
+                        for (i = 1; i <= block_count; i++) {
+                            print block[i]
+                        }
+                    }
+                    in_block = 0
+                }
+                next
+            }
+
+            { print }
+
+            END {
+                if (!changed) {
+                    exit 1
+                }
+            }
+        ' "$MONITORS_CONF" > "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+
+        mv "$tmp_file" "$MONITORS_CONF"
+        return
+    fi
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ ^([[:space:]]*)#?[[:space:]]*monitor[[:space:]]*=[[:space:]]*([^#]+)([[:space:]]+#.*)?$ ]]; then
@@ -75,6 +155,7 @@ set_monitor_state_in_config() {
 }
 
 ensure_backup() {
+    mkdir -p "$(dirname "$BACKUP_FILE")"
     [[ -f "$BACKUP_FILE" ]] || cp "$MONITORS_CONF" "$BACKUP_FILE"
 }
 
@@ -89,7 +170,12 @@ config_monitor_identifier() {
     local monitor_description="$2"
     local desc_identifier="desc:${monitor_description}"
 
-    if rg -Fq "monitor=${desc_identifier}," "$MONITORS_CONF" || rg -Fq "#monitor=${desc_identifier}," "$MONITORS_CONF"; then
+    if hypr_is_lua_file "$MONITORS_CONF"; then
+        if rg -Fq "output = \"${desc_identifier}\"" "$MONITORS_CONF"; then
+            printf '%s\n' "$desc_identifier"
+            return 0
+        fi
+    elif rg -Fq "monitor=${desc_identifier}," "$MONITORS_CONF" || rg -Fq "#monitor=${desc_identifier}," "$MONITORS_CONF"; then
         printf '%s\n' "$desc_identifier"
         return 0
     fi
@@ -160,7 +246,7 @@ chosen_index="$(
 
 if (( chosen_index == ${#monitors[@]} )); then
     restore_backup || true
-    hyprctl reload >/dev/null
+    "$HYPRCTL_BIN" reload >/dev/null
     exit 0
 fi
 
@@ -189,5 +275,5 @@ else
     monitor_status="Enabled"
 fi
 
-hyprctl reload >/dev/null
+"$HYPRCTL_BIN" reload >/dev/null
 notify-send -t 5000 "System" "Monitor: ${selected_display_name} ${monitor_status}"
