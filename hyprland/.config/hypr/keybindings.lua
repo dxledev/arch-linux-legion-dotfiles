@@ -1,11 +1,21 @@
 local mainMod = "SUPER"
 
-local function keys(mods, key)
+local function normalize_mods(mods)
   if mods == nil or mods == "" then
+    return ""
+  end
+
+  local normalized = mods:gsub("%s+", " + ")
+  return normalized:gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function keys(mods, key)
+  local normalized_mods = normalize_mods(mods)
+  if normalized_mods == "" then
     return key
   end
 
-  return mods .. " + " .. key
+  return normalized_mods .. " + " .. key
 end
 
 local function dispatch_command(dispatcher, arg)
@@ -52,7 +62,7 @@ local function dispatch_command(dispatcher, arg)
     return hl.dsp.exec_cmd("hyprctl dispatch hyprexpo:expo " .. arg)
   elseif dispatcher == "sendshortcut" then
     local mods, key, window = arg:match("^%s*([^,]+),%s*([^,]+),%s*(.+)%s*$")
-    return hl.dsp.send_shortcut({ mods = mods, key = key, window = window })
+    return hl.dsp.send_shortcut({ mods = normalize_mods(mods), key = key, window = window })
   end
 
   return hl.dsp.exec_cmd("hyprctl dispatch " .. dispatcher .. (arg and arg ~= "" and (" " .. arg) or ""))
@@ -136,6 +146,9 @@ for _, item in ipairs(simple_binds) do
   bind_exec(item[1], item[2], item[3], item[4])
 end
 
+bind_exec("ALT", "TAB", "Window Switcher", "~/bin/hypr-alttab")
+bind_exec(mainMod .. " ALT", "TAB", "Window Switcher", "~/bin/hypr-alttab")
+
 bind("bindd", "ALT", "F9", "Start OBS Recording", "sendshortcut", "ALT, F9, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT SHIFT", "F9", "Stop OBS Recording", "sendshortcut", "ALT SHIFT, F9, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT", "F10", "Pause OBS Recording", "sendshortcut", "ALT, F10, class:^com\\.obsproject\\.Studio$")
@@ -191,9 +204,7 @@ for workspace = 1, 10 do
   local key = tostring(workspace % 10)
   local label = key == "0" and "0 (Monitor 2)" or key
   bind("bindd", mainMod, key, "Focus Workspace " .. label, "workspace", tostring(workspace))
-  bind("bind", mainMod .. " SHIFT", key, "", "settiled", "")
   bind("bindd", mainMod .. " SHIFT", key, "Move To Workspace " .. label, "movetoworkspace", tostring(workspace))
-  bind("bind", mainMod .. " ALT SHIFT", key, "", "settiled", "")
   bind("bindd", mainMod .. " ALT SHIFT", key, "Silently Move To Workspace " .. label, "movetoworkspacesilent", tostring(workspace))
 end
 

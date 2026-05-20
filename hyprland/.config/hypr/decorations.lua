@@ -5,7 +5,7 @@ hl.config({
     border_size = 2,
     resize_on_border = false,
     allow_tearing = false,
-    layout = "dwindle",
+    layout = "scrolling",
   },
   decoration = {
     rounding = 0,
@@ -34,7 +34,6 @@ hl.config({
     },
   },
   dwindle = {
-    pseudotile = true,
     preserve_split = true,
     force_split = 2,
   },

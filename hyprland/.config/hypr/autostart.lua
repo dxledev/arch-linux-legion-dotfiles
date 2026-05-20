@@ -1,5 +1,4 @@
 local startup_commands = {
-  "hyprpm reload -nn && hyprctl dismissnotify",
   "waybar",
   "swayosd-server",
   "awww-daemon",
