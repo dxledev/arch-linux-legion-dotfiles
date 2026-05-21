@@ -1,7 +1,13 @@
-local enable_hyprspace = true
+local hyprctl_bin = "/usr/bin/hyprctl"
+local hyprpm_bin = "/usr/bin/hyprpm"
+local grep_bin = "/usr/bin/grep"
+local startup_reload_delay = 1
 
-local dynamic_cursors_plugin = "/var/cache/hyprpm/dxle/dynamic-cursors/dynamic-cursors.so"
-local hyprspace_plugin = "/home/dxle/.config/hypr/.plugins/Hyprspace/Hyprspace.so"
+local fallback_plugins = {
+  { name = "dynamic-cursors", path = "/var/cache/hyprpm/dxle/dynamic-cursors/dynamic-cursors.so" },
+  { name = "hymission", path = "/var/cache/hyprpm/dxle/hymission/hymission.so" },
+  { name = "Hyprspace", path = "/home/dxle/.config/hypr/.plugins/Hyprspace/Hyprspace.so" },
+}
 
 local dynamic_cursors_config_eval = [[
 hl.config({
@@ -45,32 +51,62 @@ local function shell_quote(value)
   return "'" .. value:gsub("'", "'\\''") .. "'"
 end
 
-local function dynamic_cursors_config_command()
-  return "hyprctl eval " .. shell_quote(dynamic_cursors_config_eval)
+local function file_exists(path)
+  local file = io.open(path, "r")
+  if file then
+    file:close()
+    return true
+  end
+
+  return false
 end
 
-local function plugin_load_commands()
+local function dynamic_cursors_config_command()
+  return hyprctl_bin .. " eval " .. shell_quote(dynamic_cursors_config_eval)
+end
+
+local function plugin_fallback_command(plugin)
+  if not file_exists(plugin.path) then
+    return nil
+  end
+
+  return hyprctl_bin
+    .. " plugin list | "
+    .. grep_bin
+    .. " -Fq "
+    .. shell_quote(plugin.name)
+    .. " || "
+    .. hyprctl_bin
+    .. " plugin load "
+    .. shell_quote(plugin.path)
+    .. " || true"
+end
+
+local function plugin_reload_commands()
   local commands = {
-    "hyprctl plugin load " .. dynamic_cursors_plugin .. " || true",
+    hyprpm_bin .. " reload || true",
     dynamic_cursors_config_command(),
   }
 
-  if enable_hyprspace then
-    table.insert(commands, "hyprctl plugin load " .. hyprspace_plugin .. " || true")
+  for _, plugin in ipairs(fallback_plugins) do
+    local fallback = plugin_fallback_command(plugin)
+    if fallback then
+      table.insert(commands, 2, fallback)
+    end
   end
 
   return commands
 end
 
 local function apply_plugins()
-  hl.exec_cmd(table.concat(plugin_load_commands(), " ; "))
+  hl.exec_cmd(table.concat(plugin_reload_commands(), " ; "))
 end
 
 hl.on("hyprland.start", function()
-  local commands = plugin_load_commands()
+  local commands = plugin_reload_commands()
 
-  table.insert(commands, "hyprctl dismissnotify")
-  hl.exec_cmd(table.concat(commands, " ; "))
+  table.insert(commands, hyprctl_bin .. " dismissnotify")
+  hl.exec_cmd("sleep " .. startup_reload_delay .. " ; " .. table.concat(commands, " ; "))
 end)
 
 hl.on("config.reloaded", apply_plugins)
