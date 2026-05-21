@@ -55,7 +55,8 @@
     "custom/expo": {
         "format": "<span font_desc=\"JetBrainsMono Nerd Font\"> </span>",
         "tooltip-format": "Workspace Overview",
-        "on-click": "~/bin/hypr-toggle-expo"
+        "on-click": "~/bin/hypr-toggle-workspace-control",
+        "on-click-right": "~/bin/hypr-toggle-mission-control"
     },
     "keyboard-state": {
         "numlock": true,

@@ -213,7 +213,7 @@
   "custom/expo": {
       "format": "<span font_desc=\"JetBrainsMono Nerd Font\"> </span>",
       "tooltip-format": "Workspace Overview",
-      "on-click": "~/bin/hypr-toggle-expo"
+      "on-click": "~/bin/hypr-toggle-workspace-control"
   },
   "sway/window": {
       "format": "{}",

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+DRY_RUN=0
+HYMISSION_SCOPE="forceall"
+
+usage() {
+    printf '%s\n' "Usage: hypr-toggle-mission-control [--dry-run]"
+}
+
+lua_string() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+
+    printf '"%s"' "$value"
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n)
+            DRY_RUN=1
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ! -x "$HYPRCTL_BIN" ]]; then
+    exit 1
+fi
+
+lua_dispatcher="hl.plugin.hymission.open($(lua_string "$HYMISSION_SCOPE"))"
+
+if (( DRY_RUN )); then
+    printf 'Would run: %s dispatch %s\n' "$HYPRCTL_BIN" "$lua_dispatcher"
+    exit 0
+fi
+
+"$HYPRCTL_BIN" dispatch "$lua_dispatcher" >/dev/null

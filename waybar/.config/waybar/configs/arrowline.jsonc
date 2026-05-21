@@ -203,14 +203,16 @@
 		"format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>",
 		// "format": "",
 		"tooltip": false,
-    "on-click": "~/bin/hypr-toggle-expo"
+    "on-click": "~/bin/hypr-toggle-workspace-control",
+    // "on-click-right": "~/bin/hypr-toggle-mission-control"
 	},
 
   "custom/arrow11": {
 		// "format": "",
 		"format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>",
 		// "format": "",
-    "on-click": "~/bin/hypr-toggle-expo",
+    "on-click": "~/bin/hypr-toggle-workspace-control",
+    "on-click-right": "~/bin/hypr-toggle-mission-control",
 		"tooltip": false
 	},
 
