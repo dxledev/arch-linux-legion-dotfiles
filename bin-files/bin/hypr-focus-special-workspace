@@ -1,21 +1,46 @@
-
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 MONITOR_TO_FOCUS="HDMI-A-1"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 
-# Ensure argument is provided
+lua_string() {
+  local value="$1"
+
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+
+  printf '"%s"' "$value"
+}
+
+normalize_special_workspace() {
+  local workspace="$1"
+
+  workspace="${workspace#special:}"
+  [[ -n "$workspace" ]] || return 1
+
+  printf '%s\n' "$workspace"
+}
+
+usage() {
+  printf '%s\n' \
+    "Usage: hypr-focus-special-workspace <special-workspace>" \
+    "Examples:" \
+    "  hypr-focus-special-workspace special" \
+    "  hypr-focus-special-workspace special:term"
+}
+
 if [[ $# -ne 1 ]]; then
-  echo "Usage: hypr-focus-special-workspace <special-workspace>"
-  echo "Examples:"
-  echo "  hypr-focus-special-workspace special"
-  echo "  hypr-focus-special-workspace special:term"
+  usage >&2
   exit 1
 fi
 
-workspace="$1"
+if ! workspace="$(normalize_special_workspace "$1")"; then
+  usage >&2
+  exit 1
+fi
 
-# Focus the workspace
-hyprctl dispatch focusmonitor "$MONITOR_TO_FOCUS"
-hyprctl dispatch togglespecialworkspace "$workspace"
+"$HYPRCTL_BIN" dispatch "hl.dsp.focus({ monitor = $(lua_string "$MONITOR_TO_FOCUS") })"
+"$HYPRCTL_BIN" dispatch "hl.dsp.workspace.toggle_special($(lua_string "$workspace"))"
