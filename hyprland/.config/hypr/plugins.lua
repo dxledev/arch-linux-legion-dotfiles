@@ -3,34 +3,43 @@ local enable_hyprspace = false
 local dynamic_cursors_plugin = "/var/cache/hyprpm/dxle/dynamic-cursors/dynamic-cursors.so"
 local hyprspace_plugin = "/home/dxle/.config/hypr/.plugins/Hyprspace/Hyprspace.so"
 
-local dynamic_cursors_keywords = {
-  "plugin:dynamic-cursors:enabled true",
-  "plugin:dynamic-cursors:mode none",
-  "plugin:dynamic-cursors:threshold 2",
-  "plugin:dynamic-cursors:rotate:length 20",
-  "plugin:dynamic-cursors:rotate:offset 0.0",
-  "plugin:dynamic-cursors:tilt:limit 5000",
-  "plugin:dynamic-cursors:tilt:function negative_quadratic",
-  "plugin:dynamic-cursors:tilt:window 100",
-  "plugin:dynamic-cursors:tilt:full_tilt 60",
-  "plugin:dynamic-cursors:stretch:limit 3000",
-  "plugin:dynamic-cursors:stretch:function quadratic",
-  "plugin:dynamic-cursors:stretch:window 100",
-  "plugin:dynamic-cursors:shake:enabled true",
-  "plugin:dynamic-cursors:shake:nearest false",
-  "plugin:dynamic-cursors:shake:threshold 8.0",
-  "plugin:dynamic-cursors:shake:base 2.0",
-  "plugin:dynamic-cursors:shake:speed 2.0",
-  "plugin:dynamic-cursors:shake:influence 0.0",
-  "plugin:dynamic-cursors:shake:limit 4.0",
-  "plugin:dynamic-cursors:shake:timeout 1500",
-  "plugin:dynamic-cursors:shake:effects false",
-  "plugin:dynamic-cursors:shake:ipc false",
-  "plugin:dynamic-cursors:hyprcursor:nearest false",
-  "plugin:dynamic-cursors:hyprcursor:enabled false",
-  "plugin:dynamic-cursors:hyprcursor:resolution -1",
-  "plugin:dynamic-cursors:hyprcursor:fallback clientside",
-}
+local dynamic_cursors_config_eval = [[
+hl.config({
+  plugin = {
+    dynamic_cursors = {
+      enabled = true,
+      mode = "none",
+      threshold = 2,
+      rotate = {
+        length = 20,
+        offset = 0.0,
+      },
+      stretch = {
+        limit = 3000,
+        activation = "quadratic",
+        window = 100,
+      },
+      shake = {
+        enabled = true,
+        threshold = 6.0,
+        base = 4.0,
+        speed = 3.0,
+        influence = 0.0,
+        limit = 4.0,
+        timeout = 1500,
+        effects = false,
+        ipc = false,
+      },
+      hyprcursor = {
+        nearest = false,
+        enabled = false,
+        resolution = -1,
+        fallback = "left_ptr",
+      },
+    },
+  },
+})
+]]
 
 local hyprspace_keywords = {
   "plugin:overview:panelColor rgba(00000000)",
@@ -67,12 +76,12 @@ local function keyword_command(keyword)
   return "hyprctl keyword " .. keyword
 end
 
+local function shell_quote(value)
+  return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
 local function active_plugin_keywords()
   local keywords = {}
-
-  for _, keyword in ipairs(dynamic_cursors_keywords) do
-    table.insert(keywords, keyword)
-  end
 
   if enable_hyprspace then
     for _, keyword in ipairs(hyprspace_keywords) do
@@ -83,9 +92,14 @@ local function active_plugin_keywords()
   return keywords
 end
 
+local function dynamic_cursors_config_command()
+  return "hyprctl eval " .. shell_quote(dynamic_cursors_config_eval)
+end
+
 local function plugin_load_commands()
   local commands = {
     "hyprctl plugin load " .. dynamic_cursors_plugin .. " || true",
+    dynamic_cursors_config_command(),
   }
 
   if enable_hyprspace then
