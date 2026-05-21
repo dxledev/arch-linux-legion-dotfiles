@@ -14,6 +14,7 @@ require("workspaces")
 require("hypridle")
 require("hyprlock")
 require("hyprsunset")
+require("hymission")
 require("xdph")
 
 hl.bind("SUPER + ALT + CTRL + SHIFT + O", hl.dsp.exec_cmd("kitty"))

@@ -28,99 +28,60 @@ combined_file="$(mktemp)"
 trap 'rm -f "$combined_file"; "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
 if hypr_is_lua_file "$HYPERLAND_FILE"; then
-    awk '
-function trim(str) {
-    sub(/^[[:space:]]+/, "", str)
-    sub(/[[:space:]]+$/, "", str)
-    return str
-}
+    /usr/bin/lua - "$HYPERLAND_FILE" > "$combined_file" <<'LUA'
+local config_file = arg[1]
 
-function unquote(str) {
-    str = trim(str)
-    if (str ~ /^".*"$/) {
-        sub(/^"/, "", str)
-        sub(/"$/, "", str)
-    }
-    return str
-}
+local function trim(value)
+  return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+end
 
-function lua_expr(str,    out) {
-    out = trim(str)
-    gsub(/mainMod/, vars["mainMod"], out)
-    gsub(/[[:space:]]*\.\.[[:space:]]*/, " ", out)
-    gsub(/"/, "", out)
-    return trim(out)
-}
+local function normalize_binding(value)
+  local parts = {}
 
-function normalize_mods(str,    n, i, parts, out) {
-    str = trim(str)
-    if (str == "") {
-        return ""
-    }
+  for part in trim(value):gmatch("[^+]+") do
+    local normalized = trim(part)
+    if normalized ~= "" then
+      table.insert(parts, normalized)
+    end
+  end
 
-    n = split(str, parts, /[[:space:]]+/)
-    out = ""
-    for (i = 1; i <= n; i++) {
-        if (parts[i] == "") {
-            continue
-        }
-        if (out != "") {
-            out = out " + "
-        }
-        out = out parts[i]
-    }
-    return out
-}
+  return table.concat(parts, " + ")
+end
 
-function print_binding(mods, key, desc,    left) {
-    mods = normalize_mods(lua_expr(mods))
-    key = lua_expr(key)
-    desc = unquote(desc)
+local function stub()
+  return setmetatable({}, {
+    __index = function(table_value, key)
+      local child = stub()
+      rawset(table_value, key, child)
+      return child
+    end,
+    __call = function()
+      return stub()
+    end,
+  })
+end
 
-    if (desc == "") {
-        return
-    }
+hl = stub()
 
-    left = mods
-    if (left != "" && key != "") {
-        left = left " + " key
-    } else if (key != "") {
-        left = key
-    }
+function hl.bind(binding, _, flags)
+  if type(flags) ~= "table" or type(flags.description) ~= "string" or flags.description == "" then
+    return
+  end
 
-    print left " | " desc
-}
+  print(normalize_binding(binding) .. " | " .. flags.description)
+end
 
-/^[[:space:]]*local[[:space:]]+mainMod[[:space:]]*=/ {
-    vars["mainMod"] = unquote(substr($0, index($0, "=") + 1))
-    next
-}
+local config_dir = config_file:match("^(.*)/[^/]+$")
+if config_dir then
+  package.path = config_dir .. "/?.lua;" .. package.path
+end
 
-/^[[:space:]]*--/ {
-    next
-}
-
-/^[[:space:]]*\{.*\}[[:space:]]*,?[[:space:]]*$/ {
-    line = $0
-    sub(/^[[:space:]]*\{[[:space:]]*/, "", line)
-    sub(/[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/, "", line)
-    count = split(line, fields, /,[[:space:]]*/)
-    if (count >= 3) {
-        print_binding(fields[1], fields[2], fields[3])
-    }
-    next
-}
-
-/^[[:space:]]*bind_exec\(/ {
-    line = $0
-    sub(/^[[:space:]]*bind_exec\([[:space:]]*/, "", line)
-    sub(/[[:space:]]*\)[[:space:]]*$/, "", line)
-    count = split(line, fields, /,[[:space:]]*/)
-    if (count >= 3) {
-        print_binding(fields[1], fields[2], fields[3])
-    }
-}
-' "$HYPERLAND_FILE" > "$combined_file"
+local ok, err = pcall(dofile, config_file)
+if not ok then
+  io.stderr:write(tostring(err) .. "\n")
+  os.exit(1)
+end
+LUA
 else
     awk '
 function trim(str) {

@@ -58,6 +58,14 @@ local function dispatch_command(dispatcher, arg)
     return hl.dsp.workspace.swap_monitors({ monitor1 = monitor1, monitor2 = monitor2 })
   elseif dispatcher == "layoutmsg" then
     return hl.dsp.layout(arg)
+  elseif dispatcher == "hymission:toggle" then
+    return hl.plugin.hymission.toggle(arg ~= "" and arg or nil)
+  elseif dispatcher == "hymission:open" then
+    return hl.plugin.hymission.open(arg ~= "" and arg or nil)
+  elseif dispatcher == "hymission:close" then
+    return hl.plugin.hymission.close()
+  elseif dispatcher == "hymission:debug_current_layout" then
+    return hl.plugin.hymission.debug_current_layout()
   elseif dispatcher == "sendshortcut" then
     local mods, key, window = arg:match("^%s*([^,]+),%s*([^,]+),%s*(.+)%s*$")
     return hl.dsp.send_shortcut({ mods = normalize_mods(mods), key = key, window = window })
@@ -143,9 +151,6 @@ local simple_binds = {
 for _, item in ipairs(simple_binds) do
   bind_exec(item[1], item[2], item[3], item[4])
 end
-
-bind_exec("ALT", "TAB", "Window Switcher", "~/bin/hypr-alttab")
-bind_exec(mainMod .. " ALT", "TAB", "Window Switcher", "~/bin/hypr-alttab")
 
 bind("bindd", "ALT", "F9", "Start OBS Recording", "sendshortcut", "ALT, F9, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT SHIFT", "F9", "Stop OBS Recording", "sendshortcut", "ALT SHIFT, F9, class:^com\\.obsproject\\.Studio$")
@@ -239,7 +244,9 @@ bind("bindd", mainMod, "Q", "Kill Active Window", "killactive", "")
 bind("bindd", mainMod .. " SHIFT", "Q", "Kill Active Window", "killactive", "")
 bind("bindd", mainMod .. " SHIFT CTRL", "F12", "Swap Active Workspaces Between Monitors", "swapactiveworkspaces", "DP-1 HDMI-A-1")
 bind("binddl", mainMod, "L", "Toggle Nightlight", "exec", "~/bin/system-toggle-nightlight")
-bind_exec(mainMod, "TAB", "Toggle Workspace Overview", "hyprctl eval 'hl.plugin.hyprspace.toggle()' || notify-send 'Hyprspace unavailable' 'The overview plugin is not loaded.'")
+-- bind_exec(mainMod, "TAB", "Toggle Workspace Overview", "~/bin/hypr-toggle-overview")
+bind("binddl", mainMod, "TAB", "Toggle Workspace Control", "hymission:open", "onlycurrentworkspace")
+bind("binddl", mainMod .. " SHIFT", "TAB", "Toggle Mission Control", "hymission:open", "forceall")
 bind("bind", mainMod .. " SHIFT", "mouse_down", "", "workspace", "+1")
 bind("bind", mainMod .. " SHIFT", "mouse_up", "", "workspace", "-1")
 bind("bind", mainMod, "mouse_down", "", "layoutmsg", "focus right")
