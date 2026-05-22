@@ -204,7 +204,7 @@
 		// "format": "",
 		"tooltip": false,
     "on-click": "~/bin/hypr-toggle-workspace-control",
-    // "on-click-right": "~/bin/hypr-toggle-mission-control"
+    "on-click-right": "~/bin/hypr-toggle-mission-control"
 	},
 
   "custom/arrow11": {

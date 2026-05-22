@@ -13,7 +13,7 @@ right_margin = 24
 bottom_margin = 24
 left_margin = 30
 minimum_height = 240
-above_windows = true
+above_windows = false
 focusable = true
 exclusive_zone = 0
 

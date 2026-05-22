@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+HYPRCTL_BIN="/usr/bin/hyprctl"
+OBS_WINDOW_MATCH="class:^com[.]obsproject[.]Studio$"
+
 notify() {
     local body="$1"
     if command -v notify-send >/dev/null 2>&1; then
@@ -55,7 +58,7 @@ send_shortcut() {
     local modifiers="$1"
     local key="$2"
 
-    hyprctl dispatch sendshortcut "$modifiers" "$key" 'class:^com\\.obsproject\\.Studio$' >/dev/null
+    "$HYPRCTL_BIN" dispatch "hl.dsp.send_shortcut({ mods = \"$modifiers\", key = \"$key\", window = \"$OBS_WINDOW_MATCH\" })" >/dev/null
 }
 
 action="${1:-}"

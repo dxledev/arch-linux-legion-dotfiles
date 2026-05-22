@@ -10,7 +10,7 @@ right_margin = 30
 bottom_margin = 24
 left_margin = 24
 minimum_height = 360
-above_windows = true
+above_windows = false
 focusable = true
 
 [panel]

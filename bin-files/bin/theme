@@ -48,8 +48,9 @@ ln -sfn "$NEW_THEME" "$CURRENT_LINK"
 "$SCRIPT_DIR/reload-mako" || true
 "$SCRIPT_DIR/reload-ward" || true
 
-"$SCRIPT_DIR/reload-discord" >/dev/null 2>&1 &
+"$SCRIPT_DIR/reload-discord" >/dev/null 2>&1 & 
 "$SCRIPT_DIR/spicetify-set" --live "$1" >/dev/null 2>&1 &
+"$SCRIPT_DIR/reload-obsidian" >/dev/null 2>&1 &
 
 "$SCRIPT_DIR/reload-celluloid" || true
 "$SCRIPT_DIR/reload-swayosd" || true

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+cp ~/.config/themes/current/obsidian.css "/home/dxle/files/documents/Obsidian Vault/.obsidian/snippets/theme.css"

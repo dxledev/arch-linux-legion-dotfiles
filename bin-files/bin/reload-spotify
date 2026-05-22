@@ -3,9 +3,11 @@
 set -euo pipefail
 
 APP_CLASS=spotify
+HYPRCTL_BIN=/usr/bin/hyprctl
+JQ_BIN=/usr/bin/jq
 
 find_spotify_address() {
-    hyprctl clients -j | jq -r '
+    "$HYPRCTL_BIN" clients -j | "$JQ_BIN" -r '
         map(select((.class | ascii_downcase) == "'"$APP_CLASS"'"))[0].address // empty
     '
 }
@@ -16,6 +18,4 @@ if [ -z "$spotify_address" ]; then
     exit 0
 fi
 
-# hyprctl dispatch focuswindow "address:$spotify_address" >/dev/null
-# sleep 0.05
-hyprctl dispatch sendshortcut "CTRL SHIFT, r, class:^(spotify)$" >/dev/null
+"$HYPRCTL_BIN" dispatch "hl.dsp.send_shortcut({ mods = \"CTRL SHIFT\", key = \"R\", window = \"address:$spotify_address\" })" >/dev/null
