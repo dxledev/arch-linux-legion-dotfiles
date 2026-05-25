@@ -17,3 +17,7 @@ export PATH=$PATH:/home/dxle/.spicetify
 export PATH="$PATH:/home/dxle/.lmstudio/bin"
 # End of LM Studio CLI section
 
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/dxle/.local/bin:$PATH"

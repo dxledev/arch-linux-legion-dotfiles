@@ -10,7 +10,7 @@ THEME_RAW="$(basename "$THEME_PATH")"
 WALLPAPER_DIR="$THEME_PATH/wallpapers"
 WALLPAPER_DIR_RESOLVED="$(readlink -f "$WALLPAPER_DIR" 2>/dev/null || printf '%s' "$WALLPAPER_DIR")"
 CURRENT_LINK="$THEME_LINK/wallpaper.png"
-KITTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf"
+ALACRITTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml"
 ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/theme.rasi"
 MENU_ID="menu-background"
 PID_FILE="/tmp/menu-rofi.pid"
@@ -165,8 +165,20 @@ escape_rofi_string() {
 current_menu_font() {
     local font_name
 
-    if [[ -f "$KITTY_CONF" ]]; then
-        font_name="$(sed -n 's/^font_family[[:space:]]\+//p' "$KITTY_CONF" | head -n 1)"
+    if [[ -f "$ALACRITTY_CONF" ]]; then
+        font_name="$(
+            awk '
+                /^\[font\.normal\]$/ { in_normal = 1; next }
+                /^\[/ { in_normal = 0 }
+                in_normal && /^[[:space:]]*family[[:space:]]*=/ {
+                    value = $0
+                    sub(/^[^=]+=[[:space:]]*/, "", value)
+                    gsub(/^"|"$/, "", value)
+                    print value
+                    exit
+                }
+            ' "$ALACRITTY_CONF"
+        )"
         [[ -n "$font_name" ]] && {
             printf '%s\n' "$font_name"
             return

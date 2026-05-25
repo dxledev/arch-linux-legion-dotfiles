@@ -62,3 +62,7 @@ export PATH="$PATH:/home/dxle/.lmstudio/bin"
 
 export OPENAI_BASE_URL="http://localhost:1234/v1"
 export OPENAI_API_KEY="lm-studio"
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/dxle/.local/bin:$PATH"

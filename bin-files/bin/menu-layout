@@ -34,10 +34,10 @@ ROFI_MENU_ACTIVE=0
 HYPR_AUTORELOAD_SUSPENDED=0
 WINDOW_MOVE_ANIMATION_SUSPENDED=0
 WINDOW_MOVE_ANIMATION_RULE=""
-LAYOUTS=("dwindle" "scrolling" "master" "monocle")
+LAYOUTS=("dwindle" "scrolling" "master" "monocle" "lua:grid" "lua:spiral" "lua:manual" "lua:centerstack")
 
 usage() {
-    printf 'Usage: %s [--layout master|dwindle|scrolling|monocle] [--config PATH] [--animations-config PATH] [--reload] [--keep-window-animation] [--dry-run]\n' "$(basename "$0")"
+    printf 'Usage: %s [--layout master|dwindle|scrolling|monocle|grid|spiral|manual|centerstack] [--config PATH] [--animations-config PATH] [--reload] [--keep-window-animation] [--dry-run]\n' "$(basename "$0")"
 }
 
 notify() {
@@ -80,6 +80,18 @@ format_layout_display() {
             ;;
         monocle)
             printf 'Monocle\n'
+            ;;
+        "lua:grid")
+            printf 'Grid\n'
+            ;;
+        "lua:spiral")
+            printf 'Spiral\n'
+            ;;
+        "lua:manual")
+            printf 'Manual\n'
+            ;;
+        "lua:centerstack")
+            printf 'Center-Stack\n'
             ;;
         *)
             printf '%s\n' "$1"

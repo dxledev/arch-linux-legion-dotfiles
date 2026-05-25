@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+THEME_ROOT="${THEME_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/themes}"
+OUTPUT_FILENAME="${OUTPUT_FILENAME:-ghostty.ghostty}"
+DRY_RUN=0
+
+usage() {
+    /usr/bin/printf 'Usage: generate-ghostty-theme [--dry-run] <theme>\n'
+}
+
+die() {
+    /usr/bin/printf '%s\n' "$1" >&2
+    exit 1
+}
+
+parse_args() {
+    while (($# > 0)); do
+        case "$1" in
+            -n|--dry-run)
+                DRY_RUN=1
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                usage >&2
+                die "Unknown option: $1"
+                ;;
+            *)
+                [[ -z "${THEME_NAME:-}" ]] || die "Only one theme may be specified."
+                THEME_NAME="$1"
+                ;;
+        esac
+
+        shift
+    done
+
+    [[ $# -eq 0 ]] || die "Unexpected argument: $1"
+    [[ -n "${THEME_NAME:-}" ]] || {
+        usage >&2
+        exit 1
+    }
+}
+
+validate_theme_name() {
+    local theme_name="$1"
+
+    [[ "$theme_name" != "." && "$theme_name" != ".." ]] || die "Invalid theme name: $theme_name"
+    [[ "$theme_name" != */* ]] || die "Theme name must not contain slashes."
+}
+
+get_section() {
+    local alacritty_file="$1"
+    local section="$2"
+
+    /usr/bin/awk -v section="$section" '
+        $0 ~ "^\\[" section "\\][[:space:]]*$" { in_section = 1; next }
+        /^\[/ { in_section = 0 }
+        in_section
+    ' "$alacritty_file"
+}
+
+extract_color() {
+    local line="$1"
+
+    /usr/bin/sed -nE "s/.*=[[:space:]]*['\"](#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?)['\"].*/\1/p" <<<"$line"
+}
+
+read_color() {
+    local alacritty_file="$1"
+    local section="$2"
+    local key="$3"
+    local line
+    local name
+    local value
+
+    while IFS= read -r line; do
+        name="${line%%=*}"
+        name="${name#"${name%%[![:space:]]*}"}"
+        name="${name%"${name##*[![:space:]]}"}"
+
+        [[ "$name" == "$key" ]] || continue
+
+        value="$(extract_color "$line")"
+        [[ -n "$value" ]] && {
+            /usr/bin/printf '%s\n' "$value"
+            return 0
+        }
+    done < <(get_section "$alacritty_file" "$section")
+
+    return 1
+}
+
+require_color() {
+    local alacritty_file="$1"
+    local section="$2"
+    local key="$3"
+
+    read_color "$alacritty_file" "colors.$section" "$key" || die "Missing colors.$section.$key in $alacritty_file"
+}
+
+generate_ghostty_theme() {
+    local alacritty_file="$1"
+    local background
+    local foreground
+    local color_name
+    local index
+
+    background="$(require_color "$alacritty_file" "primary" "background")"
+    foreground="$(require_color "$alacritty_file" "primary" "foreground")"
+
+    /usr/bin/printf 'background = %s\n' "$background"
+    /usr/bin/printf 'foreground = %s\n\n' "$foreground"
+
+    local -a normal_colors=(black red green yellow blue magenta cyan white)
+    local -a bright_colors=(black red green yellow blue magenta cyan white)
+
+    for index in "${!normal_colors[@]}"; do
+        color_name="${normal_colors[$index]}"
+        /usr/bin/printf 'palette = %s=%s\n' "$index" "$(require_color "$alacritty_file" "normal" "$color_name")"
+    done
+
+    for index in "${!bright_colors[@]}"; do
+        color_name="${bright_colors[$index]}"
+        /usr/bin/printf 'palette = %s=%s\n' "$((index + 8))" "$(require_color "$alacritty_file" "bright" "$color_name")"
+    done
+}
+
+main() {
+    parse_args "$@"
+    validate_theme_name "$THEME_NAME"
+
+    local theme_dir="$THEME_ROOT/$THEME_NAME"
+    local alacritty_file="$theme_dir/alacritty.toml"
+    local ghostty_file="$theme_dir/$OUTPUT_FILENAME"
+
+    [[ -d "$theme_dir" ]] || die "Theme '$THEME_NAME' does not exist in $THEME_ROOT"
+    [[ -f "$alacritty_file" ]] || die "No alacritty.toml found in $theme_dir"
+    [[ -r "$alacritty_file" ]] || die "Cannot read $alacritty_file"
+
+    if ((DRY_RUN)); then
+        generate_ghostty_theme "$alacritty_file"
+        return
+    fi
+
+    generate_ghostty_theme "$alacritty_file" >"$ghostty_file"
+    /usr/bin/printf 'Generated %s\n' "$ghostty_file"
+}
+
+main "$@"

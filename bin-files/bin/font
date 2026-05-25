@@ -50,7 +50,6 @@ fi
 
 WAYBAR_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
 DASHBOARD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dashboard"
-KITTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf"
 ALACRITTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml"
 ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/theme.rasi"
 MAKO_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/mako/config"
@@ -107,8 +106,6 @@ for file in "$DASHBOARD_DIR"/styles/*.qml; do
     [[ -f "$file" ]] || continue
     FONT_NAME="$FONT_NAME" perl -0pi -e 's/property string font: "[^"]*"/property string font: "$ENV{FONT_NAME}"/' "$file"
 done
-
-FONT_NAME="$FONT_NAME" perl -0pi -e 's/^font_family\s+.*/font_family $ENV{FONT_NAME}/m' "$KITTY_CONF"
 
 if [[ -f "$ALACRITTY_CONF" ]]; then
     set_alacritty_font "$ALACRITTY_CONF" "$FONT_NAME"

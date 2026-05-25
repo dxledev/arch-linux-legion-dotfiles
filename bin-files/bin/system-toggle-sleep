@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LAUNCH_HYPRIDLE_SCRIPT="${SCRIPT_DIR}/launch-hypridle"
 PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
 PKILL_BIN="${PKILL_BIN:-/usr/bin/pkill}"
-KITTY_BIN="${KITTY_BIN:-/usr/bin/kitty}"
+ALACRITTY_BIN="${ALACRITTY_BIN:-/usr/bin/alacritty}"
 SH_BIN="${SH_BIN:-/usr/bin/sh}"
 HYPRIDLE_BIN="${HYPRIDLE_BIN:-/usr/bin/hypridle}"
 
@@ -44,23 +44,23 @@ cycle_idle_lock() {
 }
 
 spawn_sleep_windows() {
-    "$KITTY_BIN" \
+    "$ALACRITTY_BIN" \
         --class blackscreen \
         --title blackscreen-hdmi \
-        --override background=#000000 \
-        --override foreground=#000000 \
-        --override cursor=#000000 \
-        --override cursor_text_color=#000000 \
-        "$SH_BIN" -c 'tput civis; clear; sleep infinity' &
+        -o 'colors.primary.background="#000000"' \
+        -o 'colors.primary.foreground="#000000"' \
+        -o 'colors.cursor.cursor="#000000"' \
+        -o 'colors.cursor.text="#000000"' \
+        -e "$SH_BIN" -c 'tput civis; clear; sleep infinity' &
 
-    "$KITTY_BIN" \
+    "$ALACRITTY_BIN" \
         --class blackscreen \
         --title blackscreen-dp \
-        --override background=#000000 \
-        --override foreground=#000000 \
-        --override cursor=#000000 \
-        --override cursor_text_color=#000000 \
-        "$SH_BIN" -c 'tput civis; clear; sleep infinity' &
+        -o 'colors.primary.background="#000000"' \
+        -o 'colors.primary.foreground="#000000"' \
+        -o 'colors.cursor.cursor="#000000"' \
+        -o 'colors.cursor.text="#000000"' \
+        -e "$SH_BIN" -c 'tput civis; clear; sleep infinity' &
 }
 
 main() {

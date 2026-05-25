@@ -1,0 +1,19 @@
+background = #020202
+foreground = #d1cfcf
+
+palette = 0=#1c1c1c
+palette = 1=#b59696
+palette = 2=#a8b596
+palette = 3=#b5ae96
+palette = 4=#96a6b5
+palette = 5=#ad96b5
+palette = 6=#96b5b2
+palette = 7=#c3c3c3
+palette = 8=#9a9494
+palette = 9=#e0c7c7
+palette = 10=#d3e0c7
+palette = 11=#e0d9c7
+palette = 12=#c7d4e0
+palette = 13=#d8c7e0
+palette = 14=#c7e0dc
+palette = 15=#e6e4e4

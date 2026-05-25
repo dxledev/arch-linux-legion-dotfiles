@@ -84,8 +84,9 @@
         "class<.*chrome.*> title<.*LazyVim.*>": "󰒲", 
         "class<.*chrome.*> title<.*Bash.*>": "󱆃", 
         "class<.*chrome.*> title<.*Git Cheat Sheet.*>": "", 
-        "class<kitty>": "", // Windows that contain "kitty" in either class or title. For optimization reasons, it will only match against a title if at least one other window explicitly matches against a title.
-        "class<alacritty>": "",
+        "class<kitty>": "", // Windows that contain "kitty" in either class or title. For optimization reasons, it will only match against a title if at least one other window explicitly matches against a title.
+        "class<alacritty>": "",
+        "class<com.mitchellh.ghostty>": "",
         "class<kitty> title<.*nvim.*>": "", // Windows that contain "kitty" in either class or title. For optimization reasons, it will only match against a title if at least one other window explicitly matches against a title.
         "class<kitty> title<.*btop.*>": "󰨇", // Windows that contain "kitty" in either class or title. For optimization reasons, it will only match against a title if at least one other window explicitly matches against a title.
         "class<localsend>": "", // Windows whose classes are "chromium"

@@ -18,7 +18,6 @@ options="󰸌  Themes
   Waybar
 󰮫  Rofi
   Ward
-  Kitty
   Alacritty"
 
 HOME_DIR="/home/dxle"
@@ -78,10 +77,6 @@ case "$chosen" in
   *Ward)
     "$SCRIPT_DIR/launch-terminal-floating" 1400 800 nvim ~/.config/ward &
     notify-send -t 3000 "Config" "Editing $HOME_DIR/.config/ward"
-    ;;
-  *Kitty)
-    "$SCRIPT_DIR/launch-terminal-floating" 1400 800 nvim ~/.config/kitty/kitty.conf &
-    notify-send -t 3000 "Config" "Editing $HOME_DIR/.config/kitty/kitty.conf"
     ;;
   *Alacritty)
     "$SCRIPT_DIR/launch-terminal-floating" 1400 800 nvim ~/.config/alacritty/alacritty.toml &

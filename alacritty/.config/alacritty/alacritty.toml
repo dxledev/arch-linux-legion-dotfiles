@@ -5,15 +5,16 @@ general.import = [
   "~/.config/themes/current/alacritty.toml"
 ]
 
-[window]
-opacity = 0.92
-
 [window.padding]
-x = 10
-y = 10
+x = 15
+y = 20
 
 [font]
 size = 14.0
+
+[cursor]
+style = { shape = "Block", blinking = "Always" }
+blink_interval = 400
 
 [font.normal]
 family = "CaskaydiaMono Nerd Font"

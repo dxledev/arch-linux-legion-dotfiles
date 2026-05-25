@@ -1,50 +1,50 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# Fallback if TERMINAL isn't set
-: "${TERMINAL:=kitty}"
+: "${TERMINAL:=ghostty}"
 
 term_bin="${TERMINAL%% *}"
 
 if ! command -v "$term_bin" >/dev/null 2>&1; then
-    TERMINAL=kitty
-    term_bin=kitty
+    TERMINAL=ghostty
+    term_bin=ghostty
 fi
 
 case "$term_bin" in
-    kitty|alacritty|foot|ghostty|xterm)
-        if [ "$#" -eq 0 ]; then
+    alacritty|foot|ghostty|xterm)
+        if [[ "$#" -eq 0 ]]; then
             exec "$term_bin"
         fi
         exec "$term_bin" -e "$@"
         ;;
     wezterm)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             exec "$term_bin" start --always-new-process
         fi
         exec "$term_bin" start --always-new-process -- "$@"
         ;;
     gnome-terminal)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             exec "$term_bin"
         fi
         exec "$term_bin" -- "$@"
         ;;
     konsole)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             exec "$term_bin"
         fi
         exec "$term_bin" -e "$@"
         ;;
     xfce4-terminal)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             exec "$term_bin"
         fi
         exec "$term_bin" --command="$*"
         ;;
     *)
-        if [ "$#" -eq 0 ]; then
-            exec kitty
+        if [[ "$#" -eq 0 ]]; then
+            exec alacritty
         fi
-        exec kitty -e "$@"
+        exec alacritty -e "$@"
         ;;
 esac

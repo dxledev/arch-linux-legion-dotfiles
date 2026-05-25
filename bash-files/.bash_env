@@ -49,7 +49,7 @@ export TRASH=~/.local/share/Trash
 export ICONS=~/.local/share/icons
 export GLOBAL_ICONS=/usr/share/icons
 
-export TERMINAL="kitty"
+export TERMINAL="ghostty"
 
 export VIDEO_PLAYER="mpv"
 export VIDEOS="/home/dxle/files/videos"
@@ -65,4 +65,3 @@ export KEYBINDINGS="$HOME/.config/hypr/keybindings.conf"
 
 export QT_QPA_PLATFORMTHEME=qt6ct
 export FZF_DEFAULT_OPTS="--ansi"
-

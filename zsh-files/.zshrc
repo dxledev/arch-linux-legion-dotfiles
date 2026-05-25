@@ -120,3 +120,7 @@ npx() {
   load-nvm
   npx "$@"
 }
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/dxle/.local/bin:$PATH"

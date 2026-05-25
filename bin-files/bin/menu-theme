@@ -119,18 +119,20 @@ element_font_size() {
     printf '%s\n' "$smaller_size"
 }
 
-kitty_color_candidates() {
-    local kitty_conf="$1"
+alacritty_color_candidates() {
+    local alacritty_conf="$1"
 
-    [[ -r "$kitty_conf" ]] || return 0
+    [[ -r "$alacritty_conf" ]] || return 0
 
     /usr/bin/awk '
-        $1 == "background" || $1 == "foreground" || $1 ~ /^color([0-9]|1[0-5])$/ {
-            if ($2 ~ /^#[0-9A-Fa-f]{6}$/) {
-                print 1, tolower($2)
+        /^\[colors\.(primary|normal|bright)\]$/ { in_colors = 1; next }
+        /^\[/ { in_colors = 0 }
+        in_colors {
+            if (match($0, /#[0-9A-Fa-f]{6}/)) {
+                print 1, tolower(substr($0, RSTART, RLENGTH))
             }
         }
-    ' "$kitty_conf"
+    ' "$alacritty_conf"
 }
 
 theme_variable_color_candidates() {
@@ -443,11 +445,11 @@ algorithm_palette() {
 
 theme_palette() {
     local theme_path="$1"
-    local kitty_conf="$theme_path/kitty.conf"
+    local alacritty_conf="$theme_path/alacritty.toml"
 
     {
         theme_variable_color_candidates "$theme_path" | select_prevalent_colors 2 | derive_palette_colors
-        kitty_color_candidates "$kitty_conf" | select_primary_colors 4
+        alacritty_color_candidates "$alacritty_conf" | select_primary_colors 4
     } | algorithm_palette 4
 }
 
@@ -519,7 +521,6 @@ write_icon_file() {
 palette_icon() {
     local theme="$1"
     local theme_path="$2"
-    local kitty_conf="$theme_path/kitty.conf"
     local cache_icon
     local colors=()
 

@@ -1,72 +1,72 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-: "${TERMINAL:=kitty}"
+: "${TERMINAL:=alacritty}"
+
+readonly HYPRCTL_BIN="/usr/bin/hyprctl"
 
 term_bin="${TERMINAL%% *}"
 
-# Default size
 WIDTH="${1:-1200}"
 HEIGHT="${2:-800}"
 
-# Remove width/height args if provided
-if [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]]; then
+if [[ "${1:-}" =~ ^[0-9]+$ && "${2:-}" =~ ^[0-9]+$ ]]; then
     shift 2
 fi
 
-# Fallback if terminal missing
 if ! command -v "$term_bin" >/dev/null 2>&1; then
-    term_bin=kitty
+    term_bin=alacritty
 fi
 
 launch_terminal() {
-    RULES="[workspace special:floating; float; size $WIDTH $HEIGHT; center; tag:scratchterm]"
+    local rules="[workspace special:floating; float; size $WIDTH $HEIGHT; center; tag:scratchterm]"
     local command=""
-    printf -v command '%q ' "$@"
+    printf -v command "%q " "$@"
     command="${command% }"
-    hyprctl dispatch exec "$RULES $command"
+    "$HYPRCTL_BIN" dispatch exec "$rules $command"
 }
 
 case "$term_bin" in
-    kitty|alacritty|foot|ghostty|xterm)
-        if [ "$#" -eq 0 ]; then
+    alacritty|foot|ghostty|xterm)
+        if [[ "$#" -eq 0 ]]; then
             launch_terminal "$term_bin"
         else
             launch_terminal "$term_bin" -e "$@"
         fi
         ;;
     wezterm)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             launch_terminal "$term_bin" start --always-new-process
         else
             launch_terminal "$term_bin" start --always-new-process -- "$@"
         fi
         ;;
     gnome-terminal)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             launch_terminal "$term_bin"
         else
             launch_terminal "$term_bin" -- "$@"
         fi
         ;;
     konsole)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             launch_terminal "$term_bin"
         else
             launch_terminal "$term_bin" -e "$@"
         fi
         ;;
     xfce4-terminal)
-        if [ "$#" -eq 0 ]; then
+        if [[ "$#" -eq 0 ]]; then
             launch_terminal "$term_bin"
         else
             launch_terminal "$term_bin" --command="$*"
         fi
         ;;
     *)
-        if [ "$#" -eq 0 ]; then
-            launch_terminal kitty
+        if [[ "$#" -eq 0 ]]; then
+            launch_terminal alacritty
         else
-            launch_terminal kitty -e "$@"
+            launch_terminal alacritty -e "$@"
         fi
         ;;
 esac

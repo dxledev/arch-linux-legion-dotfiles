@@ -2,49 +2,58 @@
 
 set -euo pipefail
 
-FILTER=4500
+FILTER="${SYSTEM_NIGHTLIGHT_FILTER:-4500}"
 STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/system-toggle-nightlight.state"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
-NIGHTLIGHT_NOTIFY_APP_NAME="${NIGHTLIGHT_NOTIFY_APP_NAME:-system-toggle-nightlight}"
-NIGHTLIGHT_NOTIFY_STACK_TAG="${NIGHTLIGHT_NOTIFY_STACK_TAG:-system-toggle-nightlight}"
+SWAYOSD_MONITOR="${SWAYOSD_MONITOR:-HDMI-A-1}"
 
+# Exposing configuration for binary paths to support custom environments
+PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+HYPRSUNSET_BIN="${HYPRSUNSET_BIN:-/usr/bin/hyprsunset}"
+SLEEP_BIN="${SLEEP_BIN:-/usr/bin/sleep}"
+SWAYOSD_CLIENT_BIN="${SWAYOSD_CLIENT_BIN:-/home/dxle/bin/swayosd-client}"
+
+# Use swayosd-client for uniform visual style with system brightness/volume OSDs
 notify() {
-  "$NOTIFY_SEND_BIN" \
-    -a "$NIGHTLIGHT_NOTIFY_APP_NAME" \
-    -h "string:x-dunst-stack-tag:$NIGHTLIGHT_NOTIFY_STACK_TAG" \
-    -t 2000 \
-    "System" \
-    "$1"
+  local message="$1"
+  local icon="$2"
+
+  "$SWAYOSD_CLIENT_BIN" \
+    --duration 2000 \
+    --monitor "$SWAYOSD_MONITOR" \
+    --custom-message "$message" \
+    --custom-icon "$icon"
 }
 
 ensure_hyprsunset() {
-  if pgrep -x hyprsunset >/dev/null 2>&1; then
+  if "$PGREP_BIN" -x hyprsunset >/dev/null 2>&1; then
     return
   fi
 
   if [ -x "$SCRIPT_DIR/launch-hyprsunset" ]; then
     "$SCRIPT_DIR/launch-hyprsunset"
   else
-    hyprsunset >/dev/null 2>&1 &
+    # Run hyprsunset in background to start the nightlight daemon if not running
+    "$HYPRSUNSET_BIN" >/dev/null 2>&1 &
     disown
   fi
 
-  sleep 0.2
+  "$SLEEP_BIN" 0.2
 }
 
 state="off"
-if pgrep -x hyprsunset >/dev/null 2>&1 && [ -f "$STATE_FILE" ]; then
+if "$PGREP_BIN" -x hyprsunset >/dev/null 2>&1 && [ -f "$STATE_FILE" ]; then
   state="$(<"$STATE_FILE")"
 fi
 
 if [ "$state" = "on" ]; then
-  hyprctl hyprsunset identity
-  notify "Nightlight: <b>OFF</b>"
+  "$HYPRCTL_BIN" hyprsunset identity
+  notify "Nightlight: OFF" "night-light-disabled-symbolic"
   printf 'off\n' > "$STATE_FILE"
 else
   ensure_hyprsunset
-  hyprctl hyprsunset temperature "$FILTER"
-  notify "Nightlight: <b><span foreground=\"var(--secondary-color)\">ON</span></b>"
+  "$HYPRCTL_BIN" hyprsunset temperature "$FILTER"
+  notify "Nightlight: ON" "night-light-symbolic"
   printf 'on\n' > "$STATE_FILE"
 fi
