@@ -6,6 +6,18 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SEARCH_DIR="$HOME"
 MENU_ID="menu-open-pdf"
 PID_FILE="/tmp/menu-rofi.pid"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+
+lua_string() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+
+    printf '"%s"' "$value"
+}
 
 open_pdf() {
     local real_path="$1"
@@ -24,9 +36,9 @@ open_pdf() {
 
     notify-send -t 5000 "Files" "Opening $display_path"
 
-    if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    if command -v "$HYPRCTL_BIN" >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
         printf -v command 'zathura %q' "$real_path"
-        exec hyprctl dispatch exec "$command"
+        exec "$HYPRCTL_BIN" dispatch "hl.dsp.exec_cmd($(lua_string "$command"))"
     fi
 
     nohup zathura "$real_path" >/dev/null 2>&1 &

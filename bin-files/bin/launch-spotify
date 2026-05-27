@@ -31,8 +31,8 @@ if [ -z "$spotify_address" ]; then
     exit 1
 fi
 
-hyprctl dispatch focuswindow "address:$spotify_address"
-hyprctl dispatch setfloating
-hyprctl dispatch resizeactive exact "$WIDTH" "$HEIGHT"
-hyprctl dispatch centerwindow
-hyprctl dispatch movetoworkspacesilent special:mediaspace
+hypr-dispatch focuswindow "address:$spotify_address"
+hypr-dispatch setfloating
+hypr-dispatch resizeactive exact "$WIDTH" "$HEIGHT"
+hypr-dispatch centerwindow
+hypr-dispatch movetoworkspacesilent special:mediaspace

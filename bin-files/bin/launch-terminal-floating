@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${TERMINAL:=alacritty}"
+: "${TERMINAL:=ghostty}"
 
-readonly HYPRCTL_BIN="/usr/bin/hyprctl"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 term_bin="${TERMINAL%% *}"
 
@@ -15,58 +17,128 @@ if [[ "${1:-}" =~ ^[0-9]+$ && "${2:-}" =~ ^[0-9]+$ ]]; then
 fi
 
 if ! command -v "$term_bin" >/dev/null 2>&1; then
-    term_bin=alacritty
+    term_bin=ghostty
 fi
 
+lua_string() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+
+    printf '"%s"' "$value"
+}
+
+find_window_address_by_marker() {
+    local class_marker="$1"
+    local title_marker="$2"
+
+    "$HYPRCTL_BIN" clients -j | "$JQ_BIN" -r \
+        --arg class_marker "$class_marker" \
+        --arg title_marker "$title_marker" '
+        map(
+            select(
+                (.class // "") == $class_marker
+                or (.initialClass // "") == $class_marker
+                or (.title // "") == $title_marker
+                or (.initialTitle // "") == $title_marker
+            )
+        )[0].address // empty
+    '
+}
+
+apply_floating_layout() {
+    local window_address="$1"
+
+    "$SCRIPT_DIR/hypr-dispatch" focuswindow "address:$window_address"
+    "$SCRIPT_DIR/hypr-dispatch" setfloating
+    "$SCRIPT_DIR/hypr-dispatch" resizeactive exact "$WIDTH" "$HEIGHT"
+    "$SCRIPT_DIR/hypr-dispatch" centerwindow
+    "$SCRIPT_DIR/hypr-dispatch" movetoworkspacesilent special:floating
+}
+
 launch_terminal() {
-    local rules="[workspace special:floating; float; size $WIDTH $HEIGHT; center; tag:scratchterm]"
+    local class_marker="$1"
+    local title_marker="$2"
     local command=""
+    shift 2
+
     printf -v command "%q " "$@"
     command="${command% }"
-    "$HYPRCTL_BIN" dispatch exec "$rules $command"
+
+    "$HYPRCTL_BIN" dispatch "hl.dsp.exec_cmd($(lua_string "$command"), {
+        float = true,
+        size = { ${WIDTH}, ${HEIGHT} },
+        center = true,
+        workspace = \"special:floating\"
+    })"
+
 }
 
 case "$term_bin" in
-    alacritty|foot|ghostty|xterm)
+    alacritty|foot|xterm)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
         if [[ "$#" -eq 0 ]]; then
-            launch_terminal "$term_bin"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin"
         else
-            launch_terminal "$term_bin" -e "$@"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" -e "$@"
+        fi
+        ;;
+    ghostty)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
+        if [[ "$#" -eq 0 ]]; then
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" "--class=$class_marker" "--title=$title_marker"
+        else
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" "--class=$class_marker" "--title=$title_marker" -e "$@"
         fi
         ;;
     wezterm)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
         if [[ "$#" -eq 0 ]]; then
-            launch_terminal "$term_bin" start --always-new-process
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" start --always-new-process
         else
-            launch_terminal "$term_bin" start --always-new-process -- "$@"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" start --always-new-process -- "$@"
         fi
         ;;
     gnome-terminal)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
         if [[ "$#" -eq 0 ]]; then
-            launch_terminal "$term_bin"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin"
         else
-            launch_terminal "$term_bin" -- "$@"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" -- "$@"
         fi
         ;;
     konsole)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
         if [[ "$#" -eq 0 ]]; then
-            launch_terminal "$term_bin"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin"
         else
-            launch_terminal "$term_bin" -e "$@"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" -e "$@"
         fi
         ;;
     xfce4-terminal)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
         if [[ "$#" -eq 0 ]]; then
-            launch_terminal "$term_bin"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin"
         else
-            launch_terminal "$term_bin" --command="$*"
+            launch_terminal "$class_marker" "$title_marker" "$term_bin" --command="$*"
         fi
         ;;
     *)
+        class_marker="scratchterm-$RANDOM-$$"
+        title_marker="$class_marker"
         if [[ "$#" -eq 0 ]]; then
-            launch_terminal alacritty
+            launch_terminal "$class_marker" "$title_marker" alacritty
         else
-            launch_terminal alacritty -e "$@"
+            launch_terminal "$class_marker" "$title_marker" alacritty -e "$@"
         fi
         ;;
 esac

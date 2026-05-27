@@ -39,5 +39,5 @@ if [ -z "$discord_address" ]; then
     exit 1
 fi
 
-hyprctl dispatch focuswindow "address:$discord_address"
-hyprctl dispatch movetoworkspacesilent special:discordspace
+hypr-dispatch focuswindow "address:$discord_address"
+hypr-dispatch movetoworkspacesilent special:discordspace

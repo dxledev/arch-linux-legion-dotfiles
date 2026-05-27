@@ -4,7 +4,7 @@
 sleep 0.5
 
 # Turn displays back on
-hyprctl dispatch dpms on
+hypr-dispatch dpms on
 
 sleep 0.2
 

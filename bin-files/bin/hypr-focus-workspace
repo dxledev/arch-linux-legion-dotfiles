@@ -15,4 +15,4 @@ fi
 workspace="$1"
 
 # Focus the workspace
-hyprctl dispatch workspace "$workspace"
+hypr-dispatch workspace "$workspace"

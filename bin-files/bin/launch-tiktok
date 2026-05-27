@@ -59,7 +59,7 @@ tiktok_address="$(find_tiktok_address)"
 instagram_socialspace_address="$(find_instagram_socialspace_address)"
 
 if [ -n "$instagram_socialspace_address" ] && [ "$instagram_socialspace_address" != "$tiktok_address" ]; then
-    hyprctl dispatch closewindow "address:$instagram_socialspace_address" >/dev/null
+    hypr-dispatch closewindow "address:$instagram_socialspace_address" >/dev/null
     wait_for_address_to_close "$instagram_socialspace_address"
 fi
 
@@ -80,8 +80,8 @@ if [ -z "$tiktok_address" ]; then
     exit 1
 fi
 
-hyprctl dispatch focuswindow "address:$tiktok_address"
-hyprctl dispatch setfloating
-hyprctl dispatch resizeactive exact "$WIDTH" "$HEIGHT"
-hyprctl dispatch centerwindow
-hyprctl dispatch movetoworkspacesilent "$SOCIAL_WORKSPACE"
+hypr-dispatch focuswindow "address:$tiktok_address"
+hypr-dispatch setfloating
+hypr-dispatch resizeactive exact "$WIDTH" "$HEIGHT"
+hypr-dispatch centerwindow
+hypr-dispatch movetoworkspacesilent "$SOCIAL_WORKSPACE"

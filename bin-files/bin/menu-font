@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ALACRITTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml"
+GHOSTTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config.ghostty"
 MENU_ID="menu-font"
 PID_FILE="/tmp/menu-rofi.pid"
 
@@ -13,7 +14,22 @@ fi
 trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
 
 CURRENT_FONT=""
-if [[ -f "$ALACRITTY_CONF" ]]; then
+if [[ -f "$GHOSTTY_CONF" ]]; then
+    CURRENT_FONT="$(
+        awk -F= '
+            /^[[:space:]]*font-family[[:space:]]*=/ {
+                value = $2
+                sub(/^[[:space:]]*/, "", value)
+                sub(/[[:space:]]*$/, "", value)
+                gsub(/^"|"$/, "", value)
+                print value
+                exit
+            }
+        ' "$GHOSTTY_CONF"
+    )"
+fi
+
+if [[ -z "$CURRENT_FONT" && -f "$ALACRITTY_CONF" ]]; then
     CURRENT_FONT="$(
         awk '
             /^\[font\.normal\]$/ { in_normal = 1; next }

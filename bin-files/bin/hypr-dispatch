@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+DRY_RUN=false
+
+usage() {
+    printf '%s\n' \
+        "Usage: hypr-dispatch [--dry-run] <dispatcher> [args...]" \
+        "Example: hypr-dispatch focuswindow address:0x123456"
+}
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=true
+    shift
+fi
+
+if [[ $# -lt 1 ]]; then
+    usage >&2
+    exit 1
+fi
+
+lua_string() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+
+    printf '"%s"' "$value"
+}
+
+shell_single_quote() {
+    local value="$1"
+    value="${value//\'/\'\"\'\"\'}"
+    printf "'%s'" "$value"
+}
+
+command_string="$*"
+hyprctl_cmd="$HYPRCTL_BIN --batch $(shell_single_quote "dispatch $command_string")"
+payload="hl.dsp.exec_cmd($(lua_string "$hyprctl_cmd"))"
+
+if [[ "$DRY_RUN" == true ]]; then
+    printf '%s\n' "$payload"
+    exit 0
+fi
+
+exec "$HYPRCTL_BIN" dispatch "$payload"

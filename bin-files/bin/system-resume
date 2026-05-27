@@ -3,7 +3,7 @@
 sleep 1
 
 # Re-enable displays
-hyprctl dispatch dpms on
+hypr-dispatch dpms on
 
 # Reload Hyprland (fix broken state)
 hyprctl reload

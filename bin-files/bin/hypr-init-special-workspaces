@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 
 # Create in exact order you want
-hyprctl dispatch togglespecialworkspace socialspace
-hyprctl dispatch togglespecialworkspace socialspace
+hypr-dispatch togglespecialworkspace socialspace
+hypr-dispatch togglespecialworkspace socialspace
 ~/bin/launch-instagram
 
-hyprctl dispatch togglespecialworkspace discordspace
-hyprctl dispatch togglespecialworkspace discordspace
+hypr-dispatch togglespecialworkspace discordspace
+hypr-dispatch togglespecialworkspace discordspace
 ~/bin/launch-discord
 
-hyprctl dispatch togglespecialworkspace mediaspace
-hyprctl dispatch togglespecialworkspace mediaspace
+hypr-dispatch togglespecialworkspace mediaspace
+hypr-dispatch togglespecialworkspace mediaspace
 ~/bin/launch-spotify
 
-hyprctl dispatch togglespecialworkspace scratchpad
-hyprctl dispatch togglespecialworkspace scratchpad
+hypr-dispatch togglespecialworkspace scratchpad
+hypr-dispatch togglespecialworkspace scratchpad
 
 ~/bin/reload-waybar
 

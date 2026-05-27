@@ -10,8 +10,8 @@ while echo "$used" | grep -qx "$target"; do
 done
 
 # Make sure the window is tiled (disable floating if needed)
-hyprctl dispatch settiled
+hypr-dispatch settiled
 
 # Move and follow
-hyprctl dispatch movetoworkspace "$target"
-hyprctl dispatch workspace "$target"
+hypr-dispatch movetoworkspace "$target"
+hypr-dispatch workspace "$target"

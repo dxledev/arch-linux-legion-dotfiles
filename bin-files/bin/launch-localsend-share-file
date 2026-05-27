@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 MAX_PREVIEW_BYTES="${LOCALSEND_SHARE_MAX_PREVIEW_BYTES:-262144}"
 
 focus_floating_workspace() {
-    hyprctl dispatch focusworkspaceoncurrentmonitor special:floating >/dev/null 2>&1 || true
+    hypr-dispatch focusworkspaceoncurrentmonitor special:floating >/dev/null 2>&1 || true
 }
 
 launch_localsend() {

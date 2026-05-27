@@ -28,6 +28,9 @@ function trim(s) {
 }
 ' | grep -Fvi 'Emoji' | sort -u)"
 
+EXTRA_FONTS="${EXTRA_FONTS:-Ghostty}"
+FONTS="$(printf "%s\n%s\n" "$FONTS" "$EXTRA_FONTS" | awk 'NF' | sort -u)"
+
 if [[ "$INCLUDE_OMITTED" -eq 1 || ! -f "$OMIT_FILE" ]]; then
     printf "%s\n" "$FONTS"
     exit 0

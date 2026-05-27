@@ -28,7 +28,7 @@ if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
 fi
 
 focus_floating_workspace() {
-    hyprctl dispatch focusworkspaceoncurrentmonitor special:floating >/dev/null 2>&1 || true
+    hypr-dispatch focusworkspaceoncurrentmonitor special:floating >/dev/null 2>&1 || true
 }
 
 launch_localsend() {

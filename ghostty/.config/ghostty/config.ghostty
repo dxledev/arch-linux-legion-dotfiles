@@ -1,7 +1,6 @@
 config-file = ?"~/.config/themes/current/ghostty.ghostty"
 
 app-notifications = no-config-reload
-
 font-family = "CaskaydiaMono Nerd Font"
 font-style = Regular
 font-size = 14

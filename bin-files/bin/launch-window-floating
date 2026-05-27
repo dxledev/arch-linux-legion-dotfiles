@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# Default size
 WIDTH="${1:-1200}"
 HEIGHT="${2:-800}"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 
-# Remove width/height args if provided
-if [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]]; then
+if [[ "${1:-}" =~ ^[0-9]+$ && "${2:-}" =~ ^[0-9]+$ ]]; then
     shift 2
 fi
 
@@ -14,12 +14,25 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
+lua_string() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+
+    printf '"%s"' "$value"
+}
+
 launch_window() {
     local rules="[workspace special:floating; float; size $WIDTH $HEIGHT; center; tag:scratchwindow]"
     local command=""
+    local exec_command=""
     printf -v command '%q ' "$@"
     command="${command% }"
-    hyprctl dispatch exec "$rules $command"
+    exec_command="$rules $command"
+    "$HYPRCTL_BIN" dispatch "hl.dsp.exec_cmd($(lua_string "$exec_command"))"
 }
 
 launch_window "$@"

@@ -38,11 +38,11 @@ stop_helper() {
 
 turn_monitors_off() {
     set_power_profile "power-saver"
-    hyprctl dispatch dpms off
+    hypr-dispatch dpms off
 }
 
 turn_monitors_on() {
-    hyprctl dispatch dpms on
+    hypr-dispatch dpms on
     set_power_profile "performance"
 }
 

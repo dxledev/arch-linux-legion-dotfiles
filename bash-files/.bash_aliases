@@ -60,6 +60,9 @@ alias ...='cd ../..'
 alias .....='cd ../../..'
 alias ......='cd ../../../..'
 
+# bat
+alias bat='bat --theme ansi'
+
 # fd-nvim
 alias fd-nvim='fd --type f --hidden --exclude .git | fzf | xargs -r nvim'
 
