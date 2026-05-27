@@ -20,6 +20,7 @@ require("xdph")
 require("custom-layouts.grid")
 require("custom-layouts.spiral")
 require("custom-layouts.manual")
+require("custom-layouts.niriscroll")
 require("custom-layouts.centerstack")
 
 hl.bind("SUPER + ALT + CTRL + SHIFT + O", hl.dsp.exec_cmd("~/bin/launch-terminal"))

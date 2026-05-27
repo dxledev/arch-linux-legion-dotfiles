@@ -14,10 +14,10 @@ hl.config({
     inactive_opacity = 0.92,
     shadow = {
       enabled = true,
-      range = 10,
-      render_power = 1,
+      range = 300,
+      render_power = 4,
       color = "rgba(0000004d)",
-      offset = { 0, 4 },
+      offset = { 0, 40 },
       sharp = false,
       scale = 1.0,
     },
@@ -44,9 +44,10 @@ hl.config({
   scrolling = {
     fullscreen_on_one_column = false,
     explicit_column_widths = "0.5, 0.75, 0.95",
-    focus_fit_method = 1,
-    column_width = 0.5,
+    focus_fit_method = 0,
+    column_width = 0.95,
     follow_focus = true,
+    follow_min_visible = 0.1;
     direction = "right",
   },
   misc = {
