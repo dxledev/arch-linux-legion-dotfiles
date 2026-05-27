@@ -44,7 +44,7 @@ local function dispatch_command(dispatcher, arg)
   elseif dispatcher == "centerwindow" then
     return hl.dsp.window.center()
   elseif dispatcher == "workspace" then
-    return hl.dsp.focus({ workspace = arg })
+    return hl.plugin.hymission.workspace(arg)
   elseif dispatcher == "movetoworkspace" then
     return hl.dsp.window.move({ workspace = arg, follow = true })
   elseif dispatcher == "movetoworkspacesilent" then
@@ -258,6 +258,7 @@ bind("bindd", "SHIFT CTRL", "Right", "Next Window Size (Scrolling)", "layoutmsg"
 bind("bindd", "SHIFT CTRL", "Left", "Prev Window Size (Scrolling)", "layoutmsg", "colresize -conf")
 bind("bindd", mainMod, "W", "Full Size Window (Scrolling)", "layoutmsg", "colresize 1.0")
 bind("bindd", "SHIFT ALT", "W", "Half Size Window (Scrolling)", "layoutmsg", "colresize 0.5")
+bind("bindd", mainMod .. " SHIFT CTRL ALT", "W", "Half Size Window (Scrolling)", "layoutmsg", "colresize 0.5")
 bind("bindd", mainMod .. " SHIFT", "W", "Un-Full-Size Window (Scrolling)", "layoutmsg", "colresize 0.95")
 bind("bindd", mainMod .. " SHIFT CTRL ALT", "Left", "Swap Window Left (Scrolling)", "layoutmsg", "swapcol l")
 bind("bindd", mainMod .. " SHIFT CTRL ALT", "Right", "Swap Window Right (Scrolling)", "layoutmsg", "swapcol r")

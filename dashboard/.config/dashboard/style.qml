@@ -1,1 +1,1 @@
-/home/dxle/.config/dashboard/styles/pill.qml
+/home/dxle/dotfiles/dashboard/.config/dashboard/styles/pill.qml

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-hypr-lua"
+
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
+HYPR_DECORATIONS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
 
 DRY_RUN=0
 
@@ -27,9 +31,10 @@ notify_status() {
 
 get_focus_method() {
     local option_json=""
+    local method=""
 
-    option_json="$("$HYPRCTL_BIN" getoption scrolling:focus_fit_method -j)"
-    printf '%s\n' "$option_json" | /usr/bin/awk -F'[:,]' '
+    option_json="$("$HYPRCTL_BIN" getoption scrolling:focus_fit_method -j 2>/dev/null || true)"
+    method="$(printf '%s\n' "$option_json" | /usr/bin/awk -F'[:,]' '
         /"int"[[:space:]]*:/ {
             for (i = 1; i <= NF; i++) {
                 if ($i ~ /"int"/) {
@@ -40,13 +45,37 @@ get_focus_method() {
                 }
             }
         }
-    '
+    ')"
+
+    if [[ "$method" == "0" || "$method" == "1" ]]; then
+        printf '%s\n' "$method"
+        return 0
+    fi
+
+    method="$(hypr_get_config_value "$HYPR_DECORATIONS_CONF" "scrolling" "focus_fit_method" 2>/dev/null || true)"
+    case "$method" in
+        0|1)
+            printf '%s\n' "$method"
+            return 0
+            ;;
+    esac
+
+    return 1
 }
 
 set_focus_method() {
     local value="$1"
+    local column_width=""
 
-    "$HYPRCTL_BIN" eval "hl.config({ scrolling = { focus_fit_method = ${value} } })" >/dev/null
+    case "$value" in
+        0) column_width="0.95" ;;
+        1) column_width="0.5" ;;
+        *) return 1 ;;
+    esac
+
+    hypr_set_config_value "$HYPR_DECORATIONS_CONF" "scrolling" "focus_fit_method" "$value" "$value"
+    hypr_set_config_value "$HYPR_DECORATIONS_CONF" "scrolling" "column_width" "$column_width" "$column_width"
+    "$HYPRCTL_BIN" eval "hl.config({ scrolling = { focus_fit_method = ${value}, column_width = ${column_width} } })" >/dev/null
 }
 
 label_for_method() {
@@ -78,6 +107,11 @@ if [[ ! -x "$HYPRCTL_BIN" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$HYPR_DECORATIONS_CONF" ]]; then
+    notify_status "Missing config: $HYPR_DECORATIONS_CONF"
+    exit 1
+fi
+
 current_method="$(get_focus_method)" || {
     notify_status "Could not read scrolling focus method"
     exit 1
@@ -93,9 +127,13 @@ case "$current_method" in
 esac
 
 next_label="$(label_for_method "$next_method")"
+case "$next_method" in
+    0) next_column_width="0.95" ;;
+    1) next_column_width="0.5" ;;
+esac
 
 if (( DRY_RUN )); then
-    printf 'Would set scrolling:focus_fit_method from %s to %s (%s)\n' "$current_method" "$next_method" "$next_label"
+    printf 'Would set scrolling:focus_fit_method from %s to %s (%s) and scrolling:column_width to %s in %s\n' "$current_method" "$next_method" "$next_label" "$next_column_width" "$HYPR_DECORATIONS_CONF"
     exit 0
 fi
 

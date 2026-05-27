@@ -3,7 +3,7 @@ background = "#1A1515" # Base
 foreground = "#DCC9BC" # Text
 
 [colors.normal]
-black   = "#1A1515"  # base00 - Deep background; primary canvas for terminals
+black   = "#251a1a"  # base00 - Deep background; primary canvas for terminals
 red     = "#CF223E"  # base08 - Error/critical accents
 green   = "#959A6B"  # base0B - Success/positive accents
 yellow  = "#D48A3D"  # base0A - Warning/attention accents

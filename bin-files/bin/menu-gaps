@@ -8,7 +8,7 @@ HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decoration
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 MENU_ID="menu-gaps"
 PID_FILE="/tmp/menu-rofi.pid"
-RELOAD_HYPRLAND="${MENU_GAPS_RELOAD_HYPRLAND:-0}"
+RELOAD_HYPRLAND="${MENU_GAPS_RELOAD_HYPRLAND:-1}"
 HYPR_AUTORELOAD_SUSPENDED=0
 GAPS_MIN=0
 GAPS_MAX=30
@@ -80,9 +80,18 @@ restore_hyprland_autoreload() {
 apply_runtime_values() {
     local new_out="$1"
     local new_in="$2"
+    local apply_failed=0
 
-    hypr_apply_keyword "$HYPRCTL_BIN" "general:gaps_out" "$new_out" || return 1
-    hypr_apply_keyword "$HYPRCTL_BIN" "general:gaps_in" "$new_in" || return 1
+    if [[ -x "$HYPRCTL_BIN" ]]; then
+        if "$HYPRCTL_BIN" --batch "keyword general:gaps_out $new_out ; keyword general:gaps_in $new_in" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    hypr_apply_keyword "$HYPRCTL_BIN" "general:gaps_out" "$new_out" || apply_failed=1
+    hypr_apply_keyword "$HYPRCTL_BIN" "general:gaps_in" "$new_in" || apply_failed=1
+
+    [[ "$apply_failed" -eq 0 ]]
 }
 
 cleanup() {
