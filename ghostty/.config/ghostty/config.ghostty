@@ -1,4 +1,5 @@
 config-file = ?"~/.config/themes/current/ghostty.ghostty"
+config-file = ?"~/.config/ghostty/keybinds.ghostty"
 
 app-notifications = no-config-reload
 font-family = "CaskaydiaMono Nerd Font"
@@ -19,3 +20,5 @@ cursor-style = "block"
 mouse-scroll-multiplier = 0.95
 
 custom-shader = shaders/cursor_warp.glsl
+
+

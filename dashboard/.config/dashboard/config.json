@@ -3,6 +3,6 @@
     "netflixThumbnail": "/home/dxle/.local/share/icons/netflix.png",
     "outputName": "HDMI-A-1",
     "profileImage": "/home/dxle/bin/images/profile-picture.png",
-    "use24Hour": true,
+    "use24Hour": false,
     "username": "dxlefourtwenty"
 }

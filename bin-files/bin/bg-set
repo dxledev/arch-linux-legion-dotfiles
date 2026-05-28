@@ -32,6 +32,8 @@ TRANSITION_POS="${DEFAULT_TRANSITION_POS}"
 TRANSITION_BEZIER="${DEFAULT_TRANSITION_BEZIER}"
 TRANSITION_WAVE="${DEFAULT_TRANSITION_WAVE}"
 
+SEARCH_ICON=" "
+
 trim_value() {
     local raw_value="$1"
 
@@ -330,7 +332,7 @@ done
 CHOSEN_INDEX="$(
     rofi -dmenu -i \
         -pid "$PID_FILE" \
-        -p "" \
+        -p "$SEARCH_ICON" \
         -format i \
         -markup-rows \
         -no-custom \
@@ -354,6 +356,18 @@ CHOSEN_INDEX="$(
                 children: [ thumb-box, element-text ];
                 spacing: 4px;
                 padding: 8px 8px;
+            }
+            inputbar {
+                children: [ prompt, entry ];
+                spacing: 0;
+                padding: 10px 16px;
+            }
+            prompt {
+                width: 28px;
+                horizontal-align: 0.5;
+                vertical-align: 0.5;
+                margin: -6px 0px 4px -10px;
+                padding: 0px 4px;
             }
             thumb-box {
                 expand: false;

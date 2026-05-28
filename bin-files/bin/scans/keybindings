@@ -24,6 +24,9 @@ Knob | Volume
 SUPER + Knob | Volume +5/-5
 Press Knob | Mute Audio
 Hold Knob | Audio Menu
+[TMUX] CTRL + U | Cut Prompt Text
+[TMUX] CTRL + K | Cut Prompt Text From Cursor To End
+[TMUX] CTRL + Y | Paste Previously-Cut Prompt Text
 [TMUX] CTRL + ALT + Left | Close Terminal Pane
 [TMUX] CTRL + ALT + Right | Split Terminal Right
 [TMUX] CTRL + ALT + Down | Split Terminal Down 

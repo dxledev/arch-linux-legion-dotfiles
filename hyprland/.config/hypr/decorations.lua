@@ -14,12 +14,12 @@ hl.config({
     inactive_opacity = 0.92,
     shadow = {
       enabled = true,
-      range = 300,
+      range = 200,
       render_power = 4,
-      color = "rgba(0000004d)",
-      offset = { 0, 40 },
+      color = "rgba(000000ff)",
+      offset = { 0, 10 },
       sharp = false,
-      scale = 1.0,
+      scale = 0.9,
     },
     blur = {
       enabled = true,
@@ -31,6 +31,13 @@ hl.config({
       xray = false,
       new_optimizations = true,
       vibrancy = 1.1,
+    },
+    glow = {
+      enabled = false,
+      range = 10,
+      render_power = 3,
+      color = "rgba(000000ff)",
+      color_inactive = unset,
     },
   },
   dwindle = {
