@@ -339,7 +339,7 @@ CHOSEN_INDEX="$(
         -show-icons \
         -theme-str "
             window { width: 1150px; }
-            entry { placeholder: \"Select Background…\"; }
+            entry { placeholder: \"Background…\"; }
             listview {
                 columns: 4;
                 lines: 2;

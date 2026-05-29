@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+file="Makefile"
+additional="$*"
+
+cat > "$file" <<EOF
+CXX := g++
+CXXFLAGS := -Wall -Wextra -std=c++23
+
+SOURCES := main.cpp $additional
+OBJECTS := \$(SOURCES:.cpp=.o)
+
+TARGET := main
+
+main: \$(OBJECTS)
+		g++ \$(OBJECTS) -o \$(TARGET)
+
+%.o: %.cpp
+		g++ \$(CXXFLAGS) -c \$< -o \$@
+
+clean:
+		rm -rf \$(OBJECTS) \$(TARGET)
+EOF

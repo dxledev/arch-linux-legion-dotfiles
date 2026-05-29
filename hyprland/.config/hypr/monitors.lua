@@ -17,6 +17,28 @@ local monitor_configs = {
   },
 }
 
+-- these are the desired monitor configs i want to enable/disable
+-- local correct_monitor_configs = {
+--   {
+--     output = "desc:ASUSTek COMPUTER INC ASUS VG277Q1A T1LMTF101706",
+--     mode = "1920x1080@144",
+--     position = "0x0",
+--     scale = 1,
+--   },
+--   {
+--     output = "desc:Acer Technologies KG271U N3 3511036353W01",
+--     mode = "2560x1440@144.01",
+--     position = "1920x0",
+--     scale = 1.25,
+--   },
+--   {
+--     output = "desc:BOE 0x0A2D",
+--     mode = "2560x1440@165",
+--     position = "3968x600",
+--     scale = 1.6,
+--   },
+-- }
+
 local special_workspaces = {
   "special:discordspace",
   "special:mediaspace",

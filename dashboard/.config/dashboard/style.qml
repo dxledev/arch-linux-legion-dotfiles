@@ -1,1 +1,1 @@
-/home/dxle/.config/dashboard/styles/arrowline.qml
+/home/dxle/dotfiles/dashboard/.config/dashboard/styles/arrowline.qml
