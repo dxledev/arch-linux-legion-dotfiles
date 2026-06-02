@@ -54,7 +54,6 @@ hl.config({
     focus_fit_method = 0,
     column_width = 0.95,
     follow_focus = true,
-    follow_min_visible = 0.1;
     direction = "right",
   },
   misc = {

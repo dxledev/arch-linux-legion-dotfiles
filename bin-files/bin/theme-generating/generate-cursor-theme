@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  generate-cursor-theme -n <name> -bc <base_color> -oc <outline_color> -wc <watch_color> [--dry-run]
+
+Options:
+  -n            Theme short name (e.g. Dracula)
+  -bc           Base color hex (e.g. #282a36)
+  -oc           Outline color hex (e.g. #8be9fd)
+  -wc           Watch/loading color hex (e.g. #ffb86c)
+  --dry-run     Print commands without executing
+  -h, --help    Show this help
+EOF
+}
+
+require_cmd() {
+  local cmd_name="$1"
+  if [[ "$cmd_name" == */* ]]; then
+    if [[ -x "$cmd_name" ]]; then
+      return 0
+    fi
+    printf 'missing required command: %s\n' "$cmd_name" >&2
+    exit 1
+  fi
+  if ! command -v "$cmd_name" >/dev/null 2>&1; then
+    printf 'missing required command: %s\n' "$cmd_name" >&2
+    exit 1
+  fi
+}
+
+resolve_ctgen() {
+  local venv_ctgen="/tmp/bibata-clickgen-venv/bin/ctgen"
+  if [[ -x "$venv_ctgen" ]]; then
+    printf '%s\n' "$venv_ctgen"
+    return 0
+  fi
+  if command -v ctgen >/dev/null 2>&1; then
+    command -v ctgen
+    return 0
+  fi
+  printf 'ctgen not found. expected %s or ctgen in PATH\n' "$venv_ctgen" >&2
+  printf 'install example: python -m venv /tmp/bibata-clickgen-venv && /tmp/bibata-clickgen-venv/bin/pip install clickgen\n' >&2
+  exit 1
+}
+
+is_hex_color() {
+  local value="$1"
+  [[ "$value" =~ ^#[0-9A-Fa-f]{6}$ ]]
+}
+
+run_cmd() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '[dry-run] '
+    printf '%q ' "$@"
+    printf '\n'
+    return 0
+  fi
+  "$@"
+}
+
+write_cursor_config() {
+  local target_file="$1"
+  local cursor_name="$2"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '[dry-run] write %s -> %s\n' "$cursor_name" "$target_file"
+    return 0
+  fi
+  printf '%s\n' "$cursor_name" > "$target_file"
+}
+
+THEME_NAME=""
+BASE_COLOR=""
+OUTLINE_COLOR=""
+WATCH_COLOR=""
+DRY_RUN=0
+CTGEN_BIN=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n)
+      THEME_NAME="${2:-}"
+      shift 2
+      ;;
+    -bc)
+      BASE_COLOR="${2:-}"
+      shift 2
+      ;;
+    -oc)
+      OUTLINE_COLOR="${2:-}"
+      shift 2
+      ;;
+    -wc)
+      WATCH_COLOR="${2:-}"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$THEME_NAME" || -z "$BASE_COLOR" || -z "$OUTLINE_COLOR" || -z "$WATCH_COLOR" ]]; then
+  printf 'all of -n, -bc, -oc, -wc are required\n' >&2
+  usage >&2
+  exit 1
+fi
+
+if ! is_hex_color "$BASE_COLOR"; then
+  printf 'invalid -bc color: %s\n' "$BASE_COLOR" >&2
+  exit 1
+fi
+if ! is_hex_color "$OUTLINE_COLOR"; then
+  printf 'invalid -oc color: %s\n' "$OUTLINE_COLOR" >&2
+  exit 1
+fi
+if ! is_hex_color "$WATCH_COLOR"; then
+  printf 'invalid -wc color: %s\n' "$WATCH_COLOR" >&2
+  exit 1
+fi
+
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  require_cmd npx
+  require_cmd mkdir
+  require_cmd cp
+  require_cmd printf
+  CTGEN_BIN="$(resolve_ctgen)"
+else
+  CTGEN_BIN="/tmp/bibata-clickgen-venv/bin/ctgen"
+fi
+
+REPO_DIR="/home/dxle/builds/Bibata_Cursor"
+ICON_DIR="/home/dxle/.local/share/icons"
+THEME_CONFIG_ROOT="/home/dxle/.config/themes"
+CURSOR_THEME_NAME="Bibata-${THEME_NAME}"
+BITMAP_OUTPUT="bitmaps/${CURSOR_THEME_NAME}"
+THEME_OUTPUT="themes/${CURSOR_THEME_NAME}"
+CURSOR_CONFIG_FILE="${THEME_CONFIG_ROOT}/$(printf '%s' "$THEME_NAME" | tr '[:upper:]' '[:lower:]')/cursor"
+
+run_cmd npx cbmp \
+  -d "svg/modern" \
+  -o "$BITMAP_OUTPUT" \
+  -bc "$BASE_COLOR" \
+  -oc "$OUTLINE_COLOR" \
+  -wc "$WATCH_COLOR"
+
+run_cmd "$CTGEN_BIN" configs/normal/x.build.toml \
+  -p x11 \
+  -d "$BITMAP_OUTPUT" \
+  -n "$CURSOR_THEME_NAME" \
+  -c "${THEME_NAME} Bibata cursors."
+
+run_cmd mkdir -p "$ICON_DIR"
+run_cmd cp -a "$THEME_OUTPUT" "$ICON_DIR/"
+run_cmd mkdir -p "$(dirname "$CURSOR_CONFIG_FILE")"
+write_cursor_config "$CURSOR_CONFIG_FILE" "$CURSOR_THEME_NAME"

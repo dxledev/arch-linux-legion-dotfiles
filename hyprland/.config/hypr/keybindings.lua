@@ -163,6 +163,7 @@ for _, direction in ipairs({ { "Left", "l" }, { "Right", "r" }, { "Up", "u" }, {
   bind("bindd", mainMod .. " SHIFT CTRL", direction[1], "Swap Window " .. direction[1], "swapwindow", direction[2])
 end
 
+
 hl.config({ binds = { drag_threshold = 10 } })
 hl.bind(keys(mainMod, "mouse:272"), hl.dsp.window.drag(), { mouse = true })
 hl.bind(keys(mainMod, "mouse:273"), hl.dsp.window.resize(), { mouse = true })
@@ -271,6 +272,8 @@ bind("bindd", mainMod .. " SHIFT CTRL ALT", "W", "Half Size Window (Scrolling)",
 bind("bindd", mainMod .. " SHIFT", "W", "Un-Full-Size Window (Scrolling)", "layoutmsg", "colresize 0.95")
 bind("bindd", mainMod .. " SHIFT CTRL ALT", "Left", "Swap Window Left (Scrolling)", "layoutmsg", "swapcol l")
 bind("bindd", mainMod .. " SHIFT CTRL ALT", "Right", "Swap Window Right (Scrolling)", "layoutmsg", "swapcol r")
+bind("bindd", "ALT", "H", "Swap Window Left (Scrolling)", "layoutmsg", "swapcol l")
+bind("bindd", "ALT", "L", "Swap Window Right (Scrolling)", "layoutmsg", "swapcol r")
 bind_exec("ALT", "S", "Toggle Focus Method (Scrolling)", "~/bin/hypr-toggle-scrolling-focus")
 
 bind("bind", mainMod .. " CTRL", "mouse_down", "", "layoutmsg", "cyclenext")

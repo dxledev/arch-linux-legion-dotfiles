@@ -1,1 +1,1 @@
-/home/dxle/dotfiles/dashboard/.config/dashboard/styles/arrowline.qml
+/home/dxle/.config/dashboard/styles/pill.qml

@@ -9,7 +9,6 @@ local fallback_plugins = {
   { name = "Hyprspace", path = "/home/dxle/.config/hypr/.plugins/Hyprspace/Hyprspace.so" },
 }
 
-local dynamic_cursors_config_eval = [[
 hl.config({
   plugin = {
     dynamic_cursors = {
@@ -45,7 +44,6 @@ hl.config({
     },
   },
 })
-]]
 
 local function shell_quote(value)
   return "'" .. value:gsub("'", "'\\''") .. "'"
