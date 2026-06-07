@@ -1,0 +1,4 @@
+[Icon Theme]
+Name=Notwaita-Solarized
+Comment=Solarized Notwaita cursors.
+Inherits="hicolor"

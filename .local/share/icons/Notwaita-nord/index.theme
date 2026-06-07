@@ -1,0 +1,4 @@
+[Icon Theme]
+Name=Notwaita-nord
+Comment=nord Notwaita cursors.
+Inherits="hicolor"

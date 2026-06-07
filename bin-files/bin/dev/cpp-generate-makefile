@@ -5,7 +5,7 @@ additional="$*"
 
 cat > "$file" <<EOF
 CXX := g++
-CXXFLAGS := -Wall -Wextra -std=c++23
+CXXFLAGS := -Wall -Wextra -std=c++23 -g
 
 SOURCES := main.cpp $additional
 OBJECTS := \$(SOURCES:.cpp=.o)

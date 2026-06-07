@@ -1,0 +1,4 @@
+[Icon Theme]
+Name=Bibata-gruvbox
+Comment=gruvbox Bibata cursors.
+Inherits="hicolor"

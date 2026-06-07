@@ -1,0 +1,4 @@
+[Icon Theme]
+Name=macOS-Solarized
+Comment=Solarized macOS cursors.
+Inherits="hicolor"

@@ -4,15 +4,24 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  generate-cursor-theme -n <name> -bc <base_color> -oc <outline_color> -wc <watch_color> [--dry-run]
+  generate-cursor-theme -n <name> -bc <base_color> -oc <outline_color> -wc <watch_color> [-t <theme>] [-v <variant>] [--dry-run]
 
 Options:
   -n            Theme short name (e.g. Dracula)
+  -t            Cursor source theme: bibata, notwaita, breeze, breezex (default: bibata)
+  -v            Cursor source variant/style (default depends on selected theme)
   -bc           Base color hex (e.g. #282a36)
   -oc           Outline color hex (e.g. #8be9fd)
   -wc           Watch/loading color hex (e.g. #ffb86c)
   --dry-run     Print commands without executing
   -h, --help    Show this help
+
+Theme names may contain letters, numbers, dots, underscores, and hyphens.
+Variant names are matched case-insensitively. Use default to select a theme's default variant.
+
+Environment:
+  CURSOR_THEMES_ROOT  Override cursor theme repo root
+  BIBATA_CURSOR_REPO  Override Bibata_Cursor repo path
 EOF
 }
 
@@ -51,6 +60,175 @@ is_hex_color() {
   [[ "$value" =~ ^#[0-9A-Fa-f]{6}$ ]]
 }
 
+is_theme_name() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+require_option_value() {
+  local option="$1"
+  local value="${2:-}"
+
+  if [[ -z "$value" || "$value" == -* ]]; then
+    printf '%s requires a value\n' "$option" >&2
+    exit 1
+  fi
+}
+
+normalize_theme_selector() {
+  local normalized="${1,,}"
+  normalized="${normalized//[^[:alnum:]]/}"
+  printf '%s\n' "$normalized"
+}
+
+normalize_variant_selector() {
+  normalize_theme_selector "$1"
+}
+
+lower_theme_name() {
+  printf '%s\n' "${1,,}"
+}
+
+set_theme_config() {
+  THEME_DIR_NAME="$1"
+  CURSOR_THEME_PREFIX="$2"
+  DEFAULT_VARIANT="$3"
+  BUILD_CONFIG="$4"
+  RIGHT_BUILD_CONFIG="$5"
+}
+
+resolve_theme_config() {
+  local selector="$1"
+  local normalized=""
+
+  normalized="$(normalize_theme_selector "$selector")"
+  case "$normalized" in
+    bibata|bibatacursor)
+      set_theme_config "Bibata_Cursor" "Bibata" "modern" "configs/normal/x.build.toml" "configs/right/x.build.toml"
+      ;;
+    notwaita|notwaitacursor)
+      set_theme_config "notwaita-cursor" "Notwaita" "default" "configs/x.build.toml" ""
+      ;;
+    breeze|breezex|breezecursor|breezexcursor)
+      set_theme_config "BreezeX_Cursor" "BreezeX" "default" "configs/x.build.toml" ""
+      ;;
+    *)
+      printf 'unknown -t cursor theme: %s\n' "$selector" >&2
+      printf 'supported themes: bibata, notwaita, breeze, breezex\n' >&2
+      exit 1
+      ;;
+  esac
+}
+
+is_cursor_svg_source() {
+  local source_dir="$1"
+  [[ -d "$source_dir" && -e "$source_dir/X_cursor.svg" && -e "$source_dir/left_ptr.svg" ]]
+}
+
+list_cursor_variants() {
+  local repo_dir="$1"
+  local svg_root="$repo_dir/svg"
+  local variant_dir=""
+
+  if is_cursor_svg_source "$svg_root"; then
+    printf '%s\n' "default"
+  fi
+
+  if [[ ! -d "$svg_root" ]]; then
+    return 0
+  fi
+
+  for variant_dir in "$svg_root"/*; do
+    if is_cursor_svg_source "$variant_dir"; then
+      printf '%s\n' "${variant_dir##*/}"
+    fi
+  done
+}
+
+supported_variants() {
+  local repo_dir="$1"
+  local variants=()
+  local variant=""
+  local joined=""
+
+  while IFS= read -r variant; do
+    variants+=("$variant")
+  done < <(list_cursor_variants "$repo_dir")
+
+  if [[ "${DEFAULT_VARIANT}" != "default" ]]; then
+    variants=("default" "${variants[@]}")
+  fi
+
+  joined="${variants[*]}"
+  printf '%s\n' "${joined// /, }"
+}
+
+set_build_config_for_variant() {
+  local variant="$1"
+  local normalized=""
+
+  normalized="$(normalize_variant_selector "$variant")"
+  if [[ "$normalized" == *right && -n "$RIGHT_BUILD_CONFIG" ]]; then
+    BUILD_CONFIG="$RIGHT_BUILD_CONFIG"
+    return 0
+  fi
+
+  BUILD_CONFIG="$DEFAULT_BUILD_CONFIG"
+}
+
+resolve_cursor_variant() {
+  local repo_dir="$1"
+  local selector="$2"
+  local normalized=""
+  local variant_dir=""
+  local variant_name=""
+
+  if [[ -z "$selector" ]]; then
+    selector="$DEFAULT_VARIANT"
+  fi
+
+  normalized="$(normalize_variant_selector "$selector")"
+  if [[ "$normalized" == "default" ]]; then
+    selector="$DEFAULT_VARIANT"
+    normalized="$(normalize_variant_selector "$selector")"
+  fi
+
+  if [[ "$selector" == "default" ]] && is_cursor_svg_source "$repo_dir/svg"; then
+    SVG_INPUT="svg"
+    set_build_config_for_variant "$selector"
+    return 0
+  fi
+
+  for variant_dir in "$repo_dir/svg"/*; do
+    if ! is_cursor_svg_source "$variant_dir"; then
+      continue
+    fi
+
+    variant_name="${variant_dir##*/}"
+    if [[ "$(normalize_variant_selector "$variant_name")" == "$normalized" ]]; then
+      SVG_INPUT="svg/$variant_name"
+      set_build_config_for_variant "$variant_name"
+      return 0
+    fi
+  done
+
+  printf 'unknown -v variant for %s: %s\n' "$CURSOR_THEME_SELECTOR" "$selector" >&2
+  printf 'supported variants: %s\n' "$(supported_variants "$repo_dir")" >&2
+  exit 1
+}
+
+require_resolved_variant_files() {
+  if [[ ! -d "$REPO_DIR/$SVG_INPUT" ]]; then
+    printf 'missing SVG input directory: %s\n' "$REPO_DIR/$SVG_INPUT" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$REPO_DIR/$BUILD_CONFIG" ]]; then
+    printf 'missing build config: %s\n' "$REPO_DIR/$BUILD_CONFIG" >&2
+    exit 1
+  fi
+}
+
 run_cmd() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '[dry-run] '
@@ -59,6 +237,20 @@ run_cmd() {
     return 0
   fi
   "$@"
+}
+
+run_repo_cmd() {
+  local repo_dir="$1"
+  shift
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '[dry-run] cd %q && ' "$repo_dir"
+    printf '%q ' "$@"
+    printf '\n'
+    return 0
+  fi
+
+  (cd "$repo_dir" && "$@")
 }
 
 write_cursor_config() {
@@ -71,29 +263,110 @@ write_cursor_config() {
   printf '%s\n' "$cursor_name" > "$target_file"
 }
 
+remove_generated_dir() {
+  local target_dir="$1"
+  local allowed_parent="$2"
+  local expected_name="$3"
+
+  if [[ "$target_dir" != "$allowed_parent/$expected_name" ]]; then
+    printf 'refusing to remove unexpected generated path: %s\n' "$target_dir" >&2
+    exit 1
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '[dry-run] '
+    printf '%q ' "$RM_BIN" -rf -- "$target_dir"
+    printf '\n'
+    return 0
+  fi
+
+  "$RM_BIN" -rf -- "$target_dir"
+}
+
+prepare_generated_outputs() {
+  remove_generated_dir "$BITMAP_OUTPUT" "$REPO_DIR/bitmaps" "$CURSOR_THEME_NAME"
+  remove_generated_dir "$THEME_OUTPUT" "$REPO_DIR/themes" "$CURSOR_THEME_NAME"
+}
+
+repo_has_required_files() {
+  local repo_dir="$1"
+  [[ -d "$repo_dir/svg" && -f "$repo_dir/$BUILD_CONFIG" ]]
+}
+
+resolve_cursor_repo() {
+  local configured_repo="${BIBATA_CURSOR_REPO:-}"
+  local cursor_theme_root="${CURSOR_THEMES_ROOT:-$HOME/builds/cursor-themes}"
+  local repo_candidates=()
+  local repo_dir=""
+
+  if [[ "$THEME_DIR_NAME" == "Bibata_Cursor" && -n "$configured_repo" ]]; then
+    repo_candidates+=("$configured_repo")
+  fi
+
+  repo_candidates+=("$cursor_theme_root/$THEME_DIR_NAME")
+
+  if [[ "$THEME_DIR_NAME" == "Bibata_Cursor" ]]; then
+    repo_candidates+=("$HOME/builds/Bibata_Cursor")
+  fi
+
+  for repo_dir in "${repo_candidates[@]}"; do
+    if repo_has_required_files "$repo_dir"; then
+      printf '%s\n' "$repo_dir"
+      return 0
+    fi
+  done
+
+  printf '%s repo not found under %s\n' "$THEME_DIR_NAME" "$cursor_theme_root" >&2
+  exit 1
+}
+
 THEME_NAME=""
+CURSOR_THEME_SELECTOR="bibata"
+CURSOR_THEME_VARIANT=""
 BASE_COLOR=""
 OUTLINE_COLOR=""
 WATCH_COLOR=""
 DRY_RUN=0
 CTGEN_BIN=""
+RM_BIN="/usr/bin/rm"
+THEME_DIR_NAME=""
+CURSOR_THEME_PREFIX=""
+DEFAULT_VARIANT=""
+DEFAULT_BUILD_CONFIG=""
+RIGHT_BUILD_CONFIG=""
+SVG_INPUT=""
+BUILD_CONFIG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n)
-      THEME_NAME="${2:-}"
+      require_option_value "$1" "${2:-}"
+      THEME_NAME="$2"
+      shift 2
+      ;;
+    -t)
+      require_option_value "$1" "${2:-}"
+      CURSOR_THEME_SELECTOR="$2"
+      shift 2
+      ;;
+    -v)
+      require_option_value "$1" "${2:-}"
+      CURSOR_THEME_VARIANT="$2"
       shift 2
       ;;
     -bc)
-      BASE_COLOR="${2:-}"
+      require_option_value "$1" "${2:-}"
+      BASE_COLOR="$2"
       shift 2
       ;;
     -oc)
-      OUTLINE_COLOR="${2:-}"
+      require_option_value "$1" "${2:-}"
+      OUTLINE_COLOR="$2"
       shift 2
       ;;
     -wc)
-      WATCH_COLOR="${2:-}"
+      require_option_value "$1" "${2:-}"
+      WATCH_COLOR="$2"
       shift 2
       ;;
     --dry-run)
@@ -118,6 +391,21 @@ if [[ -z "$THEME_NAME" || -z "$BASE_COLOR" || -z "$OUTLINE_COLOR" || -z "$WATCH_
   exit 1
 fi
 
+if [[ -z "$CURSOR_THEME_SELECTOR" ]]; then
+  printf '%s\n' '-t requires a cursor theme name' >&2
+  exit 1
+fi
+
+if ! is_theme_name "$THEME_NAME"; then
+  printf 'invalid -n theme name: %s\n' "$THEME_NAME" >&2
+  exit 1
+fi
+
+if [[ -n "$CURSOR_THEME_VARIANT" ]] && ! is_theme_name "$CURSOR_THEME_VARIANT"; then
+  printf 'invalid -v variant name: %s\n' "$CURSOR_THEME_VARIANT" >&2
+  exit 1
+fi
+
 if ! is_hex_color "$BASE_COLOR"; then
   printf 'invalid -bc color: %s\n' "$BASE_COLOR" >&2
   exit 1
@@ -131,38 +419,48 @@ if ! is_hex_color "$WATCH_COLOR"; then
   exit 1
 fi
 
+resolve_theme_config "$CURSOR_THEME_SELECTOR"
+DEFAULT_BUILD_CONFIG="$BUILD_CONFIG"
+
 if [[ "$DRY_RUN" -eq 0 ]]; then
   require_cmd npx
   require_cmd mkdir
   require_cmd cp
   require_cmd printf
+  require_cmd "$RM_BIN"
   CTGEN_BIN="$(resolve_ctgen)"
 else
   CTGEN_BIN="/tmp/bibata-clickgen-venv/bin/ctgen"
 fi
 
-REPO_DIR="/home/dxle/builds/Bibata_Cursor"
+REPO_DIR="$(resolve_cursor_repo)"
+resolve_cursor_variant "$REPO_DIR" "$CURSOR_THEME_VARIANT"
+require_resolved_variant_files
 ICON_DIR="/home/dxle/.local/share/icons"
 THEME_CONFIG_ROOT="/home/dxle/.config/themes"
-CURSOR_THEME_NAME="Bibata-${THEME_NAME}"
-BITMAP_OUTPUT="bitmaps/${CURSOR_THEME_NAME}"
-THEME_OUTPUT="themes/${CURSOR_THEME_NAME}"
-CURSOR_CONFIG_FILE="${THEME_CONFIG_ROOT}/$(printf '%s' "$THEME_NAME" | tr '[:upper:]' '[:lower:]')/cursor"
+CURSOR_THEME_NAME="${CURSOR_THEME_PREFIX}-${THEME_NAME}"
+BITMAP_OUTPUT="$REPO_DIR/bitmaps/${CURSOR_THEME_NAME}"
+THEME_OUTPUT="$REPO_DIR/themes/${CURSOR_THEME_NAME}"
+THEME_CONFIG_DIR="${THEME_CONFIG_ROOT}/$(lower_theme_name "$THEME_NAME")"
+CURSOR_CONFIG_FILE="$THEME_CONFIG_DIR/cursor"
 
-run_cmd npx cbmp \
-  -d "svg/modern" \
+prepare_generated_outputs
+
+run_repo_cmd "$REPO_DIR" npx cbmp \
+  -d "$SVG_INPUT" \
   -o "$BITMAP_OUTPUT" \
   -bc "$BASE_COLOR" \
   -oc "$OUTLINE_COLOR" \
   -wc "$WATCH_COLOR"
 
-run_cmd "$CTGEN_BIN" configs/normal/x.build.toml \
+run_repo_cmd "$REPO_DIR" "$CTGEN_BIN" "$BUILD_CONFIG" \
   -p x11 \
   -d "$BITMAP_OUTPUT" \
+  -o "$REPO_DIR/themes" \
   -n "$CURSOR_THEME_NAME" \
-  -c "${THEME_NAME} Bibata cursors."
+  -c "${THEME_NAME} ${CURSOR_THEME_PREFIX} cursors."
 
 run_cmd mkdir -p "$ICON_DIR"
 run_cmd cp -a "$THEME_OUTPUT" "$ICON_DIR/"
-run_cmd mkdir -p "$(dirname "$CURSOR_CONFIG_FILE")"
+run_cmd mkdir -p "$THEME_CONFIG_DIR"
 write_cursor_config "$CURSOR_CONFIG_FILE" "$CURSOR_THEME_NAME"

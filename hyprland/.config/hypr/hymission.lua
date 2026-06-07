@@ -9,6 +9,7 @@ hl.config({
             niri_workspace_gap = 1.0,
             niri_window_gaps = -1,
             niri_mode_show_empty_workspaces_btwn = 1,
+            -- niri_mode_wallpaper_zoom = 1,
             debug_logs = 1,
             only_active_workspace = 1,
             only_active_monitor = 1,

@@ -15,3 +15,4 @@ vim.keymap.set("n", "<leader>t", function()
 end, { desc = "Open floating terminal" })
 
 vim.keymap.set("n", "<leader>gg", "<cmd>LazyGit<cr>")
+

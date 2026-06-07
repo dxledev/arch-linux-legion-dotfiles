@@ -13,8 +13,6 @@ confirm-close-surface = false
 resize-overlay = never
 gtk-toolbar-style = flat
 
-bold-is-bright = true
-
 cursor-style = "block"
 
 mouse-scroll-multiplier = 0.95
