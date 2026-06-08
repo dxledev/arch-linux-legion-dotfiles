@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+cmd="ghostty"
+
+for arg in "$@"; do
+  quoted_arg=$(printf "%q" "$arg")
+  cmd="$cmd $quoted_arg"
+done
+
+hyprctl dispatch "hl.dsp.exec_cmd('$cmd', {
+  float = true,
+  size = { 1000, 700 },
+  center = true,
+  animation = 'slide bottom',
+})"

@@ -107,8 +107,10 @@ return {
       }
 
       dap.defaults.fallback.external_terminal = {
-        command = "ghostty",
-        args = { "-e" },
+        command = vim.fn.expand("~/bin/dev/float-dap-terminal"),
+        args = {
+          "-e"
+        },
       }
 
       dap.configurations.cpp = {

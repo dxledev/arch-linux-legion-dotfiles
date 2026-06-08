@@ -93,6 +93,25 @@ hl.window_rule({
   animation = "slide bottom",
 })
 
+hl.window_rule({
+  name = "tag-codelldb-launch",
+  match = {
+    title = ".*codelldb-launch.*",
+  },
+  tag = "+dapterm",
+})
+
+hl.window_rule({
+  name = "float-dapterm",
+  match = {
+    tag = "dapterm",
+  },
+  float = true,
+  size = { 1000, 700 },
+  center = true,
+  animation = "slide bottom",
+})
+
 for _, namespace in ipairs({ "ward", "swayosd", "hypr-dock" }) do
   hl.layer_rule({
     name = namespace .. "-blur",
