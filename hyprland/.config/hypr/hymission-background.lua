@@ -1,0 +1,1 @@
+/home/dxle/.config/themes/current/hymission-background.lua

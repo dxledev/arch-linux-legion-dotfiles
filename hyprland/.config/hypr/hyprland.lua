@@ -15,6 +15,7 @@ require("hypridle")
 require("hyprlock")
 require("hyprsunset")
 require("hymission")
+require("hymission-background")
 require("xdph")
 
 require("custom-layouts.grid")

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+file="compile_flags.txt"
+
+cat > "$file" <<EOF
+-std=c++23
+-Wall
+-Wextra
+-pedantic
+EOF
