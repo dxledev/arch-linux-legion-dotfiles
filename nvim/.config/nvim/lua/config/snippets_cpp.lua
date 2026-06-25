@@ -35,3 +35,20 @@ ls.add_snippets("cpp", {
   }),
 })
 
+ls.add_snippets("cpp", {
+  s("mainsnip", {
+    t({
+      "int main()",
+      "{",
+      "    ",
+    }),
+    i(1),
+    t({
+      "",
+      "",
+      "    return 0;",
+      "}",
+    }),
+  }),
+})
+

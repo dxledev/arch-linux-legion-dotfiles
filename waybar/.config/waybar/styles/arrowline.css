@@ -196,6 +196,25 @@ tooltip label {
   background: @menu;
 }
 
+#custom-toolslabel {
+  padding-left: 10pt;
+  padding-right: 8pt;
+}
+
+#custom-hypridle {
+  padding-right: 4pt;
+  padding-left: 6pt;
+}
+
+#custom-sunshine {
+  padding-right: 8pt;
+  padding-left: 4pt;
+}
+
+#group-tools {
+  background: @bluetooth;
+}
+
 #custom-menu {
   background: @menu;
 }
@@ -207,4 +226,10 @@ tooltip label {
 #custom-bluetooth {
   background: @bluetooth;
   padding-right: 6pt;
+  padding-left: 6pt;
+}
+
+#custom-nightlight {
+  padding-left: 5pt;
+  padding-right: 10pt;
 }

@@ -84,10 +84,31 @@ tooltip {
 
 #custom-info,
 #custom-music,
-#custom-power {
+#custom-power,
+#custom-sunshine,
+#custom-hypridle,
+#custom-nightlight {
 	padding: 0 15px;
 	color: @bright-magenta;
 	font-size: 20px;
+}
+
+#custom-sunshine,
+#custom-hypridle,
+#custom-nightlight {
+  font-size: 18px;
+}
+
+#custom-sunshine {
+  padding-left: 8px;
+}
+
+#custom-hypridle {
+  padding-right: 8px;
+}
+
+#custom-nightlight {
+  padding-right: 5px;
 }
 
 #custom-info {

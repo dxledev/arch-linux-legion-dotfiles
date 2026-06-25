@@ -112,6 +112,17 @@ hl.window_rule({
   animation = "slide bottom",
 })
 
+hl.window_rule({
+  name = "float-xdg-portal",
+  match = {
+    class = "xdg-desktop-portal-gtk", 
+  },
+  float = true,
+  size = { 1100, 800 },
+  center = true,
+  animation = "slide bottom",
+})
+
 for _, namespace in ipairs({ "ward", "swayosd", "hypr-dock" }) do
   hl.layer_rule({
     name = namespace .. "-blur",

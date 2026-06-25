@@ -173,3 +173,22 @@ tooltip label {
   background: @background;
   padding: 0 5px 0 10px;
 }
+
+#custom-sunshine,
+#custom-hypridle,
+#custom-nightlight {
+  background: @background;
+}
+
+#custom-sunshine {
+  padding-right: 13px;
+  padding-left: 2px;
+}
+
+#custom-hypridle {
+  padding-right: 7px;
+}
+
+#custom-nightlight {
+  padding-right: 5px;
+}

@@ -118,6 +118,9 @@
 		},
 		"modules": [
 			"custom/infolabel",
+      "custom/hypridle",
+      "custom/nightlight",
+      "custom/sunshine",
 			"custom/btop",
 			"custom/shot",
 			"custom/wallpapers",
@@ -154,6 +157,36 @@
       "format": "<span font_desc=\"JetBrainsMono Nerd Font\">󰸌</span>",
       "on-click": "~/bin/toggle-chromack --toggle",
       "tooltip-format": "Color Menu",
+    },
+    "custom/expo": {
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\"> </span>",
+        "tooltip-format": "Workspace Overview",
+        "on-click": "~/bin/hypr-toggle-workspace-control",
+        "on-click-right": "~/bin/hypr-toggle-mission-control"
+    },
+    "custom/sunshine": {
+        "exec": "$HOME/.config/waybar/scripts/sunshine-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "󰶐",
+            "󰍹"
+        ],
+        "interval": 2,
+        "on-click": "~/bin/system-toggle-sunshine",
+        "tooltip": true
+    },
+    "custom/hypridle": {
+        "exec": "$HOME/.config/waybar/scripts/hypridle-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "󱙱",
+            "󰌾"
+        ],
+        "interval": 2,
+        "on-click": "~/bin/system-toggle-idle-lock",
+        "tooltip": true
     },
    "wireplumber": {
        "format":"<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span> {volume}%",

@@ -13,7 +13,7 @@
 
 	"modules-right": [
     "custom/arrow7",
-    "custom/bluetooth",
+    "group/group-tools",
 		"custom/arrow6",
 		"wireplumber",
 		"custom/arrow5",
@@ -93,15 +93,15 @@
       },
   },
 
-	"tray": {
-		"icon-size": 18,
-		"spacing": 10
-	},
-	
-    "battery": {
-        "bat": "BAT0",
-        "interval": 60,
-        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span> {capacity}%",
+"tray": {
+  "icon-size": 18,
+  "spacing": 10
+},
+
+  "battery": {
+      "bat": "BAT0",
+      "interval": 60,
+      "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span> {capacity}%",
         "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
         "on-click": "/home/dxle/bin/menu-power-profile",
         "tooltip-format": "{capacity}%",
@@ -198,6 +198,13 @@
 		"tooltip": false
 	},
 
+  "custom/arrow8": {
+		// "format": "",
+		"format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>",
+		// "format": "",
+		"tooltip": false
+	},
+
 	"custom/arrow10": {
 		// "format": "",
 		"format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span>",
@@ -239,12 +246,68 @@
     "tooltip": false,
   },
 
+  "group/group-tools": {
+		"orientation": "inherit",
+		"drawer": {
+			"transition-duration": 500,
+			"children-class": "not-info",
+			"transition-left-to-right": true
+		},
+		"modules": [
+      "custom/toolslabel",
+      "custom/bluetooth",
+      "custom/sunshine",
+      "custom/hypridle",
+      "custom/nightlight"
+		]
+	},
+
+  "custom/toolslabel": {
+       "format": "<span font_desc=\"JetBrainsMono Nerd Font\"> </span>",
+       "tooltip": false
+	},
+
   "custom/bluetooth": {
-        "format": " ",  
-        "on-click": "~/bin/launch-terminal-floating 1000 800 bluetuith",
-        "tooltip": false,
+    "format": " ",  
+    "on-click": "~/bin/launch-terminal-floating 1000 800 bluetuith",
+    "tooltip": false,
   },
 
-  
+  "custom/sunshine": {
+    "exec": "$HOME/.config/waybar/scripts/sunshine-status.sh",
+    "return-type": "json",
+    "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+    "format-icons": [
+        "󰶐",
+        "󰍹"
+    ],
+    "interval": 2,
+    "on-click": "~/bin/system-toggle-sunshine",
+    "tooltip": true
+  },
+  "custom/hypridle": {
+    "exec": "$HOME/.config/waybar/scripts/hypridle-status.sh",
+    "return-type": "json",
+    "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+    "format-icons": [
+        "󱙱",
+        "󰌾"
+    ],
+    "interval": 2,
+    "on-click": "~/bin/system-toggle-idle-lock",
+    "tooltip": true
+  },
+  "custom/nightlight": {
+    "exec": "$HOME/.config/waybar/scripts/hyprsunset-status.sh",
+    "return-type": "json",
+    "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+    "format-icons": [
+        "",
+        ""
+    ],
+    "interval": 2,
+    "tooltip": true,
+    "on-click": "$HOME/bin/system-toggle-nightlight"
+  },
 }
 

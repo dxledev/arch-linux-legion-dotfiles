@@ -15,9 +15,10 @@
         "clock",
         "hyprland/workspaces",
         "custom/expo",
-        "pulseaudio",
-        "network",
-        "battery"
+        "custom/nightlight",
+        "custom/hypridle",
+        "custom/sunshine",
+        "group/group-tools"
     ],
     "modules-right": [
     ],
@@ -52,11 +53,68 @@
             "HDMI-A-1": [ 1,2,3,4,5 ]
         },
     },
+
+    "group/group-tools": {
+      "orientation": "inherit",
+      "drawer": {
+        "transition-duration": 500,
+        "children-class": "not-info",
+        "transition-left-to-right": true
+      },
+      "modules": [
+        "pulseaudio",
+        "network",
+        "battery"
+      ]
+    },
+
+    "custom/toolslabel": {
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\"> </span>",
+        "tooltip": false,
+        "cursor": "pointer"
+    },
+
     "custom/expo": {
         "format": "<span font_desc=\"JetBrainsMono Nerd Font\"> </span>",
         "tooltip-format": "Workspace Overview",
         "on-click": "~/bin/hypr-toggle-workspace-control",
         "on-click-right": "~/bin/hypr-toggle-mission-control"
+    },
+    "custom/sunshine": {
+        "exec": "$HOME/.config/waybar/scripts/sunshine-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "󰶐",
+            "󰍹"
+        ],
+        "interval": 2,
+        "on-click": "~/bin/system-toggle-sunshine",
+        "tooltip": true
+    },
+    "custom/hypridle": {
+        "exec": "$HOME/.config/waybar/scripts/hypridle-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "󱙱",
+            "󰌾"
+        ],
+        "interval": 2,
+        "on-click": "~/bin/system-toggle-idle-lock",
+        "tooltip": true
+    },
+    "custom/nightlight": {
+        "exec": "$HOME/.config/waybar/scripts/hyprsunset-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "",
+            ""
+        ],
+        "interval": 2,
+        "tooltip": true,
+        "on-click": "$HOME/bin/system-toggle-nightlight"
     },
     "keyboard-state": {
         "numlock": true,
@@ -197,7 +255,7 @@
             "phone": " ",
             "portable": " ",
             "car": " ",
-            "default": [" ", " ", " "]
+            "default": [" ", " ", "  "]
         },
         "tooltip-format": "{volume}%",
         "on-click-right": "~/bin/launch-window-floating 1000 800 pavucontrol",

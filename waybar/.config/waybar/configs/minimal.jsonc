@@ -18,6 +18,9 @@
     ],
     "modules-right": [
         "custom/wallpapers",
+        "custom/hypridle",
+        "custom/sunshine",
+        "custom/nightlight",
         "pulseaudio",
         "network",
         "custom/bluetooth",
@@ -238,5 +241,41 @@
         "format": "<span font_desc=\"JetBrainsMono Nerd Font\"></span> ",  
         "on-click": "~/bin/launch-terminal-floating 1000 800 bluetuith",
         "tooltip": false,
-    }
+    },
+    "custom/sunshine": {
+        "exec": "$HOME/.config/waybar/scripts/sunshine-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "󰶐",
+            "󰍹"
+        ],
+        "interval": 2,
+        "on-click": "~/bin/system-toggle-sunshine",
+        "tooltip": true
+    },
+    "custom/hypridle": {
+        "exec": "$HOME/.config/waybar/scripts/hypridle-status.sh",
+        "return-type": "json",
+        "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+        "format-icons": [
+            "󱙱",
+            "󰌾"
+        ],
+        "interval": 2,
+        "on-click": "~/bin/system-toggle-idle-lock",
+        "tooltip": true
+    },
+    "custom/nightlight": {
+      "exec": "$HOME/.config/waybar/scripts/hyprsunset-status.sh",
+      "return-type": "json",
+      "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+      "format-icons": [
+          "",
+          ""
+      ],
+      "interval": 2,
+      "tooltip": true,
+      "on-click": "$HOME/bin/system-toggle-nightlight"
+    },
 }

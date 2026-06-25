@@ -41,7 +41,7 @@ tooltip {
 }
 
 tooltip label {
-  color: @magenta;
+  color: @foreground;
   padding: 6px;
 }
 
@@ -135,7 +135,8 @@ button {
 }
 
 #battery {
-    padding-left: 4px;
+    padding-left: 6px;
+    padding-right: 4px;
     background-color: transparent;
     color: @cyan;
 }
@@ -204,7 +205,7 @@ button {
 
 #network {
     margin-right: 10px;
-    padding-left: 4px;
+    padding-left: 2px;
     background-color: transparent;
     color: @bright-red;
 }
@@ -216,7 +217,7 @@ button {
 #pulseaudio {
     background-color: transparent;
     color: @bright-yellow;
-    padding-right: 5px;
+    padding-right: 2px;
 }
 
 #pulseaudio.muted {
@@ -363,10 +364,40 @@ button {
 
 #custom-expo {
     color: @blue;
-    padding-left: 12px;
-    padding-right: 6px;
+    padding-left: 15px;
+    padding-right: 13px;
 }
 
 #custom-expo:hover {
     color: @foreground;
+}
+
+#custom-sunshine {
+    color: @magenta;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+#custom-sunshine:hover {
+    color: @dim-magenta;
+}
+
+#custom-hypridle {
+    color: @green;
+    padding-left: 10px;
+    padding-right: 8px;
+}
+
+#custom-hypridle:hover {
+    color: @blue;
+}
+
+#custom-nightlight {
+    color: @yellow;
+    padding-right: 10px;
+    padding-left: 5px;
+}
+
+#custom-nightlight:hover {
+    color: @bright-yellow;
 }

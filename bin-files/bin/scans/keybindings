@@ -2,18 +2,18 @@ HYPER + B | Launch Alt Browser
 HYPER + LEFT | Swap Window Left (Scrolling)
 HYPER + RIGHT | Swap Window Right (Scrolling)
 HYPER + W | Half Window Size (Scrolling)
-SUPER + Dradle | Toggle Discord Space
-SUPER + SHIFT + Dradle | Move To Discord Space
-SUPER + SHIFT + ALT + Dradle | Launch Discord
-SUPER + Torii | Toggle Media Space
-SUPER + SHIFT + Torii | Move To Media Space 
-SUPER + SHIFT + ALT + Torii | Launch Spotify
-SUPER + Leaf | Toggle Scratchpad
-SUPER + SHIFT + Leaf | Move To Scratchpad
-SUPER + Soup | Toggle Social Space
-SUPER + SHIFT + Soup | Move To Social Space 
-SUPER + SHIFT + ALT + Soup | Launch Instagram
-SUPER + CTRL + ALT + Soup | Launch TikTok
+SUPER + NUM_1 | Toggle Discord Space
+SUPER + SHIFT + NUM_1 | Move To Discord Space
+SUPER + SHIFT + ALT + NUM_1 | Launch Discord
+SUPER + NUM_2 | Toggle Media Space
+SUPER + SHIFT + NUM_2 | Move To Media Space 
+SUPER + SHIFT + ALT + NUM_2 | Launch Spotify
+SUPER + NUM_3 | Toggle Scratchpad
+SUPER + SHIFT + NUM_3 | Move To Scratchpad
+SUPER + NUM_4 | Toggle Social Space
+SUPER + SHIFT + NUM_4 | Move To Social Space 
+SUPER + SHIFT + ALT + NUM_4 | Launch Instagram
+SUPER + CTRL + ALT + NUM_4 | Launch TikTok
 SUPER + LMB | Move Window
 SUPER + RMB | Resize Window
 CTRL ALT + SCROLL UP | Zoom In

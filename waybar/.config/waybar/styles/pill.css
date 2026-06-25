@@ -28,6 +28,20 @@ window#waybar {
 	padding: 0 15px;
 }
 
+#custom-btop {
+  padding-left: 0;
+}
+
+#custom-sunshine,
+#custom-nightlight,
+#custom-hypridle {
+  padding: 0 7px;
+}
+
+#custom-hypridle {
+  padding-left: 30px;
+}
+
 #workspaces {
 	background-color: transparent;
 }
@@ -72,10 +86,11 @@ window#waybar {
 }
 
 #custom-menu {
-	padding: 0 30px 0 45px;
+	padding: 0 20px 0 35px;
 	background: @primary;
 	color: @background;
 	border-radius: 16px 0 0 16px;
+  font-size: 30px;
 }
 
 #custom-left-1 {

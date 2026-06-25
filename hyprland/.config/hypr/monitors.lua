@@ -71,3 +71,9 @@ hl.workspace_rule({
   monitor = "DP-1",
   persistent = true,
 })
+
+hl.workspace_rule({
+  workspace = "11",
+  monitor = "DP-1",
+  persistent = true,
+})

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+SERVICE="app-dev.lizardbyte.app.Sunshine.service"
+
+if systemctl --user is-active --quiet "$SERVICE"; then
+    systemctl --user stop "$SERVICE"
+    notify-send "System" "Sunshine: <b>OFF</b>"
+    echo "Sunshine stopped"
+else
+    notify-send "System" "Starting Sunshine…"
+
+    systemctl --user start "$SERVICE"
+
+    notify-send "System" "Sunshine: <b>ON</b>"
+    echo "Sunshine started"
+fi

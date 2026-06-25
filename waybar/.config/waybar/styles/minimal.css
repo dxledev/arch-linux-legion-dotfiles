@@ -240,7 +240,7 @@ label:focus {
     background-color: transparent;
     color: @foreground;
     padding-right: 2px;
-    padding-left: 10px;
+    padding-left: 6px;
 }
 
 #pulseaudio.muted {
@@ -387,4 +387,18 @@ label:focus {
 
 #custom-wallpapers {
     padding-right: 3px;
+}
+
+#custom-sunshine {
+    padding-right: 5px;
+}
+
+#custom-hypridle {
+    padding-right: 8px;
+    padding-left: 10px;
+}
+
+#custom-nightlight {
+    padding-right: 5px;
+    padding-left: 8px;
 }

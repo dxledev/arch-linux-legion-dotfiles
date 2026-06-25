@@ -249,5 +249,18 @@ tooltip label {
 }
 
 #custom-menu {
-    padding-left: 15px;
+    padding-left: 16px;
+}
+
+#custom-sunshine {
+    padding-right: 8px;
+    padding-left: 17px;
+}
+
+#custom-hypridle {
+    padding-right: 3px;
+}
+
+#custom-nightlight {
+    padding-right: 5px;
 }

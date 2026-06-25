@@ -157,8 +157,42 @@ bind("bindd", "ALT SHIFT", "F9", "Stop OBS Recording", "sendshortcut", "ALT SHIF
 bind("bindd", "ALT", "F10", "Pause OBS Recording", "sendshortcut", "ALT, F10, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT SHIFT", "F10", "Resume OBS Recording", "sendshortcut", "ALT SHIFT, F10, class:^com\\.obsproject\\.Studio$")
 
+-- for _, direction in ipairs({ { "Left", "l" }, { "Right", "r" }, { "Up", "u" }, { "Down", "d" } }) do
+--   bind("bindd", mainMod, direction[1], "Focus Window " .. direction[1], "movefocus", direction[2])
+--   bind("bindd", mainMod .. " SHIFT", direction[1], "Move Window " .. direction[1], "movewindow", direction[2])
+--   bind("bindd", mainMod .. " SHIFT CTRL", direction[1], "Swap Window " .. direction[1], "swapwindow", direction[2])
+-- end
+
+local function is_scrolling_workspace()
+  local ws = hl.get_active_workspace()
+  return ws ~= nil and ws.tiled_layout == "scrolling"
+end
+
+local function dynamic_movefocus(dir)
+  if is_scrolling_workspace() then
+    if dir == "l" then
+      hl.dispatch(hl.dsp.layout("move -col"))
+    elseif dir == "r" then
+      hl.dispatch(hl.dsp.layout("move +col"))
+    else
+      hl.dispatch(hl.dsp.focus({ direction = dir }))
+    end
+
+    return
+  end
+
+  hl.dispatch(hl.dsp.focus({ direction = dir }))
+end
+
 for _, direction in ipairs({ { "Left", "l" }, { "Right", "r" }, { "Up", "u" }, { "Down", "d" } }) do
-  bind("bindd", mainMod, direction[1], "Focus Window " .. direction[1], "movefocus", direction[2])
+  hl.bind(
+    keys(mainMod, direction[1]),
+    function()
+      dynamic_movefocus(direction[2])
+    end,
+    { description = "Focus Window " .. direction[1] }
+  )
+
   bind("bindd", mainMod .. " SHIFT", direction[1], "Move Window " .. direction[1], "movewindow", direction[2])
   bind("bindd", mainMod .. " SHIFT CTRL", direction[1], "Swap Window " .. direction[1], "swapwindow", direction[2])
 end
@@ -221,18 +255,22 @@ for workspace = 1, 10 do
   bind("bindd", mainMod .. " ALT SHIFT", key, "Silently Move To Workspace " .. label, "movetoworkspacesilent", tostring(workspace))
 end
 
+bind("bindd", mainMod, "F5", "Focus Workspace 11", "workspace", "11")
+bind("bindd", mainMod .. " SHIFT", "F5", "Move To Workspace 11", "movetoworkspace", "11")
+bind("bindd", mainMod .. " ALT SHIFT", "F5", "Silently Move To Workspace 11", "movetoworkspacesilent", "11")
+
 bind_exec(mainMod .. " ALT", "equal", "Move Window To Empty Workspace", "~/bin/hypr-move-to-empty-workspace")
 
-bind("bind", mainMod, "Next", "", "exec", "~/bin/hypr-focus-special-workspace scratchpad")
-bind("bind", mainMod .. " SHIFT", "Next", "", "exec", "hyprctl dispatch setfloating && hyprctl dispatch resizeactive exact 1200 800 && hyprctl dispatch centerwindow && hyprctl dispatch movetoworkspace special:scratchpad")
-bind("bind", mainMod .. " SHIFT ALT", "Next", "", "exec", "~/bin/launch-obsidian")
-bind("bind", mainMod, "Prior", "", "exec", "~/bin/hypr-focus-special-workspace mediaspace")
-bind("bind", mainMod .. " SHIFT ALT", "Prior", "", "exec", "~/bin/launch-spotify")
-bind("bind", mainMod, "Home", "", "exec", "~/bin/hypr-focus-special-workspace discordspace")
-bind("bind", mainMod .. " SHIFT ALT", "Home", "", "exec", "~/bin/launch-discord")
-bind("bind", mainMod, "End", "", "exec", "~/bin/hypr-focus-special-workspace socialspace")
-bind("bind", mainMod .. " SHIFT ALT", "End", "", "exec", "~/bin/launch-instagram")
-bind("bind", mainMod .. " CTRL ALT", "End", "", "exec", "~/bin/launch-tiktok")
+bind("bind", mainMod, "KP_Next", "", "exec", "~/bin/hypr-focus-special-workspace scratchpad")
+bind("bind", mainMod .. " SHIFT", "KP_Next", "", "exec", "hyprctl dispatch setfloating && hyprctl dispatch resizeactive exact 1200 800 && hyprctl dispatch centerwindow && hyprctl dispatch movetoworkspace special:scratchpad")
+bind("bind", mainMod .. " SHIFT ALT", "KP_Next", "", "exec", "~/bin/launch-obsidian")
+bind("bind", mainMod, "KP_Down", "", "exec", "~/bin/hypr-focus-special-workspace mediaspace")
+bind("bind", mainMod .. " SHIFT ALT", "KP_Down", "", "exec", "~/bin/launch-spotify")
+bind("bind", mainMod, "KP_End", "", "exec", "~/bin/hypr-focus-special-workspace discordspace")
+bind("bind", mainMod .. " SHIFT ALT", "KP_End", "", "exec", "~/bin/launch-discord")
+bind("bind", mainMod, "KP_Left", "", "exec", "~/bin/hypr-focus-special-workspace socialspace")
+bind("bind", mainMod .. " SHIFT ALT", "KP_Left", "", "exec", "~/bin/launch-instagram")
+bind("bind", mainMod .. " CTRL ALT", "KP_Left", "", "exec", "~/bin/launch-tiktok")
 bind("bind", mainMod .. " SHIFT CTRL", "EQUAL", "", "togglespecialworkspace", "floating")
 
 local environment_binds = {
@@ -272,6 +310,7 @@ bind("bindd", mainMod .. " SHIFT CTRL ALT", "W", "Half Size Window (Scrolling)",
 bind("bindd", mainMod .. " SHIFT", "W", "Un-Full-Size Window (Scrolling)", "layoutmsg", "colresize 0.95")
 bind("bindd", mainMod .. " SHIFT CTRL ALT", "Left", "Swap Window Left (Scrolling)", "layoutmsg", "swapcol l")
 bind("bindd", mainMod .. " SHIFT CTRL ALT", "Right", "Swap Window Right (Scrolling)", "layoutmsg", "swapcol r")
+bind("bindd", mainMod .. " SHIFT CTRL ALT", "P", "Promote Column (Scrolling)", "layoutmsg", "promote")
 bind("bindd", "ALT", "H", "Swap Window Left (Scrolling)", "layoutmsg", "swapcol l")
 bind("bindd", "ALT", "L", "Swap Window Right (Scrolling)", "layoutmsg", "swapcol r")
 bind_exec("ALT", "S", "Toggle Focus Method (Scrolling)", "~/bin/hypr-toggle-scrolling-focus")
@@ -280,6 +319,8 @@ bind("bind", mainMod .. " CTRL", "mouse_down", "", "layoutmsg", "cyclenext")
 bind("bind", mainMod .. " CTRL", "mouse_up", "", "layoutmsg", "cycleprev")
 bind("bindd", mainMod .. " CTRL", "right", "Next Window (Monocle)", "layoutmsg", "cyclenext")
 bind("bindd", mainMod .. " CTRL", "left", "Prev Window (Monocle)", "layoutmsg", "cycleprev")
+
+hl.bind(mainMod .. " + CTRL + K", hl.dsp.exec_cmd("hyprctl kill"), { release = true, description = "Kill Mode" })
 
 local zoom_in = "hyprctl -q keyword cursor:zoom_factor $(hyprctl getoption cursor:zoom_factor -j | jq '.float * 1.1')"
 local zoom_out = "hyprctl -q keyword cursor:zoom_factor $(hyprctl getoption cursor:zoom_factor -j | jq '(.float * 0.9) | if . < 1 then 1 else . end')"
