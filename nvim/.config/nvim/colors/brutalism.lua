@@ -56,8 +56,10 @@ hi("PmenuSel", { fg = colors.bg, bg = colors.accent, bold = true })
 hi("PmenuThumb", { bg = colors.accent })
 hi("StatusLine", { fg = colors.fg, bg = colors.surface })
 hi("StatusLineNC", { fg = colors.muted, bg = colors.mantle })
-hi("TabLine", { fg = colors.fg, bg = colors.mantle })
-hi("TabLineSel", { fg = colors.bg, bg = colors.accent, bold = true })
+
+-- Native Neovim tabline
+hi("TabLine", { fg = colors.muted, bg = colors.bg })
+hi("TabLineSel", { fg = colors.accent, bg = colors.bg, bold = true })
 hi("TabLineFill", { bg = colors.bg })
 hi("Title", { fg = colors.fg, bold = true })
 hi("Directory", { fg = colors.accent, bold = true })

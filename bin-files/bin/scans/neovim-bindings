@@ -99,6 +99,7 @@ ci< | Change in <>
 
 gg | Go to Top of File
 G | Go to bottom of File
+^ | Go to Start of First Word in Line
 <C-d> | Half Page Down
 <C-u> | Half Page Up
 <C-f> | Full Page Down

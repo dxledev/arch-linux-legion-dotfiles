@@ -157,6 +157,8 @@ bind("bindd", "ALT SHIFT", "F9", "Stop OBS Recording", "sendshortcut", "ALT SHIF
 bind("bindd", "ALT", "F10", "Pause OBS Recording", "sendshortcut", "ALT, F10, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT SHIFT", "F10", "Resume OBS Recording", "sendshortcut", "ALT SHIFT, F10, class:^com\\.obsproject\\.Studio$")
 
+bind("bindd", "ALT", "F11", "Toggle Discord Mute", "exec", "~/bin/discord-toggle-mute")
+
 -- for _, direction in ipairs({ { "Left", "l" }, { "Right", "r" }, { "Up", "u" }, { "Down", "d" } }) do
 --   bind("bindd", mainMod, direction[1], "Focus Window " .. direction[1], "movefocus", direction[2])
 --   bind("bindd", mainMod .. " SHIFT", direction[1], "Move Window " .. direction[1], "movewindow", direction[2])

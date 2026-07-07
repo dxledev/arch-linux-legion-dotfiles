@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+readonly NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
+readonly TIMEOUT_BIN="${TIMEOUT_BIN:-/usr/bin/timeout}"
+readonly MKDIR_BIN="${MKDIR_BIN:-/usr/bin/mkdir}"
+readonly MKTEMP_BIN="${MKTEMP_BIN:-/usr/bin/mktemp}"
+readonly MV_BIN="${MV_BIN:-/usr/bin/mv}"
+readonly RM_BIN="${RM_BIN:-/usr/bin/rm}"
+readonly DATE_BIN="${DATE_BIN:-/usr/bin/date}"
+readonly AWK_BIN="${AWK_BIN:-/usr/bin/awk}"
+
+DISCORD_WINDOW_MATCH="${DISCORD_TOGGLE_MUTE_WINDOW_MATCH:-class:^(vesktop|discord|Discord)$}"
+DISCORD_MUTE_MODS="${DISCORD_TOGGLE_MUTE_MODS:-CTRL SHIFT}"
+DISCORD_MUTE_KEY="${DISCORD_TOGGLE_MUTE_KEY:-M}"
+DISCORD_NOTIFY_APP_NAME="${DISCORD_NOTIFY_APP_NAME:-discord-media-controls}"
+DISCORD_NOTIFY_STACK_TAG="${DISCORD_NOTIFY_STACK_TAG:-discord-toggle-mute}"
+DISCORD_NOTIFY_STATE_DIR="${DISCORD_NOTIFY_STATE_DIR:-${XDG_RUNTIME_DIR:-/tmp}/discord-media-controls-notify}"
+DISCORD_NOTIFY_STATE_FILE="${DISCORD_NOTIFY_STATE_FILE:-$DISCORD_NOTIFY_STATE_DIR/ward-notification-state}"
+DISCORD_NOTIFY_TIMEOUT="${DISCORD_NOTIFY_TIMEOUT:-2500}"
+DISCORD_NOTIFY_SEND_TIMEOUT="${DISCORD_NOTIFY_SEND_TIMEOUT:-5}"
+DISCORD_NOTIFY_TEXT_GAP="${DISCORD_NOTIFY_TEXT_GAP:-5}"
+DRY_RUN=0
+NO_NOTIFY=0
+
+usage() {
+  printf 'Usage: %s [--dry-run] [--no-notify]\n' "${0##*/}"
+}
+
+parse_args() {
+  while (($# > 0)); do
+    case "$1" in
+      -n|--dry-run)
+        DRY_RUN=1
+        ;;
+      --no-notify)
+        NO_NOTIFY=1
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        usage >&2
+        exit 1
+        ;;
+    esac
+    shift
+  done
+}
+
+require_binary() {
+  local path="$1"
+
+  [[ -x "$path" ]] || {
+    printf 'Missing required binary: %s\n' "$path" >&2
+    exit 1
+  }
+}
+
+validate_shortcut_value() {
+  local name="$1"
+  local value="$2"
+
+  [[ -n "$value" && "$value" != *\"* ]] || {
+    printf 'Invalid %s: %s\n' "$name" "$value" >&2
+    exit 1
+  }
+}
+
+send_discord_mute_shortcut() {
+  local command=""
+
+  command="hl.dsp.send_shortcut({ mods = \"$DISCORD_MUTE_MODS\", key = \"$DISCORD_MUTE_KEY\", window = \"$DISCORD_WINDOW_MATCH\" })"
+
+  if (( DRY_RUN == 1 )); then
+    printf 'dry-run: %s dispatch %q\n' "$HYPRCTL_BIN" "$command"
+    return 0
+  fi
+
+  "$HYPRCTL_BIN" dispatch "$command" >/dev/null
+}
+
+clear_notify_state() {
+  "$RM_BIN" -f "$DISCORD_NOTIFY_STATE_FILE"
+}
+
+write_notify_state() {
+  local notification_id="$1"
+  local created_at_s="$2"
+  local timeout="$3"
+  local temp_state_file=""
+
+  temp_state_file="$("$MKTEMP_BIN" "$DISCORD_NOTIFY_STATE_DIR/.ward-notification-state.XXXXXX")"
+  printf '%s\n%s\n%s\n' "$notification_id" "$created_at_s" "$timeout" > "$temp_state_file"
+  "$MV_BIN" -f "$temp_state_file" "$DISCORD_NOTIFY_STATE_FILE"
+}
+
+active_notify_id() {
+  local -a lines=()
+  local notification_id=""
+  local created_at_s=""
+  local timeout=""
+  local now_s=""
+  local expires_at_s=""
+
+  [[ -r "$DISCORD_NOTIFY_STATE_FILE" ]] || return 1
+
+  if ! mapfile -t lines < "$DISCORD_NOTIFY_STATE_FILE"; then
+    clear_notify_state
+    return 1
+  fi
+
+  notification_id="${lines[0]-}"
+  created_at_s="${lines[1]-}"
+  timeout="${lines[2]-}"
+
+  if [[ ! "$notification_id" =~ ^[0-9]+$ || ! "$created_at_s" =~ ^[0-9]+$ || ! "$timeout" =~ ^[0-9]+$ ]]; then
+    clear_notify_state
+    return 1
+  fi
+
+  if [[ "$timeout" -eq 0 ]]; then
+    printf '%s\n' "$notification_id"
+    return 0
+  fi
+
+  now_s="$("$DATE_BIN" +%s)"
+  expires_at_s=$(( created_at_s + ((timeout + 999) / 1000) ))
+
+  if [[ "$now_s" -ge "$expires_at_s" ]]; then
+    clear_notify_state
+    return 1
+  fi
+
+  printf '%s\n' "$notification_id"
+}
+
+notify_args() {
+  local summary="$1"
+  local body="$2"
+  local timeout="$3"
+  local replace_id="${4-}"
+  local -a args=()
+
+  args=(
+    -a "$DISCORD_NOTIFY_APP_NAME"
+    -p
+    -t "$timeout"
+    -h "string:x-dunst-stack-tag:$DISCORD_NOTIFY_STACK_TAG"
+    -h "int:x-ward-text-gap:$DISCORD_NOTIFY_TEXT_GAP"
+  )
+
+  if [[ -n "$replace_id" ]]; then
+    args+=(
+      -r "$replace_id"
+      -h "boolean:x-ward-silent-open:true"
+    )
+  fi
+
+  args+=("$summary" "$body")
+  printf '%s\0' "${args[@]}"
+}
+
+notify_toggle() {
+  local summary="<span font-weight=\"300\">Discord</span>"
+  local body="Toggled microphone mute"
+  local active_id=""
+  local replace_id=""
+  local notify_output=""
+  local notification_id=""
+  local created_at_s=""
+  local -a args=()
+
+  (( NO_NOTIFY == 0 )) || return 0
+
+  if [[ ! -x "$NOTIFY_SEND_BIN" ]]; then
+    return 0
+  fi
+
+  if (( DRY_RUN == 1 )); then
+    mapfile -d '' -t args < <(notify_args "$summary" "$body" "$DISCORD_NOTIFY_TIMEOUT")
+    printf 'dry-run: notify_args='
+    printf '%q ' "$NOTIFY_SEND_BIN" "${args[@]}"
+    printf '\n'
+    return 0
+  fi
+
+  "$MKDIR_BIN" -p "$DISCORD_NOTIFY_STATE_DIR"
+
+  if active_id="$(active_notify_id 2>/dev/null)"; then
+    replace_id="$active_id"
+  fi
+
+  mapfile -d '' -t args < <(notify_args "$summary" "$body" "$DISCORD_NOTIFY_TIMEOUT" "$replace_id")
+
+  notify_output="$("$TIMEOUT_BIN" "$DISCORD_NOTIFY_SEND_TIMEOUT" "$NOTIFY_SEND_BIN" "${args[@]}")" || return 0
+  notification_id="$(printf '%s\n' "$notify_output" | "$AWK_BIN" 'NF { value=$NF } END { print value }')"
+
+  if [[ "$notification_id" =~ ^[0-9]+$ ]]; then
+    created_at_s="$("$DATE_BIN" +%s)"
+    write_notify_state "$notification_id" "$created_at_s" "$DISCORD_NOTIFY_TIMEOUT"
+  else
+    clear_notify_state
+  fi
+}
+
+main() {
+  parse_args "$@"
+  require_binary "$HYPRCTL_BIN"
+  validate_shortcut_value "DISCORD_TOGGLE_MUTE_MODS" "$DISCORD_MUTE_MODS"
+  validate_shortcut_value "DISCORD_TOGGLE_MUTE_KEY" "$DISCORD_MUTE_KEY"
+  validate_shortcut_value "DISCORD_TOGGLE_MUTE_WINDOW_MATCH" "$DISCORD_WINDOW_MATCH"
+
+  send_discord_mute_shortcut
+  notify_toggle
+}
+
+main "$@"

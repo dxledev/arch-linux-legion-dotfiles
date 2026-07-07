@@ -11,6 +11,8 @@ MONITORS_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monito
 BACKUP_FILE="${XDG_RUNTIME_DIR:-/tmp}/menu-displays.$(basename "$MONITORS_CONF").bak"
 HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 RELOAD_HYPRLAND="${MENU_DISPLAYS_RELOAD_HYPRLAND:-0}"
+MONITOR_RULE_APPLY_DELAY="${MENU_DISPLAYS_MONITOR_RULE_DELAY:-0.35}"
+MONITOR_ENABLE_SETTLE_DELAY="${MENU_DISPLAYS_MONITOR_ENABLE_SETTLE_DELAY:-0.8}"
 HYPR_AUTORELOAD_SUSPENDED=0
 
 if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
@@ -43,6 +45,93 @@ if [[ "$(jq 'length' <<< "$monitors_json")" -eq 0 ]]; then
     exit 1
 fi
 
+validate_delay() {
+    local value="$1"
+
+    [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+if ! validate_delay "$MONITOR_RULE_APPLY_DELAY" || ! validate_delay "$MONITOR_ENABLE_SETTLE_DELAY"; then
+    notify-send -t 4000 "Displays" "Invalid monitor delay configuration"
+    exit 1
+fi
+
+get_lua_correct_monitor_block() {
+    local target_monitor="$1"
+
+    hypr_is_lua_file "$MONITORS_CONF" || return 1
+
+    awk -v target_monitor="$target_monitor" '
+        function uncomment(line) {
+            sub(/^[[:space:]]*--[[:space:]]?/, "", line)
+            return line
+        }
+
+        function clean(value) {
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            sub(/^[^=]+=[[:space:]]*/, "", value)
+            sub(/,[[:space:]]*$/, "", value)
+            gsub(/^"|"$/, "", value)
+            return value
+        }
+
+        {
+            line = uncomment($0)
+        }
+
+        line ~ /^[[:space:]]*local[[:space:]]+correct_monitor_configs[[:space:]]*=/ {
+            in_table = 1
+            next
+        }
+
+        in_table && !in_block && line ~ /^[[:space:]]*\}[[:space:]]*$/ {
+            in_table = 0
+            next
+        }
+
+        in_table && !in_block && line ~ /^[[:space:]]*\{[[:space:]]*$/ {
+            in_block = 1
+            block_depth = 1
+            block_count = 1
+            block_output = ""
+            block[block_count] = line
+            next
+        }
+
+        in_block {
+            block[++block_count] = line
+
+            if (line ~ /^[[:space:]]*output[[:space:]]*=/) {
+                block_output = clean(line)
+            }
+
+            tmp = line
+            opens = gsub(/\{/, "{", tmp)
+            tmp = line
+            closes = gsub(/\}/, "}", tmp)
+            block_depth += opens - closes
+
+            if (block_depth == 0) {
+                if (block_output == target_monitor) {
+                    for (i = 1; i <= block_count; i++) {
+                        print block[i]
+                    }
+                    found = 1
+                    exit
+                }
+                in_block = 0
+            }
+        }
+
+        END {
+            if (!found) {
+                exit 1
+            }
+        }
+    ' "$MONITORS_CONF"
+}
+
 set_monitor_state_in_config() {
     local target_monitor="$1"
     local target_state="$2"
@@ -54,13 +143,27 @@ set_monitor_state_in_config() {
     tmp_file="$(mktemp)"
 
     if hypr_is_lua_file "$MONITORS_CONF"; then
-        awk -v target_monitor="$target_monitor" -v target_state="$target_state" '
+        local enabled_lua_block=""
+
+        if [[ "$target_state" == "enabled" ]]; then
+            enabled_lua_block="$(get_lua_correct_monitor_block "$target_monitor" 2>/dev/null || true)"
+        fi
+
+        awk -v target_monitor="$target_monitor" -v target_state="$target_state" -v enabled_lua_block="$enabled_lua_block" '
             function indent_of(line) {
                 match(line, /^[[:space:]]*/)
                 return substr(line, RSTART, RLENGTH)
             }
 
-            function print_monitor_block(    i, has_disabled, output_indent) {
+            function print_monitor_block(    i, has_disabled, output_indent, replacement_count, replacement) {
+                if (target_state == "enabled" && enabled_lua_block != "") {
+                    replacement_count = split(enabled_lua_block, replacement, "\n")
+                    for (i = 1; i <= replacement_count; i++) {
+                        print replacement[i]
+                    }
+                    return
+                }
+
                 has_disabled = 0
                 output_indent = "    "
 
@@ -281,13 +384,219 @@ apply_runtime_monitor_state() {
     local monitor_rule=""
 
     if [[ "$target_state" == "disabled" ]]; then
-        hypr_apply_keyword "$HYPRCTL_BIN" "monitor" "${config_monitor},disable"
+        if hypr_is_lua_file "$MONITORS_CONF"; then
+            apply_lua_runtime_monitor_rule "$config_monitor" "" "" "" "true"
+        else
+            hypr_apply_keyword "$HYPRCTL_BIN" "monitor" "${config_monitor},disable"
+        fi
         return
     fi
 
     monitor_rule="$(get_enabled_monitor_rule "$config_monitor" 2>/dev/null || true)"
     [[ -n "$monitor_rule" ]] || monitor_rule="${config_monitor},preferred,auto,1"
-    hypr_apply_keyword "$HYPRCTL_BIN" "monitor" "$monitor_rule"
+    apply_runtime_monitor_rule "$monitor_rule"
+}
+
+lua_monitor_scale_expression() {
+    local scale="$1"
+
+    if [[ "$scale" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf '%s\n' "$scale"
+        return
+    fi
+
+    hypr_lua_quote "$scale"
+}
+
+apply_lua_runtime_monitor_rule() {
+    local output="$1"
+    local mode="${2:-}"
+    local position="${3:-}"
+    local scale="${4:-}"
+    local disabled="${5:-false}"
+    local output_expr=""
+    local mode_expr=""
+    local position_expr=""
+    local scale_expr=""
+
+    [[ -n "$output" ]] || return 1
+
+    output_expr="$(hypr_lua_quote "$output")"
+
+    if [[ "$disabled" == "true" ]]; then
+        "$HYPRCTL_BIN" eval "hl.monitor({ output = $output_expr, disabled = true })" >/dev/null 2>&1
+        return
+    fi
+
+    [[ -n "$mode" ]] || mode="preferred"
+    [[ -n "$position" ]] || position="auto"
+    [[ -n "$scale" ]] || scale="1"
+
+    mode_expr="$(hypr_lua_quote "$mode")"
+    position_expr="$(hypr_lua_quote "$position")"
+    scale_expr="$(lua_monitor_scale_expression "$scale")"
+
+    "$HYPRCTL_BIN" eval "hl.monitor({ output = $output_expr, mode = $mode_expr, position = $position_expr, scale = $scale_expr })" >/dev/null 2>&1
+}
+
+apply_runtime_monitor_rule() {
+    local rule="$1"
+    local output=""
+    local mode=""
+    local position=""
+    local scale=""
+
+    if ! hypr_is_lua_file "$MONITORS_CONF"; then
+        hypr_apply_keyword "$HYPRCTL_BIN" "monitor" "$rule"
+        return
+    fi
+
+    IFS=',' read -r output mode position scale <<< "$rule"
+    [[ -n "$output" ]] || return 1
+
+    if [[ "$mode" == "disable" ]]; then
+        apply_lua_runtime_monitor_rule "$output" "" "" "" "true"
+        return
+    fi
+
+    apply_lua_runtime_monitor_rule "$output" "$mode" "$position" "$scale" "false"
+}
+
+apply_runtime_monitor_layout_from_config() {
+    local rules=()
+    local rule=""
+
+    if hypr_is_lua_file "$MONITORS_CONF"; then
+        mapfile -t rules < <(
+            awk '
+                function clean(value) {
+                    sub(/^[[:space:]]+/, "", value)
+                    sub(/[[:space:]]+$/, "", value)
+                    sub(/^[^=]+=[[:space:]]*/, "", value)
+                    sub(/,[[:space:]]*$/, "", value)
+                    gsub(/^"|"$/, "", value)
+                    return value
+                }
+
+                /^[[:space:]]*local[[:space:]]+monitor_configs[[:space:]]*=/ {
+                    in_table = 1
+                    next
+                }
+
+                in_table && !in_block && /^[[:space:]]*\}[[:space:]]*$/ {
+                    in_table = 0
+                    next
+                }
+
+                in_table && !in_block && /^[[:space:]]*\{[[:space:]]*$/ {
+                    in_block = 1
+                    output = ""
+                    mode = ""
+                    position = ""
+                    scale = ""
+                    disabled = ""
+                    next
+                }
+
+                in_block && /^[[:space:]]*output[[:space:]]*=/ {
+                    output = clean($0)
+                }
+
+                in_block && /^[[:space:]]*mode[[:space:]]*=/ {
+                    mode = clean($0)
+                }
+
+                in_block && /^[[:space:]]*position[[:space:]]*=/ {
+                    position = clean($0)
+                }
+
+                in_block && /^[[:space:]]*scale[[:space:]]*=/ {
+                    scale = clean($0)
+                }
+
+                in_block && /^[[:space:]]*disabled[[:space:]]*=/ {
+                    disabled = clean($0)
+                }
+
+                in_block && /^[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/ {
+                    if (output != "") {
+                        if (disabled == "true") {
+                            print output ",disable"
+                        } else {
+                            if (mode == "") {
+                                mode = "preferred"
+                            }
+                            if (position == "") {
+                                position = "auto"
+                            }
+                            if (scale == "") {
+                                scale = "1"
+                            }
+
+                            print output "," mode "," position "," scale
+                        }
+                    }
+
+                    in_block = 0
+                }
+            ' "$MONITORS_CONF"
+        )
+    else
+        mapfile -t rules < <(
+            awk '
+                /^[[:space:]]*monitor[[:space:]]*=/ {
+                    line = $0
+                    sub(/^[[:space:]]*monitor[[:space:]]*=[[:space:]]*/, "", line)
+                    sub(/[[:space:]]+#.*$/, "", line)
+                    print line
+                }
+
+                /^[[:space:]]*#[[:space:]]*monitor[[:space:]]*=/ {
+                    line = $0
+                    sub(/^[[:space:]]*#[[:space:]]*monitor[[:space:]]*=[[:space:]]*/, "", line)
+                    sub(/[[:space:]]+#.*$/, "", line)
+
+                    output = line
+                    sub(/,.*/, "", output)
+
+                    print output ",disable"
+                }
+            ' "$MONITORS_CONF"
+        )
+    fi
+
+    for rule in "${rules[@]}"; do
+        [[ -n "$rule" ]] || continue
+        apply_runtime_monitor_rule "$rule"
+        sleep "$MONITOR_RULE_APPLY_DELAY"
+    done
+}
+
+move_cursor_to_monitor_center() {
+    local monitor_name="$1"
+    local live_monitors_json=""
+    local center_x=""
+    local center_y=""
+
+    [[ -n "$monitor_name" ]] || return 0
+
+    sleep "$MONITOR_ENABLE_SETTLE_DELAY"
+
+    live_monitors_json="$("$HYPRCTL_BIN" -j monitors all 2>/dev/null)" || return 1
+    read -r center_x center_y < <(
+        jq -r --arg name "$monitor_name" '
+            .[] |
+            select(.name == $name and .disabled == false) |
+            [
+                ((.x + ((.width / .scale) / 2)) | floor),
+                ((.y + ((.height / .scale) / 2)) | floor)
+            ] |
+            @tsv
+        ' <<< "$live_monitors_json"
+    )
+
+    [[ "$center_x" =~ ^-?[0-9]+$ && "$center_y" =~ ^-?[0-9]+$ ]] || return 1
+    "$HYPRCTL_BIN" dispatch "hl.dsp.cursor.move({ x = $center_x, y = $center_y })" >/dev/null 2>&1
 }
 
 ensure_backup() {
@@ -406,13 +715,16 @@ ensure_backup
 if [[ "$selected_disabled" == "false" ]]; then
     suspend_hyprland_autoreload
     set_monitor_state_in_config "$selected_config_monitor" "disabled"
-    apply_runtime_monitor_state "$selected_config_monitor" "disabled" || notify-send -t 4000 "Displays" "Monitor config updated, but runtime apply failed."
+    apply_runtime_monitor_layout_from_config || notify-send -t 4000 "Displays" "Monitor config updated, but runtime apply failed."
     restore_hyprland_autoreload
     monitor_status="Disabled"
 else
     suspend_hyprland_autoreload
     set_monitor_state_in_config "$selected_config_monitor" "enabled"
-    apply_runtime_monitor_state "$selected_config_monitor" "enabled" || notify-send -t 4000 "Displays" "Monitor config updated, but runtime apply failed."
+    apply_runtime_monitor_rule "${selected_config_monitor},disable" || true
+    sleep "$MONITOR_ENABLE_SETTLE_DELAY"
+    apply_runtime_monitor_layout_from_config || notify-send -t 4000 "Displays" "Monitor config updated, but runtime apply failed."
+    move_cursor_to_monitor_center "$selected_monitor" || notify-send -t 4000 "Displays" "Monitor enabled, but cursor handoff failed."
     restore_hyprland_autoreload
     monitor_status="Enabled"
 fi

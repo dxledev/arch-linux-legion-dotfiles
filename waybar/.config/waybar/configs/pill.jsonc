@@ -188,6 +188,18 @@
         "on-click": "~/bin/system-toggle-idle-lock",
         "tooltip": true
     },
+    "custom/nightlight": {
+      "exec": "$HOME/.config/waybar/scripts/hyprsunset-status.sh",
+      "return-type": "json",
+      "format": "<span font_desc=\"JetBrainsMono Nerd Font\">{icon} </span>",
+      "format-icons": [
+          "",
+          ""
+      ],
+      "interval": 2,
+      "tooltip": true,
+      "on-click": "$HOME/bin/system-toggle-nightlight"
+    },
    "wireplumber": {
        "format":"<span font_desc=\"JetBrainsMono Nerd Font\">{icon}</span> {volume}%",
 		"format-muted":"<span font_desc=\"JetBrainsMono Nerd Font\">󰝟</span>",

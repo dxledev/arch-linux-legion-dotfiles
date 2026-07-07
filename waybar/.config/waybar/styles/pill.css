@@ -38,6 +38,10 @@ window#waybar {
   padding: 0 7px;
 }
 
+#custom-nightlight {
+  padding-right: 10px;
+}
+
 #custom-hypridle {
   padding-left: 30px;
 }

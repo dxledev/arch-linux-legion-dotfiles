@@ -12,6 +12,14 @@ ls.add_snippets("cpp", {
 })
 
 ls.add_snippets("cpp", {
+  s("stdon", {
+    t("std::cout << "),
+    i(1),
+    t(" << '\\n';"),
+  }),
+})
+
+ls.add_snippets("cpp", {
   s("stdi", {
     t("std::cin >> "),
     i(1),

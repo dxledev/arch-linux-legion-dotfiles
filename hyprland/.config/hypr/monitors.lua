@@ -13,6 +13,9 @@ local monitor_configs = {
   },
   {
     output = "desc:BOE 0x0A2D",
+    mode = "preferred",
+    position = "3968x200",
+    scale = 1.6,
     disabled = true,
   },
 }
@@ -33,8 +36,8 @@ local monitor_configs = {
 --   },
 --   {
 --     output = "desc:BOE 0x0A2D",
---     mode = "2560x1440@165",
---     position = "3968x600",
+--     mode = "preferred",
+--     position = "3968x200",
 --     scale = 1.6,
 --   },
 -- }
