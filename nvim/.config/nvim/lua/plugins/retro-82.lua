@@ -11,7 +11,19 @@ return {
         gray = "#14474f",
       }
 
+      local group = vim.api.nvim_create_augroup("Retro82Highlights", {
+        clear = true,
+      })
+
+      local function is_retro82_active()
+        return vim.g.colors_name == "retro-82"
+      end
+
       local function retro82_highlights()
+        if not is_retro82_active() then
+          return
+        end
+
         -- Parameter / inlay hints
         vim.api.nvim_set_hl(0, "LspInlayHint", {
           fg = palette.gray,
@@ -259,7 +271,11 @@ return {
         })
       end
 
-      local function schedule_retro82_highlights()
+      local function schedule_retro82_highlights(force)
+        if not force and not is_retro82_active() then
+          return
+        end
+
         vim.schedule(retro82_highlights)
         vim.defer_fn(retro82_highlights, 50)
         vim.defer_fn(retro82_highlights, 200)
@@ -268,12 +284,18 @@ return {
       end
 
       vim.api.nvim_create_autocmd("ColorScheme", {
+        group = group,
         pattern = "retro-82",
-        callback = schedule_retro82_highlights,
+        callback = function()
+          schedule_retro82_highlights(true)
+        end,
       })
 
       vim.api.nvim_create_autocmd("CmdlineEnter", {
-        callback = schedule_retro82_highlights,
+        group = group,
+        callback = function()
+          schedule_retro82_highlights(false)
+        end,
       })
     end,
   },
