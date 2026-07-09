@@ -11,6 +11,7 @@ export PATH="$PATH:/home/dxle/.local/bin"
 export PATH="$PATH:/home/dxle/.spicetify"
 export PATH="$PATH:/home/dxle/.cargo/bin"
 export PATH="$PATH:/home/dxle/bin/dev"
+export PATH="$PATH:/home/dxle/bin/dev/cpp"
 export PATH="$PATH:/home/dxle/bin/theme-generating"
 export PATH="$PATH:/home/dxle/bin/media-controls"
 

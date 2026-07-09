@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+SCRIPT_DIR="/home/dxle/bin/dev/cpp"
+
+MSG="Generating "
+
+generate_compile_file=false
+generate_makefile=false
+generate_dot_clangd=false
+
+makefile_args=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -c|--compile-flags)
+            echo "$MSG compile_flags.txt..."
+            generate_compile_file=true
+            shift
+            ;;
+
+        -m|--makefile)
+            echo "$MSG makefile..."
+            generate_makefile=true
+            shift
+
+            while [[ $# -gt 0 && "$1" != -* ]]; do
+              makefile_args+=("$1")
+              shift
+            done
+            ;;
+
+        -d|--dot-clangd)
+            echo "$MSG .clangd..."
+            generate_dot_clangd=true
+            shift
+            ;;
+
+        -h|--help)
+            echo
+            echo "Usage: cpp-generate-files [options]"
+            echo
+            echo "Options:"
+            echo "  -c | --compile-flags    Generate compile_flags.txt"
+            echo "  -m | --makefile         Generate Makefile with optional extras"
+            echo "  -d | --dot-clangd       Generate .clangd"
+            echo "  -h | --help             Show help"
+            echo 
+            echo "Examples: "
+            echo "  cpp-generate-files -m"
+            echo "  cpp-generate-files -m Player.cpp Enemy.cpp"
+            echo "  cpp-generate-files -c -m Player.cpp Enemy.cpp -d"
+            exit 0
+            ;;
+
+        *)
+            echo 
+            echo "Unknown option or misplaced argument: $1"
+            echo "Use --help for usage."
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$generate_compile_file" == true ]]; then
+   "$SCRIPT_DIR/cpp-generate-compile-flags"
+fi
+
+if [[ "$generate_makefile" == true ]]; then
+  "$SCRIPT_DIR/cpp-generate-makefile" "${makefile_args[@]}"
+fi
+
+if [[ "$generate_dot_clangd" == true ]]; then
+  "$SCRIPT_DIR/cpp-generate-dot-clangd"
+fi

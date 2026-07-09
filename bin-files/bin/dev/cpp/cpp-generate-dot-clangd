@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+file=".clangd"
+
+cat > "$file" <<EOF
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add: [-x, c++-header]
+EOF
