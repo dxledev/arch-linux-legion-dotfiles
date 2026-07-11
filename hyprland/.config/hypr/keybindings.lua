@@ -159,7 +159,7 @@ bind("bindd", "ALT SHIFT", "F10", "Resume OBS Recording", "sendshortcut", "ALT S
 
 hl.bind("Print", hl.dsp.exec_cmd("~/bin/launch-screenshot-active-monitor-clipboard"), { description = "Quick Active Monitor Screenshot" })
 
-bind("bindd", "ALT", "F11", "Toggle Discord Mute", "exec", "~/bin/discord-toggle-mute")
+bind("bindd", "ALT", "F11", "Toggle Discord Mute", "exec", "~/bin/media-controls/discord-toggle-mute")
 
 -- for _, direction in ipairs({ { "Left", "l" }, { "Right", "r" }, { "Up", "u" }, { "Down", "d" } }) do
 --   bind("bindd", mainMod, direction[1], "Focus Window " .. direction[1], "movefocus", direction[2])

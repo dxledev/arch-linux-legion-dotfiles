@@ -15,6 +15,7 @@ DISCORD_WINDOW_MATCH="${DISCORD_TOGGLE_MUTE_WINDOW_MATCH:-class:^(vesktop|discor
 DISCORD_MUTE_MODS="${DISCORD_TOGGLE_MUTE_MODS:-CTRL SHIFT}"
 DISCORD_MUTE_KEY="${DISCORD_TOGGLE_MUTE_KEY:-M}"
 DISCORD_NOTIFY_APP_NAME="${DISCORD_NOTIFY_APP_NAME:-discord-media-controls}"
+DISCORD_NOTIFY_ICON="${DISCORD_NOTIFY_ICON:-/home/dxle/dotfiles/bin-files/bin/media-controls/icons/discord-notification.png}"
 DISCORD_NOTIFY_STACK_TAG="${DISCORD_NOTIFY_STACK_TAG:-discord-toggle-mute}"
 DISCORD_NOTIFY_STATE_DIR="${DISCORD_NOTIFY_STATE_DIR:-${XDG_RUNTIME_DIR:-/tmp}/discord-media-controls-notify}"
 DISCORD_NOTIFY_STATE_FILE="${DISCORD_NOTIFY_STATE_FILE:-$DISCORD_NOTIFY_STATE_DIR/ward-notification-state}"
@@ -146,6 +147,7 @@ notify_args() {
 
   args=(
     -a "$DISCORD_NOTIFY_APP_NAME"
+    -i "$DISCORD_NOTIFY_ICON"
     -p
     -t "$timeout"
     -h "string:x-dunst-stack-tag:$DISCORD_NOTIFY_STACK_TAG"
@@ -164,7 +166,7 @@ notify_args() {
 }
 
 notify_toggle() {
-  local summary="<span font-weight=\"300\">Discord</span>"
+  local summary="<b>Discord</b>"
   local body="Toggled microphone mute"
   local active_id=""
   local replace_id=""
