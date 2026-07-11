@@ -1,16 +1,14 @@
 -- Aetheria Theme for Neovim
 -- Inspired by Audio Waveform Omarchy colorscheme and Base16-Tarot color palette
-vim.g.colors_name = "aetheria"
-vim.o.termguicolors = true
-vim.o.background = "dark"
-vim.cmd("highlight clear")
+vim.cmd('highlight clear')
+if vim.fn.exists('syntax_on') then
+    vim.cmd('syntax reset')
+end
 
-return {
-    {
-        "LazyVim/LazyVim",
-        opts = {
-            colorscheme = function()
-                -- Dark color palette
+vim.o.termguicolors = true
+vim.o.background = 'dark'
+vim.g.colors_name = 'aetheria'
+
                 local colors = {
                     -- Base colors (dark theme)
                     hex_0e091d = '#0e091d', -- Very dark blue-purple
@@ -34,19 +32,12 @@ return {
                     hex_ffbe74 = '#ffbe74', -- Light orange-yellow
                     hex_FD3E6A = '#FD3E6A', -- Vibrant pink-red
                     hex_7cd699 = '#7cd699', -- Light blue-green
+                    hex_14B9B5 = '#14B9B5', -- Aetheria teal
+                    hex_11AEB3 = '#11AEB3', -- Muted bright teal
+                    hex_BE3F50 = '#BE3F50', -- Muted rose
+                    hex_8F7568 = '#8F7568', -- Muted gray-orange
                     hex_47A854 = '#47A854', -- Dark green
                 }
-                ---@diagnostic disable: undefined-global
-                -- Reset highlighting
-                vim.cmd('highlight clear')
-                if vim.fn.exists('syntax_on') then
-                    vim.cmd('syntax reset')
-                end
-
-                vim.o.termguicolors = true
-                vim.o.background = 'dark'
-                vim.g.colors_name = 'aetheria'
-
                 local hl = vim.api.nvim_set_hl
 
                 -- Editor highlights
@@ -57,7 +48,7 @@ return {
                 hl(0, 'Cursor', { fg = colors.hex_0e091d, bg = colors.hex_9147a8 })
                 hl(0, 'CursorLine', { bg = colors.hex_061F23 })
                 hl(0, 'CursorLineNr', { fg = colors.hex_04C5F0, bold = true })
-                hl(0, 'LineNr', { fg = colors.hex_8CB319 })
+                hl(0, 'LineNr', { fg = colors.hex_11AEB3 })
                 hl(0, 'Visual', { bg = colors.hex_092F34 })
                 hl(0, 'VisualNOS', { bg = colors.hex_092F34 })
                 hl(0, 'Search', { fg = colors.hex_0e091d, bg = colors.hex_04C5F0 })
@@ -72,28 +63,28 @@ return {
                 hl(0, 'Number', { fg = colors.hex_ffbe74 })
                 hl(0, 'Boolean', { fg = colors.hex_ffbe74 })
                 hl(0, 'Float', { fg = colors.hex_ffbe74 })
-                hl(0, 'Identifier', { fg = colors.hex_C8E967 })
-                hl(0, 'Function', { fg = colors.hex_7cd699 })
-                hl(0, 'Statement', { fg = colors.hex_9147a8 })
-                hl(0, 'Conditional', { fg = colors.hex_9147a8 })
-                hl(0, 'Repeat', { fg = colors.hex_9147a8 })
+                hl(0, 'Identifier', { fg = colors.hex_14B9B5 })
+                hl(0, 'Function', { fg = colors.hex_04C5F0 })
+                hl(0, 'Statement', { fg = colors.hex_FD3E6A })
+                hl(0, 'Conditional', { fg = colors.hex_FD3E6A })
+                hl(0, 'Repeat', { fg = colors.hex_FD3E6A })
                 hl(0, 'Label', { fg = colors.hex_E20342 })
-                hl(0, 'Operator', { fg = colors.hex_A8D61F })
-                hl(0, 'Keyword', { fg = colors.hex_9147a8 })
+                hl(0, 'Operator', { fg = colors.hex_8F7568 })
+                hl(0, 'Keyword', { fg = colors.hex_FD3E6A })
                 hl(0, 'Exception', { fg = colors.hex_f93d3b })
                 hl(0, 'PreProc', { fg = colors.hex_FD3E6A })
                 hl(0, 'Include', { fg = colors.hex_FD3E6A })
                 hl(0, 'Define', { fg = colors.hex_FD3E6A })
                 hl(0, 'Macro', { fg = colors.hex_FD3E6A })
                 hl(0, 'PreCondit', { fg = colors.hex_FD3E6A })
-                hl(0, 'Type', { fg = colors.hex_E20342 })
-                hl(0, 'StorageClass', { fg = colors.hex_E20342 })
-                hl(0, 'Structure', { fg = colors.hex_E20342 })
-                hl(0, 'Typedef', { fg = colors.hex_E20342 })
+                hl(0, 'Type', { fg = colors.hex_BE3F50 })
+                hl(0, 'StorageClass', { fg = colors.hex_BE3F50 })
+                hl(0, 'Structure', { fg = colors.hex_BE3F50 })
+                hl(0, 'Typedef', { fg = colors.hex_BE3F50 })
                 hl(0, 'Special', { fg = colors.hex_04C5F0 })
                 hl(0, 'SpecialChar', { fg = colors.hex_04C5F0 })
                 hl(0, 'Tag', { fg = colors.hex_9147a8 })
-                hl(0, 'Delimiter', { fg = colors.hex_A8D61F })
+                hl(0, 'Delimiter', { fg = colors.hex_8F7568 })
                 hl(0, 'SpecialComment', { fg = colors.hex_126069, italic = true, bold = true })
                 hl(0, 'Debug', { fg = colors.hex_f93d3b })
                 hl(0, 'Underlined', { underline = true })
@@ -145,15 +136,15 @@ return {
                 hl(0, 'LspReferenceWrite', { bg = colors.hex_092F34, underline = true })
 
                 -- Treesitter highlights
-                hl(0, '@variable', { fg = colors.hex_C8E967 })
+                hl(0, '@variable', { fg = colors.hex_14B9B5 })
                 hl(0, '@variable.builtin', { fg = colors.hex_ffbe74 })
-                hl(0, '@variable.parameter', { fg = colors.hex_A8D61F })
-                hl(0, '@variable.member', { fg = colors.hex_7cd699 })
+                hl(0, '@variable.parameter', { fg = colors.hex_7cd699 })
+                hl(0, '@variable.member', { fg = colors.hex_11AEB3 })
                 hl(0, '@constant', { fg = colors.hex_ffbe74 })
                 hl(0, '@constant.builtin', { fg = colors.hex_ffbe74 })
                 hl(0, '@constant.macro', { fg = colors.hex_04C5F0 })
-                hl(0, '@module', { fg = colors.hex_E20342 })
-                hl(0, '@module.builtin', { fg = colors.hex_E20342 })
+                hl(0, '@module', { fg = colors.hex_BE3F50 })
+                hl(0, '@module.builtin', { fg = colors.hex_BE3F50 })
                 hl(0, '@label', { fg = colors.hex_E20342 })
                 hl(0, '@string', { fg = colors.hex_FF7F41 })
                 hl(0, '@string.escape', { fg = colors.hex_04C5F0 })
@@ -164,37 +155,37 @@ return {
                 hl(0, '@boolean', { fg = colors.hex_ffbe74 })
                 hl(0, '@number', { fg = colors.hex_ffbe74 })
                 hl(0, '@number.float', { fg = colors.hex_ffbe74 })
-                hl(0, '@type', { fg = colors.hex_E20342 })
-                hl(0, '@type.builtin', { fg = colors.hex_E20342 })
-                hl(0, '@type.definition', { fg = colors.hex_E20342 })
+                hl(0, '@type', { fg = colors.hex_BE3F50 })
+                hl(0, '@type.builtin', { fg = colors.hex_BE3F50 })
+                hl(0, '@type.definition', { fg = colors.hex_BE3F50 })
                 hl(0, '@attribute', { fg = colors.hex_FD3E6A })
-                hl(0, '@property', { fg = colors.hex_7cd699 })
-                hl(0, '@function', { fg = colors.hex_7cd699 })
-                hl(0, '@function.builtin', { fg = colors.hex_7cd699 })
-                hl(0, '@function.call', { fg = colors.hex_7cd699 })
+                hl(0, '@property', { fg = colors.hex_11AEB3 })
+                hl(0, '@function', { fg = colors.hex_04C5F0 })
+                hl(0, '@function.builtin', { fg = colors.hex_04C5F0 })
+                hl(0, '@function.call', { fg = colors.hex_04C5F0 })
                 hl(0, '@function.macro', { fg = colors.hex_FD3E6A })
-                hl(0, '@function.method', { fg = colors.hex_7cd699 })
-                hl(0, '@function.method.call', { fg = colors.hex_7cd699 })
-                hl(0, '@constructor', { fg = colors.hex_E20342 })
-                hl(0, '@operator', { fg = colors.hex_A8D61F })
-                hl(0, '@keyword', { fg = colors.hex_9147a8 })
-                hl(0, '@keyword.coroutine', { fg = colors.hex_9147a8 })
-                hl(0, '@keyword.function', { fg = colors.hex_9147a8 })
-                hl(0, '@keyword.operator', { fg = colors.hex_9147a8 })
+                hl(0, '@function.method', { fg = colors.hex_04C5F0 })
+                hl(0, '@function.method.call', { fg = colors.hex_04C5F0 })
+                hl(0, '@constructor', { fg = colors.hex_BE3F50 })
+                hl(0, '@operator', { fg = colors.hex_8F7568 })
+                hl(0, '@keyword', { fg = colors.hex_FD3E6A })
+                hl(0, '@keyword.coroutine', { fg = colors.hex_FD3E6A })
+                hl(0, '@keyword.function', { fg = colors.hex_FD3E6A })
+                hl(0, '@keyword.operator', { fg = colors.hex_FD3E6A })
                 hl(0, '@keyword.import', { fg = colors.hex_FD3E6A })
-                hl(0, '@keyword.conditional', { fg = colors.hex_9147a8 })
-                hl(0, '@keyword.repeat', { fg = colors.hex_9147a8 })
-                hl(0, '@keyword.return', { fg = colors.hex_9147a8 })
+                hl(0, '@keyword.conditional', { fg = colors.hex_FD3E6A })
+                hl(0, '@keyword.repeat', { fg = colors.hex_FD3E6A })
+                hl(0, '@keyword.return', { fg = colors.hex_FD3E6A })
                 hl(0, '@keyword.exception', { fg = colors.hex_f93d3b })
                 hl(0, '@comment', { fg = colors.hex_126069, italic = true })
                 hl(0, '@comment.documentation', { fg = colors.hex_126069, italic = true })
-                hl(0, '@punctuation', { fg = colors.hex_A8D61F })
-                hl(0, '@punctuation.bracket', { fg = colors.hex_A8D61F })
-                hl(0, '@punctuation.delimiter', { fg = colors.hex_A8D61F })
-                hl(0, '@punctuation.special', { fg = colors.hex_04C5F0 })
+                hl(0, '@punctuation', { fg = colors.hex_8F7568 })
+                hl(0, '@punctuation.bracket', { fg = colors.hex_8F7568 })
+                hl(0, '@punctuation.delimiter', { fg = colors.hex_8F7568 })
+                hl(0, '@punctuation.special', { fg = colors.hex_8F7568 })
                 hl(0, '@tag', { fg = colors.hex_9147a8 })
                 hl(0, '@tag.attribute', { fg = colors.hex_E20342 })
-                hl(0, '@tag.delimiter', { fg = colors.hex_A8D61F })
+                hl(0, '@tag.delimiter', { fg = colors.hex_8F7568 })
 
                 -- Telescope
                 hl(0, 'TelescopeBorder', { fg = colors.hex_9147a8 })
@@ -233,7 +224,3 @@ return {
                 vim.g.terminal_color_13 = '#9147a8' -- Dark purple
                 vim.g.terminal_color_14 = '#ff99dd' -- Light pink
                 vim.g.terminal_color_15 = '#ffffff' -- Pure white
-            end,
-        },
-    },
-}

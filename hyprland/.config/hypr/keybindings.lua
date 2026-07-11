@@ -157,6 +157,8 @@ bind("bindd", "ALT SHIFT", "F9", "Stop OBS Recording", "sendshortcut", "ALT SHIF
 bind("bindd", "ALT", "F10", "Pause OBS Recording", "sendshortcut", "ALT, F10, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT SHIFT", "F10", "Resume OBS Recording", "sendshortcut", "ALT SHIFT, F10, class:^com\\.obsproject\\.Studio$")
 
+hl.bind("Print", hl.dsp.exec_cmd("~/bin/launch-screenshot-active-monitor-clipboard"), { description = "Quick Active Monitor Screenshot" })
+
 bind("bindd", "ALT", "F11", "Toggle Discord Mute", "exec", "~/bin/discord-toggle-mute")
 
 -- for _, direction in ipairs({ { "Left", "l" }, { "Right", "r" }, { "Up", "u" }, { "Down", "d" } }) do
@@ -290,7 +292,6 @@ for _, item in ipairs(environment_binds) do
   bind_exec(item[1], item[2], item[3], item[4])
 end
 
-bind("bindd", mainMod, "Q", "Kill Active Window", "killactive", "")
 bind("bindd", mainMod .. " SHIFT", "Q", "Kill Active Window", "killactive", "")
 bind("bindd", mainMod .. " SHIFT CTRL", "F12", "Swap Active Workspaces Between Monitors", "swapactiveworkspaces", "DP-1 HDMI-A-1")
 bind("binddl", mainMod, "L", "Toggle Nightlight", "exec", "~/bin/system-toggle-nightlight")
