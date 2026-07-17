@@ -37,6 +37,28 @@ return {
           bold = true,
         })
 
+        for _, group_name in ipairs({
+          "DiagnosticUnderlineError",
+          "DiagnosticUnderlineWarn",
+          "DiagnosticUnderlineInfo",
+          "DiagnosticUnderlineHint",
+          "DiagnosticUnderlineOk",
+          "LspReferenceText",
+          "LspReferenceRead",
+          "LspReferenceWrite",
+        }) do
+          local highlight = vim.api.nvim_get_hl(0, {
+            name = group_name,
+            link = false,
+          })
+
+          highlight.undercurl = nil
+          highlight.underline = nil
+          highlight.sp = nil
+
+          vim.api.nvim_set_hl(0, group_name, highlight)
+        end
+
         -- Parentheses / brackets: (), {}, [], <>
         vim.api.nvim_set_hl(0, "@punctuation.bracket", {
           fg = palette.white,

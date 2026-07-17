@@ -2,24 +2,25 @@
 
 SCRIPT_DIR="/home/dxle/bin/dev/cpp"
 
-MSG="Generating "
+MSG="Generating"
 
 generate_compile_file=false
 generate_makefile=false
 generate_dot_clangd=false
+generate_random_h=false
 
 makefile_args=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--compile-flags)
-            echo "$MSG compile_flags.txt..."
+            echo "$MSG compile_flags.txt…"
             generate_compile_file=true
             shift
             ;;
 
         -m|--makefile)
-            echo "$MSG makefile..."
+            echo "$MSG makefile…"
             generate_makefile=true
             shift
 
@@ -30,8 +31,14 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         -d|--dot-clangd)
-            echo "$MSG .clangd..."
+            echo "$MSG .clangd…"
             generate_dot_clangd=true
+            shift
+            ;;
+
+        -r|--random-header)
+            echo "$MSG Random.h…"
+            generate_random_h=true
             shift
             ;;
 
@@ -43,6 +50,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -c | --compile-flags    Generate compile_flags.txt"
             echo "  -m | --makefile         Generate Makefile with optional extras"
             echo "  -d | --dot-clangd       Generate .clangd"
+            echo "  -r | --random-header    Generate Random.h"
             echo "  -h | --help             Show help"
             echo 
             echo "Examples: "
@@ -71,4 +79,8 @@ fi
 
 if [[ "$generate_dot_clangd" == true ]]; then
   "$SCRIPT_DIR/cpp-generate-dot-clangd"
+fi
+
+if [[ "$generate_random_h" == true ]]; then
+  "$SCRIPT_DIR/cpp-generate-random-h"
 fi

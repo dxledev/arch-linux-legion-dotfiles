@@ -10,4 +10,3 @@ vim.cmd([[
 ]])
 
 vim.opt.spell = false
-

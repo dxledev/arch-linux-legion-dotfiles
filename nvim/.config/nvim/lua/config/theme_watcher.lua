@@ -1,16 +1,14 @@
 local uv = vim.uv or vim.loop
+local theme_loader = require("config.theme_loader")
 
-local theme_file = vim.fn.stdpath("config") .. "/lua/config/current_theme.lua"
+local theme_file = theme_loader.theme_file
 local theme_dir = vim.fn.fnamemodify(theme_file, ":h")
 local theme_name = vim.fn.fnamemodify(theme_file, ":t")
 
 local last_sig
 
 local function apply()
-  local ok, err = pcall(dofile, theme_file)
-  if not ok then
-    vim.notify("Theme reload failed: " .. err, vim.log.levels.ERROR)
-  end
+  theme_loader.apply(false)
 end
 
 local function signature(stat)
@@ -35,6 +33,11 @@ local function check(force)
 end
 
 local function apply_initial_theme()
+  if theme_loader.was_applied() then
+    last_sig = signature(uv.fs_stat(theme_file))
+    return
+  end
+
   check(true)
 end
 

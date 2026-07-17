@@ -14,5 +14,9 @@ vim.keymap.set("n", "<leader>t", function()
   require("utils.floatterm").toggle()
 end, { desc = "Open floating terminal" })
 
+vim.keymap.set("n", "<C-S-v>", "<C-v>", {
+  desc = "Visual Block Mode",
+})
+
 vim.keymap.set("n", "<leader>gg", "<cmd>LazyGit<cr>")
 

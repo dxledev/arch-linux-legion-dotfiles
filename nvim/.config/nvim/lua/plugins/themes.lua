@@ -19,7 +19,9 @@ return {
   {
     "LazyVim/LazyVim",
     opts = function(_, opts)
-      opts.colorscheme = nil
+      opts.colorscheme = function()
+        require("config.theme_loader").apply(false)
+      end
     end,
   },
 }

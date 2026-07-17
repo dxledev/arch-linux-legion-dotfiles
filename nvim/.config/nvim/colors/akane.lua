@@ -27,6 +27,8 @@ local colors = {
     ash    = "#8A8294", -- gray-violet
     amber  = "#E8A06D", -- muted amber
     cream  = "#F2D0AA", -- warm cream
+    inlay  = "#434858",
+    return_keyword = "#E06C8B",
 }
 
 local function hi(group, opts)
@@ -116,6 +118,8 @@ hi("@function", { link = "Function" })
 hi("@function.builtin", { link = "Function" })
 hi("@keyword", { link = "Keyword" })
 hi("@keyword.cpp", { fg = colors.cream, italic = true })
+hi("@keyword.return", { fg = colors.return_keyword, italic = true })
+hi("@keyword.return.cpp", { fg = colors.return_keyword, italic = true })
 hi("@keyword.function", { link = "Keyword" })
 hi("@keyword.operator", { link = "Keyword" })
 hi("@keyword.type", { fg = colors.cream, italic = true })
@@ -160,6 +164,7 @@ hi("@lsp.type.struct", { link = "Type" })
 hi("@lsp.type.type", { link = "Type" })
 hi("@lsp.type.typeParameter", { link = "Type" })
 hi("@lsp.type.variable", { link = "@variable" })
+hi("LspInlayHint", { fg = colors.inlay, bg = "NONE", italic = true })
 
 -- Telescope
 hi("TelescopeBorder", { fg = colors.purple, bg = colors.bg })
