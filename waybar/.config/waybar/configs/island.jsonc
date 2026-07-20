@@ -64,7 +64,8 @@
       "modules": [
         "pulseaudio",
         "network",
-        "battery"
+        "battery",
+        "custom/menu"
       ]
     },
 

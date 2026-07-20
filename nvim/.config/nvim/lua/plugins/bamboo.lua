@@ -1,3 +1,7 @@
+local bamboo_colors = {
+  comment = "#6F736E",
+}
+
 return {
   {
     "ribru17/bamboo.nvim",
@@ -7,6 +11,16 @@ return {
 
     init = function()
       local function bamboo_highlights()
+        vim.api.nvim_set_hl(0, "Comment", {
+          fg = bamboo_colors.comment,
+          italic = true,
+        })
+
+        vim.api.nvim_set_hl(0, "@comment", {
+          fg = bamboo_colors.comment,
+          italic = true,
+        })
+
         -- Native Neovim tabline
         vim.api.nvim_set_hl(0, "TabLine", {
           bg = "NONE",

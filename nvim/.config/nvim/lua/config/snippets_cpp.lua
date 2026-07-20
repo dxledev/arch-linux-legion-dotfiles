@@ -61,6 +61,23 @@ ls.add_snippets("cpp", {
   }),
 })
 
+ls.add_snippets("cpp", {
+  s("mainargs", {
+    t({
+      "int main(int argc, char* argv[])",
+      "{",
+      "    ",
+    }),
+    i(1),
+    t({
+      "",
+      "",
+      "    return 0;",
+      "}",
+    }),
+  }),
+})
+
 ls.config.set_config({
   enable_autosnippets = true,
 })

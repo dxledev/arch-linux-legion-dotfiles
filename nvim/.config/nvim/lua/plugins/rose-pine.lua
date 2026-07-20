@@ -1,3 +1,8 @@
+local rose_pine_colors = {
+  return_keyword = "#DDB2B4",
+  inlay_hint = "#64607A",
+}
+
 return {
   "rose-pine/neovim",
   name = "rose-pine",
@@ -18,6 +23,20 @@ return {
     require("rose-pine").setup(opts)
 
     local function rose_pine_fixes()
+      vim.api.nvim_set_hl(0, "@keyword.return", {
+        fg = rose_pine_colors.return_keyword,
+        italic = true,
+      })
+      vim.api.nvim_set_hl(0, "@keyword.return.cpp", {
+        fg = rose_pine_colors.return_keyword,
+        italic = true,
+      })
+      vim.api.nvim_set_hl(0, "LspInlayHint", {
+        fg = rose_pine_colors.inlay_hint,
+        bg = "NONE",
+        italic = true,
+      })
+
       -- Main transparency
       vim.api.nvim_set_hl(0, "Normal", { bg = "NONE" })
       vim.api.nvim_set_hl(0, "NormalNC", { bg = "NONE" })
