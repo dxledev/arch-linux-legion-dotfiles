@@ -95,15 +95,20 @@ local hdef = s(
     name = "header guard",
   },
   {
-    t("#ifndef "),
+    t({
+      "#pragma once",
+      "",
+      "#ifndef ",
+    }),
     f(guard_name),
 
     t({ "", "#define " }),
     f(guard_name),
 
     t({ "", "" }),
+    t({ "", "" }),
     i(1),
-
+    t({ "", "" }),
     t({ "", "#endif" }),
   }
 )
