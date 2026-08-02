@@ -65,7 +65,8 @@
         "pulseaudio",
         "network",
         "battery",
-        "custom/menu"
+        "custom/menu",
+        "custom/power"
       ]
     },
 

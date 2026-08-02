@@ -3,7 +3,6 @@ local startup_commands = {
   "waybar",
   "swayosd-server",
   "awww-daemon",
-  "hyprlock",
   "~/bin/launch-dashboard",
   "~/bin/launch-ward",
   "~/bin/launch-wardnc",
@@ -17,6 +16,7 @@ local startup_commands = {
   "eval $(gnome-keyring-daemon --start --components=secrets)",
   "dbus-update-activation-environment --all",
   "rm -rf /tmp/hypr*",
+  "hyprlock",
 }
 
 hl.on("hyprland.start", function()
