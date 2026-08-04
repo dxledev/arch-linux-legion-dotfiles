@@ -5,11 +5,13 @@ additional="$*"
 
 cat > "$file" <<EOF
 CXX := g++
-CXXFLAGS := -Wall -Wextra -std=c++23 -g -MMD -MP
+CXXFLAGS := -Wall -Wextra -std=c++23 -g
 
 SOURCES := main.cpp $additional
 OBJECTS := \$(SOURCES:.cpp=.o)
-DEPS := \$(OBJECTS:.o=.d)
+
+DEPDIR := .deps
+DEPS := \$(SOURCES:%.cpp=\$(DEPDIR)/%.d)
 
 TARGET := main
 
@@ -17,10 +19,12 @@ TARGET := main
 	\$(CXX) \$(OBJECTS) -o \$(TARGET)
 
 %.o: %.cpp
-	\$(CXX) \$(CXXFLAGS) -c \$< -o \$@
+	@mkdir -p \$(DEPDIR)
+	\$(CXX) \$(CXXFLAGS) -MMD -MP -MF \$(DEPDIR)/\$*.d -MT \$@ -c \$< -o \$@
 
 -include \$(DEPS)
 
 clean:
-	rm -f \$(OBJECTS) \$(DEPS) \$(TARGET)
+	rm -f \$(OBJECTS) \$(TARGET)
+	rm -rf \$(DEPDIR)
 EOF
