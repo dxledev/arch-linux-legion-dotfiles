@@ -23,5 +23,9 @@ return {
         enable_rename = true,
       },
     },
+    config = function(_, opts)
+      require("nvim-ts-autotag").setup(opts)
+      require("config.web-tag-rename").setup()
+    end,
   },
 }

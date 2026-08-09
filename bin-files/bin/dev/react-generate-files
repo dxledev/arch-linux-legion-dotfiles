@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+set -e
+
+ASSETS_DIR="/home/dxle/bin/dev/assets/template-files/react"
+
+MSG="Installing"
+
+install_tailwind=false
+new_directory=false
+run_dev=false
+default_template=false
+
+project_name=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -t|--tailwind)
+            install_tailwind=true
+            shift
+            ;;
+
+        -d|--directory)
+            new_directory=true
+            shift
+
+            if [[ $# -eq 0 || "$1" == -* ]]; then
+              echo "Error: --directory requires a project name."
+              exit 1
+            fi
+
+            project_name="$1"
+            shift
+            ;;
+
+        -dt|--default-template)
+            default_template=true
+            shift
+            ;;
+
+        -r|--run-dev)
+            run_dev=true
+            shift
+        
+            ;;
+
+        -h|--help)
+            echo
+            echo "Usage: react-generate-files [options]"
+            echo
+            echo "Options:"
+            echo "  -t  | --tailwind          Install TailwindCSS"
+            echo "  -d  | --directory         Install to a new root directory"
+            echo "  -dt | --default-template  Generate the vite default template files"
+            echo "  -r  | --run-dev           Run local dev server after installs"
+            echo "  -h  | --help              Show help"
+            echo 
+            echo "Examples: "
+            echo "  react-generate-files -t"
+            echo "  react-generate-files -d new-project"
+            echo "  react-generate-files -d new-project -t"
+            echo "  react-generate-files -d new-project -t -r"
+            echo "  react-generate-files -d new-project -t -r -dt"
+            exit 0
+            ;;
+
+        *)
+            echo 
+            echo "Unknown option or misplaced argument: $1"
+            echo "Use --help for usage."
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$new_directory" == true ]]; then
+  npm create vite@latest "$project_name" -- --template react --eslint --no-immediate --no-interactive
+  cd "$project_name"
+else 
+  npm create vite@latest . -- --template react --eslint --no-immediate --no-interactive
+fi
+
+echo "$MSG dependencies…"
+npm install
+npm install -D @rolldown/plugin-babel @babel/core
+npm install babel-plugin-react-compiler
+
+echo "$MSG eslint-plugin-react…"
+npm install -D eslint-plugin-react
+
+cp $ASSETS_DIR/eslint.config.js .
+
+if [[ "$install_tailwind" == true ]]; then
+  echo "$MSG TailwindCSS…"
+  npm install tailwindcss @tailwindcss/vite
+  cp "$ASSETS_DIR/vite.config.js" .
+  
+  echo ""
+  echo "TailwindCSS installed."
+  echo "add @import \"tailwindcss\";"
+  echo "in your .css files to start with TailwindCSS"
+fi
+
+if [[ "$default_template" == false ]]; then
+  cp "$ASSETS_DIR/App.jsx" src/App.jsx
+  cp "$ASSETS_DIR/App.css" src/App.css
+  cp "$ASSETS_DIR/App.css" src/index.css
+  rm src/assets/react.svg
+  rm src/assets/vite.svg
+  mv src/assets/hero.png src/assets/example.png
+else
+  "$MSG default template…"
+fi
+
+if [[ "$run_dev" == true ]]; then
+  npm run dev
+fi
+
+
