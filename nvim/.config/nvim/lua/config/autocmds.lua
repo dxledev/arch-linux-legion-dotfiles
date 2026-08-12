@@ -93,7 +93,7 @@ vim.api.nvim_create_autocmd("BufEnter", {
 })
 
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "c", "cpp" },
+  pattern = { "c", "cpp", "cpp.tpp" },
   callback = function()
     vim.opt_local.indentexpr = ""
     vim.opt_local.cindent = false

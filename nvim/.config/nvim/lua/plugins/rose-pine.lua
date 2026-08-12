@@ -1,6 +1,7 @@
 local rose_pine_colors = {
   return_keyword = "#DDB2B4",
-  inlay_hint = "#64607A",
+  new_keyword = "#C4A7E7",
+  inlay_hint = "#504C62",
 }
 
 return {
@@ -30,6 +31,12 @@ return {
       vim.api.nvim_set_hl(0, "@keyword.return.cpp", {
         fg = rose_pine_colors.return_keyword,
         italic = true,
+      })
+      vim.api.nvim_set_hl(0, "@keyword.operator.new", {
+        fg = rose_pine_colors.new_keyword,
+      })
+      vim.api.nvim_set_hl(0, "@keyword.operator.new.cpp", {
+        fg = rose_pine_colors.new_keyword,
       })
       vim.api.nvim_set_hl(0, "LspInlayHint", {
         fg = rose_pine_colors.inlay_hint,

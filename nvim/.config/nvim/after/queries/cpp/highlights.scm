@@ -1,5 +1,8 @@
 ; extends
 
+("new" @keyword.operator.new
+ (#set! priority 200))
+
 ((template_argument_list
   (_) @custom.template_argument)
  (#set! priority 200))

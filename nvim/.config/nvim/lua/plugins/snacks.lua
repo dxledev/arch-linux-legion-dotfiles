@@ -1,5 +1,13 @@
 return {
   {
+    "nvim-mini/mini.icons",
+    opts = {
+      extension = {
+        tpp = { glyph = "󰬁", hl = "MiniIconsAzure" },
+      },
+    },
+  },
+  {
     "folke/snacks.nvim",
     opts = {
       picker = {

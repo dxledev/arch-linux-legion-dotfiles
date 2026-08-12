@@ -34,7 +34,7 @@ return {
     local old_enabled = opts.enabled
 
     opts.enabled = function()
-      if vim.tbl_contains({ "c", "cpp" }, vim.bo.filetype) and in_comment() then
+      if vim.tbl_contains({ "c", "cpp", "cpp.tpp" }, vim.bo.filetype) and in_comment() then
         return false
       end
 
