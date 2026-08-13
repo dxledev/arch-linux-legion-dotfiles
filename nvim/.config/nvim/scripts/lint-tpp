@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  /usr/bin/printf 'Usage: %s TPP_FILE COMPILER [COMPILER_FLAGS...]\n' "${0##*/}" >&2
+}
+
+if (( $# < 2 )); then
+  usage
+  exit 2
+fi
+
+tpp_file=$1
+compiler=$2
+shift 2
+
+if [[ $tpp_file != /* || ! -f $tpp_file || $tpp_file != *.tpp ]]; then
+  usage
+  exit 2
+fi
+
+if [[ $compiler != /* || ! -x $compiler ]]; then
+  usage
+  exit 2
+fi
+
+header_base=${tpp_file%.tpp}
+header_file=
+for extension in h hpp hh hxx; do
+  candidate="${header_base}.${extension}"
+  if [[ -f $candidate ]]; then
+    header_file=$candidate
+    break
+  fi
+done
+
+if [[ -z $header_file ]]; then
+  /usr/bin/printf 'No matching header found for %s\n' "$tpp_file" >&2
+  exit 2
+fi
+
+if [[ $tpp_file == *'"'* || $tpp_file == *$'\n'* ]]; then
+  /usr/bin/printf 'Unsupported path: %s\n' "$tpp_file" >&2
+  exit 2
+fi
+
+temporary_file=$(/usr/bin/mktemp /tmp/nvim-tpp-lint.XXXXXX.cpp)
+trap '/usr/bin/rm -f -- "$temporary_file"' EXIT
+
+tpp_name=${tpp_file##*/}
+header_directory=${header_file%/*}
+
+/usr/bin/awk -v tpp_name="$tpp_name" '
+  {
+    compact = $0
+    gsub(/[[:space:]]/, "", compact)
+    if (compact != "#include\"" tpp_name "\"" && compact != "#include<" tpp_name ">") {
+      print
+    }
+  }
+' "$header_file" > "$temporary_file"
+
+/usr/bin/printf '\n#line 1 "%s"\n' "$tpp_file" >> "$temporary_file"
+/usr/bin/cat >> "$temporary_file"
+
+"$compiler" "$@" -I "$header_directory" -x c++-header -fsyntax-only "$temporary_file"
