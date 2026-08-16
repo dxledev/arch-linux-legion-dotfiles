@@ -17,7 +17,9 @@ return {
     opts = function(_, opts)
       opts.keymap = opts.keymap or {}
       opts.keymap["<CR>"] = {
-        "accept",
+        function(cmp)
+          return require("config.web-enter").accept_completion(cmp)
+        end,
         function()
           return require("config.web-enter").expand_empty_tag()
         end,
@@ -38,7 +40,16 @@ return {
     "neovim/nvim-lspconfig",
     opts = {
       servers = {
-        cssls = {},
+        cssls = {
+          handlers = {
+            ["textDocument/diagnostic"] = function(...)
+              return require("config.tailwind-css").document_diagnostics(...)
+            end,
+            ["textDocument/publishDiagnostics"] = function(...)
+              return require("config.tailwind-css").publish_diagnostics(...)
+            end,
+          },
+        },
         eslint = {
           settings = {
             rulesCustomizations = {

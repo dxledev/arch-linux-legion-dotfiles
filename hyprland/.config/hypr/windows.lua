@@ -26,6 +26,7 @@ hl.window_rule({
 
 hl.window_rule({ match = { class = "kitty" }, opacity = "0.92 0.92 0.92" })
 hl.window_rule({ match = { class = "Alacritty" }, opacity = "0.92 0.92 0.92" })
+hl.window_rule({ match = { class = "obsidian" }, opacity = "0.95 0.95 0.95" })
 hl.window_rule({ match = { class = "com.mitchellh.ghostty" }, opacity = "0.92 0.92 0.92" })
 hl.window_rule({ match = { class = "chrome-chatgpt.com__-Default" }, opacity = "1 1.06 1.06" })
 hl.window_rule({ match = { class = "chromium" }, opaque = true })

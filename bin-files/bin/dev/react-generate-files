@@ -74,10 +74,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$new_directory" == true ]]; then
-  npm create vite@latest "$project_name" -- --template react --eslint --no-immediate --no-interactive
+  npm create vite@latest "$project_name" -- --template react-compiler --eslint --no-immediate --no-interactive
   cd "$project_name"
 else 
-  npm create vite@latest . -- --template react --eslint --no-immediate --no-interactive
+  npm create vite@latest . -- --template react-compiler --eslint --no-immediate --no-interactive
 fi
 
 echo "$MSG dependencies…"

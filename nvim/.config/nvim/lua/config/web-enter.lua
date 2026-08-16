@@ -1,12 +1,23 @@
 local M = {}
 
 M.config = {
+  disable_completion_accept_filetypes = {
+    css = true,
+  },
   filetypes = {
     "html",
     "javascriptreact",
     "typescriptreact",
   },
 }
+
+function M.accept_completion(cmp)
+  if M.config.disable_completion_accept_filetypes[vim.bo.filetype] then
+    return false
+  end
+
+  return cmp.accept()
+end
 
 local function is_supported_filetype()
   return vim.tbl_contains(M.config.filetypes, vim.bo.filetype)
