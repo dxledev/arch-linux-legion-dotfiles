@@ -4,6 +4,15 @@ M.config = {
   import_line = '@import "tailwindcss";',
   suppressed_diagnostics = {
     ["Unknown at rule @apply"] = true,
+    ["Unknown at rule @config"] = true,
+    ["Unknown at rule @custom-variant"] = true,
+    ["Unknown at rule @plugin"] = true,
+    ["Unknown at rule @reference"] = true,
+    ["Unknown at rule @slot"] = true,
+    ["Unknown at rule @source"] = true,
+    ["Unknown at rule @theme"] = true,
+    ["Unknown at rule @utility"] = true,
+    ["Unknown at rule @variant"] = true,
   },
 }
 

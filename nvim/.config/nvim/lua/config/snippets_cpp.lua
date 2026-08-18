@@ -78,6 +78,48 @@ ls.add_snippets("cpp", {
   }),
 })
 
+ls.add_snippets("cpp", {
+  s("doxygfunc", {
+    t({
+      "/**",
+      " * @brief desc",
+    }),
+    i(1),
+    t({
+      "",
+      " * ",
+      " * detail",
+      " * ",
+      " * @param params",
+      " * @param params2",
+      " * @return return",
+      " * @throws error",
+      " */",
+    }),
+  }),
+})
+
+ls.add_snippets("cpp", {
+  s("doxygh", {
+    t({
+      "/**",
+      " * @file header.h",
+    }),
+    i(1),
+    t({
+      "",
+      " * @brief purpose",
+      " * ",
+      " * detail",
+      " * ",
+      " * @author Jane Doe (email)",
+      " * @date",
+      " * @version x.x.x",
+      " */",
+    }),
+  }),
+})
+
 ls.config.set_config({
   enable_autosnippets = true,
 })
