@@ -120,6 +120,30 @@ ls.add_snippets("cpp", {
   }),
 })
 
+ls.add_snippets("cpp", {
+  s("doxysstart", {
+    t({
+      "/**",
+      " * @name ",
+    }),
+    i(1),
+    t({
+      "",
+      " * section desc",
+      " * @{",
+      " */",
+    }),
+  }),
+})
+
+ls.add_snippets("cpp", {
+  s("doxysend", {
+    t({
+      "/** @} */",
+    })
+  })
+})
+
 ls.config.set_config({
   enable_autosnippets = true,
 })
