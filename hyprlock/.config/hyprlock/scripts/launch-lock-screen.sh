@@ -11,9 +11,10 @@ kill_bin="/usr/bin/kill"
 sleep_bin="/usr/bin/sleep"
 
 dry_run=0
+replace_existing=0
 
 usage() {
-    echo "Usage: launch-lock-screen.sh [--dry-run] [--] [hyprlock args...]"
+    printf 'Usage: launch-lock-screen.sh [--dry-run] [--replace-existing] [--] [hyprlock args...]\n'
 }
 
 refresh_random_wallpaper() {
@@ -37,10 +38,14 @@ stop_process_tree() {
     "$kill_bin" -TERM "$parent_pid" 2>/dev/null || true
 }
 
+hyprlock_is_running() {
+    "$pgrep_bin" -x -u "$EUID" hyprlock >/dev/null 2>&1
+}
+
 stop_hyprlock() {
     local hyprlock_pid
 
-    if ! "$pgrep_bin" -x -u "$EUID" hyprlock >/dev/null 2>&1; then
+    if ! hyprlock_is_running; then
         return 0
     fi
 
@@ -50,7 +55,7 @@ stop_hyprlock() {
     done < <("$pgrep_bin" -x -u "$EUID" hyprlock)
 
     for _ in {1..20}; do
-        if ! "$pgrep_bin" -x -u "$EUID" hyprlock >/dev/null 2>&1; then
+        if ! hyprlock_is_running; then
             return 0
         fi
         "$sleep_bin" 0.05
@@ -63,6 +68,10 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --dry-run)
             dry_run=1
+            shift
+            ;;
+        --replace-existing)
+            replace_existing=1
             shift
             ;;
         -h|--help)
@@ -79,14 +88,30 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+# Hypridle can request another lock while a manually started lock is still active.
+if hyprlock_is_running && [ "$replace_existing" -eq 0 ]; then
+    if [ "$dry_run" -eq 1 ]; then
+        printf 'Hyprlock is already running; no action would be taken.\n'
+    fi
+    exit 0
+fi
+
 if [ "$dry_run" -eq 1 ]; then
-    refresh_random_wallpaper || true
-    echo "$hyprlock_bin $*"
+    if [ "$replace_existing" -eq 1 ] && hyprlock_is_running; then
+        printf 'Existing Hyprlock processes would be replaced.\n'
+    fi
+    printf '%s' "$hyprlock_bin"
+    if [ "$#" -gt 0 ]; then
+        printf ' %q' "$@"
+    fi
+    printf '\n'
     exit 0
 fi
 
 refresh_random_wallpaper || true
 
-stop_hyprlock
+if [ "$replace_existing" -eq 1 ]; then
+    stop_hyprlock
+fi
 
 exec "$hyprlock_bin" "$@"
