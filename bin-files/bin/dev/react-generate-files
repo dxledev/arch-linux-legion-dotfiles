@@ -34,8 +34,8 @@ while [[ $# -gt 0 ]]; do
             shift
 
             if [[ $# -eq 0 || "$1" == -* ]]; then
-              echo "Error: --directory requires a project name."
-              exit 1
+                echo "Error: --directory requires a project name."
+                exit 1
             fi
 
             project_name="$1"
@@ -83,7 +83,7 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         *)
-            echo 
+            echo
             echo "Unknown option or misplaced argument: $1"
             echo "Use --help for usage."
             exit 1
@@ -94,7 +94,7 @@ done
 if [[ "$new_directory" == true ]]; then
   npm create vite@latest "$project_name" -- --template "$TEMPLATE" --eslint --no-immediate --no-interactive
   cd "$project_name"
-else 
+else
   npm create vite@latest . -- --template "$TEMPLATE" --eslint --no-immediate --no-interactive
 fi
 

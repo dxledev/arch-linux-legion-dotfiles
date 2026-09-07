@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+REPLACE_LOCATION_1="/home/dxle/dev/web-apps/portfolio/public/Dale-Peligro-Resume.pdf"
+REPLACE_LOCATION_2="/home/dxle/files/documents/job-hunting/resume-dale-peligro.pdf"
+PORTFOLIO_DIR="/home/dxle/dev/web-apps/portfolio"
+
+replace_resume=false
+new_resume=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -f|--file)
+            replace_resume=true
+            shift
+
+            if [[ $# -eq 0 || "$1" == -* ]]; then
+                echo "Error: --file requires a file path."
+                exit 1
+            fi
+
+            new_resume="$1"
+            shift
+            ;;
+
+        -h|--help)
+            echo
+            echo "Usage: replace-resume [options]"
+            echo
+            echo "Options:"
+            echo "  -f | --file  Replacement resumé"
+            echo "  -h | --help  Show help"
+            echo 
+            exit 0
+            ;;
+    esac
+done
+
+if [[ "$replace_resume" == true ]]; then
+    \cp -f "$new_resume" "$REPLACE_LOCATION_1"
+    \cp -f "$new_resume" "$REPLACE_LOCATION_2"
+fi
+

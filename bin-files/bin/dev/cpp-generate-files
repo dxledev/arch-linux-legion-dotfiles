@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 SCRIPT_DIR="/home/dxle/bin/dev/cpp"
-
 MSG="Generating"
 
 generate_compile_file=false
