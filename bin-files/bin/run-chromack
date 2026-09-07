@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_LAYER_SHELL_RUNTIME="$HOME/.local/share/chromack/layer-shell-qt"
+LAYER_SHELL_RUNTIME="${CHROMACK_LAYER_SHELL_RUNTIME:-$DEFAULT_LAYER_SHELL_RUNTIME}"
+SYSTEM_LAYER_SHELL_LIBRARY="/usr/lib/libLayerShellQtInterface.so.6"
+READLINK_BIN="/usr/bin/readlink"
+VERCMP_BIN="/usr/bin/vercmp"
+ENV_BIN="/usr/bin/env"
+
+usage() {
+    printf 'Usage: %s [--dry-run] /absolute/path/to/chromack\n' "${0##*/}"
+}
+
+library_version() {
+    local library_path="$1"
+    local resolved_path=""
+
+    resolved_path="$("$READLINK_BIN" -f "$library_path")"
+    printf '%s\n' "${resolved_path##*.so.}"
+}
+
+resolve_layer_shell_runtime() {
+    local runtime_library="$LAYER_SHELL_RUNTIME/lib/libLayerShellQtInterface.so.6"
+    local runtime_plugin="$LAYER_SHELL_RUNTIME/lib/qt6/plugins/wayland-shell-integration/liblayer-shell.so"
+    local runtime_version=""
+    local system_version=""
+
+    [[ -e "$runtime_library" && -e "$runtime_plugin" ]] || return 1
+    [[ -e "$SYSTEM_LAYER_SHELL_LIBRARY" ]] || {
+        printf '%s\n' "$LAYER_SHELL_RUNTIME"
+        return 0
+    }
+
+    runtime_version="$(library_version "$runtime_library")"
+    system_version="$(library_version "$SYSTEM_LAYER_SHELL_LIBRARY")"
+    if [[ "$("$VERCMP_BIN" "$system_version" "$runtime_version")" -lt 0 ]]; then
+        printf '%s\n' "$LAYER_SHELL_RUNTIME"
+        return 0
+    fi
+
+    return 1
+}
+
+run_chromack() {
+    local chromack_bin="$1"
+    local runtime_path="$2"
+    local runtime_library_path="$runtime_path/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    local runtime_plugin_path="$runtime_path/lib/qt6/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+
+    exec "$ENV_BIN" \
+        LD_LIBRARY_PATH="$runtime_library_path" \
+        QT_PLUGIN_PATH="$runtime_plugin_path" \
+        "$chromack_bin"
+}
+
+main() {
+    local dry_run=0
+    local chromack_bin=""
+    local runtime_path=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)
+                dry_run=1
+                ;;
+            --help|-h)
+                usage
+                return 0
+                ;;
+            -* )
+                usage >&2
+                return 2
+                ;;
+            *)
+                [[ -z "$chromack_bin" ]] || {
+                    usage >&2
+                    return 2
+                }
+                chromack_bin="$1"
+                ;;
+        esac
+        shift
+    done
+
+    [[ "$chromack_bin" = /* && -x "$chromack_bin" ]] || {
+        usage >&2
+        return 2
+    }
+
+    runtime_path="$(resolve_layer_shell_runtime || true)"
+    if [[ "$dry_run" -eq 1 ]]; then
+        printf 'layer_shell_runtime=%s\n' "${runtime_path:-system}"
+        return 0
+    fi
+
+    if [[ -n "$runtime_path" ]]; then
+        run_chromack "$chromack_bin" "$runtime_path"
+    fi
+
+    exec "$chromack_bin"
+}
+
+main "$@"

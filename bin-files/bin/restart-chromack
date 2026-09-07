@@ -11,6 +11,7 @@ PGREP_BIN="/usr/bin/pgrep"
 KILL_BIN="/usr/bin/kill"
 SLEEP_BIN="/usr/bin/sleep"
 NOHUP_BIN="/usr/bin/nohup"
+RUN_CHROMACK_SCRIPT="${CHROMACK_RUN_SCRIPT:-${0%/*}/run-chromack}"
 
 usage() {
     printf 'Usage: %s [--dry-run]\n' "${0##*/}"
@@ -102,7 +103,7 @@ start_chromack() {
         CHROMACK_START_OPEN=false \
         CHROMACK_STATE_FILE="$STATE_FILE" \
         XDG_RUNTIME_DIR="$CHROMACK_RUNTIME_DIR" \
-        "$NOHUP_BIN" "$chromack_bin" >/dev/null 2>&1 &
+        "$NOHUP_BIN" "$RUN_CHROMACK_SCRIPT" "$chromack_bin" >/dev/null 2>&1 &
 }
 
 wait_for_chromack() {
@@ -173,10 +174,11 @@ main() {
         printf 'binary=%s\n' "$chromack_bin"
         printf 'state=closed\n'
         printf 'preserve_active_color=yes\n'
+        "$RUN_CHROMACK_SCRIPT" --dry-run "$chromack_bin"
         return 0
     fi
 
-    [[ -x "$chromack_bin" ]] || return 1
+    [[ -x "$chromack_bin" && -x "$RUN_CHROMACK_SCRIPT" ]] || return 1
 
     active_color="$(capture_active_color "$chromack_bin")"
 

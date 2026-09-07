@@ -10,6 +10,7 @@ BUSCTL_BIN="/usr/bin/busctl"
 PGREP_BIN="/usr/bin/pgrep"
 NOHUP_BIN="/usr/bin/nohup"
 SLEEP_BIN="/usr/bin/sleep"
+RUN_CHROMACK_SCRIPT="${CHROMACK_RUN_SCRIPT:-${0%/*}/run-chromack}"
 CHROMACK_SERVICE_NAME="org.dxle.chromack"
 DBUS_SERVICE_NAME="org.freedesktop.DBus"
 DBUS_PATH="/org/freedesktop/DBus"
@@ -100,14 +101,14 @@ wait_for_control_service() {
 
 start_chromack() {
     local chromack_bin="$1"
-    [[ -x "$chromack_bin" ]] || return 1
+    [[ -x "$chromack_bin" && -x "$RUN_CHROMACK_SCRIPT" ]] || return 1
 
     QT_QPA_PLATFORM="$CHROMACK_QT_PLATFORM" \
         QT_WAYLAND_SHELL_INTEGRATION="$CHROMACK_QT_SHELL_INTEGRATION" \
         CHROMACK_START_OPEN=false \
         CHROMACK_STATE_FILE="$STATE_FILE" \
         XDG_RUNTIME_DIR="$CHROMACK_RUNTIME_DIR" \
-        "$NOHUP_BIN" "$chromack_bin" >/dev/null 2>&1 &
+        "$NOHUP_BIN" "$RUN_CHROMACK_SCRIPT" "$chromack_bin" >/dev/null 2>&1 &
 
     for _ in {1..40}; do
         if is_chromack_running; then
@@ -187,6 +188,7 @@ main() {
     if [[ "$dry_run" -eq 1 ]]; then
         printf 'binary=%s\n' "$chromack_bin"
         printf 'command=%s\n' "$command"
+        "$RUN_CHROMACK_SCRIPT" --dry-run "$chromack_bin"
         return 0
     fi
 
