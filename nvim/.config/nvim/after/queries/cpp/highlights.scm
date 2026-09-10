@@ -4,6 +4,15 @@
   name: (namespace_identifier) @namespace.definition)
  (#set! priority 200))
 
+((namespace_alias_definition
+  name: (namespace_identifier) @namespace.alias)
+ (#set! priority 200))
+
+((qualified_identifier
+  scope: (namespace_identifier) @namespace.alias)
+ (#cpp-namespace-alias? @namespace.alias)
+ (#set! priority 200))
+
 ("new" @keyword.operator.new
  (#set! priority 200))
 

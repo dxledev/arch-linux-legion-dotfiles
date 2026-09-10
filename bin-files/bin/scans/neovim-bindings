@@ -178,3 +178,5 @@ K | Show Function Definition
 
 <leader>bh | Move Buffer (Tab) Left
 <leader>bl | Move Buffer (Tab) Right
+
+<leader>cw | Remove trailing whitespace from whole buffer

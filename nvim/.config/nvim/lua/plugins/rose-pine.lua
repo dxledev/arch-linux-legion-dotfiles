@@ -34,6 +34,9 @@ return {
       vim.api.nvim_set_hl(0, string.char(64) .. "namespace.definition.cpp", {
         link = string.char(64) .. "namespace.definition",
       })
+      for _, group in ipairs({ "@namespace.alias", "@namespace.alias.cpp" }) do
+        vim.api.nvim_set_hl(0, group, { link = "@function" })
+      end
       for _, group in ipairs({
         "@module.cpp",
         "@namespace",

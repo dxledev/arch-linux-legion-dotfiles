@@ -5,6 +5,22 @@ local i = ls.insert_node
 local f = ls.function_node
 
 ls.add_snippets("cpp", {
+  s("prln", {
+    t("std::println("),
+    i(1),
+    t(");"),
+  }),
+})
+
+ls.add_snippets("cpp", {
+  s("stpr", {
+    t("std::print("),
+    i(1),
+    t(");"),
+  }),
+})
+
+ls.add_snippets("cpp", {
   s("stdo", {
     t("std::cout << "),
     i(1),
