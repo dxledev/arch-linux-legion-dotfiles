@@ -18,6 +18,7 @@ local groups = {
 
   "NormalFloat",
   "FloatBorder",
+  "WhichKeyNormal",
 
   "NeoTreeNormal",
   "NeoTreeNormalNC",
@@ -36,7 +37,12 @@ local function force_transparent()
 end
 
 vim.api.nvim_create_autocmd("ColorScheme", {
-  callback = force_transparent,
+  callback = function()
+    force_transparent()
+
+    -- Some themes set float highlights asynchronously after ColorScheme.
+    vim.defer_fn(force_transparent, 500)
+  end,
 })
 
 force_transparent()

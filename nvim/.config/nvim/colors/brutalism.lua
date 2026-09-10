@@ -18,6 +18,7 @@ local colors = {
     mantle  = "#1b1717",
     surface = "#241919",
     muted   = "#b89494",
+    comment = "#543030",
     border  = "#514d4d",
     red     = "#e96565",
     darkred = "#450404",
@@ -72,7 +73,7 @@ hi("Directory", { fg = colors.accent, bold = true })
 hi("Whitespace", { fg = colors.border })
 
 -- Syntax Highlighting
-hi("Comment", { fg = colors.muted, italic = true })
+hi("Comment", { fg = colors.comment, italic = true })
 hi("Identifier", { fg = colors.fg })
 hi("Function", { fg = colors.steel, bold = true })
 hi("Statement", { fg = colors.accent })

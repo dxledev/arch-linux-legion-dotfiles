@@ -17,6 +17,24 @@ return {
 				local accent = "#f07342"
 				local indent = "#453636"
 				local scope = "#725a5a"
+				local comment = "#664f4f"
+				local punctuation = "#6f655f"
+
+				vim.api.nvim_set_hl(0, "Comment", { fg = comment, italic = true })
+				vim.api.nvim_set_hl(0, "TSComment", { fg = comment, italic = true })
+				vim.api.nvim_set_hl(0, "@comment", { fg = comment, italic = true })
+				vim.api.nvim_set_hl(0, "@comment.documentation", { fg = comment, italic = true })
+				vim.api.nvim_set_hl(0, "@lsp.type.comment", { fg = comment, italic = true })
+				vim.api.nvim_set_hl(0, "Delimiter", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "TSPunctDelimiter", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "TSPunctBracket", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "TSPunctSpecial", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "TSTagDelimiter", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "@punctuation", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "@punctuation.delimiter", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "@punctuation.bracket", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "@punctuation.special", { fg = punctuation })
+				vim.api.nvim_set_hl(0, "@tag.delimiter", { fg = punctuation })
 
 				vim.api.nvim_set_hl(0, "NormalFloat", { bg = bg, fg = fg })
 				vim.api.nvim_set_hl(0, "FloatBorder", { bg = bg, fg = border })

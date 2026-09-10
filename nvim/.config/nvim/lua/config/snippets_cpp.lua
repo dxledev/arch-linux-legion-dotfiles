@@ -95,7 +95,7 @@ ls.add_snippets("cpp", {
 })
 
 ls.add_snippets("cpp", {
-  s("doxygfunc", {
+  s("doxygfuncall", {
     t({
       "/**",
       " * @brief desc",
@@ -116,7 +116,7 @@ ls.add_snippets("cpp", {
 })
 
 ls.add_snippets("cpp", {
-  s("doxygfuncb", {
+  s("doxygfunc", {
     t({
       "/**",
       " * @brief desc",

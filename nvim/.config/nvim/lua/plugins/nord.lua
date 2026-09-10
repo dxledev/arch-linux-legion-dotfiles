@@ -17,6 +17,7 @@ return {
         white = "#D8DEE9",
         white_bright = "#E5E9F0",
         white_brightest = "#ECEFF4",
+        type = "#8FBCBB",
         red = "#bf616a",
         orange = "#D08770",
         purple = "#b48ead",
@@ -66,6 +67,24 @@ return {
         vim.api.nvim_set_hl(0, "@lsp.type.namespace.cpp", {
           fg = palette.white,
         })
+
+        -- C++ struct/class names
+        for _, group in ipairs({
+          "@type",
+          "@type.definition",
+          "@type.cpp",
+          "@type.definition.cpp",
+          "@constructor",
+          "@constructor.cpp",
+          "@lsp.type.class",
+          "@lsp.type.class.cpp",
+          "@lsp.type.struct",
+          "@lsp.type.struct.cpp",
+        }) do
+          vim.api.nvim_set_hl(0, group, {
+            fg = palette.type,
+          })
+        end
 
         -- return keyword
         vim.api.nvim_set_hl(0, "@keyword.return", {
