@@ -9,6 +9,7 @@ return {
       local palette = {
         white = "#f6dcac",
         gray = "#14474f",
+        class_struct = "#B6E3D1",
       }
 
       local group = vim.api.nvim_create_augroup("Retro82Highlights", {
@@ -67,6 +68,24 @@ return {
         vim.api.nvim_set_hl(0, "@punctuation.bracket.cpp", {
           fg = palette.white,
         })
+
+        for _, group_name in ipairs({
+          "@type",
+          "@type.definition",
+          "@type.cpp",
+          "@type.definition.cpp",
+          "@constructor",
+          "@constructor.cpp",
+          "@lsp.type.class",
+          "@lsp.type.class.cpp",
+          "@lsp.type.struct",
+          "@lsp.type.struct.cpp",
+        }) do
+          vim.api.nvim_set_hl(0, group_name, {
+            fg = palette.class_struct,
+            bold = true,
+          })
+        end
 
         -- Fallback group some themes use for brackets
         vim.api.nvim_set_hl(0, "Delimiter", {

@@ -13,6 +13,14 @@
  (#cpp-namespace-alias? @namespace.alias)
  (#set! priority 200))
 
+[
+  (class_specifier
+    name: (type_identifier) @type.definition)
+  (struct_specifier
+    name: (type_identifier) @type.definition)
+]
+(#set! priority 200)
+
 ("new" @keyword.operator.new
  (#set! priority 200))
 
