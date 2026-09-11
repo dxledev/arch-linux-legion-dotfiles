@@ -136,6 +136,26 @@ Scope {
     }
 
     IpcHandler {
+        target: "launcher"
+
+        function commands(): void {
+            if (!root.hasFullscreen)
+                ShellState.componentsForActive()?.panels?.launcher.openSubmenu("");
+        }
+
+        function theme(): void {
+            if (!root.hasFullscreen)
+                ShellState.componentsForActive()?.panels?.launcher.openSubmenu("theme");
+        }
+
+        function learn(section: string): void {
+            if (!root.hasFullscreen && ["", "keybindings", "neovim"].includes(section))
+                ShellState.componentsForActive()?.panels?.launcher.openSubmenu(section ? `learn ${section}` : "learn");
+        }
+
+    }
+
+    IpcHandler {
         function open(): void {
             WindowFactory.create();
         }

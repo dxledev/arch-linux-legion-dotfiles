@@ -31,7 +31,7 @@ case "$action" in
     lock) run "$config_home/hyprlock/scripts/launch-lock-screen.sh" ;;
     theme)
         if (( $# )); then
-            [[ "$1" =~ ^[a-zA-Z0-9_-]+$ && -f "$theme_dir/$1/Colors.qml" ]] || fail 'Invalid theme.'
+            [[ $# == 1 && -n "$1" && "$1" != current && "$1" != .* && "$1" != */* && -d "$theme_dir/$1" ]] || fail 'Invalid theme.'
             run "$scripts_dir/theme" "$1"
         else
             run "$scripts_dir/menu-theme"

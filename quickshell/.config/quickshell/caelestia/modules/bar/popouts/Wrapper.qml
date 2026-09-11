@@ -29,6 +29,9 @@ Item {
     property alias hasCurrent: popoutState.hasCurrent
     property real currentCenter
 
+    property bool pinned: false
+    readonly property bool interactive: isDetached || pinned
+
     property string detachedMode
     property string queuedMode
 
@@ -56,7 +59,16 @@ Item {
         focus = true;
     }
 
+    function openPinned(name: string): void {
+        close();
+        currentName = name;
+        pinned = true;
+        hasCurrent = true;
+        forceActiveFocus();
+    }
+
     function close(): void {
+        pinned = false;
         hasCurrent = false;
         detachedMode = "";
     }
@@ -91,13 +103,13 @@ Item {
     }
 
     HyprlandFocusGrab {
-        active: root.isDetached
+        active: root.interactive
         windows: [QsWindow.window]
         onCleared: root.close()
     }
 
     Binding {
-        when: root.isDetached || (root.hasCurrent && root.currentName === "wirelesspassword")
+        when: root.interactive || (root.hasCurrent && root.currentName === "wirelesspassword")
 
         target: QsWindow.window
         property: "WlrLayershell.keyboardFocus"

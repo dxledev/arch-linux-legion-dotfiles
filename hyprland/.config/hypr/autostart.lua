@@ -1,7 +1,6 @@
 local startup_commands = {
   "hyprpm reload && hyprctl reload",
   "~/bin/toggle-shell-mode --apply",
-  "swayosd-server",
   "awww-daemon",
   "~/bin/bg-refresh-current",
   "~/bin/launch-hypridle",

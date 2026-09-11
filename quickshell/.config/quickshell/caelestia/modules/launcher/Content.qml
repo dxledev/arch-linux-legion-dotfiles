@@ -15,9 +15,15 @@ Item {
     required property ScreenState screenState
     required property var panels
     required property real maxHeight
+    property var initialSubmenu: null
 
     readonly property int padding: Tokens.padding.large
     readonly property int rounding: Tokens.rounding.extraLarge
+
+    function openSubmenu(submenu: string): void {
+        search.text = GlobalConfig.launcher.actionPrefix + (submenu ? `${submenu} ` : "");
+        search.forceActiveFocus();
+    }
 
     implicitWidth: listWrapper.width + padding * 2
     implicitHeight: search.height + listWrapper.height + padding + search.anchors.bottomMargin
@@ -49,6 +55,7 @@ Item {
         id: search
 
         objectName: "launcherSearch"
+        text: root.initialSubmenu !== null ? GlobalConfig.launcher.actionPrefix + (root.initialSubmenu ? `${root.initialSubmenu} ` : "") : ""
 
         anchors.left: parent.left
         anchors.right: parent.right

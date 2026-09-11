@@ -31,6 +31,11 @@ Singleton {
     readonly property alias cava: cava
     readonly property alias beatTracker: beatTracker
 
+    function toggleMuted(): void {
+        if (sink?.ready && sink?.audio)
+            sink.audio.muted = !sink.audio.muted;
+    }
+
     function setVolume(newVolume: real): void {
         if (sink?.ready && sink?.audio) {
             sink.audio.muted = false;

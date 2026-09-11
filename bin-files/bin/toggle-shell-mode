@@ -10,6 +10,7 @@ PKILL_BIN="${PKILL_BIN:-/usr/bin/pkill}"
 KILL_BIN="${KILL_BIN:-/usr/bin/kill}"
 JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/usr/bin/notify-send}"
+SWAYOSD_SERVER_BIN="${SWAYOSD_SERVER_BIN:-$HOME/bin/swayosd-server}"
 WAYBAR_BIN="${WAYBAR_BIN:-/usr/bin/waybar}"
 WARD_BIN="${WARD_BIN:-$HOME/.local/bin/ward}"
 WARDNC_BIN="${WARDNC_BIN:-$HOME/builds/wardnc/build/wardnc}"
@@ -19,7 +20,7 @@ LOCK_FILE="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$U
 QUICKSHELL_STOP_TIMEOUT="${QUICKSHELL_STOP_TIMEOUT:-5}"
 WAYBAR_START_DELAY="${WAYBAR_START_DELAY:-0.5}"
 REQUIRE_LINE='require("waybar-mode-keybindings")'
-WAYBAR_PROCESSES=(waybar ward wardnc hypr-dock chromack topdash dashboard mako)
+WAYBAR_PROCESSES=(waybar ward wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
 action=toggle
 dry_run=0
 
@@ -109,7 +110,7 @@ validate_target() {
             fail "Quickshell config not found: $QUICKSHELL_CONFIG"
     else
         for executable in "$WAYBAR_BIN" "$WARD_BIN" "$WARDNC_BIN" \
-            "$CHROMACK_LAUNCHER" "$DASHBOARD_BIN"; do
+            "$CHROMACK_LAUNCHER" "$DASHBOARD_BIN" "$SWAYOSD_SERVER_BIN"; do
             require_executable "$executable"
         done
     fi
@@ -151,7 +152,8 @@ start_waybar() {
         /usr/bin/systemctl --user start ward.service &&
         start_process wardnc "$WARDNC_BIN" &&
         start_process chromack "$CHROMACK_LAUNCHER" &&
-        start_process topdash "$DASHBOARD_BIN"
+        start_process topdash "$DASHBOARD_BIN" &&
+        start_process swayosd-server "$SWAYOSD_SERVER_BIN"
 }
 
 quickshell_pids() {
@@ -222,7 +224,7 @@ show_plan() {
             printf 'Pause %s seconds after Quickshell stops\n' "$WAYBAR_START_DELAY"
         fi
         printf 'Stop: hypr-dock (SUPER + D starts it on demand)\n'
-        printf 'Start: waybar ward wardnc chromack topdash\n'
+        printf 'Start: waybar ward wardnc chromack topdash swayosd-server\n'
         printf 'Uncomment: %s\n' "$REQUIRE_LINE"
     fi
     [[ "$action" == apply ]] || printf 'Reload: %s\n' "$HYPRCTL_BIN"

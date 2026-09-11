@@ -6,6 +6,8 @@ import Quickshell.Io
 Singleton {
     id: root
     property var workspaceStarts: ({})
+    property var brightnessMonitors: []
+    property int brightnessWriteDelay: 100
     property bool hasProfilePicture: false
     property bool syncWindowRounding: true
     property real windowRoundingPower: 2.0
@@ -37,6 +39,8 @@ Singleton {
         onLoaded: {
             const config = JSON.parse(text());
             root.workspaceStarts = config.workspaceStarts || {};
+            root.brightnessMonitors = config.brightnessMonitors || [];
+            root.brightnessWriteDelay = Math.max(50, config.brightnessWriteDelay ?? 100);
             root.syncWindowRounding = config.windowRounding?.enabled ?? true;
             root.windowRoundingPower = config.windowRounding?.power ?? 2.0;
         }

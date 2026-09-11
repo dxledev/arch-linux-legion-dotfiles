@@ -1,8 +1,39 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-pressed_file="/tmp/knob_pressed"
+PRESSED_FILE="${KNOB_PRESSED_FILE:-/tmp/knob_pressed}"
+WPCTL_BIN="${WPCTL_BIN:-/usr/bin/wpctl}"
+SYSTEM_VOLUME_BIN="${SYSTEM_VOLUME_BIN:-$HOME/bin/system-volume}"
+VOLUME_MONITOR_DESCRIPTION="${VOLUME_MONITOR_DESCRIPTION:-Acer Technologies KG271U}"
+mode=waybar
+dry_run=0
 
-if [ -f "$pressed_file" ]; then
-    rm "$pressed_file"
-    ~/bin/system-volume --description "Acer Technologies KG271U" --output-volume mute-toggle
+usage() {
+    printf 'Usage: knob-release [--quickshell] [--dry-run]\n'
+}
+
+while (( $# )); do
+    case "$1" in
+        --quickshell) mode=quickshell ;;
+        --dry-run) dry_run=1 ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+[[ "$PRESSED_FILE" == /* ]] || exit 1
+if [[ "$mode" == quickshell ]]; then
+    command=("$WPCTL_BIN" set-mute @DEFAULT_AUDIO_SINK@ toggle)
+else
+    command=("$SYSTEM_VOLUME_BIN" --description "$VOLUME_MONITOR_DESCRIPTION" --output-volume mute-toggle)
 fi
+[[ "${command[0]}" == /* && -x "${command[0]}" ]] || exit 1
+[[ -f "$PRESSED_FILE" ]] || exit 0
+if (( dry_run )); then
+    printf '%q ' "${command[@]}"
+    printf '\n'
+    exit 0
+fi
+/usr/bin/rm -- "$PRESSED_FILE"
+"${command[@]}"

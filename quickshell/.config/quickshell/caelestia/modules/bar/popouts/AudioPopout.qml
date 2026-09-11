@@ -93,12 +93,25 @@ Item {
             }
 
             StyledSlider {
+                id: volumeSlider
+
                 anchors.left: parent.left
                 anchors.right: parent.right
                 implicitHeight: parent.implicitHeight
+                hoverEnabled: true
 
                 value: Audio.volume
                 onInteraction: value => Audio.setVolume(value)
+
+                onRightClicked: Audio.toggleMuted()
+
+                SliderTooltip {
+                    parent: volumeSlider
+                    Tokens.screen: root.Tokens.screen
+                    onLeft: false
+                    visible: volumeSlider.hovered || volumeSlider.dragging
+                    text: Tr.tr("Volume") + (Audio.muted ? " (" + Tr.tr("Muted") + ")" : "")
+                }
             }
         }
 

@@ -31,6 +31,22 @@ ColumnLayout {
         }
     }
 
+    function pinPopout(name: string): void {
+        for (let i = 0; i < repeater.count; i++) {
+            const entry = repeater.itemAt(i) as EntryWrapper;
+            if (entry?.entryId !== "statusIcons")
+                continue;
+            const icon = (entry.item as StatusIcons).items.children.find(child => child.name === name);
+            if (icon) {
+                popouts.currentCenter = Qt.binding(() => icon.mapToItem(root, 0, icon.implicitHeight / 2).y);
+                popouts.openPinned(name);
+                return;
+            }
+        }
+        popouts.currentCenter = height / 2;
+        popouts.openPinned(name);
+    }
+
     function checkPopout(y: real): void {
         const ch = childAt(width / 2, y) as EntryWrapper;
 

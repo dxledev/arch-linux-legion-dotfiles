@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: monitor-brightness [--dry-run] <connector> <bus> get|set [percent]\n'
+}
+
+fail() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+
+dry_run=0
+if [[ ${1:-} == --help ]]; then usage; exit 0; fi
+if [[ ${1:-} == --dry-run ]]; then dry_run=1; shift; fi
+[[ $# -ge 3 && $# -le 4 ]] || { usage >&2; exit 1; }
+connector=$1
+bus=$2
+action=$3
+percent=${4:-}
+[[ $connector =~ ^(HDMI-A|DP)-[0-9]+$ ]] || fail 'Unsupported monitor connector'
+[[ $bus =~ ^[0-9]+$ ]] || fail 'Invalid I2C bus'
+case $action in
+    get) [[ $# == 3 ]] || fail 'get takes no percentage' ;;
+    set) [[ $percent =~ ^[0-9]{1,3}$ ]] && (( 10#$percent <= 100 )) || fail 'Percentage must be 0 to 100' ;;
+    *) fail 'Action must be get or set' ;;
+esac
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/system-brightness-ddc"
+connector_type=${connector%-*}
+state_file="$state_dir/$connector_type.state"
+
+read_device() {
+    local output kind code format current maximum
+    output=$(/usr/bin/ddcutil --bus="$bus" getvcp 10 --brief)
+    read -r kind code format current maximum <<<"$output"
+    [[ $kind == VCP && $format == C && $current =~ ^[0-9]+$ && $maximum =~ ^[0-9]+$ ]] || fail 'Invalid brightness response'
+    (( maximum > 0 )) || fail 'Invalid monitor brightness maximum'
+    device_max=$maximum
+    current_percent=$(( (current * 100 + maximum / 2) / maximum ))
+}
+
+load_state() {
+    local -a state
+    [[ -r $state_file ]] || return 1
+    mapfile -t state <"$state_file"
+    [[ ${#state[@]} == 4 && ${state[0]} == "$bus" ]] || return 1
+    [[ ${state[1]} =~ ^[0-9]+$ && ${state[2]} =~ ^[0-9]+$ && ${state[3]} =~ ^[0-9]+$ ]] || return 1
+    (( state[1] > 0 && state[2] <= 100 && now >= state[3] && now - state[3] <= 2 )) || return 1
+    device_max=${state[1]}
+    current_percent=${state[2]}
+}
+
+write_state() {
+    printf '%s\n%s\n%s\n%s\n' "$bus" "$device_max" "$current_percent" "$now" >"$state_file"
+}
+
+if (( dry_run )); then
+    read_device
+    if [[ $action == set ]]; then
+        printf '/usr/bin/ddcutil --bus=%s setvcp 10 %s --noverify\n' "$bus" "$(( (10#$percent * device_max + 50) / 100 ))"
+    else
+        printf '%s\n' "$current_percent"
+    fi
+    exit 0
+fi
+
+/usr/bin/mkdir -p "$state_dir"
+exec 9>"$state_dir/$connector_type.lock"
+/usr/bin/flock -x 9
+printf -v now '%(%s)T' -1
+if ! load_state; then read_device; fi
+if [[ $action == set ]]; then
+    /usr/bin/ddcutil --bus="$bus" setvcp 10 "$(( (10#$percent * device_max + 50) / 100 ))" --noverify
+    current_percent=$((10#$percent))
+fi
+write_state
+printf '%s\n' "$current_percent"

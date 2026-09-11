@@ -101,17 +101,11 @@ end
 
 local simple_binds = {
   { mainMod, "SPACE", "App Launcher", "~/bin/menu-apps" },
-  { mainMod .. " ALT", "K", "Keybindings Menu", "~/bin/menu-keybindings" },
-  { mainMod .. " SHIFT ALT", "K", "Neovim Keybindings", "~/bin/menu-neovim-bindings" },
-  { mainMod .. " ALT", "SPACE", "Menu", "~/bin/menu" },
-  { mainMod .. " ALT", "P", "System Menu", "~/bin/menu-system" },
   { mainMod .. " ALT", "F", "File Menu", "~/bin/menu-files" },
   { mainMod .. " ALT", "L", "Layout Menu", "~/bin/menu-layout" },
-  { mainMod .. " SHIFT ALT", "L", "Learn Menu", "~/bin/menu-learn" },
   { mainMod .. " ALT", "C", "Clipboard Menu", "~/bin/menu-clipboard" },
   { mainMod .. " ALT SHIFT", "C", "Color Converter", "~/bin/menu-color-converter" },
   { mainMod .. " SHIFT CTRL", "C", "Config", "~/bin/menu-config" },
-  { mainMod .. " ALT", "T", "Theme Menu", "~/bin/menu-theme" },
   { mainMod .. " SHIFT ALT", "T", "Style Menu", "~/bin/menu-style" },
   { mainMod .. " SHIFT ALT", "P", "Terminal Prompt Menu", "~/bin/menu-starship" },
   { mainMod .. " ALT", "S", "Screenshot Menu", "~/bin/menu-screenshot" },
@@ -220,12 +214,6 @@ hl.bind(keys(mainMod, "P"), function()
 end, { descrption = "Pin Window" })
 bind("bindd", mainMod, "C", "Center Floating Window", "centerwindow", "")
 
-bind("bindl", "", "XF86AudioRaiseVolume", "", "exec", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume +1")
-bind("bindl", "", "XF86AudioLowerVolume", "", "exec", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume -1")
-bind("bindl", mainMod, "XF86AudioRaiseVolume", "", "exec", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume +5")
-bind("bindl", mainMod, "XF86AudioLowerVolume", "", "exec", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume -5")
-bind("bindl", "", "XF86AudioMute", "", "exec", "~/bin/knob-press")
-bind("bindrl", "", "XF86AudioMute", "", "exec", "~/bin/knob-release")
 
 local media_binds = {
   { "", "F11", "Previous Spotify Track", "~/bin/media-controls/spotify-play-previous" },
@@ -326,16 +314,3 @@ bind("binded", "CTRL ALT", "MINUS", "Zoom Out", "exec", zoom_out)
 bind_exec("ALT SHIFT", "MINUS", "Reset Zoom", "hyprctl -q keyword cursor:zoom_factor 1")
 bind("bind", "ALT SHIFT", "mouse_up", "", "exec", "hyprctl -q keyword cursor:zoom_factor 1")
 bind("bind", "ALT SHIFT", "mouse_down", "", "exec", "hyprctl -q keyword cursor:zoom_factor 1")
-
-local brightness_binds = {
-  { mainMod .. " SHIFT", "F1", "Minimize ASUS Brightness", "~/bin/system-brightness-dp min" },
-  { mainMod, "F1", "Decrease ASUS Brightness", "~/bin/system-brightness-dp down" },
-  { mainMod, "F2", "Increase ASUS Brightness", "~/bin/system-brightness-dp up" },
-  { mainMod .. " SHIFT", "F3", "Minimize Acer Brightness", "~/bin/system-brightness-hdmi min" },
-  { mainMod, "F3", "Decrease Acer Brightness", "~/bin/system-brightness-hdmi down" },
-  { mainMod, "F4", "Increase Acer Brightness", "~/bin/system-brightness-hdmi up" },
-}
-
-for _, item in ipairs(brightness_binds) do
-  bind_exec(item[1], item[2], item[3], item[4])
-end

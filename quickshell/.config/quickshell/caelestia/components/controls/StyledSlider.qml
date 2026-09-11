@@ -26,6 +26,7 @@ Slider {
     property real filledWidth
 
     signal interaction(v: real)
+    signal rightClicked()
 
     Component.onCompleted: filledWidth = Qt.binding(() => (width - handle.implicitWidth - handle.anchors.leftMargin) * pos)
 
@@ -182,6 +183,19 @@ Slider {
             root.interaction(finalPos);
             widthBehavior.enabled = true;
             dragMovement = 0;
+        }
+    }
+
+    MouseArea {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        width: parent.width
+        height: Math.max(root.height, mouse.height)
+        acceptedButtons: Qt.AllButtons & ~Qt.LeftButton
+        preventStealing: true
+        onClicked: event => {
+            if (event.button === Qt.RightButton)
+                root.rightClicked();
         }
     }
 

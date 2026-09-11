@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: theme-list [--list | --dry-run]\n'
+}
+
+load_menu_parser() {
+    local menu_script="${MENU_THEME_SCRIPT:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/menu-theme}"
+    local parser
+
+    [[ -r "$menu_script" ]] || { printf 'Cannot read %s\n' "$menu_script" >&2; return 1; }
+    # Import the existing palette functions without starting the Rofi menu.
+    parser="$(/usr/bin/awk '
+        /^require_command "\$ROFI_BIN"/ { found = 1; exit }
+        { print }
+        END { if (!found) exit 1 }
+    ' "$menu_script")" || { printf 'Unsupported menu-theme parser\n' >&2; return 1; }
+    source /dev/stdin <<< "$parser"
+    THEME_DIR_RESOLVED="$(/usr/bin/readlink -f -- "${SHELL_THEMES_DIR:-$THEME_DIR}")"
+    [[ -d "$THEME_DIR_RESOLVED" ]] || { printf 'Themes directory not found\n' >&2; return 1; }
+    validate_icon_base_size
+}
+
+list_themes() {
+    local dry_run="$1"
+    local theme_path theme name icon current_path
+
+    load_menu_parser
+    current_path="$(/usr/bin/readlink -f -- "$THEME_DIR_RESOLVED/current" || true)"
+    for theme_path in "$THEME_DIR_RESOLVED"/*; do
+        [[ -d "$theme_path" ]] || continue
+        theme="${theme_path##*/}"
+        [[ "$theme" != current && "$theme" != .* ]] || continue
+        name="$(format_theme_display "$theme")"
+        if (( dry_run )); then
+            icon="$(cached_palette_icon_path "$theme")"
+        else
+            require_command "$MAGICK_BIN" ImageMagick
+            require_command "$MKDIR_BIN" mkdir
+            icon="$(palette_icon "$theme" "$theme_path")"
+        fi
+        /usr/bin/jq -cn --arg id "$theme" --arg name "$name" --arg icon "$icon" \
+            --argjson current "$([[ "$(/usr/bin/readlink -f -- "$theme_path")" == "$current_path" ]] && printf true || printf false)" \
+            '{id: $id, name: $name, icon: $icon, current: $current}'
+    done | /usr/bin/jq -s .
+}
+
+[[ $# -le 1 ]] || { usage >&2; exit 2; }
+case "${1:---list}" in
+    --list) list_themes 0 ;;
+    --dry-run) list_themes 1 ;;
+    --help|-h) usage ;;
+    *) usage >&2; exit 2 ;;
+esac

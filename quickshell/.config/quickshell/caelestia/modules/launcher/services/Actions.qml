@@ -12,8 +12,39 @@ import qs.utils
 Searcher {
     id: root
 
+    property var pendingPanels: null
+    property string pendingPanelName
+
     function transformSearch(search: string): string {
         return search.slice(GlobalConfig.launcher.actionPrefix.length);
+    }
+
+    function openPanel(name: string): void {
+        const components = ShellState.componentsForActive();
+        const state = ShellState.forActive();
+        if (!components?.panels || !state)
+            return;
+
+        state.session = false;
+        pendingPanelName = name;
+        pendingPanels = components.panels;
+        finishOpeningPanel();
+    }
+
+    function finishOpeningPanel(): void {
+        if (!pendingPanels || pendingPanels.launcher.visible)
+            return;
+        const popouts = pendingPanels.popouts;
+        pendingPanels = null;
+        ShellState.componentsFor(popouts.screen)?.bar?.pinPopout(root.pendingPanelName);
+    }
+
+    Connections {
+        target: root.pendingPanels?.launcher ?? null
+
+        function onVisibleChanged(): void {
+            root.finishOpeningPanel();
+        }
     }
 
     list: variants.instances
@@ -45,6 +76,14 @@ Searcher {
             } else if (command[0] === "setMode" && command.length > 1) {
                 list.screenState.launcher = false;
                 Colours.setMode(command[1]);
+            } else if (command[0] === "panel" && ["battery", "bluetooth", "network", "audio"].includes(command[1])) {
+                list.screenState.launcher = false;
+                root.openPanel(command[1]);
+            } else if (command[0] === "session" && command.length > 1) {
+                list.screenState.launcher = false;
+                const sessionCommand = Config.session.commands[command[1]];
+                if (!SessionManager.exec(sessionCommand))
+                    Quickshell.execDetached(sessionCommand);
             } else {
                 list.screenState.launcher = false;
                 if (!SessionManager.exec(command))

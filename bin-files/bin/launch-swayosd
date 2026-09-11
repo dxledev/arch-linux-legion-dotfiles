@@ -1,7 +1,66 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly NOHUP_BIN="/usr/bin/nohup"
-readonly SWAYOSD_SERVER="/home/dxle/bin/swayosd-server"
+SWAYOSD_SERVER_BIN="${SWAYOSD_SERVER_BIN:-$HOME/bin/swayosd-server}"
+SHELL_MODE_SCRIPT="${SHELL_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
+PKILL_BIN="${PKILL_BIN:-/usr/bin/pkill}"
+restart=0
+dry_run=0
 
-"${NOHUP_BIN}" "${SWAYOSD_SERVER}" >/dev/null 2>&1 &
+usage() {
+    printf 'Usage: launch-swayosd [--restart] [--dry-run]\n'
+}
+
+is_running() {
+    "$PGREP_BIN" -u "$UID" -x "$1" >/dev/null 2>&1
+}
+
+stop_swayosd() {
+    local attempt status=0
+    is_running swayosd-server || return 0
+    "$PKILL_BIN" -TERM -u "$UID" -x swayosd-server || status=$?
+    (( status <= 1 )) || return "$status"
+    for (( attempt=0; attempt<30; attempt++ )); do
+        is_running swayosd-server || return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'launch-swayosd: SwayOSD did not stop.\n' >&2
+    return 1
+}
+
+main() {
+    local executable mode
+    for executable in "$SHELL_MODE_SCRIPT" "$PGREP_BIN" "$PKILL_BIN"; do
+        [[ "$executable" == /* && -x "$executable" ]] || return 1
+    done
+    while (( $# )); do
+        case "$1" in
+            --restart) restart=1 ;;
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; return ;;
+            *) usage >&2; return 2 ;;
+        esac
+        shift
+    done
+    mode="$("$SHELL_MODE_SCRIPT" --status)"
+    case "$mode" in waybar|quickshell) ;; *) return 1 ;; esac
+    if [[ "$mode" == quickshell ]] || is_running quickshell; then
+        if (( dry_run )); then
+            printf 'Stop SwayOSD; Quickshell mode is selected or active.\n'
+        else
+            stop_swayosd
+        fi
+        return
+    fi
+    [[ "$SWAYOSD_SERVER_BIN" == /* && -x "$SWAYOSD_SERVER_BIN" ]] || return 1
+    if (( dry_run )); then
+        printf 'Start SwayOSD in Waybar mode (restart=%s).\n' "$restart"
+        return
+    fi
+    if (( restart )); then stop_swayosd; fi
+    is_running swayosd-server && return 0
+    /usr/bin/nohup "$SWAYOSD_SERVER_BIN" >/dev/null 2>&1 &
+}
+
+main "$@"

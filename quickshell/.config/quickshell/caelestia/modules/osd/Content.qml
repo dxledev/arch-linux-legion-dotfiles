@@ -12,14 +12,13 @@ import qs.utils
 Item {
     id: root
 
-    required property Brightness.Monitor monitor
     required property ScreenState screenState
+    required property var initialValueDisplays
 
     required property real volume
     required property bool muted
     required property real sourceVolume
     required property bool sourceMuted
-    required property real brightness
 
     implicitWidth: layout.implicitWidth + Tokens.padding.large + layout.anchors.horizontalCenterOffset * 2
     implicitHeight: layout.implicitHeight + Tokens.padding.large * 2
@@ -44,12 +43,25 @@ Item {
             implicitHeight: Tokens.sizes.osd.sliderHeight
 
             FilledSlider {
+                id: volumeSlider
+
                 anchors.fill: parent
+                hoverEnabled: true
 
                 icon: Icons.getVolumeIcon(value, root.muted)
                 value: root.volume
+                showInitialValue: root.initialValueDisplays.volume ?? false
                 to: GlobalConfig.services.maxVolume
                 onMoved: Audio.setVolume(value)
+
+                onRightClicked: Audio.toggleMuted()
+
+                SliderTooltip {
+                    parent: volumeSlider
+                    Tokens.screen: root.Tokens.screen
+                    visible: volumeSlider.hovered || volumeSlider.pressed
+                    text: root.muted ? "Volume (Muted)" : "Volume"
+                }
             }
         }
 
@@ -73,37 +85,22 @@ Item {
 
                     icon: Icons.getMicVolumeIcon(value, root.sourceMuted)
                     value: root.sourceVolume
+                    showInitialValue: root.initialValueDisplays.microphone ?? false
                     to: GlobalConfig.services.maxVolume
                     onMoved: Audio.setSourceVolume(value)
                 }
             }
         }
 
-        // Brightness
-        WrappedLoader {
-            shouldBeActive: Config.osd.enableBrightness
+        Repeater {
+            model: Config.osd.enableBrightness ? Brightness.osdMonitors : []
 
-            sourceComponent: CustomMouseArea {
-                function onWheel(event: WheelEvent) {
-                    const monitor = root.monitor;
-                    if (!monitor)
-                        return;
-                    if (event.angleDelta.y > 0)
-                        monitor.setBrightness(monitor.brightness + GlobalConfig.services.brightnessIncrement);
-                    else if (event.angleDelta.y < 0)
-                        monitor.setBrightness(monitor.brightness - GlobalConfig.services.brightnessIncrement);
-                }
+            delegate: BrightnessSlider {
+                required property var modelData
 
-                implicitWidth: Tokens.sizes.osd.sliderWidth
-                implicitHeight: Tokens.sizes.osd.sliderHeight
-
-                FilledSlider {
-                    anchors.fill: parent
-
-                    icon: `brightness_${(Math.round(value * 6) + 1)}`
-                    value: root.brightness
-                    onMoved: root.monitor?.setBrightness(value)
-                }
+                monitor: modelData.monitor
+                label: modelData.label
+                showInitialValue: root.initialValueDisplays[modelData.monitor.modelData.name] ?? false
             }
         }
     }

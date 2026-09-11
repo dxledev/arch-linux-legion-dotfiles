@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DESKTOP_SCRIPTS_DIR="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
+
+usage() {
+    printf 'Usage: learn-list {keybindings|neovim} [--dry-run]\n'
+}
+
+keybindings() {
+    source "$DESKTOP_SCRIPTS_DIR/lib-hypr-lua"
+    local config_file
+    config_file="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/keybindings.conf")"
+    if hypr_is_lua_file "$config_file"; then
+        /usr/bin/lua "$SCRIPT_DIR/learn-keybindings.lua" "$config_file" "$SCRIPT_DIR/hyprland.lua"
+    else
+        /usr/bin/awk -f "$SCRIPT_DIR/learn-keybindings.awk" "$config_file"
+    fi
+    /usr/bin/cat "$DESKTOP_SCRIPTS_DIR/scans/keybindings"
+}
+
+main() {
+    [[ "${1:-}" != --help ]] || { usage; return; }
+    [[ $# -ge 1 && $# -le 2 && ( $# -eq 1 || "$2" == --dry-run ) ]] || { usage >&2; return 1; }
+    case "$1" in
+        keybindings) keybindings ;;
+        neovim) /usr/bin/cat "$DESKTOP_SCRIPTS_DIR/scans/neovim-bindings" ;;
+        *) usage >&2; return 1 ;;
+    esac | /usr/bin/jq -Rs --arg kind "$1" '
+        split("\n") | map(split("|")) |
+        map(select($kind == "keybindings" or (length >= 2 and (.[0] | gsub("^ +| +$"; "")) != "" and (.[1] | gsub("^ +| +$"; "")) != ""))) |
+        map(select(length >= 2) | {name: (.[0] | gsub("^ +| +$"; "")), description: (.[1] | gsub("^ +| +$"; ""))})'
+}
+
+main "$@"

@@ -28,6 +28,10 @@ Item {
         (content.item as Bar)?.closeTray();
     }
 
+    function pinPopout(name: string): void {
+        (content.item as Bar)?.pinPopout(name);
+    }
+
     function checkPopout(y: real): void {
         (content.item as Bar)?.checkPopout(y);
     }

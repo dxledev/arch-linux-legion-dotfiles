@@ -23,6 +23,20 @@ Item {
     }
 
     property real offsetScale: shouldBeActive ? 0 : 1
+    property var pendingSubmenu: null
+
+    function openSubmenu(submenu: string): void {
+        pendingSubmenu = submenu;
+        screenState.launcher = true;
+        applyPendingSubmenu();
+    }
+
+    function applyPendingSubmenu(): void {
+        if (content.item && pendingSubmenu !== null) {
+            content.item.openSubmenu(pendingSubmenu);
+            pendingSubmenu = null;
+        }
+    }
 
     onShouldBeActiveChanged: {
         if (shouldBeActive)
@@ -37,7 +51,10 @@ Item {
     implicitWidth: content.implicitWidth || 630 // Hard coded fallback for first open
     opacity: 1 - offsetScale
 
-    Component.onCompleted: Qt.callLater(() => Apps) // Load apps on init
+    Component.onCompleted: Qt.callLater(() => {
+        Apps;
+        Themes;
+    })
 
     Behavior on offsetScale {
         Anim {}
@@ -50,8 +67,10 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
 
         active: root.shouldBeActive || root.visible
+        onLoaded: root.applyPendingSubmenu()
 
         sourceComponent: Content {
+            initialSubmenu: root.pendingSubmenu
             screenState: root.screenState
             panels: root.panels
             maxHeight: root.maxHeight

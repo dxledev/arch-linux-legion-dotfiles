@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQml.Models
 import Quickshell
 import Caelestia.Config
 import qs.components
@@ -12,9 +13,9 @@ Item {
     required property ShellScreen screen
     required property ScreenState screenState
     required property bool sidebarOrSessionVisible
+    required property bool audioPopoutVisible
 
     property bool hovered
-    readonly property Brightness.Monitor monitor: Brightness.getMonitorForScreen(root.screen)
     readonly property bool shouldBeActive: screenState.osd && Config.osd.enabled && !(screenState.utilities && Config.utilities.enabled)
     property real offsetScale: shouldBeActive ? 0 : 1
     property real sidebarOffset: sidebarOrSessionVisible ? 12 : 0
@@ -23,11 +24,23 @@ Item {
     property bool muted
     property real sourceVolume
     property bool sourceMuted
-    property real brightness
+    property var pendingValueDisplays: ({})
 
-    function show(): void {
+    function show(control: string): void {
+        if (screenState !== ShellState.forActive())
+            return;
+        if (!content.item) {
+            const pending = Object.assign({}, pendingValueDisplays);
+            pending[control] = true;
+            pendingValueDisplays = pending;
+        }
         screenState.osd = true;
         timer.restart();
+    }
+
+    function showAudio(control: string): void {
+        if (!audioPopoutVisible)
+            show(control);
     }
 
     Component.onCompleted: {
@@ -35,7 +48,6 @@ Item {
         muted = Audio.muted;
         sourceVolume = Audio.sourceVolume;
         sourceMuted = Audio.sourceMuted;
-        brightness = root.monitor?.brightness ?? 0;
     }
 
     visible: offsetScale < 1
@@ -50,35 +62,40 @@ Item {
 
     Connections {
         function onMutedChanged(): void {
-            root.show();
+            root.showAudio("volume");
             root.muted = Audio.muted;
         }
 
         function onVolumeChanged(): void {
-            root.show();
+            root.showAudio("volume");
             root.volume = Audio.volume;
         }
 
         function onSourceMutedChanged(): void {
-            root.show();
+            root.showAudio("microphone");
             root.sourceMuted = Audio.sourceMuted;
         }
 
         function onSourceVolumeChanged(): void {
-            root.show();
+            root.showAudio("microphone");
             root.sourceVolume = Audio.sourceVolume;
         }
 
         target: Audio
     }
 
-    Connections {
-        function onBrightnessChanged(): void {
-            root.show();
-            root.brightness = root.monitor?.brightness ?? 0;
-        }
+    Instantiator {
+        model: Brightness.osdMonitors
 
-        target: root.monitor
+        delegate: Connections {
+            required property var modelData
+
+            target: modelData.monitor
+            function onBrightnessChanged(): void {
+                if (modelData.monitor.initialized)
+                    root.show(modelData.monitor.modelData.name);
+            }
+        }
     }
 
     Timer {
@@ -99,15 +116,18 @@ Item {
 
         asynchronous: true
         active: root.shouldBeActive || root.visible
+        onActiveChanged: {
+            if (!active)
+                root.pendingValueDisplays = {};
+        }
 
         sourceComponent: Content {
-            monitor: root.monitor
+            initialValueDisplays: root.pendingValueDisplays
             screenState: root.screenState
             volume: root.volume
             muted: root.muted
             sourceVolume: root.sourceVolume
             sourceMuted: root.sourceMuted
-            brightness: root.brightness
         }
     }
 }

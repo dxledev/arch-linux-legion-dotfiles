@@ -9,8 +9,12 @@ Slider {
     id: root
 
     required property string icon
+    property int valueDisplayDuration: 1500
+    property bool showInitialValue: false
     property real oldValue
     property bool initialized
+
+    signal rightClicked()
 
     orientation: Qt.Vertical
 
@@ -74,6 +78,8 @@ Slider {
                 font: moving ? Tokens.font.body.small : Tokens.font.icon.medium
 
                 Behavior on moving {
+                    enabled: root.initialized
+
                     SequentialAnimation {
                         Anim {
                             target: icon
@@ -96,14 +102,35 @@ Slider {
         }
     }
 
-    onPressedChanged: handle.moving = pressed
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.AllButtons & ~Qt.LeftButton
+        preventStealing: true
+        onClicked: event => {
+            if (event.button === Qt.RightButton)
+                root.rightClicked();
+        }
+    }
+
+    onPressedChanged: {
+        if (pressed) {
+            stateChangeDelay.stop();
+            handle.moving = true;
+        } else {
+            stateChangeDelay.restart();
+        }
+    }
+
+    Component.onCompleted: {
+        oldValue = value;
+        handle.moving = showInitialValue;
+        initialized = true;
+        if (showInitialValue)
+            stateChangeDelay.restart();
+    }
 
     onValueChanged: {
-        if (!initialized) {
-            initialized = true;
-            return;
-        }
-        if (Math.abs(value - oldValue) < 0.01)
+        if (!initialized || Math.round(value * 100) === Math.round(oldValue * 100))
             return;
         oldValue = value;
         handle.moving = true;
@@ -113,7 +140,7 @@ Slider {
     Timer {
         id: stateChangeDelay
 
-        interval: 500
+        interval: root.valueDisplayDuration
         onTriggered: {
             if (!root.pressed)
                 handle.moving = false;
@@ -121,6 +148,8 @@ Slider {
     }
 
     Behavior on value {
+        enabled: !root.pressed
+
         Anim {
             type: Anim.StandardLarge
         }

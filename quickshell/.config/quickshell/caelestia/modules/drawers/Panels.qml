@@ -55,6 +55,7 @@ Item {
             screen: root.screen
             screenState: root.screenState
             sidebarOrSessionVisible: sidebar.visible || session.visible
+            audioPopoutVisible: root.popouts.hasCurrent && root.popouts.currentName === "audio"
 
             anchors.verticalCenter: parent.verticalCenter
             anchors.right: parent.right

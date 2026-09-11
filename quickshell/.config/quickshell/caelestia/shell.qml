@@ -5,7 +5,6 @@
 //@ pragma DefaultEnv QT_QUICK_FLICKABLE_WHEEL_DECELERATION=10000
 //@ pragma DefaultEnv QML_IMPORT_PATH=/home/dxle/.config/quickshell/.runtime/qml
 //@ pragma DefaultEnv CAELESTIA_LIB_DIR=/home/dxle/.config/quickshell/.runtime/lib/caelestia
-//@ pragma DefaultEnv QS_ICON_THEME=Papirus
 
 import "modules"
 import "modules/drawers"

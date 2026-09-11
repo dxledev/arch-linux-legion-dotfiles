@@ -51,7 +51,7 @@ Column {
     }
 
     spacing: Tokens.spacing.medium
-    width: Tokens.sizes.bar.batteryWidth
+    width: Math.max(Tokens.sizes.bar.batteryWidth, ...children.map(child => child.implicitWidth))
 
     StyledText {
         text: UPower.displayDevice.isLaptopBattery ? Tr.trCtx("Remaining: %1%", "battery remaining").arg(Math.round(UPower.displayDevice.percentage * 100)) : Tr.tr("No battery detected")

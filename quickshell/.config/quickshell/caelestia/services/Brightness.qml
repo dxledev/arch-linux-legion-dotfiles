@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import Caelestia.Config
 import qs.components.misc
+import qs.integration
 
 Singleton {
     id: root
@@ -19,6 +20,10 @@ Singleton {
     }
     readonly property list<Monitor> monitors: variants.instances // qmllint disable incompatible-type
     property bool appleDisplayPresent: false
+    readonly property var osdMonitors: System.brightnessMonitors.map(entry => ({
+        monitor: getMonitor(entry.connector),
+        label: entry.label || entry.connector
+    })).filter(entry => entry.monitor?.isDdc)
 
     function getMonitorForScreen(screen: ShellScreen): var {
         return monitors.find(m => m.modelData === screen); // qmllint disable missing-property
@@ -118,6 +123,11 @@ Singleton {
             return root.getMonitor(query)?.brightness ?? -1;
         }
 
+        function refresh(): void {
+            for (const monitor of root.monitors)
+                monitor.initBrightness();
+        }
+
         function set(value: string): string {
             return setFor("active", value);
         }
@@ -171,11 +181,22 @@ Singleton {
         readonly property bool isAppleDisplay: root.appleDisplayPresent && modelData.model.startsWith("StudioDisplay")
         property real brightness
         property real queuedBrightness: NaN
+        property bool initialized: false
+        readonly property string ddcScript: Quickshell.shellPath("integration/monitor-brightness")
+        readonly property string statePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp")
+                + "/system-brightness-ddc/" + modelData.name.replace(/-\d+$/, "") + ".state"
 
         readonly property Process initProc: Process {
             stdout: StdioCollector {
                 onStreamFinished: {
-                    if (monitor.isAppleDisplay) {
+                    if (monitor.isDdc) {
+                        const percent = Number(text.trim());
+                        if (text.trim() && Number.isFinite(percent) && percent >= 0 && percent <= 100
+                                && !writeProc.running && isNaN(monitor.queuedBrightness)) {
+                            monitor.brightness = percent / 100;
+                            monitor.initialized = true;
+                        }
+                    } else if (monitor.isAppleDisplay) {
                         const val = parseInt(text.trim());
                         monitor.brightness = val / 101;
                     } else {
@@ -187,44 +208,76 @@ Singleton {
         }
 
         readonly property Timer timer: Timer {
-            interval: 500
-            onTriggered: {
-                if (!isNaN(monitor.queuedBrightness)) {
-                    monitor.setBrightness(monitor.queuedBrightness);
-                    monitor.queuedBrightness = NaN;
+            interval: System.brightnessWriteDelay
+            onTriggered: monitor.flushBrightness()
+        }
+
+        readonly property Process writeProc: Process {
+            onExited: code => {
+                if (code !== 0) {
+                    console.warn("Failed to set brightness for", monitor.modelData.name);
+                    monitor.initBrightness();
+                }
+                cachedState.reload();
+                timer.restart();
+            }
+        }
+
+        readonly property FileView cachedState: FileView {
+            path: monitor.isDdc ? monitor.statePath : ""
+            watchChanges: true
+            printErrors: false
+            onFileChanged: reload()
+            onLoaded: {
+                const fields = text().trim().split("\n");
+                const percent = Number(fields[2]);
+                if (fields.length === 4 && fields[0] === monitor.busNum && fields[2].trim()
+                        && Number.isFinite(percent) && percent >= 0 && percent <= 100
+                        && !writeProc.running && isNaN(monitor.queuedBrightness)) {
+                    monitor.brightness = percent / 100;
+                    monitor.initialized = true;
                 }
             }
         }
 
+        function flushBrightness(): void {
+            if (writeProc.running || initProc.running || timer.running || isNaN(queuedBrightness)) {
+                if (!isNaN(queuedBrightness) && !timer.running)
+                    timer.start();
+                return;
+            }
+            const percent = Math.round(queuedBrightness * 100);
+            queuedBrightness = NaN;
+            writeProc.command = ["/usr/bin/bash", ddcScript, modelData.name, busNum, "set", String(percent)];
+            writeProc.running = true;
+        }
+
         function setBrightness(value: real): void {
+            if (!Number.isFinite(value))
+                return;
             value = Math.max(0, Math.min(1, value));
             const rounded = Math.round(value * 100);
             if (Math.round(brightness * 100) === rounded)
                 return;
 
-            if (isDdc && timer.running) {
-                queuedBrightness = value;
-                return;
-            }
-
             brightness = value;
 
             if (isAppleDisplay)
                 Quickshell.execDetached(["asdbctl", "set", rounded]);
-            else if (isDdc)
-                Quickshell.execDetached(["ddcutil", "-b", busNum, "setvcp", "10", rounded]);
-            else
+            else if (isDdc) {
+                queuedBrightness = value;
+                flushBrightness();
+            } else
                 Quickshell.execDetached(["brightnessctl", "s", `${rounded}%`]);
-
-            if (isDdc)
-                timer.restart();
         }
 
         function initBrightness(): void {
+            if (initProc.running || writeProc.running)
+                return;
             if (isAppleDisplay)
                 initProc.command = ["asdbctl", "get"];
             else if (isDdc)
-                initProc.command = ["ddcutil", "-b", busNum, "getvcp", "10", "--brief"];
+                initProc.command = ["/usr/bin/bash", ddcScript, modelData.name, busNum, "get"];
             else
                 initProc.command = ["sh", "-c", "echo a b c $(brightnessctl g) $(brightnessctl m)"];
 

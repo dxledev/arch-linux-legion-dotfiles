@@ -29,7 +29,7 @@ StyledListView {
     function stateForText(text: string): string {
         const prefix = GlobalConfig.launcher.actionPrefix;
         if (text.startsWith(prefix)) {
-            for (const action of ["calc", "scheme", "variant"])
+            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install"])
                 if (text.startsWith(`${prefix}${action} `))
                     return action;
 
@@ -45,6 +45,12 @@ StyledListView {
             return Actions.query(text);
         case "calc":
             return [0];
+        case "theme":
+            return Themes.query(text);
+        case "learn":
+            return Learn.query(text);
+        case "install":
+            return Install.query(text);
         case "scheme":
             return Schemes.query(text);
         case "variant":
@@ -85,6 +91,10 @@ StyledListView {
     state: screenState.launcher ? requestedState : displayState
 
     onStateChanged: {
+        if (state === "learn")
+            Learn.reload();
+        if (state === "theme")
+            Themes.reload();
         if (state === "scheme" || state === "variant")
             Schemes.reload();
     }
@@ -107,10 +117,31 @@ StyledListView {
             }
         },
         State {
+            name: "learn"
+
+            PropertyChanges {
+                root.delegate: actionItem
+            }
+        },
+        State {
+            name: "install"
+
+            PropertyChanges {
+                root.delegate: actionItem
+            }
+        },
+        State {
             name: "calc"
 
             PropertyChanges {
                 root.delegate: calcItem
+            }
+        },
+        State {
+            name: "theme"
+
+            PropertyChanges {
+                root.delegate: themeItem
             }
         },
         State {
@@ -267,6 +298,14 @@ StyledListView {
         id: calcItem
 
         CalcItem {
+            list: root
+        }
+    }
+
+    Component {
+        id: themeItem
+
+        ThemeItem {
             list: root
         }
     }

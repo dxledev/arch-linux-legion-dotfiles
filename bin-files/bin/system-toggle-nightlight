@@ -14,10 +14,14 @@ HYPRSUNSET_BIN="${HYPRSUNSET_BIN:-/usr/bin/hyprsunset}"
 SLEEP_BIN="${SLEEP_BIN:-/usr/bin/sleep}"
 SWAYOSD_CLIENT_BIN="${SWAYOSD_CLIENT_BIN:-/home/dxle/bin/swayosd-client}"
 
-# Use swayosd-client for uniform visual style with system brightness/volume OSDs
 notify() {
   local message="$1"
   local icon="$2"
+
+  if "$PGREP_BIN" -u "$UID" -x quickshell >/dev/null 2>&1; then
+    return 0
+  fi
+  "$PGREP_BIN" -u "$UID" -x swayosd-server >/dev/null 2>&1 || return 0
 
   "$SWAYOSD_CLIENT_BIN" \
     --duration 2000 \

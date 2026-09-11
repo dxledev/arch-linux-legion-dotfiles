@@ -24,8 +24,9 @@ Column {
 
         icon: Config.session.icons.logout
         command: Config.session.commands.logout
+        tooltipText: "Lock Screen"
 
-        KeyNavigation.down: shutdown
+        KeyNavigation.down: hibernate
 
         Component.onCompleted: forceActiveFocus()
 
@@ -40,13 +41,14 @@ Column {
     }
 
     SessionButton {
-        id: shutdown
+        id: hibernate
 
-        icon: Config.session.icons.shutdown
-        command: Config.session.commands.shutdown
+        icon: Nightlight.enabled ? Config.session.icons.hibernate : "light_mode"
+        command: Config.session.commands.hibernate
+        tooltipText: Nightlight.enabled ? "Turn Nightlight Off" : "Turn Nightlight On"
 
         KeyNavigation.up: logout
-        KeyNavigation.down: hibernate
+        KeyNavigation.down: reboot
     }
 
     AnimatedImage {
@@ -62,28 +64,31 @@ Column {
     }
 
     SessionButton {
-        id: hibernate
-
-        icon: Config.session.icons.hibernate
-        command: Config.session.commands.hibernate
-
-        KeyNavigation.up: shutdown
-        KeyNavigation.down: reboot
-    }
-
-    SessionButton {
         id: reboot
 
         icon: Config.session.icons.reboot
         command: Config.session.commands.reboot
+        tooltipText: "Restart"
 
         KeyNavigation.up: hibernate
+        KeyNavigation.down: shutdown
+    }
+
+    SessionButton {
+        id: shutdown
+
+        icon: Config.session.icons.shutdown
+        command: Config.session.commands.shutdown
+        tooltipText: "Shut Down"
+
+        KeyNavigation.up: reboot
     }
 
     component SessionButton: IconButton {
         id: button
 
         required property list<string> command
+        required property string tooltipText
 
         function exec(): void {
             if (!SessionManager.exec(command))
@@ -98,6 +103,13 @@ Column {
         radius: pressed ? Tokens.rounding.medium : activeFocus ? Tokens.rounding.extraLarge : Tokens.rounding.largeIncreased
         font: Tokens.font.icon.builders.large.scale(1.3).build()
         onClicked: exec()
+
+        SessionTooltip {
+            parent: button
+            text: button.tooltipText
+            panelPadding: root.padding
+            visible: button.hovered && root.screenState.session
+        }
 
         Keys.onEnterPressed: exec()
         Keys.onReturnPressed: exec()

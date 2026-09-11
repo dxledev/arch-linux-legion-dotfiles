@@ -210,6 +210,8 @@ StyledWindow {
         PanelBg {
             id: osdBg
 
+            visible: panels.osd.visible
+            group: visible ? blobGroup : null
             panel: panels.osdWrapper
             deformAmount: 0.25
             x: panels.osdWrapper.x + panels.osd.x + bar.implicitWidth
