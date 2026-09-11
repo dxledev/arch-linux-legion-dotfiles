@@ -22,6 +22,25 @@ Searcher {
     property string actualCurrent
     property bool previewColourLock
     property bool pendingPreviewClear
+    property var wallpaperQueue: []
+
+    function queueWallpaper(path: string, persist: bool): void {
+        if (!path)
+            return;
+
+        wallpaperQueue = [...wallpaperQueue.filter(job => job.persist), { path, persist }];
+        wallpaperDebounce.restart();
+    }
+
+    function applyNextWallpaper(): void {
+        if (applyWallpaper.running || !wallpaperQueue.length)
+            return;
+
+        const job = wallpaperQueue[0];
+        wallpaperQueue = wallpaperQueue.slice(1);
+        applyWallpaper.command = [System.actionScript, job.persist ? "wallpaper" : "wallpaper-preview", job.path];
+        applyWallpaper.running = true;
+    }
 
     function getCategoryFor(w: FileSystemEntry): string {
         let category = w.parentDir.slice(Paths.wallsdir.length + 1);
@@ -36,7 +55,9 @@ Searcher {
 
     function setWallpaper(path: string): void {
         actualCurrent = path;
-        System.run("wallpaper", [path]);
+        if (showPreview)
+            previewPath = path;
+        queueWallpaper(path, true);
     }
 
     function refresh(): void {
@@ -44,14 +65,19 @@ Searcher {
     }
 
     function preview(path: string): void {
+        if (showPreview && previewPath === path)
+            return;
         previewPath = path;
         showPreview = true;
+        queueWallpaper(path, false);
 
         if (Colours.scheme === "dynamic")
             getPreviewColoursProc.running = true;
     }
 
     function stopPreview(): void {
+        if (showPreview && previewPath !== actualCurrent)
+            queueWallpaper(actualCurrent, false);
         showPreview = false;
         if (previewColourLock)
             pendingPreviewClear = true;
@@ -80,6 +106,14 @@ Searcher {
             root.setWallpaper(path);
         }
 
+        function preview(path: string): void {
+            root.preview(path);
+        }
+
+        function stopPreview(): void {
+            root.stopPreview();
+        }
+
         function list(): string {
             return root.list.map(w => w.path).join("\n");
         }
@@ -88,11 +122,32 @@ Searcher {
     }
 
     Process {
+        id: applyWallpaper
+
+        onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("Wallpaper update failed:", code);
+                root.refresh();
+            }
+            Qt.callLater(root.applyNextWallpaper);
+        }
+    }
+
+    Timer {
+        id: wallpaperDebounce
+        interval: 50
+        onTriggered: root.applyNextWallpaper()
+    }
+
+    Process {
         id: currentWallpaper
         running: true
         command: [System.actionScript, "wallpaper-path"]
         stdout: StdioCollector {
-            onStreamFinished: root.actualCurrent = text.trim() || root.fallback
+            onStreamFinished: {
+                if (!applyWallpaper.running && !root.wallpaperQueue.length)
+                    root.actualCurrent = text.trim() || root.fallback;
+            }
         }
     }
 
