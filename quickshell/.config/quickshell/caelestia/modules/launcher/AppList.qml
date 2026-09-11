@@ -29,7 +29,7 @@ StyledListView {
     function stateForText(text: string): string {
         const prefix = GlobalConfig.launcher.actionPrefix;
         if (text.startsWith(prefix)) {
-            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install"])
+            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install", "fonts"])
                 if (text.startsWith(`${prefix}${action} `))
                     return action;
 
@@ -49,6 +49,8 @@ StyledListView {
             return Themes.query(text);
         case "learn":
             return Learn.query(text);
+        case "fonts":
+            return Fonts.query(text);
         case "install":
             return Install.query(text);
         case "scheme":
@@ -93,6 +95,8 @@ StyledListView {
     onStateChanged: {
         if (state === "learn")
             Learn.reload();
+        if (state === "fonts")
+            Fonts.reload();
         if (state === "theme")
             Themes.reload();
         if (state === "scheme" || state === "variant")
@@ -102,6 +106,13 @@ StyledListView {
     Component.onCompleted: displayText = search.text
 
     states: [
+        State {
+            name: "fonts"
+
+            PropertyChanges {
+                root.delegate: fontItem
+            }
+        },
         State {
             name: "apps"
 
@@ -298,6 +309,14 @@ StyledListView {
         id: calcItem
 
         CalcItem {
+            list: root
+        }
+    }
+
+    Component {
+        id: fontItem
+
+        FontItem {
             list: root
         }
     }

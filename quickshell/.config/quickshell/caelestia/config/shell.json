@@ -91,6 +91,14 @@
   "launcher": {
     "actions": [
       {
+        "name": "Apps",
+        "description": "Open the app menu",
+        "icon": "apps",
+        "command": [
+          "apps"
+        ]
+      },
+      {
         "command": [
           "autocomplete",
           "calc"
@@ -119,10 +127,11 @@
       },
       {
         "name": "Fonts",
-        "description": "Choose a terminal font",
+        "description": "Choose a font",
         "icon": "font_download",
         "command": [
-          "/home/dxle/bin/menu-font"
+          "autocomplete",
+          "fonts"
         ]
       },
       {

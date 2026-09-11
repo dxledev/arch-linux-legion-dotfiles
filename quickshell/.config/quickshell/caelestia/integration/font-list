@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 0 || ( $# -eq 1 && "$1" == "--dry-run" ) ]] || {
+    printf 'Usage: font-list [--dry-run]\n' >&2
+    exit 2
+}
+
+SCRIPT_DIR="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
+ALACRITTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty/alacritty.toml"
+GHOSTTY_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config.ghostty"
+
+CURRENT_FONT=""
+if [[ -f "$GHOSTTY_CONF" ]]; then
+    CURRENT_FONT="$(
+        /usr/bin/awk -F= '
+            /^[[:space:]]*font-family[[:space:]]*=/ {
+                value = $2
+                sub(/^[[:space:]]*/, "", value)
+                sub(/[[:space:]]*$/, "", value)
+                gsub(/^"|"$/, "", value)
+                print value
+                exit
+            }
+        ' "$GHOSTTY_CONF"
+    )"
+fi
+
+if [[ -z "$CURRENT_FONT" && -f "$ALACRITTY_CONF" ]]; then
+    CURRENT_FONT="$(
+        /usr/bin/awk '
+            /^\[font\.normal\]$/ { in_normal = 1; next }
+            /^\[/ { in_normal = 0 }
+            in_normal && /^[[:space:]]*family[[:space:]]*=/ {
+                value = $0
+                sub(/^[^=]+=[[:space:]]*/, "", value)
+                gsub(/^"|"$/, "", value)
+                print value
+                exit
+            }
+        ' "$ALACRITTY_CONF"
+    )"
+fi
+
+/usr/bin/bash "$SCRIPT_DIR/font-families" |
+    /usr/bin/jq -Rs --arg current "$CURRENT_FONT" 'split("\n") | map(select(length > 0) | {name: ., current: (. == $current)})'

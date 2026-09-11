@@ -71,7 +71,7 @@ Searcher {
         return keys.map(k => item[k]).join(" ");
     }
 
-    list: appDb.apps
+    list: appDb.apps.slice().sort((a, b) => a.entry.listIndex - b.entry.listIndex)
     useFuzzy: GlobalConfig.launcher.useFuzzy.apps
 
     AppDb {
@@ -88,7 +88,8 @@ Searcher {
 
         QtObject {
             required property string modelData
-            readonly property var row: root.configuredRows.find(row => row.launcher === modelData)
+            readonly property int listIndex: root.configuredRows.findIndex(row => row.launcher === modelData)
+            readonly property var row: root.configuredRows[listIndex]
             readonly property string launcher: modelData
             readonly property string id: launcher.replace(/\.desktop$/, "")
             readonly property var desktopEntry: DesktopEntries.byId(id)
