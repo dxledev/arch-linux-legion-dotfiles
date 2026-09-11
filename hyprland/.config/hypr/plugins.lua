@@ -6,44 +6,45 @@ local startup_reload_delay = 1
 local fallback_plugins = {
   { name = "dynamic-cursors", path = "/var/cache/hyprpm/dxle/dynamic-cursors/dynamic-cursors.so" },
   { name = "hymission", path = "/var/cache/hyprpm/dxle/hymission/hymission.so" },
-  { name = "Hyprspace", path = "/home/dxle/.config/hypr/.plugins/Hyprspace/Hyprspace.so" },
 }
 
-hl.config({
-  plugin = {
-    dynamic_cursors = {
-      enabled = true,
-      mode = "none",
-      threshold = 2,
-      rotate = {
-        length = 20,
-        offset = 0.0,
-      },
-      stretch = {
-        limit = 3000,
-        activation = "quadratic",
-        window = 100,
-      },
-      shake = {
+if hl.plugin.dynamic_cursors then
+  hl.config({
+    plugin = {
+      dynamic_cursors = {
         enabled = true,
-        threshold = 6.0,
-        base = 4.0,
-        speed = 3.0,
-        influence = 0.0,
-        limit = 4.0,
-        timeout = 1500,
-        effects = false,
-        ipc = false,
-      },
-      hyprcursor = {
-        nearest = false,
-        enabled = false,
-        resolution = -1,
-        fallback = "left_ptr",
+        mode = "none",
+        threshold = 2,
+        rotate = {
+          length = 20,
+          offset = 0.0,
+        },
+        stretch = {
+          limit = 3000,
+          activation = "quadratic",
+          window = 100,
+        },
+        shake = {
+          enabled = true,
+          threshold = 6.0,
+          base = 4.0,
+          speed = 3.0,
+          influence = 0.0,
+          limit = 4.0,
+          timeout = 1500,
+          effects = false,
+          ipc = false,
+        },
+        hyprcursor = {
+          nearest = false,
+          enabled = false,
+          resolution = -1,
+          fallback = "left_ptr",
+        },
       },
     },
-  },
-})
+  })
+end
 
 local function shell_quote(value)
   return "'" .. value:gsub("'", "'\\''") .. "'"
@@ -57,10 +58,6 @@ local function file_exists(path)
   end
 
   return false
-end
-
-local function dynamic_cursors_config_command()
-  return hyprctl_bin .. " eval " .. shell_quote(dynamic_cursors_config_eval)
 end
 
 local function plugin_fallback_command(plugin)
@@ -83,7 +80,6 @@ end
 local function plugin_reload_commands()
   local commands = {
     hyprpm_bin .. " reload || true",
-    dynamic_cursors_config_command(),
   }
 
   for _, plugin in ipairs(fallback_plugins) do

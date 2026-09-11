@@ -26,7 +26,7 @@ hl.window_rule({
 
 hl.window_rule({ match = { class = "kitty" }, opacity = "0.92 0.92 0.92" })
 hl.window_rule({ match = { class = "Alacritty" }, opacity = "0.92 0.92 0.92" })
-hl.window_rule({ match = { class = "obsidian" }, opacity = "0.95 0.95 0.95" })
+hl.window_rule({ match = { class = "^(obsidian|md\\.obsidian\\.Obsidian)$" }, opacity = "0.95 0.95 0.95" })
 hl.window_rule({ match = { class = "com.mitchellh.ghostty" }, opacity = "0.92 0.92 0.92" })
 hl.window_rule({ match = { class = "chrome-chatgpt.com__-Default" }, opacity = "1 1.06 1.06" })
 hl.window_rule({ match = { class = "chromium" }, opaque = true })
@@ -61,7 +61,7 @@ local floating_rules = {
   { name = "move-spotify-to-mediaspace", class = "spotify", workspace = "special:mediaspace", size = { 1200, 800 } },
   { name = "move-instagram-to-mediaspace", class = "^chrome-instagram\\.com__.*$", workspace = "special:socialspace", size = { 1200, 800 } },
   { name = "move-tiktok-to-mediaspace", class = "^chrome-tiktok\\.com__.*$", workspace = "special:socialspace", size = { 1200, 800 } },
-  { name = "move-obsidian-to-scratchpad", class = "^(obsidian)$", workspace = "special:scratchpad", size = { 1200, 800 } },
+  { name = "move-obsidian-to-scratchpad", class = "^(obsidian|md\\.obsidian\\.Obsidian)$", workspace = "special:scratchpad", size = { 1200, 800 } },
 }
 
 for _, rule in ipairs(floating_rules) do

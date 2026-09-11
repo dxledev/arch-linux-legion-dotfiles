@@ -2,29 +2,49 @@
 
 set -euo pipefail
 
-WIDTH=1200
-HEIGHT=800
-APP_CLASS=obsidian
+WIDTH="${OBSIDIAN_WIDTH:-1200}"
+HEIGHT="${OBSIDIAN_HEIGHT:-800}"
+APP_CLASS_PATTERN="${OBSIDIAN_CLASS_PATTERN:-^(obsidian|md\\.obsidian\\.obsidian)$}"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+OBSIDIAN_BIN="${OBSIDIAN_BIN:-/usr/bin/obsidian}"
+SLEEP_BIN="${SLEEP_BIN:-/usr/bin/sleep}"
+HYPR_DISPATCH_BIN="${HYPR_DISPATCH_BIN:-/home/dxle/bin/hypr-dispatch}"
+
+validate_config() {
+    [[ "$WIDTH" =~ ^[1-9][0-9]*$ ]]
+    [[ "$HEIGHT" =~ ^[1-9][0-9]*$ ]]
+
+    local executable
+    for executable in "$HYPRCTL_BIN" "$JQ_BIN" "$OBSIDIAN_BIN" "$SLEEP_BIN" "$HYPR_DISPATCH_BIN"; do
+        [[ -x "$executable" ]]
+    done
+}
 
 find_obsidian_address() {
-    hyprctl clients -j | jq -r '
+    "$HYPRCTL_BIN" clients -j | "$JQ_BIN" -r --arg class_pattern "$APP_CLASS_PATTERN" '
         map(
             select(
-                ((.class // "" | ascii_downcase) == "'"$APP_CLASS"'")
+                ((.class // "" | ascii_downcase) | test($class_pattern))
                 or
-                ((.initialClass // "" | ascii_downcase) == "'"$APP_CLASS"'")
+                ((.initialClass // "" | ascii_downcase) | test($class_pattern))
             )
         )[0].address // empty
     '
 }
 
+if ! validate_config; then
+    printf '%s\n' "launch-obsidian: invalid configuration" >&2
+    exit 1
+fi
+
 obsidian_address="$(find_obsidian_address)"
 
 if [ -z "$obsidian_address" ]; then
-    obsidian >/dev/null 2>&1 &
+    "$OBSIDIAN_BIN" "$@" >/dev/null 2>&1 &
 
     for _ in {1..100}; do
-        sleep 0.1
+        "$SLEEP_BIN" 0.1
         obsidian_address="$(find_obsidian_address)"
         if [ -n "$obsidian_address" ]; then
             break
@@ -37,8 +57,8 @@ if [ -z "$obsidian_address" ]; then
     exit 1
 fi
 
-hypr-dispatch focuswindow "address:$obsidian_address"
-hypr-dispatch setfloating
-hypr-dispatch resizeactive exact "$WIDTH" "$HEIGHT"
-hypr-dispatch centerwindow
-hypr-dispatch movetoworkspacesilent special:scratchpad
+"$HYPR_DISPATCH_BIN" focuswindow "address:$obsidian_address" >/dev/null
+"$HYPR_DISPATCH_BIN" setfloating >/dev/null
+"$HYPR_DISPATCH_BIN" resizeactive exact "$WIDTH" "$HEIGHT" >/dev/null
+"$HYPR_DISPATCH_BIN" centerwindow >/dev/null
+"$HYPR_DISPATCH_BIN" movetoworkspacesilent special:scratchpad >/dev/null

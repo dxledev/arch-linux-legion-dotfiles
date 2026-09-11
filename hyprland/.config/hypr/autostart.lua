@@ -3,6 +3,7 @@ local startup_commands = {
   "waybar",
   "swayosd-server",
   "awww-daemon",
+  "~/bin/bg-refresh-current",
   "~/bin/launch-dashboard",
   "~/bin/launch-ward",
   "~/bin/launch-wardnc",
