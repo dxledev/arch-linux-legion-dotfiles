@@ -27,6 +27,7 @@ The default shell is Caelestia, adapted from [caelestia-dots/shell](https://gith
 - `caelestia/integration/Colors.qml`: maps `~/.config/themes/current/Colors.qml` to Material roles. `~/bin/theme` refreshes it through the existing `theme reloadColors` IPC. The scheme picker lists the system themes.
 - `caelestia/integration/Typography.qml`: watches Ghostty's font setting, falling back to Alacritty. `~/bin/font` therefore updates shell fonts too.
 - `caelestia/integration/NotificationFormat.qml`: renders notification markup using Ward's parser, with styled previews and rich expanded titles/bodies. Theme variables come from `themes/current/ward.css` plus shared `Colors.qml` names; override the stylesheet with `SHELL_NOTIFICATION_STYLE`. Rebuild its native module with `scripts/build-integration` after Qt upgrades.
+- `caelestia/integration/NotificationReplacements.qml`: uses `/usr/bin/dbus-monitor` to detect replacement requests, including identical content. Each replacement restarts the popup timeout and can show an expired popup again, respecting DND and hover pauses.
 - `caelestia/integration/WindowRounding.qml`: follows `border.rounding` in `shell.json` (default 25), using circular corners (`power: 2`). Reapplies after Hyprland reloads while Quickshell mode is selected. Waybar restores the normal Hyprland configuration.
 - `caelestia/integration/hyprland.lua`: loaded through `active` at the end of the Hyprland config and applied only in Quickshell mode.
 

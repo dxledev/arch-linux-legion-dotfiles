@@ -52,24 +52,32 @@ StyledRect {
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         preventStealing: true
 
-        onEntered: root.modelData.timer.stop()
+        onEntered: {
+            root.modelData.timeoutPaused = true;
+            root.modelData.timer.stop();
+        }
         onExited: {
-            if (!pressed)
-                root.modelData.timer.start();
+            if (!pressed) {
+                root.modelData.timeoutPaused = false;
+                root.modelData.restartTimeout();
+            }
         }
 
         drag.target: parent
         drag.axis: Drag.XAxis
 
         onPressed: event => {
+            root.modelData.timeoutPaused = true;
             root.modelData.timer.stop();
             startY = event.y;
             if (event.button === Qt.MiddleButton)
                 root.modelData.close();
         }
         onReleased: event => {
-            if (!containsMouse)
-                root.modelData.timer.start();
+            if (!containsMouse) {
+                root.modelData.timeoutPaused = false;
+                root.modelData.restartTimeout();
+            }
 
             if (Math.abs(root.x) < root.implicitWidth * Config.notifs.clearThreshold)
                 root.x = 0;

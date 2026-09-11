@@ -11,6 +11,7 @@ import Caelestia.I18n
 import qs.components.misc
 import qs.services
 import qs.utils
+import qs.integration
 
 Singleton {
     id: root
@@ -100,6 +101,16 @@ Singleton {
                 notification: notif
             });
             root.list = [comp, ...root.list];
+        }
+    }
+
+    NotificationReplacements {
+        onReplaced: notificationId => {
+            const notif = root.list.find(n => !n.closed && n.notification && n.notificationId === notificationId);
+            if (notif) {
+                notif.popup = root.shouldShowPopup();
+                notif.restartTimeout();
+            }
         }
     }
 

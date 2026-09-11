@@ -15,6 +15,7 @@ QtObject {
 
     property bool popup
     property bool closed
+    property bool timeoutPaused: false
     property var locks: new Set()
 
     property date time: new Date()
@@ -212,6 +213,12 @@ QtObject {
 
     function lock(item: Item): void {
         locks.add(item);
+    }
+
+    function restartTimeout(): void {
+        timer.stop();
+        if (!timeoutPaused)
+            timer.start();
     }
 
     function unlock(item: Item): void {
