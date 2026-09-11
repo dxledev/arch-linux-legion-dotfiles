@@ -86,7 +86,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
         renderType: Text.QtRendering
-        text: root.modelData.relativePath
+        text: Wallpapers.displayName(root.modelData.path)
         font: Tokens.font.label.medium
     }
 

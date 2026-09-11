@@ -10,10 +10,7 @@ import qs.modules.nexus.common
 PageBase {
     id: root
 
-    title: {
-        const c = nState.selectedWallpaperCategory;
-        return c.slice(0, 1).toUpperCase() + c.slice(1);
-    }
+    title: Wallpapers.categoryName(nState.selectedWallpaperCategory)
     isSubPage: true
 
     GridLayout {
@@ -27,7 +24,7 @@ PageBase {
 
         Repeater {
             model: {
-                const walls = Wallpapers.list.filter(w => Wallpapers.getCategoryFor(w) === root.nState.selectedWallpaperCategory).sort((a, b) => a.name.localeCompare(b.name));
+                const walls = Wallpapers.list.filter(w => Wallpapers.getCategoryFor(w) === root.nState.selectedWallpaperCategory);
                 while (walls.length < Config.nexus.wallpapersPerRow)
                     walls.push(null);
                 return walls;
@@ -41,7 +38,7 @@ PageBase {
                 enabled: modelData
 
                 source: String(modelData?.path ?? "")
-                text: modelData?.name ?? ""
+                text: modelData ? Wallpapers.displayName(modelData.path) : ""
                 onClicked: {
                     Wallpapers.setWallpaper(modelData.path);
                     root.nState.closeSubPage();

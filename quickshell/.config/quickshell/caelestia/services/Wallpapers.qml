@@ -8,6 +8,7 @@ import Caelestia.Models
 import qs.services
 import qs.utils
 import qs.integration
+import "../utils/scripts/wallpaper-names.js" as WallpaperNames
 
 Searcher {
     id: root
@@ -23,6 +24,41 @@ Searcher {
     property bool previewColourLock
     property bool pendingPreviewClear
     property var wallpaperQueue: []
+    property string directory
+    property string themePath
+    property bool refreshPending: false
+
+    function displayName(path: string): string {
+        return WallpaperNames.displayName(path);
+    }
+
+    function categoryName(category: string): string {
+        return WallpaperNames.titleCase(category);
+    }
+
+    function compare(a: FileSystemEntry, b: FileSystemEntry): real {
+        return WallpaperNames.compare(a, b);
+    }
+
+    function updateState(state: var): void {
+        const themeChanged = themePath !== state.theme || directory !== state.directory;
+        if (themeChanged) {
+            const restoreWallpaper = showPreview || applyWallpaper.running;
+            showPreview = false;
+            previewPath = "";
+            previewColourLock = false;
+            pendingPreviewClear = false;
+            Colours.showPreview = false;
+            wallpaperQueue = [];
+            actualCurrent = state.wallpaper || fallback;
+            themePath = state.theme;
+            directory = state.directory;
+            if (restoreWallpaper)
+                queueWallpaper(actualCurrent, false);
+        } else if (!applyWallpaper.running && !wallpaperQueue.length) {
+            actualCurrent = state.wallpaper || fallback;
+        }
+    }
 
     function queueWallpaper(path: string, persist: bool): void {
         if (!path)
@@ -43,7 +79,7 @@ Searcher {
     }
 
     function getCategoryFor(w: FileSystemEntry): string {
-        let category = w.parentDir.slice(Paths.wallsdir.length + 1);
+        let category = w.parentDir.slice(directory.length + 1);
         if (category.includes("/"))
             category = category.slice(0, category.indexOf("/"));
         return category;
@@ -61,10 +97,15 @@ Searcher {
     }
 
     function refresh(): void {
-        currentWallpaper.running = true;
+        if (currentWallpaper.running)
+            refreshPending = true;
+        else
+            currentWallpaper.running = true;
     }
 
     function preview(path: string): void {
+        if (!directory || !path.startsWith(directory + "/"))
+            return;
         if (showPreview && previewPath === path)
             return;
         previewPath = path;
@@ -90,7 +131,7 @@ Searcher {
             Colours.showPreview = false;
     }
 
-    list: wallpapers.entries
+    list: [...wallpapers.entries].sort((a, b) => root.compare(a, b))
     key: "relativePath"
     useFuzzy: GlobalConfig.launcher.useFuzzy.wallpapers
     extraOpts: useFuzzy ? ({}) : ({
@@ -142,11 +183,17 @@ Searcher {
     Process {
         id: currentWallpaper
         running: true
-        command: [System.actionScript, "wallpaper-path"]
+        command: [System.actionScript, "wallpaper-state", Paths.wallsdir]
+        onExited: {
+            if (root.refreshPending) {
+                root.refreshPending = false;
+                Qt.callLater(root.refresh);
+            }
+        }
         stdout: StdioCollector {
             onStreamFinished: {
-                if (!applyWallpaper.running && !root.wallpaperQueue.length)
-                    root.actualCurrent = text.trim() || root.fallback;
+                if (text.trim())
+                    root.updateState(JSON.parse(text));
             }
         }
     }
@@ -162,7 +209,7 @@ Searcher {
         id: wallpapers
 
         recursive: true
-        path: Paths.wallsdir
+        path: root.directory
         filter: FileSystemModel.Images
     }
 

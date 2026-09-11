@@ -101,20 +101,20 @@ PageBase {
 
                 model: {
                     const walls = Wallpapers.list;
-                    const baseDir = Paths.wallsdir;
+                    const baseDir = Wallpapers.directory;
                     const categories = {};
                     const list = [];
                     for (const w of walls) {
                         if (w.parentDir !== baseDir) {
                             const category = Wallpapers.getCategoryFor(w);
-                            if (category && (!(category in categories) || categories[category].name.localeCompare(w.name) > 0))
+                            if (category && (!(category in categories) || Wallpapers.compare(categories[category], w) > 0))
                                 categories[category] = w;
                         } else {
                             list.push(w);
                         }
                     }
                     list.push(...Object.values(categories));
-                    list.sort((a, b) => ((a.parentDir === baseDir) - (b.parentDir === baseDir)) || a.name.localeCompare(b.name));
+                    list.sort((a, b) => ((a.parentDir === baseDir) - (b.parentDir === baseDir)) || Wallpapers.compare(a, b));
                     while (list.length < Config.nexus.wallpapersPerRow)
                         list.push(null);
                     return list;
@@ -132,14 +132,14 @@ PageBase {
                         if (!modelData)
                             return "";
 
-                        if (modelData.parentDir !== Paths.wallsdir) {
+                        if (modelData.parentDir !== Wallpapers.directory) {
                             const category = Wallpapers.getCategoryFor(modelData);
-                            return category.slice(0, 1).toUpperCase() + category.slice(1);
+                            return Wallpapers.categoryName(category);
                         }
-                        return modelData.name;
+                        return Wallpapers.displayName(modelData.path);
                     }
                     onClicked: {
-                        if (modelData.parentDir !== Paths.wallsdir) {
+                        if (modelData.parentDir !== Wallpapers.directory) {
                             root.nState.selectedWallpaperCategory = Wallpapers.getCategoryFor(modelData);
                             root.nState.openSubPage(2); // Category page
                         } else {
