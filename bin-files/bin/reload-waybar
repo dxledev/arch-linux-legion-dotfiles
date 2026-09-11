@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-if pgrep -x waybar >/dev/null; then
-    pkill -SIGUSR2 waybar
+MODE_SCRIPT="${SHELL_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+HYPR_CONFIG="${HYPR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua}"
+
+if [[ -x "$MODE_SCRIPT" ]] && /usr/bin/grep -Fq 'require("waybar-mode-keybindings")' "$HYPR_CONFIG"; then
+    [[ "$("$MODE_SCRIPT" --status)" != quickshell ]] || exit 0
+fi
+
+if /usr/bin/pgrep -u "$UID" -x waybar >/dev/null; then
+    /usr/bin/pkill -SIGUSR2 -u "$UID" -x waybar
 else
-    nohup waybar >/dev/null 2>&1 &
+    /usr/bin/nohup /usr/bin/waybar >/dev/null 2>&1 &
 fi

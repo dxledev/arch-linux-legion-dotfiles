@@ -1,0 +1,19 @@
+{
+  "theme": {
+    "enableGtk": false,
+    "enableQt": false,
+    "enableHypr": false,
+    "enableDiscord": false,
+    "enableSpicetify": false,
+    "enableFuzzel": false,
+    "enableBtop": false,
+    "enablePandora": false,
+    "enableNvtop": false,
+    "enableHtop": false,
+    "enableWarp": false,
+    "enableChromium": false,
+    "enableZed": false,
+    "enableCava": false,
+    "enableTerm": false
+  }
+}

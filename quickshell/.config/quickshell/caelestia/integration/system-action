@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+scripts_dir="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
+theme_dir="${SHELL_THEMES_DIR:-$config_home/themes}"
+dry_run=0
+
+fail() { printf 'system-action: %s\n' "$*" >&2; exit 1; }
+run() {
+    if (( dry_run )); then printf '%q ' "$@"; printf '\n'; else "$@"; fi
+}
+
+[[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
+action="${1:---help}"
+(( $# == 0 )) || shift
+
+case "$action" in
+    --help|-h)
+        printf 'Usage: system-action [--dry-run] lock|theme [NAME]|wallpaper PATH|next-wallpaper|wallpaper-path|theme-list\n'
+        ;;
+    lock) run "$config_home/hyprlock/scripts/launch-lock-screen.sh" ;;
+    theme)
+        if (( $# )); then
+            [[ "$1" =~ ^[a-zA-Z0-9_-]+$ && -f "$theme_dir/$1/Colors.qml" ]] || fail 'Invalid theme.'
+            run "$scripts_dir/theme" "$1"
+        else
+            run "$scripts_dir/menu-theme"
+        fi
+        ;;
+    wallpaper)
+        [[ $# == 1 && "$1" == /* && -f "$1" ]] || fail 'Expected an existing absolute wallpaper path.'
+        run /usr/bin/ln -sfn -- "$1" "$theme_dir/current/wallpaper.png"
+        run "$scripts_dir/bg-refresh-current"
+        ;;
+    next-wallpaper) run "$scripts_dir/bg-next" ;;
+    wallpaper-path) /usr/bin/readlink -f -- "${SHELL_WALLPAPER:-$theme_dir/current/wallpaper.png}" ;;
+    theme-list)
+        for palette in "$theme_dir"/*/Colors.qml; do
+            [[ -f "$palette" && "$palette" != "$theme_dir/current/Colors.qml" ]] || continue
+            name="${palette%/Colors.qml}"; name="${name##*/}"
+            /usr/bin/awk -v name="$name" '
+                /property color (primary|secondary|warning|background|foreground):/ {
+                    key=$4; sub(/:$/, "", key); value=$5; gsub(/[";#]/, "", value); colors[key]=value
+                }
+                END { printf "{\"name\":\"%s\",\"flavour\":\"\",\"colours\":{\"primary\":\"%s\",\"secondary\":\"%s\",\"tertiary\":\"%s\",\"surface\":\"%s\",\"outline\":\"%s\"}}\n", name, colors["primary"], colors["secondary"], colors["warning"], colors["background"], colors["foreground"] }
+            ' "$palette"
+        done | /usr/bin/jq -s .
+        ;;
+    *) fail "Unknown action: $action" ;;
+esac

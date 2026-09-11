@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-menu-border"
+border_menu_init "$@"
 source "$SCRIPT_DIR/lib-hypr-lua"
 
 HYPR_CONF="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
@@ -26,7 +28,7 @@ get_current_value() {
 normalize_value() {
     local input="$1"
 
-    awk -v value="$input" -v min_value="$BORDER_ROUNDING_POWER_MIN" -v max_value="$BORDER_ROUNDING_POWER_MAX" '
+    /usr/bin/awk -v value="$input" -v min_value="$BORDER_ROUNDING_POWER_MIN" -v max_value="$BORDER_ROUNDING_POWER_MAX" '
         BEGIN {
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
 
@@ -93,7 +95,7 @@ cleanup() {
 }
 
 [[ -f "$HYPR_CONF" ]] || {
-    notify-send -t 4000 "Border" "Config not found: $HYPR_CONF"
+    "$NOTIFY_SEND_BIN" -t 4000 "Border" "Config not found: $HYPR_CONF"
     exit 1
 }
 
@@ -102,7 +104,7 @@ while true; do
     current_value="${current_value:-0.0}"
 
     selected="$(
-        printf '' | rofi -dmenu -i \
+        printf '' | "$ROFI_BIN" -dmenu -i \
             -pid "$PID_FILE" \
             -p "" \
             -mesg "Current Rounding Smoothness = $current_value" \
@@ -138,20 +140,21 @@ while true; do
     [[ -n "$selected" ]] || exit 0
 
     if ! new_value="$(normalize_value "$selected")"; then
-        notify-send -t 4000 "Border" "Enter a valid number."
+        "$NOTIFY_SEND_BIN" -t 4000 "Border" "Enter a valid number."
         continue
     fi
 
+    border_menu_require_waybar
     suspend_hyprland_autoreload
 
     update_value "$new_value"
-    apply_runtime_value "$new_value" || notify-send -t 4000 "Border" "Rounding Smoothness updated, but runtime apply failed."
+    apply_runtime_value "$new_value" || "$NOTIFY_SEND_BIN" -t 4000 "Border" "Rounding Smoothness updated, but runtime apply failed."
     restore_hyprland_autoreload
 
     if should_reload_hyprland; then
-        "$HYPRCTL_BIN" reload >/dev/null 2>&1 || notify-send -t 4000 "Border" "Rounding Smoothness updated, but Hyprland reload failed."
+        "$HYPRCTL_BIN" reload >/dev/null 2>&1 || "$NOTIFY_SEND_BIN" -t 4000 "Border" "Rounding Smoothness updated, but Hyprland reload failed."
     fi
 
-    notify-send -t 3000 "Border" "Rounding Smoothness set to $new_value"
+    "$NOTIFY_SEND_BIN" -t 3000 "Border" "Rounding Smoothness set to $new_value"
     exit 0
 done

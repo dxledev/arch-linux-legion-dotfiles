@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
+if [[ "${1:-}" == shell ]]; then
+    shift
+    case "${1:-}" in
+        -s|--show) exec "$config_root/scripts/quickshell" -p "$config_root/shell.qml" ipc show ;;
+        -d|--daemon) exec "$config_root/scripts/quickshell" -p "$config_root/shell.qml" -n -d ;;
+        '') exec "$config_root/scripts/quickshell" -p "$config_root/shell.qml" -n ;;
+        *) exec "$config_root/scripts/quickshell" -p "$config_root/shell.qml" ipc call "$@" ;;
+    esac
+fi
+exec "$config_root/.runtime/cli/bin/caelestia" "$@"

@@ -1,0 +1,4 @@
+.runtime/
+.backups/
+**/.qmlls.ini
+**/__pycache__/

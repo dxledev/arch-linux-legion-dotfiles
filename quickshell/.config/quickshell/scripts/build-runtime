@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
+sources="${SHELL_SOURCES:-$HOME/builds/shells}"
+runtime="${QUICKSHELL_RUNTIME:-$root/.runtime}"
+build_dir="${SHELL_BUILD_DIR:-${TMPDIR:-/tmp}/caelestia-build}"
+jobs="${BUILD_JOBS:-6}"
+dry_run=0
+case "${1:-}" in
+    --dry-run) dry_run=1 ;;
+    --help|-h) printf 'Usage: build-runtime [--dry-run]\nBuild cloned sources from SHELL_SOURCES into QUICKSHELL_RUNTIME.\n'; exit ;;
+    '') ;;
+    *) exit 2 ;;
+esac
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || exit 2
+for source in caelestia libcava m3shapes caelestia-cli; do
+    [[ -d "$sources/$source" ]] || { printf 'Missing clone: %s\n' "$sources/$source" >&2; exit 1; }
+done
+run() { if (( dry_run )); then printf '%q ' "$@"; printf '\n'; else "$@"; fi; }
+build_cmake() {
+    local project="$1"
+    shift
+    run /usr/bin/cmake -S "$sources/$project" -B "$build_dir/$project" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$runtime" -DINSTALL_QMLDIR=qml \
+        -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON "-DCMAKE_INSTALL_RPATH=\$ORIGIN;$runtime/lib" "$@"
+    run /usr/bin/cmake --build "$build_dir/$project" -j "$jobs"
+    run /usr/bin/cmake --install "$build_dir/$project"
+}
+
+if [[ -f "$build_dir/libcava/build.ninja" ]]; then
+    run /usr/bin/meson setup --reconfigure "$build_dir/libcava" "$sources/libcava" --prefix="$runtime" --libdir=lib -Dbuild_target=lib -Dasan=disabled -Dtsan=disabled -Dubsan=disabled
+else
+    run /usr/bin/meson setup "$build_dir/libcava" "$sources/libcava" --prefix="$runtime" --libdir=lib -Dbuild_target=lib -Dasan=disabled -Dtsan=disabled -Dubsan=disabled
+fi
+run /usr/bin/meson compile -C "$build_dir/libcava" -j "$jobs"
+run /usr/bin/meson install -C "$build_dir/libcava"
+export PKG_CONFIG_PATH="$runtime/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+export CPATH="$runtime/include${CPATH:+:$CPATH}"
+build_cmake m3shapes
+build_cmake caelestia -DINSTALL_LIBDIR=lib/caelestia '-DENABLE_MODULES=extras;plugin'
+run /usr/bin/bash "$root/scripts/build-integration"
+run /usr/bin/python -m venv "$runtime/cli"
+run "$runtime/cli/bin/pip" install "$sources/caelestia-cli"

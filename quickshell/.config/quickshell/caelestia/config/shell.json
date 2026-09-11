@@ -1,0 +1,209 @@
+{
+    "appearance": {
+        "font": {
+            "body": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "clock": "CaskaydiaMono Nerd Font",
+            "headline": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "label": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "mono": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "title": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "workspaces": "CaskaydiaMono Nerd Font"
+        }
+    },
+    "background": {
+        "enabled": false
+    },
+    "bar": {
+        "clock": {
+            "showDate": true
+        },
+        "statusIcons": [
+            {
+                "enabled": true,
+                "id": "audio"
+            },
+            {
+                "enabled": true,
+                "id": "network"
+            },
+            {
+                "enabled": true,
+                "id": "bluetooth"
+            },
+            {
+                "enabled": true,
+                "id": "battery"
+            }
+        ],
+        "workspaces": {
+            "perMonitorWorkspaces": true,
+            "shown": 9,
+            "specialWorkspaceIcons": [
+                {
+                    "icon": "music_note",
+                    "name": "mediaspace"
+                },
+                {
+                    "icon": "forum",
+                    "name": "discordspace"
+                },
+                {
+                    "icon": "terminal",
+                    "name": "scratchpad"
+                },
+                {
+                    "icon": "chat",
+                    "name": "socialspace"
+                }
+            ]
+        }
+    },
+    "general": {
+        "apps": {
+            "audio": [
+                "/usr/bin/pavucontrol"
+            ],
+            "explorer": [
+                "/usr/bin/nemo"
+            ],
+            "playback": [
+                "/usr/bin/celluloid"
+            ],
+            "terminal": [
+                "/home/dxle/bin/launch-terminal"
+            ]
+        },
+        "idle": {
+            "lockBeforeSleep": false,
+            "timeouts": []
+        }
+    },
+    "launcher": {
+        "actions": [
+            {
+                "command": [
+                    "autocomplete",
+                    "calc"
+                ],
+                "description": "Calculate with Qalc",
+                "icon": "calculate",
+                "name": "Calculator"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "scheme"
+                ],
+                "description": "Choose a system theme",
+                "icon": "palette",
+                "name": "Scheme"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "wallpaper"
+                ],
+                "description": "Choose a wallpaper from the current theme",
+                "icon": "image",
+                "name": "Wallpaper"
+            },
+            {
+                "command": [
+                    "/home/dxle/bin/bg-next"
+                ],
+                "description": "Next wallpaper",
+                "icon": "casino",
+                "name": "Random"
+            },
+            {
+                "command": [
+                    "/home/dxle/.config/hyprlock/scripts/launch-lock-screen.sh"
+                ],
+                "description": "Lock with Hyprlock",
+                "icon": "lock",
+                "name": "Lock"
+            },
+            {
+                "command": [
+                    "/usr/bin/systemctl",
+                    "suspend"
+                ],
+                "description": "Suspend",
+                "icon": "bedtime",
+                "name": "Sleep"
+            },
+            {
+                "command": [
+                    "/home/dxle/bin/menu-capture"
+                ],
+                "description": "Screenshot and recording tools",
+                "icon": "screenshot_monitor",
+                "name": "Capture"
+            },
+            {
+                "command": [
+                    "/usr/bin/qs",
+                    "-p",
+                    "/home/dxle/.config/quickshell/shell.qml",
+                    "ipc",
+                    "call",
+                    "nexus",
+                    "open"
+                ],
+                "description": "Configure Caelestia",
+                "icon": "settings",
+                "name": "Settings"
+            },
+            {
+                "command": [
+                    "/home/dxle/bin/menu-power"
+                ],
+                "description": "Power and session menu",
+                "icon": "power_settings_new",
+                "name": "Power"
+            }
+        ]
+    },
+    "osd": {
+        "enabled": false
+    },
+    "paths": {
+        "wallpaperDir": "/home/dxle/.config/themes/current/wallpapers"
+    },
+    "services": {
+        "gpuType": "Nvidia",
+        "smartScheme": false
+    },
+    "session": {
+        "commands": {
+            "hibernate": [
+                "/usr/bin/systemctl",
+                "suspend"
+            ],
+            "logout": [
+                "/home/dxle/bin/menu-power"
+            ]
+        },
+        "icons": {
+            "hibernate": "bedtime"
+        }
+    },
+    "utilities": {
+        "cards": {
+            "recorder": false
+        },
+        "toasts": {
+            "configLoaded": false
+        }
+    }
+}

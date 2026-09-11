@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HYPR_CONFIG="${HYPR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua}"
+QUICKSHELL_CONFIG="${QUICKSHELL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/shell.qml}"
+QUICKSHELL_BIN="${QUICKSHELL_BIN:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/scripts/quickshell}"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
+PKILL_BIN="${PKILL_BIN:-/usr/bin/pkill}"
+KILL_BIN="${KILL_BIN:-/usr/bin/kill}"
+JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/usr/bin/notify-send}"
+WAYBAR_BIN="${WAYBAR_BIN:-/usr/bin/waybar}"
+WARD_BIN="${WARD_BIN:-$HOME/.local/bin/ward}"
+WARDNC_BIN="${WARDNC_BIN:-$HOME/builds/wardnc/build/wardnc}"
+CHROMACK_LAUNCHER="${CHROMACK_LAUNCHER:-$HOME/bin/launch-chromack}"
+DASHBOARD_BIN="${DASHBOARD_BIN:-$HOME/builds/dashboard/build/topdash}"
+LOCK_FILE="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$UID.lock}"
+QUICKSHELL_STOP_TIMEOUT="${QUICKSHELL_STOP_TIMEOUT:-5}"
+WAYBAR_START_DELAY="${WAYBAR_START_DELAY:-0.5}"
+REQUIRE_LINE='require("waybar-mode-keybindings")'
+WAYBAR_PROCESSES=(waybar ward wardnc hypr-dock chromack topdash dashboard mako)
+action=toggle
+dry_run=0
+
+usage() {
+    /usr/bin/cat <<'EOF'
+Usage: toggle-shell-mode [--waybar|--quickshell|--status|--apply] [--dry-run]
+
+No mode flag toggles the current mode. --apply starts the saved mode at login.
+The require("waybar-mode-keybindings") line in hyprland.lua stores the mode:
+uncommented = Waybar; commented = Quickshell.
+
+Override HYPR_CONFIG, QUICKSHELL_CONFIG, or the *_BIN paths as needed.
+QUICKSHELL_CONFIG accepts an absolute path to a QML file or config directory.
+QUICKSHELL_STOP_TIMEOUT sets the shutdown timeout in seconds (1-60; default 5).
+WAYBAR_START_DELAY sets the pause after leaving Quickshell (seconds; default 0.5).
+EOF
+}
+
+fail() {
+    printf 'toggle-shell-mode: %s\n' "$1" >&2
+    exit 1
+}
+
+parse_args() {
+    local mode_selected=0
+    while (( $# )); do
+        case "$1" in
+            --waybar|--quickshell|--status|--apply)
+                (( mode_selected == 0 )) || fail 'Choose only one mode option.'
+                action="${1#--}"
+                mode_selected=1
+                ;;
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
+}
+
+current_mode() {
+    /usr/bin/awk -v flag="$REQUIRE_LINE" '
+        { line = $0; sub(/^[[:space:]]*/, "", line); sub(/[[:space:]]*$/, "", line) }
+        line == flag { mode = "waybar"; count++ }
+        line ~ /^--/ {
+            sub(/^--[[:space:]]*/, "", line)
+            if (line == flag) { mode = "quickshell"; count++ }
+        }
+        END { if (count != 1) exit 1; print mode }
+    ' "$HYPR_CONFIG"
+}
+
+write_mode() {
+    local mode="$1" contents config_target temporary_config
+    contents="$(/usr/bin/awk -v flag="$REQUIRE_LINE" -v mode="$mode" '
+        {
+            line = $0
+            sub(/^[[:space:]]*(--[[:space:]]*)?/, "", line)
+            sub(/[[:space:]]*$/, "", line)
+            if (line == flag) print (mode == "waybar" ? "" : "-- ") flag
+            else print
+        }
+    ' "$HYPR_CONFIG")"
+    config_target="$(/usr/bin/readlink -f -- "$HYPR_CONFIG")"
+    temporary_config="$(/usr/bin/mktemp "${config_target}.XXXXXX")"
+    /usr/bin/chmod --reference="$config_target" "$temporary_config"
+    printf '%s\n' "$contents" > "$temporary_config"
+    /usr/bin/mv -- "$temporary_config" "$config_target"
+}
+
+require_executable() {
+    [[ "$1" == /* && -x "$1" ]] || fail "Executable must be an absolute path: $1"
+}
+
+validate_target() {
+    local target="$1" executable
+    for executable in "$HYPRCTL_BIN" "$PGREP_BIN" "$PKILL_BIN" "$QUICKSHELL_BIN" "$KILL_BIN" "$JQ_BIN"; do
+        require_executable "$executable"
+    done
+    [[ "$QUICKSHELL_STOP_TIMEOUT" =~ ^([1-9]|[1-5][0-9]|60)$ ]] ||
+        fail 'QUICKSHELL_STOP_TIMEOUT must be an integer from 1 to 60.'
+    [[ "$WAYBAR_START_DELAY" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+        fail 'WAYBAR_START_DELAY must be a non-negative number of seconds.'
+    [[ "$QUICKSHELL_CONFIG" == /* ]] || fail 'QUICKSHELL_CONFIG must be an absolute path.'
+    if [[ "$target" == quickshell ]]; then
+        [[ -f "$QUICKSHELL_CONFIG" || -f "$QUICKSHELL_CONFIG/shell.qml" ]] ||
+            fail "Quickshell config not found: $QUICKSHELL_CONFIG"
+    else
+        for executable in "$WAYBAR_BIN" "$WARD_BIN" "$WARDNC_BIN" \
+            "$CHROMACK_LAUNCHER" "$DASHBOARD_BIN"; do
+            require_executable "$executable"
+        done
+    fi
+}
+
+is_running() {
+    "$PGREP_BIN" -u "$UID" -x "$1" >/dev/null 2>&1
+}
+
+stop_process() {
+    local name="$1" attempt status=0
+    is_running "$name" || return 0
+    "$PKILL_BIN" -TERM -u "$UID" -x "$name" || status=$?
+    (( status <= 1 )) || return "$status"
+    for (( attempt=0; attempt<30; attempt++ )); do
+        is_running "$name" || return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: %s did not stop.\n' "$name" >&2
+    return 1
+}
+
+start_process() {
+    local name="$1" executable="$2" attempt
+    is_running "$name" && return 0
+    /usr/bin/nohup "$executable" >/dev/null 2>&1 9>&- &
+    for (( attempt=0; attempt<30; attempt++ )); do
+        is_running "$name" && return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: %s failed to start.\n' "$name" >&2
+    return 1
+}
+
+start_waybar() {
+    # toggle-dock starts the dock on demand, avoiding a visible startup flash.
+    stop_process hypr-dock &&
+        start_process waybar "$WAYBAR_BIN" &&
+        /usr/bin/systemctl --user start ward.service &&
+        start_process wardnc "$WARDNC_BIN" &&
+        start_process chromack "$CHROMACK_LAUNCHER" &&
+        start_process topdash "$DASHBOARD_BIN"
+}
+
+quickshell_pids() {
+    local instances
+    instances="$("$QUICKSHELL_BIN" list --path "$QUICKSHELL_CONFIG" --json)" || return 1
+    # Quickshell prints this message instead of JSON when no instance remains.
+    [[ "$instances" == 'No running instances for "'*'"'$'\nUse --all to list all instances.' ]] && return 0
+    "$JQ_BIN" -er '
+        if type == "array" and all(.[]; .pid | type == "number" and . > 1 and . == floor)
+        then map(.pid | tostring) | join("\n")
+        else error("Invalid Quickshell instance list")
+        end
+    ' <<< "$instances"
+}
+
+stop_quickshell() {
+    local pids pid attempt remaining
+    pids="$(quickshell_pids)" || return 1
+    [[ -n "$pids" ]] || return 0
+
+    # The IPC exit path crashes during teardown and triggers crash recovery.
+    while IFS= read -r pid; do
+        if ! "$KILL_BIN" -TERM -- "$pid" 2>/dev/null; then
+            if "$KILL_BIN" -0 -- "$pid" 2>/dev/null; then
+                printf 'toggle-shell-mode: Could not stop Quickshell PID %s.\n' "$pid" >&2
+                return 1
+            fi
+        fi
+    done <<< "$pids"
+
+    for (( attempt=0; attempt<QUICKSHELL_STOP_TIMEOUT*10; attempt++ )); do
+        remaining="$(quickshell_pids)" || return 1
+        [[ -z "$remaining" ]] && return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: Quickshell did not stop within %s seconds.\n' "$QUICKSHELL_STOP_TIMEOUT" >&2
+    return 1
+}
+
+apply_mode() {
+    local target="$1" previous="${2:-$1}" name
+    if [[ "$target" == quickshell ]]; then
+        /usr/bin/systemctl --user stop ward.service || return 1
+        for name in "${WAYBAR_PROCESSES[@]}"; do
+            stop_process "$name" || return 1
+        done
+        "$QUICKSHELL_BIN" --daemonize --no-duplicate --path "$QUICKSHELL_CONFIG" 9>&-
+    else
+        stop_quickshell || return 1
+        if [[ "$previous" == quickshell ]]; then
+            /usr/bin/sleep "$WAYBAR_START_DELAY" || return 1
+        fi
+        start_waybar
+    fi
+}
+
+show_plan() {
+    local current="$1" target="$2"
+    printf '%s -> %s\n' "$current" "$target"
+    if [[ "$target" == quickshell ]]; then
+        printf 'Stop: %s\n' "${WAYBAR_PROCESSES[*]}"
+        printf 'Start: %s --daemonize --no-duplicate --path %q\n' "$QUICKSHELL_BIN" "$QUICKSHELL_CONFIG"
+        printf 'Comment: %s\n' "$REQUIRE_LINE"
+    else
+        printf 'Stop Quickshell config with SIGTERM: %s\n' "$QUICKSHELL_CONFIG"
+        printf 'Wait up to %s seconds for Quickshell to stop before starting Waybar\n' "$QUICKSHELL_STOP_TIMEOUT"
+        if [[ "$current" == quickshell ]]; then
+            printf 'Pause %s seconds after Quickshell stops\n' "$WAYBAR_START_DELAY"
+        fi
+        printf 'Stop: hypr-dock (SUPER + D starts it on demand)\n'
+        printf 'Start: waybar ward wardnc chromack topdash\n'
+        printf 'Uncomment: %s\n' "$REQUIRE_LINE"
+    fi
+    [[ "$action" == apply ]] || printf 'Reload: %s\n' "$HYPRCTL_BIN"
+}
+
+main() {
+    local current target
+    parse_args "$@"
+    [[ "$HYPR_CONFIG" == /* && -f "$HYPR_CONFIG" ]] || fail "Config not found: $HYPR_CONFIG"
+    current="$(current_mode)" || fail "Expected exactly one $REQUIRE_LINE line in $HYPR_CONFIG"
+    if [[ "$action" == status ]]; then
+        printf '%s\n' "$current"
+        return
+    fi
+    target="$action"
+    if [[ "$action" == toggle ]]; then
+        if [[ "$current" == waybar ]]; then target=quickshell; else target=waybar; fi
+    elif [[ "$action" == apply ]]; then
+        target="$current"
+    fi
+    validate_target "$target"
+    if (( dry_run )); then
+        show_plan "$current" "$target"
+        return
+    fi
+    [[ -w "$HYPR_CONFIG" ]] || fail "Config is not writable: $HYPR_CONFIG"
+    [[ "$LOCK_FILE" == /* ]] || fail 'SHELL_MODE_LOCK_FILE must be an absolute path.'
+    exec 9>"$LOCK_FILE"
+    /usr/bin/flock -n 9 || fail 'A mode switch is already running.'
+    [[ "$(current_mode)" == "$current" ]] || fail 'Mode changed; run the command again.'
+    "$HYPRCTL_BIN" version >/dev/null || fail 'Cannot reach Hyprland.'
+    if ! apply_mode "$target" "$current"; then
+        apply_mode "$current" "$target" || true
+        fail "Could not start $target mode; attempted to restore $current."
+    fi
+    if [[ "$action" != apply ]]; then
+        write_mode "$target"
+        "$HYPRCTL_BIN" reload >/dev/null || fail 'Mode changed, but Hyprland reload failed.'
+        "$NOTIFY_SEND_BIN" -t 2500 'Desktop' "Shell Mode: <b>${target^}</b>" >/dev/null 2>&1 || true
+    fi
+}
+
+main "$@"

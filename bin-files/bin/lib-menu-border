@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROFI_BIN="${ROFI_BIN:-/usr/bin/rofi}"
+NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-$HOME/bin/notify-send}"
+BORDER_MENU_DRY_RUN=0
+
+border_menu_usage() {
+    printf 'Usage: %s [--dry-run]\n' "${0##*/}"
+}
+
+border_menu_require_waybar() {
+    local mode
+    mode="$("$SCRIPT_DIR/toggle-shell-mode" --status)" || {
+        "$NOTIFY_SEND_BIN" -t 4000 "Border" "Could not detect shell mode." >/dev/null 2>&1 || true
+        exit 1
+    }
+
+    [[ "$mode" == waybar ]] && return 0
+    [[ "$mode" == quickshell ]] || exit 1
+
+    local message="Border menu locked while Quickshell is active. Rounding follows Quickshell's inner radius."
+    if (( BORDER_MENU_DRY_RUN )); then
+        printf '%s\n' "$message"
+    else
+        "$NOTIFY_SEND_BIN" -t 4000 "Border" "$message" >/dev/null 2>&1 || true
+    fi
+    exit 0
+}
+
+border_menu_init() {
+    while (( $# )); do
+        case "$1" in
+            --dry-run) BORDER_MENU_DRY_RUN=1 ;;
+            --help|-h) border_menu_usage; exit 0 ;;
+            *) border_menu_usage >&2; exit 2 ;;
+        esac
+        shift
+    done
+
+    [[ "$ROFI_BIN" == /* && "$NOTIFY_SEND_BIN" == /* ]] || {
+        printf 'Border menu binary paths must be absolute.\n' >&2
+        exit 1
+    }
+
+    border_menu_require_waybar
+    if (( BORDER_MENU_DRY_RUN )); then
+        printf 'Waybar mode is active; would open %s.\n' "${0##*/}"
+        exit 0
+    fi
+}

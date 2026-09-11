@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib-menu-border"
+border_menu_init "$@"
+
 MENU_ID="menu-border"
 PID_FILE="/tmp/menu-rofi.pid"
 
@@ -8,11 +12,13 @@ if "$SCRIPT_DIR/rofi-toggle-pidfile" begin "$MENU_ID"; then
     exit 0
 fi
 
+trap '"$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"' EXIT
+
 options="󰃎  Thickness
 󰝤  Rounding
 󱡓  Rounding Smoothness"
 
-chosen=$(printf '%b\n' "$options" | "$SCRIPT_DIR/rofi-nerd-markup" | rofi -dmenu -i \
+chosen=$(printf '%b\n' "$options" | "$SCRIPT_DIR/rofi-nerd-markup" | "$ROFI_BIN" -dmenu -i \
     -markup-rows \
     -pid "$PID_FILE" \
     -p "" \
@@ -29,9 +35,11 @@ chosen=$(printf '%b\n' "$options" | "$SCRIPT_DIR/rofi-nerd-markup" | rofi -dmenu
             horizontal-align: 0.0;
             padding-left: 0px;
         }
-    ')
+    ') || exit 0
 
 "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"
+trap - EXIT
+border_menu_require_waybar
 
 label="${chosen#*  }"
 

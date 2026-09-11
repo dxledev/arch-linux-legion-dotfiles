@@ -9,6 +9,16 @@ CURRENT_LINK="$THEME_DIR/current"
 NOTIFY_SEND_BIN="/home/dxle/bin/notify-send"
 HYPRLOCK_RANDOM_WALLPAPER_SCRIPT="$HOME/.config/hyprlock/scripts/random-wallpaper.sh"
 HYPRLOCK_RANDOM_WALLPAPER_LINK="/tmp/hyprlock-random-wallpaper"
+SHELL_MODE_SCRIPT="${SHELL_MODE_SCRIPT:-$SCRIPT_DIR/toggle-shell-mode}"
+
+reload_waybar_apps() {
+    [[ "$("$SHELL_MODE_SCRIPT" --status 2>/dev/null)" == waybar ]] || return 0
+
+    local app
+    for app in wardnc chromack waybar dashboard dock; do
+        "$SCRIPT_DIR/reload-$app" || true
+    done
+}
 
 [ -z "$1" ] && {
     echo "Usage: theme <theme-name>"
@@ -30,16 +40,13 @@ NEW_THEME="$THEME_DIR/$1"
 
 # Atomic theme switch (IMPORTANT)
 ln -sfn "$NEW_THEME" "$CURRENT_LINK"
+/usr/bin/qs ipc call theme reloadColors >/dev/null 2>&1 || true
 "$HYPRLOCK_RANDOM_WALLPAPER_SCRIPT" --dir "$CURRENT_LINK/wallpapers" --link "$HYPRLOCK_RANDOM_WALLPAPER_LINK" >/dev/null 2>&1 || true
 
 "$SCRIPT_DIR/bg-refresh-current" >/dev/null 2>&1 &
 "$SCRIPT_DIR/cursor-set" >/dev/null 2>&1 &
 "$SCRIPT_DIR/reload-browsers" || true
-"$SCRIPT_DIR/reload-wardnc" || true
-"$SCRIPT_DIR/reload-chromack" || true
-"$SCRIPT_DIR/reload-waybar" || true
-"$SCRIPT_DIR/reload-dashboard" || true
-"$SCRIPT_DIR/reload-dock" || true
+reload_waybar_apps
 
 "$SCRIPT_DIR/reload-borders" || true
 "$SCRIPT_DIR/reload-terminal" || true
@@ -68,13 +75,9 @@ if [[ "${THEME_SUPPRESS_NOTIFY:-0}" != "1" ]]; then
     fi
 
     (
-        # Start mako if needed, then wait until it is alive.
-        pgrep -x mako >/dev/null || "$SCRIPT_DIR/launch-mako" || true
-
-        for i in {1..20}; do
-            pgrep -x mako >/dev/null && break
-            sleep 0.1
-        done
+        if [[ "$("$SHELL_MODE_SCRIPT" --status 2>/dev/null)" == waybar ]]; then
+            /usr/bin/systemctl --user start ward.service || true
+        fi
 
         if [[ -x "$NOTIFY_SEND_BIN" ]]; then
             "$NOTIFY_SEND_BIN" -t 5000 "Theme" "Updated to <b><span foreground=\"var(--primary-color)\">$FORMATTED_NAME</span></b>." >/dev/null 2>&1 || true

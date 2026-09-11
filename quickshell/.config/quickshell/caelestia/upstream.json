@@ -1,0 +1,6 @@
+{
+  "shell": {"url": "https://github.com/caelestia-dots/shell", "commit": "e54de60bf05b5a6c43d80a8e8aee5f3fa6c7af31"},
+  "m3shapes": {"url": "https://github.com/soramanew/m3shapes", "commit": "32ad9ce328bb77ed349b40a3be10ee9ea610b8ab"},
+  "libcava": {"url": "https://github.com/LukashonakV/cava", "commit": "f03278ef9e5e7948fb206453d2f02758f8db216c"},
+  "cli": {"url": "https://github.com/caelestia-dots/cli", "commit": "3cb89b46de81650eef1c0e2b387c9513c522d3e7"}
+}

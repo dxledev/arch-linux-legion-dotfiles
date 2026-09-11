@@ -2,10 +2,23 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SHELL_MODE_SCRIPT="${SHELL_MODE_SCRIPT:-$SCRIPT_DIR/toggle-shell-mode}"
+PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
 DEFAULT_INCLUDE_MAKO=0
 DEFAULT_INCLUDE_WARD=0
 INCLUDE_MAKO="$DEFAULT_INCLUDE_MAKO"
 INCLUDE_WARD="$DEFAULT_INCLUDE_WARD"
+
+reload_waybar_apps() {
+    [[ "$("$SHELL_MODE_SCRIPT" --status 2>/dev/null)" == waybar ]] || return 0
+
+    if "$PGREP_BIN" -u "$UID" -x waybar >/dev/null 2>&1; then
+        "$SCRIPT_DIR/reload-waybar" || true
+    fi
+    if "$PGREP_BIN" -u "$UID" -x topdash >/dev/null 2>&1; then
+        "$SCRIPT_DIR/reload-dashboard" || true
+    fi
+}
 
 usage() {
     echo "Usage: font [--include-mako|-m] [--include-ward|-w] <font-name>"
@@ -134,8 +147,7 @@ if [[ "$INCLUDE_MAKO" -eq 1 && -f "$MAKO_CONF" ]]; then
 fi
 
 "$SCRIPT_DIR/reload-terminal" || true
-"$SCRIPT_DIR/reload-waybar" || true
-"$SCRIPT_DIR/reload-dashboard" || true
+reload_waybar_apps
 
 if [[ "$INCLUDE_MAKO" -eq 1 ]]; then
     "$SCRIPT_DIR/reload-mako" || true

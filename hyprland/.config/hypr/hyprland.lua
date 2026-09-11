@@ -1,3 +1,5 @@
+-- require("waybar-mode-keybindings")
+
 require("autostart")
 require("keybindings")
 require("monitors")
@@ -25,3 +27,10 @@ require("custom-layouts.niriscroll")
 require("custom-layouts.centerstack")
 
 hl.bind("SUPER + CTRL + SHIFT + O", hl.dsp.exec_cmd("~/bin/launch-terminal"))
+
+local shell_bindings = (os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/quickshell/active/integration/hyprland.lua"
+local shell_config = io.open(shell_bindings, "r")
+if shell_config then
+  shell_config:close()
+  dofile(shell_bindings)
+end
