@@ -42,7 +42,7 @@ tooltip label {
 
 #custom-bg1,
 #custom-bg2,
-#custom-bg3, 
+#custom-bg3,
 #custom-bg4 {
   padding: 2px;
   border-radius: 2rem;
@@ -108,9 +108,13 @@ tooltip label {
     border-radius: 2rem;
 }
 
-#right * {
+#custom-bg4 * {
+    padding: 0 8px;
+}
+
+#system-info * {
     padding: 0 14px;
-} 
+}
 
 #left {
     border-radius: 2rem;
@@ -159,18 +163,22 @@ tooltip label {
     color: @foreground;
 }
 
-#network,
 #cpu,
 #memory {
-    padding-right: 15px;
+    padding-right: 0;
+}
+
+#network {
+    padding-right: 10px;
 }
 
 #pulseaudio {
-    padding-right: 15px;
+    padding-right: 0;
+    padding-left: 0;
 }
 
 #temperature {
-    padding-right: 2px;
+    padding-right: 0;
 }
 
 #clock {
@@ -241,7 +249,7 @@ tooltip label {
 }
 
 #custom-bluetooth {
-    padding-right: 10px;
+    padding-right: 0;
 }
 
 #custom-expo {
@@ -249,18 +257,23 @@ tooltip label {
 }
 
 #custom-menu {
-    padding-left: 16px;
+    padding-left: 0;
+    padding-right: 5px;
 }
 
 #custom-sunshine {
-    padding-right: 8px;
-    padding-left: 17px;
+    padding-right: 0;
 }
 
 #custom-hypridle {
-    padding-right: 3px;
+    padding-right: 0;
 }
 
 #custom-nightlight {
-    padding-right: 5px;
+    padding-right: 0;
+    padding-left: 0;
+}
+
+#custom-power {
+    padding-right: 0;
 }

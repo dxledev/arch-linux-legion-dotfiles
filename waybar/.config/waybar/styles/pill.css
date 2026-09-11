@@ -97,16 +97,19 @@ window#waybar {
   font-size: 30px;
 }
 
-#custom-left-1 {
+#custom-left-1,
+#custom-left-2 {
+	font-family: "JetBrainsMono Nerd Font";
 	font-size: 30px;
 	color: @primary;
 	background: transparent;
 }
 
-#custom-left-2 {
-	font-size: 30px;
-	color: @primary;
-	background: transparent;
+/* Custom modules wrap their labels; the global font rule blocks inheritance. */
+#custom-left-1 label,
+#custom-left-2 label {
+	font-family: inherit;
+	font-size: inherit;
 }
 
 #user {
