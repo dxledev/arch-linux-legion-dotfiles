@@ -58,7 +58,7 @@ local floating_rules = {
   { name = "float-qalculate", class = "io.github.Qalculate.qalculate-qt", size = { 400, 620 } },
   { name = "move-discord-to-discordspace", title = "Discord", workspace = "special:discordspace", size = { 1200, 800 } },
   { name = "move-discord-to-discordspace-two", title = "^(\\(\\d+\\)\\s*)?Discord.*", workspace = "special:discordspace", size = { 1200, 800 } },
-  { name = "move-spotify-to-mediaspace", class = "spotify", workspace = "special:mediaspace", size = { 1200, 800 } },
+  { name = "move-spotify-to-mediaspace", class = "^[Ss]potify$", workspace = "special:mediaspace", size = { 1200, 800 } },
   { name = "move-instagram-to-mediaspace", class = "^chrome-instagram\\.com__.*$", workspace = "special:socialspace", size = { 1200, 800 } },
   { name = "move-tiktok-to-mediaspace", class = "^chrome-tiktok\\.com__.*$", workspace = "special:socialspace", size = { 1200, 800 } },
   { name = "move-obsidian-to-scratchpad", class = "^(obsidian|md\\.obsidian\\.Obsidian)$", workspace = "special:scratchpad", size = { 1200, 800 } },

@@ -300,8 +300,8 @@ bind("binddl", mainMod, "TAB", "Toggle Workspace Control", "hymission:toggle", "
 bind("binddl", mainMod .. " SHIFT", "TAB", "Toggle Mission Control", "hymission:toggle", "forceall")
 bind("bind", mainMod .. " SHIFT", "mouse_down", "", "workspace", "+1")
 bind("bind", mainMod .. " SHIFT", "mouse_up", "", "workspace", "-1")
-bind("bind", mainMod, "mouse_down", "", "movefocus", "right")
-bind("bind", mainMod, "mouse_up", "", "movefocus", "left")
+bind("bind", mainMod, "mouse_down", "", "movefocus", "left")
+bind("bind", mainMod, "mouse_up", "", "movefocus", "right")
 
 bind("bindd", mainMod .. " ALT", "Right", "Focus Window Right (Scrolling)", "layoutmsg", "move +col")
 bind("bindd", mainMod .. " ALT", "Left", "Focus Window Left (Scrolling)", "layoutmsg", "move -col")

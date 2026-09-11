@@ -2,37 +2,83 @@
 
 set -euo pipefail
 
-WIDTH=1200
-HEIGHT=800
-APP_CLASS=spotify
+WIDTH="${SPOTIFY_WIDTH:-1200}"
+HEIGHT="${SPOTIFY_HEIGHT:-800}"
+DRY_RUN=false
+
+usage() {
+    printf '%s\n' 'Usage: launch-spotify [--dry-run] [--] [Spotify arguments...]' \
+        'SPOTIFY_WIDTH and SPOTIFY_HEIGHT set the window size (default: 1200x800).'
+}
+
+lua_string() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    printf '"%s"' "$value"
+}
+
+dispatch() {
+    local result
+    result="$(/usr/bin/hyprctl dispatch "$1")" || {
+        printf '%s\n' "$result" >&2
+        return 1
+    }
+    if [[ "$result" != ok ]]; then
+        printf '%s\n' "$result" >&2
+        return 1
+    fi
+}
 
 find_spotify_address() {
-    hyprctl clients -j | jq -r '
-        map(select((.class | ascii_downcase) == "'"$APP_CLASS"'"))[0].address // empty
+    /usr/bin/hyprctl clients -j | /usr/bin/jq -r '
+        map(select((.class | ascii_downcase) == "spotify"))[0].address // empty
     '
 }
 
-spotify_address="$(find_spotify_address)"
-
-if [ -z "$spotify_address" ]; then
-    spotify "$@" >/dev/null 2>&1 &
-
+launch_spotify() {
+    local launch_command
+    printf -v launch_command '%q ' /usr/bin/spotify "$@"
+    dispatch "hl.dsp.exec_cmd($(lua_string "$launch_command"))"
     for _ in {1..100}; do
-        sleep 0.1
+        /usr/bin/sleep 0.1
         spotify_address="$(find_spotify_address)"
-        if [ -n "$spotify_address" ]; then
-            break
-        fi
+        [[ -z "$spotify_address" ]] || return 0
     done
-fi
+    printf '%s\n' 'launch-spotify: could not find Spotify window' >&2
+    return 1
+}
 
-if [ -z "$spotify_address" ]; then
-    echo "launch-spotify: could not find Spotify window" >&2
-    exit 1
-fi
+place_spotify() {
+    local window
+    window="$(lua_string "address:$spotify_address")"
+    dispatch "hl.dsp.window.float({window = $window, action = \"on\"})"
+    dispatch "hl.dsp.window.move({window = $window, workspace = \"special:mediaspace\", follow = false})"
+    dispatch "hl.dsp.window.resize({window = $window, x = $WIDTH, y = $HEIGHT, relative = false})"
+    dispatch "hl.dsp.window.center({window = $window})"
+}
 
-hypr-dispatch focuswindow "address:$spotify_address"
-hypr-dispatch setfloating
-hypr-dispatch resizeactive exact "$WIDTH" "$HEIGHT"
-hypr-dispatch centerwindow
-hypr-dispatch movetoworkspacesilent special:mediaspace
+main() {
+    case "${1:-}" in
+        --help|-h) usage; return 0 ;;
+        --dry-run) DRY_RUN=true; shift ;;
+    esac
+    if [[ "${1:-}" == -- ]]; then shift; fi
+    if [[ ! "$WIDTH" =~ ^[1-9][0-9]*$ || ! "$HEIGHT" =~ ^[1-9][0-9]*$ ]]; then
+        printf '%s\n' 'launch-spotify: dimensions must be positive integers' >&2
+        return 1
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        printf 'Launch if needed: '
+        printf '%q ' /usr/bin/spotify "$@"
+        printf '\nFloat, center, and resize to %sx%s in special:mediaspace\n' "$WIDTH" "$HEIGHT"
+        return 0
+    fi
+    spotify_address="$(find_spotify_address)"
+    if [[ -z "$spotify_address" ]]; then launch_spotify "$@"; fi
+    place_spotify
+}
+
+main "$@"
