@@ -1,6 +1,8 @@
 pragma Singleton
 
 import Quickshell
+import Quickshell.Io
+import QtQuick
 import Caelestia.Config
 import Caelestia.Models
 import qs.utils
@@ -8,16 +10,23 @@ import qs.utils
 Searcher {
     id: root
 
-    function launch(entry: DesktopEntry): void {
-        appDb.incrementFrequency(entry.id);
+    readonly property string appListPath: Quickshell.env("APP_LIST") || `${Paths.home}/.config/apps.list`
+    readonly property string menuScript: Quickshell.env("MENU_APPS_SCRIPT") || `${Paths.home}/bin/menu-apps`
+    readonly property string appListScript: Quickshell.shellPath("integration/app-list")
+    property bool refreshPending: false
+    property var configuredRows: []
 
-        if (entry.runInTerminal)
-            Quickshell.execDetached({
-                command: [...GlobalConfig.general.apps.terminal, `${Quickshell.shellDir}/assets/wrap_term_launch.sh`, ...entry.command],
-                workingDirectory: entry.workingDirectory
-            });
-        else
-            entry.execute();
+    function launch(entry: var): void {
+        appDb.incrementFrequency(entry.id);
+        Quickshell.execDetached(["/usr/bin/bash", appListScript, "--launch", entry.launcher]);
+    }
+
+    function refresh(): void {
+        refreshPending = true;
+        if (!getApps.running) {
+            refreshPending = false;
+            getApps.running = true;
+        }
     }
 
     function search(search: string): var {
@@ -70,6 +79,67 @@ Searcher {
 
         path: `${Paths.state}/apps.sqlite`
         favouriteApps: GlobalConfig.launcher.favouriteApps
-        entries: DesktopEntries.applications.values.filter(a => !Strings.testRegexList(GlobalConfig.launcher.hiddenApps, a.id))
+        entries: configuredApps.instances
+    }
+
+    Variants {
+        id: configuredApps
+        model: root.configuredRows.map(row => row.launcher)
+
+        QtObject {
+            required property string modelData
+            readonly property var row: root.configuredRows.find(row => row.launcher === modelData)
+            readonly property string launcher: modelData
+            readonly property string id: launcher.replace(/\.desktop$/, "")
+            readonly property var desktopEntry: DesktopEntries.byId(id)
+            readonly property string name: row?.name ?? launcher
+            readonly property string icon: row?.icon ?? ""
+            readonly property string comment: desktopEntry?.comment ?? ""
+            readonly property string genericName: desktopEntry?.genericName ?? ""
+            readonly property string execString: desktopEntry?.execString ?? launcher
+            readonly property string startupClass: desktopEntry?.startupClass ?? ""
+            readonly property list<string> categories: desktopEntry?.categories ?? []
+            readonly property list<string> keywords: desktopEntry?.keywords ?? []
+            readonly property bool runInTerminal: desktopEntry?.runInTerminal ?? false
+        }
+    }
+
+    Variants {
+        model: [root.appListPath, root.menuScript,
+            `${Quickshell.env("XDG_CONFIG_HOME") || `${Paths.home}/.config`}/gtk-4.0/settings.ini`,
+            `${Quickshell.env("XDG_CONFIG_HOME") || `${Paths.home}/.config`}/gtk-3.0/settings.ini`]
+
+        FileView {
+            required property string modelData
+            path: modelData
+            watchChanges: true
+            onFileChanged: {
+                reload();
+                root.refresh();
+            }
+        }
+    }
+
+    Process {
+        id: getApps
+        running: true
+        command: ["/usr/bin/bash", root.appListScript, "--list"]
+        stdout: StdioCollector {}
+        stderr: StdioCollector {}
+        onExited: exitCode => {
+            if (exitCode === 0) {
+                try {
+                    root.configuredRows = JSON.parse(stdout.text);
+                } catch (error) {
+                    root.configuredRows = [];
+                    console.warn("Could not parse app list:", error);
+                }
+            } else {
+                root.configuredRows = [];
+                console.warn("Could not load app list:", stderr.text);
+            }
+            if (root.refreshPending)
+                root.refresh();
+        }
     }
 }

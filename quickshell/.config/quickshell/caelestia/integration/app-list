@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "${MENU_APPS_SCRIPT:-$HOME/bin/menu-apps}"
+
+usage() {
+    printf 'Usage: app-list [--list | --launch LAUNCHER | --dry-run LAUNCHER]\n'
+}
+
+list_apps() {
+    local icon_override=true
+    local gtk_icon_theme
+    local launchers
+
+    [[ -r "$APP_LIST" ]] || { printf 'Could not read %s\n' "$APP_LIST" >&2; return 1; }
+    validate_icon_base_size
+    if ! icon_override_enabled; then
+        icon_override=false
+    fi
+    gtk_icon_theme="$(current_gtk_icon_theme)"
+    launchers="$(/usr/bin/awk -F'|' 'NF >= 3 && $1 != "" && $2 != "" && $3 != "" { print $1 }' "$APP_LIST" | /usr/bin/jq -Rs 'split("\n")[:-1]')"
+
+    print_menu_rows "$icon_override" "$gtk_icon_theme" |
+        /usr/bin/jq -Rs --argjson launchers "$launchers" '
+            split("\n")[:-1] | to_entries | map(
+                .key as $index | .value | split("\u0000icon\u001f") |
+                {launcher: $launchers[$index], name: .[0], icon: .[1]}
+            )'
+}
+
+case "${1:---list}" in
+    --list)
+        [[ $# -le 1 ]] || { usage >&2; exit 2; }
+        list_apps
+        ;;
+    --launch | --dry-run)
+        [[ $# -eq 2 && -n "$2" ]] || { usage >&2; exit 2; }
+        /usr/bin/awk -F'|' -v launcher="$2" 'NF >= 3 && $1 == launcher { found = 1 } END { exit !found }' "$APP_LIST"
+        if [[ "$1" == --dry-run ]]; then
+            printf '%s\n' "$2"
+        else
+            require_command "$SETSID_BIN" "setsid"
+            launch_app "$2"
+        fi
+        ;;
+    --help | -h) usage ;;
+    *) usage >&2; exit 2 ;;
+esac

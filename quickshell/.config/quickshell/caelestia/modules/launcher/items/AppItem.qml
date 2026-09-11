@@ -10,7 +10,7 @@ import qs.modules.launcher.services
 Item {
     id: root
 
-    required property DesktopEntry modelData
+    required property var modelData
     required property ScreenState screenState
 
     implicitHeight: Tokens.sizes.launcher.itemHeight
@@ -36,7 +36,9 @@ Item {
             id: icon
 
             asynchronous: true
-            source: Quickshell.iconPath(root.modelData?.icon, "image-missing")
+            source: root.modelData?.icon?.startsWith("/")
+                ? Qt.resolvedUrl(root.modelData.icon)
+                : Quickshell.iconPath(root.modelData?.icon, "image-missing")
             implicitSize: parent.height * 0.8
 
             anchors.verticalCenter: parent.verticalCenter

@@ -542,6 +542,9 @@ launch_app() {
     fi
 }
 
+# Allow the shell launcher to reuse the menu parser and icon resolution.
+[[ "${BASH_SOURCE[0]}" != "$0" ]] && return 0
+
 require_command "$ROFI_BIN" "rofi"
 require_command "$SETSID_BIN" "setsid"
 validate_icon_base_size
