@@ -11,6 +11,8 @@ Item {
     id: root
 
     required property var modelData
+    required property var list
+    required property int index
     required property ScreenState screenState
 
     implicitHeight: Tokens.sizes.launcher.itemHeight
@@ -20,6 +22,8 @@ Item {
 
     StateLayer {
         radius: Tokens.rounding.large
+        stateOpacity: 0
+        onPositionChanged: mouse => root.list.selectFromPointer(root.index, mapToGlobal(mouse.x, mouse.y))
         onClicked: {
             Apps.launch(root.modelData);
             root.screenState.launcher = false;

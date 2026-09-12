@@ -19,7 +19,7 @@ Item {
     StateLayer {
         radius: Tokens.rounding.large
         stateOpacity: 0
-        onPositionChanged: root.list.currentIndex = root.index
+        onPositionChanged: mouse => root.list.selectFromPointer(root.index, mapToGlobal(mouse.x, mouse.y))
         onClicked: root.modelData?.onClicked(root.list)
     }
 

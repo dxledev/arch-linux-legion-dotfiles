@@ -169,7 +169,7 @@ Scope {
         }
 
         function menu(name: string): void {
-            if (!root.hasFullscreen && ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons"].includes(name))
+            if (!root.hasFullscreen && ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons", "speed-test"].includes(name))
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu(name);
         }
 

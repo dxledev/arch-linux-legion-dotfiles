@@ -197,6 +197,15 @@
             },
             {
                 "command": [
+                    "autocomplete",
+                    "speed-test"
+                ],
+                "description": "Test network and disk speed",
+                "icon": "speed",
+                "name": "Speed Test"
+            },
+            {
+                "command": [
                     "/home/dxle/.config/quickshell/scripts/quickshell",
                     "-p",
                     "/home/dxle/.config/quickshell/shell.qml",

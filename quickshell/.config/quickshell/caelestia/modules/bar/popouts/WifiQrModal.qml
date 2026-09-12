@@ -38,6 +38,11 @@ Item {
     readonly property string passwordScript: Quickshell.shellPath("integration/wifi-password")
 
     function open(requestedSsid: string, requestedIface: string): void {
+        if (modalFadeOut.running) {
+            modalFadeOut.stop();
+            modalSurface.opacity = 1;
+        }
+
         root.ssid = requestedSsid;
         generate(requestedIface);
         root.opened = true;
@@ -48,6 +53,13 @@ Item {
     }
 
     function close(): void {
+        if (!root.opened || modalFadeOut.running)
+            return;
+
+        modalFadeOut.start();
+    }
+
+    function finishClose(): void {
         root.opened = false;
         root.pendingShow = false;
         if (qrProc.running) {
@@ -68,6 +80,27 @@ Item {
         root.password = "";
         root.passwordHovered = false;
         root.passwordError = "";
+    }
+
+    SequentialAnimation {
+        id: modalFadeOut
+
+        NumberAnimation {
+            target: modalSurface
+            property: "opacity"
+            to: 0
+            duration: 150
+        }
+
+        ScriptAction {
+            script: root.finishClose()
+        }
+
+        PropertyAction {
+            target: modalSurface
+            property: "opacity"
+            value: 1
+        }
     }
 
     function generate(requestedIface: string): void {
@@ -195,129 +228,218 @@ Item {
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-        Rectangle {
-            anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, 0.78)
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: root.close()
-            }
-        }
-
         Item {
-            id: keyCatcher
+            id: modalSurface
 
             anchors.fill: parent
-            focus: true
-            Keys.onEscapePressed: root.close()
+            opacity: 1
 
-            Item {
-                anchors.centerIn: parent
-                width: content.implicitWidth
-                height: content.implicitHeight
-                scale: Math.min(1, (keyCatcher.width - Tokens.padding.extraExtraLarge * 2) / Math.max(1, width), (keyCatcher.height - Tokens.padding.extraExtraLarge * 2) / Math.max(1, height))
+            Rectangle {
+                anchors.fill: parent
+                color: Qt.rgba(0, 0, 0, 0.78)
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: {}
+                    onClicked: root.close()
                 }
+            }
 
-                ColumnLayout {
-                    id: content
+            Item {
+                id: keyCatcher
 
-                    anchors.fill: parent
-                    spacing: Tokens.spacing.large
+                anchors.fill: parent
+                focus: true
+                Keys.onEscapePressed: root.close()
 
-                    StyledText {
-                        Layout.maximumWidth: 320
-                        Layout.alignment: Qt.AlignHCenter
-                        text: (root.ssid || "Wi-Fi").toUpperCase()
-                        color: root.onScrimDim
-                        font.weight: Font.Bold
-                        font.letterSpacing: 2
-                        elide: Text.ElideRight
-                        horizontalAlignment: Text.AlignHCenter
+                Item {
+                    anchors.centerIn: parent
+                    width: content.implicitWidth
+                    height: content.implicitHeight
+                    scale: Math.min(1, (keyCatcher.width - Tokens.padding.extraExtraLarge * 2) / Math.max(1, width), (keyCatcher.height - Tokens.padding.extraExtraLarge * 2) / Math.max(1, height))
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {}
                     }
 
-                    Rectangle {
-                        id: qrCanvas
+                    ColumnLayout {
+                        id: content
 
-                        readonly property int moduleSize: root.qrSize > 0 ? Math.max(4, Math.floor(240 / root.qrSize)) : 0
+                        anchors.fill: parent
+                        spacing: Tokens.spacing.large
 
-                        visible: root.showingQr
-                        width: root.qrSize * moduleSize
-                        height: width
-                        color: "white"
-                        radius: Tokens.rounding.large
-                        Layout.alignment: Qt.AlignHCenter
+                        StyledText {
+                            Layout.maximumWidth: 320
+                            Layout.alignment: Qt.AlignHCenter
+                            text: (root.ssid || "Wi-Fi").toUpperCase()
+                            color: root.onScrimDim
+                            font.weight: Font.Bold
+                            font.letterSpacing: 2
+                            elide: Text.ElideRight
+                            horizontalAlignment: Text.AlignHCenter
+                        }
 
-                        Grid {
-                            anchors.fill: parent
-                            columns: root.qrSize
+                        Rectangle {
+                            id: qrCanvas
 
-                            Repeater {
-                                model: root.qrSize * root.qrSize
+                            readonly property int moduleSize: root.qrSize > 0 ? Math.max(4, Math.floor(240 / root.qrSize)) : 0
 
-                                Rectangle {
-                                    required property int index
+                            visible: root.showingQr
+                            width: root.qrSize * moduleSize
+                            height: width
+                            color: "white"
+                            radius: Tokens.rounding.large
+                            Layout.alignment: Qt.AlignHCenter
 
-                                    readonly property int matrixRow: Math.floor(index / root.qrSize)
-                                    readonly property int matrixColumn: index % root.qrSize
+                            Grid {
+                                anchors.fill: parent
+                                columns: root.qrSize
 
-                                    width: qrCanvas.moduleSize
-                                    height: qrCanvas.moduleSize
-                                    color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
+                                Repeater {
+                                    model: root.qrSize * root.qrSize
+
+                                    Rectangle {
+                                        required property int index
+
+                                        readonly property int matrixRow: Math.floor(index / root.qrSize)
+                                        readonly property int matrixColumn: index % root.qrSize
+
+                                        width: qrCanvas.moduleSize
+                                        height: qrCanvas.moduleSize
+                                        color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    StyledText {
-                        visible: root.loading
-                        Layout.fillWidth: true
-                        text: "Generating QR code…"
-                        color: root.onScrimDim
-                        horizontalAlignment: Text.AlignHCenter
-                    }
+                        StyledText {
+                            visible: root.loading
+                            Layout.fillWidth: true
+                            text: "Generating QR code…"
+                            color: root.onScrimDim
+                            horizontalAlignment: Text.AlignHCenter
+                        }
 
-                    StyledText {
-                        visible: root.error !== ""
-                        Layout.fillWidth: true
-                        Layout.maximumWidth: 320
-                        text: root.error
-                        color: root.onScrimUrgent
-                        wrapMode: Text.Wrap
-                        horizontalAlignment: Text.AlignHCenter
-                    }
+                        StyledText {
+                            visible: root.error !== ""
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 320
+                            text: root.error
+                            color: root.onScrimUrgent
+                            wrapMode: Text.Wrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
 
-                    StyledText {
-                        visible: root.showingQr
-                        Layout.fillWidth: true
-                        text: "Scan to join this network"
-                        color: root.onScrimDim
-                        horizontalAlignment: Text.AlignHCenter
-                    }
+                        StyledText {
+                            visible: root.showingQr
+                            Layout.fillWidth: true
+                            text: "Scan to join this network"
+                            color: root.onScrimDim
+                            horizontalAlignment: Text.AlignHCenter
+                        }
 
-                    StyledText {
-                        visible: root.showingQr && root.secured
-                        Layout.fillWidth: true
-                        Layout.maximumWidth: 320
-                        text: root.passwordError !== "" ? root.passwordError : root.passwordHovered && root.password !== "" ? root.password : "••••••••"
-                        color: root.passwordError !== "" ? root.onScrimUrgent : root.onScrim
-                        opacity: root.passwordHovered || root.passwordError !== "" ? 1 : 0.6
-                        wrapMode: Text.WrapAnywhere
-                        horizontalAlignment: Text.AlignHCenter
+                        Item {
+                            id: passwordArea
 
-                        MouseArea {
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onEntered: {
-                                root.passwordHovered = true;
-                                root.revealPassword();
+                            visible: root.showingQr && root.secured
+
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 320
+                            Layout.preferredHeight: passwordText.implicitHeight
+
+                            property bool displayedRevealed: false
+                            property bool targetRevealed: false
+
+                            function setRevealed(revealed: bool): void {
+                                if (revealed && root.password === "")
+                                    return;
+
+                                if (displayedRevealed === revealed && !passwordSwap.running)
+                                    return;
+
+                                targetRevealed = revealed;
+                                passwordSwap.stop();
+                                passwordSwap.start();
                             }
-                            onExited: root.passwordHovered = false
+
+                            StyledText {
+                                id: passwordText
+
+                                anchors.fill: parent
+
+                                text: root.passwordError !== ""
+                                    ? root.passwordError
+                                    : passwordArea.displayedRevealed
+                                        ? root.password
+                                        : "••••••••"
+
+                                color: root.passwordError !== ""
+                                    ? root.onScrimUrgent
+                                    : root.onScrim
+
+                                opacity: 0.6
+
+                                wrapMode: Text.WrapAnywhere
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+
+                            SequentialAnimation {
+                                id: passwordSwap
+
+                                NumberAnimation {
+                                    target: passwordText
+                                    property: "opacity"
+                                    to: 0
+                                    duration: 120
+                                    easing.type: Easing.OutQuad
+                                }
+
+                                ScriptAction {
+                                    script: {
+                                        passwordArea.displayedRevealed =
+                                            passwordArea.targetRevealed;
+                                    }
+                                }
+
+                                NumberAnimation {
+                                    target: passwordText
+                                    property: "opacity"
+                                    to: passwordArea.targetRevealed ? 1 : 0.6
+                                    duration: 120
+                                    easing.type: Easing.InQuad
+                                }
+                            }
+
+                            MouseArea {
+                                id: passwordHoverArea
+
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+
+                                onEntered: {
+                                    root.passwordHovered = true;
+
+                                    if (root.password !== "")
+                                        passwordArea.setRevealed(true);
+                                    else
+                                        root.revealPassword();
+                                }
+
+                                onExited: {
+                                    root.passwordHovered = false;
+                                    passwordArea.setRevealed(false);
+                                }
+                            }
+
+                            Connections {
+                                target: root
+
+                                function onPasswordChanged(): void {
+                                    if (passwordHoverArea.containsMouse && root.password !== "")
+                                        passwordArea.setRevealed(true);
+                                }
+                            }
                         }
                     }
                 }

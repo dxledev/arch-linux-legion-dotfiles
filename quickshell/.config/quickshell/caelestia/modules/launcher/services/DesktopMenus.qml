@@ -5,11 +5,12 @@ import Quickshell
 import Quickshell.Io
 import Caelestia.Config
 import qs.services
+import qs.modules.speedtest
 
 Singleton {
     id: root
 
-    readonly property var menus: ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons"]
+    readonly property var menus: ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons", "speed-test"]
     readonly property var captureModes: [
         { id: "region", name: "Region", icon: "select" },
         { id: "window", name: "Window", icon: "window" },
@@ -41,6 +42,9 @@ Singleton {
 
     function rows(context: var): var {
         switch (context.menu) {
+        case "speed-test":
+            return [{ name: "Network", icon: "speed", speedTest: "network" },
+                { name: "Disk Speed Test", icon: "hard_drive", speedTest: "disk" }];
         case "capture":
             return [submenu("Screenshot", "screenshot_monitor", "screenshot"),
                 { name: "Screenrecord", icon: "videocam", command: ["/usr/bin/bash", Quickshell.shellPath("integration/screenrecord")] },
@@ -75,6 +79,8 @@ Singleton {
                     list.search.text = `${GlobalConfig.launcher.actionPrefix}${item.path} `;
                 } else {
                     list.screenState.launcher = false;
+                    if (item.speedTest)
+                        SpeedTest.open(item.speedTest, list.screenState.modelData);
                     if (item.style)
                         WorkspaceAppearance.selectStyle(item.style);
                     const command = item.glyph

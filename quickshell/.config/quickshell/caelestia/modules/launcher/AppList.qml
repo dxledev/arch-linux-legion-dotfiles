@@ -17,6 +17,15 @@ StyledListView {
     required property ScreenState screenState
 
     property string displayText
+    property point lastPointerPosition: Qt.point(-1, -1)
+
+    function selectFromPointer(index: int, position: point): void {
+        // Scrolling changes row-local coordinates even when the pointer is stationary.
+        if (Math.abs(position.x - lastPointerPosition.x) < 1 && Math.abs(position.y - lastPointerPosition.y) < 1)
+            return;
+        lastPointerPosition = position;
+        currentIndex = index;
+    }
 
     readonly property string requestedState: stateForText(search.text)
     readonly property string displayState: stateForText(displayText)
@@ -113,6 +122,10 @@ StyledListView {
     Component.onCompleted: displayText = search.text
 
     states: [
+        State {
+            name: "speed-test"
+            PropertyChanges { root.delegate: actionItem }
+        },
         State {
             name: "workspace-icons"
             PropertyChanges { root.delegate: actionItem }
@@ -331,6 +344,7 @@ StyledListView {
         id: appItem
 
         AppItem {
+            list: root
             screenState: root.screenState
         }
     }
