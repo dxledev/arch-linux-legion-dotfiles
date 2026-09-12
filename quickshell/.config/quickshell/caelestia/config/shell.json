@@ -246,6 +246,22 @@
         ]
       },
       {
+        "name": "Idle Lock",
+        "description": "Toggle automatic screen locking",
+        "icon": "lock",
+        "command": [
+          "idle-lock"
+        ]
+      },
+      {
+        "name": "Nightlight",
+        "description": "Toggle nightlight",
+        "icon": "nightlight",
+        "command": [
+          "nightlight"
+        ]
+      },
+      {
         "name": "Shutdown",
         "description": "Shut down the computer",
         "icon": "power_settings_new",

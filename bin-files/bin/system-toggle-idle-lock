@@ -4,11 +4,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LAUNCH_SCRIPT="${SCRIPT_DIR}/launch-hypridle"
+QS_BIN="${QS_BIN:-/usr/bin/qs}"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
 IDLE_LOCK_NOTIFY_APP_NAME="${IDLE_LOCK_NOTIFY_APP_NAME:-system-toggle-idle-lock}"
 IDLE_LOCK_NOTIFY_STACK_TAG="${IDLE_LOCK_NOTIFY_STACK_TAG:-system-toggle-idle-lock}"
 
 notify() {
+    if "$QS_BIN" ipc call toaster info "$1" "$2" "$3" >/dev/null 2>&1; then
+        return 0
+    fi
+
     "$NOTIFY_SEND_BIN" \
         -a "$IDLE_LOCK_NOTIFY_APP_NAME" \
         -h "string:x-dunst-stack-tag:$IDLE_LOCK_NOTIFY_STACK_TAG" \
@@ -19,7 +24,7 @@ notify() {
 
 if pgrep -x hypridle >/dev/null 2>&1; then
     pkill -x hypridle
-    notify "Idle lock: <b>OFF</b>"
+    notify "Idle lock disabled" "Keep awake on" "coffee"
     exit 0
 fi
 
@@ -30,4 +35,4 @@ else
     disown 2>/dev/null || true
 fi
 
-notify "Idle lock: <b>ON</b>"
+notify "Idle lock enabled" "Keep awake off" "lock"

@@ -61,8 +61,10 @@ Searcher {
     component Action: QtObject {
         required property var modelData
         readonly property string name: modelData.name ? Tr.trMarked(modelData.name) : Tr.trCtx("Unnamed", "launcher action with no name")
-        readonly property string desc: modelData.description ? Tr.trMarked(modelData.description) : Tr.trCtx("No description", "launcher action with no description")
-        readonly property string icon: modelData.icon ?? "help_outline"
+        readonly property bool isNightlight: command[0] === "nightlight"
+        readonly property bool isIdleLock: command[0] === "idle-lock"
+        readonly property string desc: isNightlight ? (Nightlight.enabled ? "Turn Nightlight Off" : "Turn Nightlight On") : isIdleLock ? (IdleLock.enabled ? "Turn Idle Lock Off" : "Turn Idle Lock On") : modelData.description ? Tr.trMarked(modelData.description) : Tr.trCtx("No description", "launcher action with no description")
+        readonly property string icon: isNightlight ? (Nightlight.enabled ? "nightlight" : "light_mode") : isIdleLock ? (IdleLock.enabled ? "lock" : "coffee") : modelData.icon ?? "help_outline"
         readonly property list<string> command: modelData.command ?? []
         readonly property bool enabled: modelData.enabled ?? true
         readonly property bool dangerous: modelData.dangerous ?? false
@@ -71,7 +73,13 @@ Searcher {
             if (command.length === 0)
                 return;
 
-            if (command[0] === "apps") {
+            if (isNightlight) {
+                list.screenState.launcher = false;
+                Nightlight.toggle();
+            } else if (isIdleLock) {
+                list.screenState.launcher = false;
+                IdleLock.toggle();
+            } else if (command[0] === "apps") {
                 list.search.text = "";
             } else if (command[0] === "autocomplete" && command.length > 1) {
                 list.search.text = `${GlobalConfig.launcher.actionPrefix}${command[1]} `;

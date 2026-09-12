@@ -10,6 +10,7 @@ Scope {
         IdleInhibitor;
         GameMode;
         Notifs;
+        Nightlight;
         Players;
         Brightness;
         Weather.reload();
