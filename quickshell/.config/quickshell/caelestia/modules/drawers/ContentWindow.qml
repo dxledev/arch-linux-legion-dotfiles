@@ -68,7 +68,7 @@ StyledWindow {
     name: "drawers"
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
-    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session || screenState.dashboardPinned ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     mask: hasFullscreen ? emptyRegion : regions
 
@@ -117,7 +117,7 @@ StyledWindow {
             const conf = root.contentItem.Config;
             if ((s.launcher && conf.launcher.enabled) || (s.session && conf.session.enabled) || (s.sidebar && conf.sidebar.enabled))
                 return true;
-            if (!conf.dashboard.showOnHover && s.dashboard && conf.dashboard.enabled)
+            if ((!conf.dashboard.showOnHover || s.dashboardPinned) && s.dashboard && conf.dashboard.enabled)
                 return true;
             if (panels.popouts.currentName.startsWith("traymenu") && (panels.popouts.current as StackView)?.depth > 1)
                 return true;
@@ -132,6 +132,12 @@ StyledWindow {
             panels.popouts.hasCurrent = false;
             bar.closeTray();
         }
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.screenState.dashboard && root.screenState.dashboardPinned
+        onActivated: root.screenState.dashboard = false
     }
 
     StyledRect {

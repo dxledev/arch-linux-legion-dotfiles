@@ -14,6 +14,8 @@ Item {
     implicitWidth: Tokens.sizes.dashboard.dateTimeWidth
 
     ColumnLayout {
+        id: layout
+
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
@@ -82,5 +84,11 @@ Item {
                 font: Tokens.font.clock.size(18).weight(Font.DemiBold).build()
             }
         }
+    }
+
+    MouseArea {
+        anchors.fill: layout
+        cursorShape: Qt.PointingHandCursor
+        onClicked: Time.toggleFormat()
     }
 }

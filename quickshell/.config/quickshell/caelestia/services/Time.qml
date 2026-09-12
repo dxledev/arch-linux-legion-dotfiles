@@ -17,6 +17,10 @@ Singleton {
     readonly property string minuteStr: timeComponents[1] ?? ""
     readonly property string amPmStr: timeComponents[2] ?? ""
 
+    function toggleFormat(): void {
+        GlobalConfig.services.useTwelveHourClock = !GlobalConfig.services.useTwelveHourClock;
+    }
+
     function format(fmt: string): string {
         return Qt.formatDateTime(clock.date, fmt);
     }

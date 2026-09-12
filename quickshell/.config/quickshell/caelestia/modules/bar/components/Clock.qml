@@ -13,6 +13,8 @@ StyledRect {
     readonly property int padding: Config.bar.clock.background ? Tokens.padding.medium : Tokens.padding.extraSmall
     readonly property var font: Tokens.font.body.builders.small.scale(1.1)
 
+    signal calendarClicked()
+
     function fontFor(text: string, metricWidth: int): font {
         // We don't count seconds for the max width because it changes too often
         const scale = text === "11" ? 1.15 : Math.min(1.05, Math.max(hourMetrics.width, minMetrics.width) / metricWidth);
@@ -79,6 +81,8 @@ StyledRect {
         }
 
         StyledText {
+            id: hour
+
             Layout.alignment: Qt.AlignHCenter
             text: Time.hourStr
             font: root.fontFor(text, hourMetrics.width)
@@ -140,6 +144,17 @@ StyledRect {
                 font: Tokens.font.body.builders.small.scale(0.9).build()
                 color: root.colour
             }
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: mouse => {
+            if (mouse.y < layout.y + hour.y)
+                root.calendarClicked();
+            else
+                Time.toggleFormat();
         }
     }
 }

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
+dry_run=0
+
+usage() { printf 'Usage: restart-shell [--dry-run]\n'; }
+fail() { printf 'restart-shell: %s\n' "$*" >&2; exit 1; }
+
+parse_args() {
+    case "${1:-}" in
+        --help|-h) usage; exit ;;
+        --dry-run) dry_run=1; shift ;;
+    esac
+    [[ $# == 0 ]] || { usage >&2; exit 2; }
+}
+
+stop_shell() {
+    local pid="$1" attempt
+    /usr/bin/kill -TERM "$pid"
+    for (( attempt=0; attempt<50; attempt++ )); do
+        /usr/bin/kill -0 "$pid" 2>/dev/null || return 0
+        /usr/bin/sleep 0.1
+    done
+    fail "Shell PID $pid did not stop."
+}
+
+main() {
+    parse_args "$@"
+    [[ "$root" == /* && -f "$root/shell.qml" && -x "$root/scripts/quickshell" ]] || fail 'Invalid shell root.'
+
+    if (( ! dry_run )); then
+        exec 9>"${XDG_RUNTIME_DIR:-/tmp}/quickshell-select-$UID.lock"
+        /usr/bin/flock -n 9 || fail 'Another shell switch or restart is running.'
+    fi
+
+    local instances pid
+    local -a pids=()
+    instances="$("$root/scripts/quickshell" list -p "$root/shell.qml" --json)"
+    if [[ "$instances" == \[* ]]; then
+        /usr/bin/jq -e 'type == "array" and all(.[]; (.pid | type == "number") and .pid > 1)' <<< "$instances" >/dev/null || fail 'Invalid shell instance list.'
+        mapfile -t pids < <(/usr/bin/jq -r '.[].pid' <<< "$instances")
+    fi
+
+    if (( dry_run )); then
+        for pid in "${pids[@]}"; do printf 'Stop shell PID %s\n' "$pid"; done
+        printf 'Launch: %q -p %q -n -d\n' "$root/scripts/quickshell" "$root/shell.qml"
+        return
+    fi
+
+    for pid in "${pids[@]}"; do stop_shell "$pid"; done
+    "$root/scripts/quickshell" -p "$root/shell.qml" -n -d 9>&-
+}
+
+main "$@"

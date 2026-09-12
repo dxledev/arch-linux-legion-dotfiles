@@ -1,382 +1,394 @@
 {
-  "appearance": {
-    "font": {
-      "body": {
-        "family": "CaskaydiaMono Nerd Font"
-      },
-      "clock": "CaskaydiaMono Nerd Font",
-      "headline": {
-        "family": "CaskaydiaMono Nerd Font"
-      },
-      "label": {
-        "family": "CaskaydiaMono Nerd Font"
-      },
-      "mono": {
-        "family": "CaskaydiaMono Nerd Font"
-      },
-      "title": {
-        "family": "CaskaydiaMono Nerd Font"
-      },
-      "workspaces": "CaskaydiaMono Nerd Font"
-    }
-  },
-  "background": {
-    "enabled": false
-  },
-  "bar": {
-    "clock": {
-      "showDate": true
-    },
-    "statusIcons": [
-      {
-        "enabled": true,
-        "id": "audio"
-      },
-      {
-        "enabled": true,
-        "id": "network"
-      },
-      {
-        "enabled": true,
-        "id": "bluetooth"
-      },
-      {
-        "enabled": true,
-        "id": "battery"
-      }
-    ],
-    "workspaces": {
-      "perMonitorWorkspaces": true,
-      "shown": 5,
-      "specialWorkspaceIcons": [
-        {
-          "icon": "music_note",
-          "name": "mediaspace"
-        },
-        {
-          "icon": "forum",
-          "name": "discordspace"
-        },
-        {
-          "icon": "terminal",
-          "name": "scratchpad"
-        },
-        {
-          "icon": "chat",
-          "name": "socialspace"
+    "appearance": {
+        "font": {
+            "body": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "clock": "CaskaydiaMono Nerd Font",
+            "headline": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "label": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "mono": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "title": {
+                "family": "CaskaydiaMono Nerd Font"
+            },
+            "workspaces": "CaskaydiaMono Nerd Font"
         }
-      ]
+    },
+    "background": {
+        "enabled": false
+    },
+    "bar": {
+        "clock": {
+            "showDate": true
+        },
+        "statusIcons": [
+            {
+                "enabled": true,
+                "id": "audio"
+            },
+            {
+                "enabled": true,
+                "id": "network"
+            },
+            {
+                "enabled": true,
+                "id": "bluetooth"
+            },
+            {
+                "enabled": true,
+                "id": "battery"
+            }
+        ],
+        "workspaces": {
+            "perMonitorWorkspaces": true,
+            "shown": 5,
+            "specialWorkspaceIcons": [
+                {
+                    "icon": "music_note",
+                    "name": "mediaspace"
+                },
+                {
+                    "icon": "forum",
+                    "name": "discordspace"
+                },
+                {
+                    "icon": "terminal",
+                    "name": "scratchpad"
+                },
+                {
+                    "icon": "chat",
+                    "name": "socialspace"
+                }
+            ]
+        }
+    },
+    "general": {
+        "apps": {
+            "audio": [
+                "/usr/bin/pavucontrol"
+            ],
+            "explorer": [
+                "/usr/bin/nemo"
+            ],
+            "playback": [
+                "/usr/bin/celluloid"
+            ],
+            "terminal": [
+                "/home/dxle/bin/launch-terminal"
+            ]
+        },
+        "idle": {
+            "lockBeforeSleep": false,
+            "timeouts": [
+            ]
+        }
+    },
+    "launcher": {
+        "actions": [
+            {
+                "command": [
+                    "apps"
+                ],
+                "description": "Open the app menu",
+                "icon": "apps",
+                "name": "Apps"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "calc"
+                ],
+                "description": "Calculate with Qalc",
+                "icon": "calculate",
+                "name": "Calculator"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "theme"
+                ],
+                "description": "Choose a system theme",
+                "icon": "palette",
+                "name": "Theme"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "wallpaper"
+                ],
+                "description": "Choose a wallpaper from the current theme",
+                "icon": "image",
+                "name": "Wallpaper"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "fonts"
+                ],
+                "description": "Choose a font",
+                "icon": "font_download",
+                "name": "Fonts"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "terminal-prompt"
+                ],
+                "description": "Choose a Starship prompt style",
+                "icon": "terminal",
+                "name": "Terminal Prompt"
+            },
+            {
+                "command": [
+                    "/home/dxle/bin/bg-next"
+                ],
+                "description": "Next wallpaper",
+                "icon": "casino",
+                "name": "Random"
+            },
+            {
+                "command": [
+                    "session",
+                    "logout"
+                ],
+                "description": "Lock current session",
+                "icon": "lock",
+                "name": "Lock"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "learn"
+                ],
+                "description": "Keybindings and documentation",
+                "icon": "school",
+                "name": "Learn"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "capture"
+                ],
+                "description": "Screenshot and recording tools",
+                "icon": "screenshot_monitor",
+                "name": "Capture"
+            },
+            {
+                "command": [
+                    "/home/dxle/.config/quickshell/scripts/quickshell",
+                    "-p",
+                    "/home/dxle/.config/quickshell/shell.qml",
+                    "ipc",
+                    "call",
+                    "nexus",
+                    "open"
+                ],
+                "description": "Configure Caelestia",
+                "icon": "settings",
+                "name": "Settings"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "install"
+                ],
+                "description": "Install packages and fonts",
+                "icon": "download",
+                "name": "Install"
+            },
+            {
+                "command": [
+                    "/home/dxle/bin/launch-pacman-update"
+                ],
+                "description": "Update Arch and AUR packages",
+                "icon": "system_update",
+                "name": "System Update"
+            },
+            {
+                "command": [
+                    "panel",
+                    "bluetooth"
+                ],
+                "description": "Manage Bluetooth devices",
+                "icon": "bluetooth",
+                "name": "Bluetooth"
+            },
+            {
+                "command": [
+                    "panel",
+                    "network"
+                ],
+                "description": "Manage network connections",
+                "icon": "wifi",
+                "name": "Network"
+            },
+            {
+                "command": [
+                    "panel",
+                    "audio"
+                ],
+                "description": "Adjust volume and audio devices",
+                "icon": "volume_up",
+                "name": "Volume"
+            },
+            {
+                "command": [
+                    "panel",
+                    "battery"
+                ],
+                "description": "Battery status and power controls",
+                "icon": "battery_full",
+                "name": "Battery & Power Profile"
+            },
+            {
+                "command": [
+                    "idle-lock"
+                ],
+                "description": "Toggle automatic screen locking",
+                "icon": "lock",
+                "name": "Idle Lock"
+            },
+            {
+                "command": [
+                    "nightlight"
+                ],
+                "description": "Toggle nightlight",
+                "icon": "nightlight",
+                "name": "Nightlight"
+            },
+            {
+                "command": [
+                    "/usr/bin/bash",
+                    "/home/dxle/.config/quickshell/scripts/restart-shell"
+                ],
+                "description": "Restart Quickshell and apply shell changes",
+                "icon": "restart_alt",
+                "name": "Restart Shell"
+            },
+            {
+                "command": [
+                    "session",
+                    "shutdown"
+                ],
+                "description": "Shut down the computer",
+                "icon": "power_settings_new",
+                "name": "Shutdown"
+            },
+            {
+                "command": [
+                    "session",
+                    "reboot"
+                ],
+                "description": "Restart the computer",
+                "icon": "restart_alt",
+                "name": "Reboot"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "emojis"
+                ],
+                "description": "Search and copy emojis",
+                "icon": "mood",
+                "name": "Emojis"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "unicode"
+                ],
+                "description": "Search and copy Unicode characters",
+                "icon": "special_character",
+                "name": "Unicode"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "layout"
+                ],
+                "description": "Choose a window layout",
+                "icon": "view_quilt",
+                "name": "Layout"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "workspace-icons"
+                ],
+                "description": "Choose workspace icon style",
+                "icon": "view_week",
+                "name": "Workspace Icons"
+            }
+        ]
+    },
+    "osd": {
+        "enabled": true
+    },
+    "paths": {
+        "wallpaperDir": "/home/dxle/.config/themes/current/wallpapers"
+    },
+    "services": {
+        "gpuType": "Nvidia",
+        "smartScheme": false,
+        "useTwelveHourClock": false,
+        "weatherUnits": "Celsius"
+    },
+    "session": {
+        "commands": {
+            "hibernate": [
+                "/home/dxle/bin/system-toggle-nightlight"
+            ],
+            "logout": [
+                "/home/dxle/.config/hyprlock/scripts/launch-lock-screen.sh"
+            ]
+        },
+        "icons": {
+            "hibernate": "nightlight",
+            "logout": "lock"
+        }
+    },
+    "utilities": {
+        "cards": {
+            "recorder": false
+        },
+        "quickToggles": [
+            {
+                "enabled": true,
+                "id": "wifi"
+            },
+            {
+                "enabled": true,
+                "id": "bluetooth"
+            },
+            {
+                "enabled": true,
+                "id": "mic"
+            },
+            {
+                "enabled": true,
+                "id": "settings"
+            },
+            {
+                "enabled": true,
+                "id": "nightlight"
+            },
+            {
+                "enabled": true,
+                "id": "dnd"
+            },
+            {
+                "enabled": true,
+                "id": "vpn"
+            }
+        ],
+        "toasts": {
+            "configLoaded": false
+        }
     }
-  },
-  "general": {
-    "apps": {
-      "audio": [
-        "/usr/bin/pavucontrol"
-      ],
-      "explorer": [
-        "/usr/bin/nemo"
-      ],
-      "playback": [
-        "/usr/bin/celluloid"
-      ],
-      "terminal": [
-        "/home/dxle/bin/launch-terminal"
-      ]
-    },
-    "idle": {
-      "lockBeforeSleep": false,
-      "timeouts": []
-    }
-  },
-  "launcher": {
-    "actions": [
-      {
-        "name": "Apps",
-        "description": "Open the app menu",
-        "icon": "apps",
-        "command": [
-          "apps"
-        ]
-      },
-      {
-        "command": [
-          "autocomplete",
-          "calc"
-        ],
-        "description": "Calculate with Qalc",
-        "icon": "calculate",
-        "name": "Calculator"
-      },
-      {
-        "command": [
-          "autocomplete",
-          "theme"
-        ],
-        "description": "Choose a system theme",
-        "icon": "palette",
-        "name": "Theme"
-      },
-      {
-        "command": [
-          "autocomplete",
-          "wallpaper"
-        ],
-        "description": "Choose a wallpaper from the current theme",
-        "icon": "image",
-        "name": "Wallpaper"
-      },
-      {
-        "name": "Fonts",
-        "description": "Choose a font",
-        "icon": "font_download",
-        "command": [
-          "autocomplete",
-          "fonts"
-        ]
-      },
-      {
-        "name": "Terminal Prompt",
-        "description": "Choose a Starship prompt style",
-        "icon": "terminal",
-        "command": [
-          "autocomplete",
-          "terminal-prompt"
-        ]
-      },
-      {
-        "command": [
-          "/home/dxle/bin/bg-next"
-        ],
-        "description": "Next wallpaper",
-        "icon": "casino",
-        "name": "Random"
-      },
-      {
-        "command": [
-          "session",
-          "logout"
-        ],
-        "description": "Lock current session",
-        "icon": "lock",
-        "name": "Lock"
-      },
-      {
-        "name": "Learn",
-        "description": "Keybindings and documentation",
-        "icon": "school",
-        "command": [
-          "autocomplete",
-          "learn"
-        ]
-      },
-      {
-        "command": [
-          "autocomplete",
-          "capture"
-        ],
-        "description": "Screenshot and recording tools",
-        "icon": "screenshot_monitor",
-        "name": "Capture"
-      },
-      {
-        "command": [
-          "/home/dxle/.config/quickshell/scripts/quickshell",
-          "-p",
-          "/home/dxle/.config/quickshell/shell.qml",
-          "ipc",
-          "call",
-          "nexus",
-          "open"
-        ],
-        "description": "Configure Caelestia",
-        "icon": "settings",
-        "name": "Settings"
-      },
-      {
-        "name": "Install",
-        "description": "Install packages and fonts",
-        "icon": "download",
-        "command": [
-          "autocomplete",
-          "install"
-        ]
-      },
-      {
-        "name": "System Update",
-        "description": "Update Arch and AUR packages",
-        "icon": "system_update",
-        "command": [
-          "/home/dxle/bin/launch-pacman-update"
-        ]
-      },
-      {
-        "name": "Bluetooth",
-        "description": "Manage Bluetooth devices",
-        "icon": "bluetooth",
-        "command": [
-          "panel",
-          "bluetooth"
-        ]
-      },
-      {
-        "name": "Network",
-        "description": "Manage network connections",
-        "icon": "wifi",
-        "command": [
-          "panel",
-          "network"
-        ]
-      },
-      {
-        "name": "Volume",
-        "description": "Adjust volume and audio devices",
-        "icon": "volume_up",
-        "command": [
-          "panel",
-          "audio"
-        ]
-      },
-      {
-        "name": "Battery & Power Profile",
-        "description": "Battery status and power controls",
-        "icon": "battery_full",
-        "command": [
-          "panel",
-          "battery"
-        ]
-      },
-      {
-        "name": "Idle Lock",
-        "description": "Toggle automatic screen locking",
-        "icon": "lock",
-        "command": [
-          "idle-lock"
-        ]
-      },
-      {
-        "name": "Nightlight",
-        "description": "Toggle nightlight",
-        "icon": "nightlight",
-        "command": [
-          "nightlight"
-        ]
-      },
-      {
-        "name": "Shutdown",
-        "description": "Shut down the computer",
-        "icon": "power_settings_new",
-        "command": [
-          "session",
-          "shutdown"
-        ]
-      },
-      {
-        "name": "Reboot",
-        "description": "Restart the computer",
-        "icon": "restart_alt",
-        "command": [
-          "session",
-          "reboot"
-        ]
-      },
-      {
-        "name": "Emojis",
-        "description": "Search and copy emojis",
-        "icon": "mood",
-        "command": [
-          "autocomplete",
-          "emojis"
-        ]
-      },
-      {
-        "name": "Unicode",
-        "description": "Search and copy Unicode characters",
-        "icon": "special_character",
-        "command": [
-          "autocomplete",
-          "unicode"
-        ]
-      },
-      {
-        "name": "Layout",
-        "description": "Choose a window layout",
-        "icon": "view_quilt",
-        "command": [
-          "autocomplete",
-          "layout"
-        ]
-      },
-      {
-        "name": "Workspace Icons",
-        "description": "Choose workspace icon style",
-        "icon": "view_week",
-        "command": [
-          "autocomplete",
-          "workspace-icons"
-        ]
-      }
-    ]
-  },
-  "osd": {
-    "enabled": true
-  },
-  "paths": {
-    "wallpaperDir": "/home/dxle/.config/themes/current/wallpapers"
-  },
-  "services": {
-    "gpuType": "Nvidia",
-    "smartScheme": false
-  },
-  "session": {
-    "commands": {
-      "hibernate": [
-        "/home/dxle/bin/system-toggle-nightlight"
-      ],
-      "logout": [
-        "/home/dxle/.config/hyprlock/scripts/launch-lock-screen.sh"
-      ]
-    },
-    "icons": {
-      "hibernate": "nightlight",
-      "logout": "lock"
-    }
-  },
-  "utilities": {
-    "cards": {
-      "recorder": false
-    },
-    "toasts": {
-      "configLoaded": false
-    },
-    "quickToggles": [
-      {
-        "id": "wifi",
-        "enabled": true
-      },
-      {
-        "id": "bluetooth",
-        "enabled": true
-      },
-      {
-        "id": "mic",
-        "enabled": true
-      },
-      {
-        "id": "settings",
-        "enabled": true
-      },
-      {
-        "id": "nightlight",
-        "enabled": true
-      },
-      {
-        "id": "dnd",
-        "enabled": true
-      },
-      {
-        "id": "vpn",
-        "enabled": true
-      }
-    ]
-  }
 }

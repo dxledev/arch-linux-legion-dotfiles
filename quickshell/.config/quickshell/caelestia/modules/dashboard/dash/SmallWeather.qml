@@ -41,6 +41,12 @@ Item {
             text: Weather.temp
             color: Colours.palette.m3primary
             font: Tokens.font.headline.builders.medium.width(110).weight(Font.DemiBold).build()
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: GlobalConfig.services.weatherUnits = GlobalConfig.services.weatherUnits === TemperatureUnit.Fahrenheit ? TemperatureUnit.Celsius : TemperatureUnit.Fahrenheit
+            }
         }
 
         StyledText {

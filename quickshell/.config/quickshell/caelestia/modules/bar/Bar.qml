@@ -183,6 +183,13 @@ ColumnLayout {
                 delegate: EntryWrapper {
                     Clock {
                         objectName: "taskbarClock"
+                        onCalendarClicked: {
+                            root.popouts.close();
+                            root.screenState.launcher = false;
+                            root.screenState.session = false;
+                            root.screenState.dashboardPinned = true;
+                            root.screenState.dashboard = true;
+                        }
                     }
                 }
             }

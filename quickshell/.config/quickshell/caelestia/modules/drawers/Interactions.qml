@@ -79,7 +79,7 @@ CustomMouseArea {
                 root.panels.osd.hovered = false;
             }
 
-            if (!dashboardShortcutActive)
+            if (!dashboardShortcutActive && !screenState.dashboardPinned)
                 screenState.dashboard = false;
 
             if (!utilitiesShortcutActive)
@@ -218,15 +218,15 @@ CustomMouseArea {
         const showDashboard = Config.dashboard.showOnHover && inTopPanel(panels.dashboard, x, y);
 
         // Always update visibility based on hover if not in shortcut mode
-        if (!dashboardShortcutActive) {
+        if (!dashboardShortcutActive && !screenState.dashboardPinned) {
             screenState.dashboard = showDashboard;
-        } else if (showDashboard) {
+        } else if (showDashboard && !screenState.dashboardPinned) {
             // If hovering over dashboard area while in shortcut mode, transition to hover control
             dashboardShortcutActive = false;
         }
 
         // Show/hide dashboard on drag (for touchscreen devices)
-        if (pressed && inTopPanel(panels.dashboard, dragStart.x, dragStart.y) && withinPanelWidth(panels.dashboard, x, y)) {
+        if (!screenState.dashboardPinned && pressed && inTopPanel(panels.dashboard, dragStart.x, dragStart.y) && withinPanelWidth(panels.dashboard, x, y)) {
             if (dragY > Config.dashboard.dragThreshold)
                 screenState.dashboard = true;
             else if (dragY < -Config.dashboard.dragThreshold)
@@ -266,7 +266,7 @@ CustomMouseArea {
                 const inDashboardArea = root.inTopPanel(root.panels.dashboard, root.mouseX, root.mouseY);
                 const inOsdArea = root.inOsdPanel(root.mouseX, root.mouseY);
 
-                if (!inDashboardArea) {
+                if (!inDashboardArea && !root.screenState.dashboardPinned) {
                     root.screenState.dashboard = false;
                 }
                 if (!inOsdArea) {

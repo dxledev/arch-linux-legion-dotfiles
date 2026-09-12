@@ -13,6 +13,12 @@ PersistentProperties {
     property bool sidebar
 
     // Dashboard state
+    property bool dashboardPinned: false
     property int dashboardTab
     property date dashboardDate: new Date()
+
+    onDashboardChanged: {
+        if (!dashboard)
+            dashboardPinned = false;
+    }
 }
