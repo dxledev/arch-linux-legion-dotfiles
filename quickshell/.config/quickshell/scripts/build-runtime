@@ -40,5 +40,6 @@ export CPATH="$runtime/include${CPATH:+:$CPATH}"
 build_cmake m3shapes
 build_cmake caelestia -DINSTALL_LIBDIR=lib/caelestia '-DENABLE_MODULES=extras;plugin'
 run /usr/bin/bash "$root/scripts/build-integration"
+run /usr/bin/bash "$root/scripts/build-chromack"
 run /usr/bin/python -m venv "$runtime/cli"
 run "$runtime/cli/bin/pip" install "$sources/caelestia-cli"

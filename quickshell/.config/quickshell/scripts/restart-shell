@@ -3,16 +3,28 @@ set -euo pipefail
 
 root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
 dry_run=0
+delay=0
 
-usage() { printf 'Usage: restart-shell [--dry-run]\n'; }
+usage() { printf 'Usage: restart-shell [--delay SECONDS] [--dry-run]\n'; }
 fail() { printf 'restart-shell: %s\n' "$*" >&2; exit 1; }
 
 parse_args() {
-    case "${1:-}" in
-        --help|-h) usage; exit ;;
-        --dry-run) dry_run=1; shift ;;
-    esac
-    [[ $# == 0 ]] || { usage >&2; exit 2; }
+    while (( $# )); do
+        case "$1" in
+            --help|-h) usage; exit ;;
+            --delay)
+                [[ $# -ge 2 ]] || fail '--delay requires a value.'
+                delay="$2"
+                shift 2
+                ;;
+            --dry-run)
+                dry_run=1
+                shift
+                ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    [[ "$delay" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] || fail 'Delay must be a non-negative number.'
 }
 
 stop_shell() {
@@ -43,11 +55,13 @@ main() {
     fi
 
     if (( dry_run )); then
+        [[ "$delay" == 0 ]] || printf 'Delay: %s seconds\n' "$delay"
         for pid in "${pids[@]}"; do printf 'Stop shell PID %s\n' "$pid"; done
         printf 'Launch: %q -p %q -n -d\n' "$root/scripts/quickshell" "$root/shell.qml"
         return
     fi
 
+    [[ "$delay" == 0 ]] || /usr/bin/sleep "$delay"
     for pid in "${pids[@]}"; do stop_shell "$pid"; done
     "$root/scripts/quickshell" -p "$root/shell.qml" -n -d 9>&-
 }

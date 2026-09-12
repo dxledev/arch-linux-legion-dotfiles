@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
+runtime="${QUICKSHELL_RUNTIME:-$root/.runtime}"
+build_dir="${SHELL_BUILD_DIR:-${TMPDIR:-/tmp}/caelestia-build}/chromack"
+jobs="${BUILD_JOBS:-2}"
+[[ $# -le 1 && "$root" == /* && "$runtime" == /* && "$build_dir" == /* && "$jobs" =~ ^[1-9][0-9]*$ ]] || exit 2
+dry_run=0
+case "${1:-}" in
+    --dry-run) dry_run=1 ;;
+    --help|-h) printf 'Usage: build-chromack [--dry-run]\nBuild and test the native Chromack module.\n'; exit ;;
+    '') ;;
+    *) exit 2 ;;
+esac
+run() { if (( dry_run )); then printf '%q ' "$@"; printf '\n'; else "$@"; fi; }
+run /usr/bin/cmake -S "$root/caelestia/integration/chromack" -B "$build_dir" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$runtime"
+run /usr/bin/cmake --build "$build_dir" -j "$jobs"
+run /usr/bin/ctest --test-dir "$build_dir" --output-on-failure
+run /usr/bin/cmake --install "$build_dir"

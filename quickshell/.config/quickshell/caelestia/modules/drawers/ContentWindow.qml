@@ -45,7 +45,7 @@ StyledWindow {
     property color surfaceColour: Colours.tPalette.m3surface
 
     readonly property int dragMaskPadding: {
-        if (focusGrab.active || panels.popouts.isDetached)
+        if (focusGrab.active || panels.popouts.isDetached || panels.chromack.shouldBeActive)
             return 0;
 
         if (monitor?.lastIpcObject.specialWorkspace?.name || monitor?.activeWorkspace?.lastIpcObject.windows > 0)
@@ -67,8 +67,8 @@ StyledWindow {
 
     name: "drawers"
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
-    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session || screenState.dashboardPinned ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.layer: panels.chromack.shouldBeActive || (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
+    WlrLayershell.keyboardFocus: panels.chromack.acquireFocus ? WlrKeyboardFocus.Exclusive : panels.chromack.shouldBeActive || screenState.launcher || screenState.session || screenState.dashboardPinned ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     mask: hasFullscreen ? emptyRegion : regions
 
@@ -92,6 +92,13 @@ StyledWindow {
         y: panels.notifications.y + root.borderThickness
         width: panels.notifications.width
         height: panels.notifications.height
+
+        Region {
+            x: panels.chromack.x + bar.implicitWidth
+            y: panels.chromack.y + root.borderThickness
+            width: panels.chromack.width
+            height: panels.chromack.occupiedHeight
+        }
 
         Region {
             x: root.width - width
@@ -136,7 +143,7 @@ StyledWindow {
 
     Shortcut {
         sequence: "Escape"
-        enabled: root.screenState.dashboard && root.screenState.dashboardPinned
+        enabled: root.screenState.dashboard && root.screenState.dashboardPinned && !panels.chromack.keyboardFocused
         onActivated: root.screenState.dashboard = false
     }
 
@@ -188,7 +195,17 @@ StyledWindow {
         }
 
         PanelBg {
+            id: chromackBg
+            visible: panels.chromack.visible
+            group: visible ? blobGroup : null
+            panel: panels.chromack
+            deformAmount: 0.1
+        }
+
+        PanelBg {
             id: launcherBg
+            visible: panels.launcher.visible
+            group: visible ? blobGroup : null
 
             panel: panels.launcher
             deformAmount: 0.1
@@ -281,6 +298,9 @@ StyledWindow {
 
             dashboard.transform: Matrix4x4 {
                 matrix: dashBg.deformMatrix
+            }
+            chromack.transform: Matrix4x4 {
+                matrix: chromackBg.deformMatrix
             }
             launcher.transform: Matrix4x4 {
                 matrix: launcherBg.deformMatrix

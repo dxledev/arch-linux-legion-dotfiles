@@ -52,7 +52,7 @@ Optional environment overrides: `QUICKSHELL_ROOT`, `QUICKSHELL_RUNTIME`, `SHELL_
 | Super+Shift+N | Notifications |
 | Super+D | Utilities |
 | Super+Shift+B | Session menu |
-| Super+Shift+C | Caelestia settings |
+| Super+Shift+C | Chromack |
 | Super+Ctrl+Alt+Q | Existing Waybar/Quickshell mode toggle |
 
 ```bash
@@ -87,3 +87,13 @@ Run clone commands only for missing directories. Set `SHELL_SOURCES`, `SHELL_BUI
 ## Validation
 
 The native plugins built successfully on this machine. Live checks verified a single root shell instance, notification ownership, shared theme/font/wallpaper values, the launcher binding, panel loading, and a Waybar/Caelestia mode round trip. Hyprland reported no configuration errors. Bash, JSON, and Lua checks passed. Use `/usr/lib/qt6/bin/qmlformat` for QML checks; `/usr/bin/qmlformat` belongs to Qt 5. Notification formatting passed 12 Qt 6 regression checks and a live styled-popup check. Suspend, shutdown, locking, and hardware-changing actions were not invoked as tests.
+
+## Chromack
+
+Super+Shift+C toggles Chromack connected to the bottom border of the focused monitor, using `qs ipc call chromack toggle`. The launcher’s Commands → Chromack entry (`>chromack`) and `qs ipc call chromack open` open it; repeating the open command focuses it. X or Escape while the panel has focus also closes it. Outside clicks leave it open. Chromack and the launcher replace each other: opening either dismisses the other. Chromack retains its selected tab and active color. The eyedropper temporarily hides Chromack, then restores it on completion or cancellation. `qs ipc call chromack isOpen` reports its logical open state, including during picking.
+
+The Color Picker, Shade, Palette, and Theory tabs use Chromack's original color algorithms and data formats. Styling comes from `~/.config/chromack/config.toml` and its CSS imports, including the current system theme. Recent colors, active color, material edits, and saved TOML palettes use the existing Chromack paths. Generated palette rows are read-only, as in standalone Chromack. Existing standalone commands are unchanged.
+
+Configure `chromack` in `caelestia/config/integration.json`: `width` (520 logical pixels), `height` (610 logical pixels), optional proportional `heightRatio` when `height` is omitted, `inputFontSize` (13 pixels), `duration` (220 ms), and optional `eyedropperCommand` (an argument array returning a color on stdout). The default picker is `/usr/bin/hyprpicker -a -b -f rgb -o '#{0:02X}{1:02X}{2:02X}'`; it returns directly to the shell rather than invoking standalone Chromack. Set `SHELL_CHROMACK_CONFIG_DIR` to use an alternate Chromack configuration directory.
+
+Build with `scripts/build-chromack` (`--dry-run` supported), also included in `scripts/build-runtime`. The build runs native regression tests and installs `Shell.Chromack` into `.runtime/qml`. Restart the shell after QML or native module changes; JSON and CSS reload live.

@@ -4,6 +4,7 @@ import Caelestia.Config
 import qs.components
 import qs.modules.bar as Bar
 import qs.modules.dashboard as Dashboard
+import qs.modules.chromack as Chromack
 import qs.modules.launcher as Launcher
 import qs.modules.notifications as Notifications
 import qs.modules.osd as Osd
@@ -26,6 +27,7 @@ Item {
     readonly property alias notifications: notifications
     readonly property alias session: session
     readonly property alias sessionWrapper: sessionWrapper
+    readonly property alias chromack: chromack
     readonly property alias launcher: launcher
     readonly property alias dashboard: dashboard
     readonly property alias popouts: popoutsWrapper.content
@@ -95,6 +97,13 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.right: parent.right
         }
+    }
+
+    Chromack.Wrapper {
+        id: chromack
+        screen: root.screen
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
     }
 
     Launcher.Wrapper {

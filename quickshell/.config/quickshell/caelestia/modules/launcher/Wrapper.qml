@@ -5,6 +5,7 @@ import Quickshell
 import Caelestia.Config
 import qs.components
 import qs.modules.launcher.services
+import qs.modules.chromack as Chromack
 
 Item {
     id: root
@@ -39,13 +40,16 @@ Item {
     }
 
     onShouldBeActiveChanged: {
-        if (shouldBeActive)
+        if (shouldBeActive) {
+            if (Chromack.ChromackState.isOpen)
+                Chromack.ChromackState.close(false);
             implicitHeight = Qt.binding(() => content.implicitHeight);
+        }
         else
             implicitHeight = implicitHeight; // Break binding during close anim
     }
 
-    visible: offsetScale < 1
+    visible: offsetScale < 1 && !Chromack.ChromackState.isOpen
     anchors.bottomMargin: (-implicitHeight - 5) * offsetScale
     implicitHeight: content.implicitHeight
     implicitWidth: content.implicitWidth || 630 // Hard coded fallback for first open

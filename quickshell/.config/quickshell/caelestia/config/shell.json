@@ -110,6 +110,14 @@
             },
             {
                 "command": [
+                    "chromack"
+                ],
+                "description": "Pick colors and generate palettes",
+                "icon": "palette",
+                "name": "Chromack"
+            },
+            {
+                "command": [
                     "autocomplete",
                     "theme"
                 ],
@@ -265,7 +273,9 @@
             {
                 "command": [
                     "/usr/bin/bash",
-                    "/home/dxle/.config/quickshell/scripts/restart-shell"
+                    "/home/dxle/.config/quickshell/scripts/restart-shell",
+                    "--delay",
+                    "0.5"
                 ],
                 "description": "Restart Quickshell and apply shell changes",
                 "icon": "restart_alt",

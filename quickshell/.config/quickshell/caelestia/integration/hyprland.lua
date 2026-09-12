@@ -30,7 +30,7 @@ local bindings = {
     { "SUPER + SHIFT + N", "Caelestia Notifications", "drawers toggle sidebar" },
     { "SUPER + D", "Caelestia Utilities", "drawers toggle utilities" },
     { "SUPER + SHIFT + B", "Caelestia Session", "drawers toggle session" },
-    { "SUPER + SHIFT + C", "Caelestia Settings", "nexus open" },
+    { "SUPER + SHIFT + C", "Chromack Color Panel", "chromack toggle" },
 }
 
 for _, binding in ipairs(bindings) do

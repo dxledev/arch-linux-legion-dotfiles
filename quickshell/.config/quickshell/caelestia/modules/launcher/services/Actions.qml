@@ -7,6 +7,7 @@ import Caelestia.Config
 import Caelestia.I18n
 import Caelestia.Services
 import qs.services
+import qs.modules.chromack as Chromack
 import qs.utils
 
 Searcher {
@@ -79,6 +80,8 @@ Searcher {
             } else if (isIdleLock) {
                 list.screenState.launcher = false;
                 IdleLock.toggle();
+            } else if (command[0] === "chromack") {
+                Chromack.ChromackState.open();
             } else if (command[0] === "apps") {
                 list.search.text = "";
             } else if (command[0] === "autocomplete" && command.length > 1) {

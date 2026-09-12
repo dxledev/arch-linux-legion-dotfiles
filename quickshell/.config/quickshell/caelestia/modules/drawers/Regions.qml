@@ -34,6 +34,12 @@ Region {
     }
 
     R {
+        panel: root.panels.chromack
+        y: root.win.height - height
+        height: root.panels.chromack.occupiedHeight + root.borderThickness
+    }
+
+    R {
         id: sessionRegion
 
         panel: root.panels.sessionWrapper

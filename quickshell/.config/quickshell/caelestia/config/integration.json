@@ -4,5 +4,6 @@
     {"connector": "HDMI-A-1", "label": "Primary"},
     {"connector": "DP-1", "label": "Secondary"}
   ],
+  "chromack": {"width": 520, "height": 610, "inputFontSize": 13, "duration": 220},
   "windowRounding": {"enabled": true, "power": 2.0}
 }

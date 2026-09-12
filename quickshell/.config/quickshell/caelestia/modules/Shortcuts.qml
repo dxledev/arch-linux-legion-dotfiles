@@ -4,6 +4,7 @@ import Quickshell.Io
 import Caelestia
 import qs.components.misc
 import qs.services
+import qs.modules.chromack as Chromack
 import qs.modules.nexus
 
 Scope {
@@ -106,6 +107,13 @@ Scope {
             const screenState = ShellState.forActive();
             screenState.utilities = !screenState.utilities;
         }
+    }
+
+    IpcHandler {
+        target: "chromack"
+        function open(): void { Chromack.ChromackState.open(); }
+        function toggle(): void { Chromack.ChromackState.toggle(); }
+        function isOpen(): bool { return Chromack.ChromackState.isOpen; }
     }
 
     IpcHandler {
