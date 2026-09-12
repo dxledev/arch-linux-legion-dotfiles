@@ -5,4 +5,5 @@ QtObject {
     property bool hasCurrent
 
     signal detachRequested(mode: string)
+    signal wifiQrRequested(ssid: string, iface: string)
 }

@@ -45,6 +45,14 @@
                 "id": "battery"
             }
         ],
+        "tray": {
+            "iconSubs": [
+                {
+                    "icon": "discord-tray",
+                    "id": "vesktop_status_icon_1"
+                }
+            ]
+        },
         "workspaces": {
             "perMonitorWorkspaces": true,
             "shown": 5,

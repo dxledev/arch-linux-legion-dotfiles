@@ -23,6 +23,11 @@ ColumnLayout {
     spacing: Tokens.spacing.small
     width: Tokens.sizes.bar.networkWidth
 
+    function activeWifiInterface(): string {
+        const activeInterface = Nmcli.wirelessInterfaces.find(iface => Nmcli.isConnectedState(iface.state));
+        return activeInterface?.device ?? "";
+    }
+
     // Wireless section
     StyledText {
         visible: root.view === "wireless"
@@ -111,6 +116,20 @@ ColumnLayout {
                 elide: Text.ElideRight
                 font: Tokens.font.body.builders.medium.weight(networkItem.modelData.active ? Font.Medium : Font.Normal).build()
                 color: networkItem.modelData.active ? Colours.palette.m3primary : Colours.palette.m3onSurface
+            }
+
+            IconButton {
+                icon: "qr_code_2"
+                type: IconButton.Text
+                disabled: !networkItem.modelData.active
+                opacity: disabled ? 0.38 : 1
+                onClicked: root.popouts.wifiQrRequested(networkItem.modelData.ssid, root.activeWifiInterface())
+
+                Behavior on opacity {
+                    Anim {
+                        type: Anim.DefaultEffects
+                    }
+                }
             }
 
             StyledRect {

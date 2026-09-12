@@ -100,6 +100,16 @@ Item {
         id: popoutState
 
         onDetachRequested: mode => root.detach(mode)
+        onWifiQrRequested: (ssid, iface) => {
+            root.close();
+            wifiQrModal.open(ssid, iface);
+        }
+    }
+
+    WifiQrModal {
+        id: wifiQrModal
+
+        screen: root.screen
     }
 
     HyprlandFocusGrab {
