@@ -19,6 +19,6 @@ IconButton {
         parent: root
         Tokens.screen: root.Tokens.screen
         visible: root.hovered || root.pressed
-        text: Nightlight.enabled ? "Nightlight on" : "Nightlight off"
+        text: Nightlight.enabled ? "Nightlight On" : "Nightlight Off"
     }
 }
