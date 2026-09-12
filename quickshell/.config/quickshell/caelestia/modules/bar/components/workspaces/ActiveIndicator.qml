@@ -10,17 +10,13 @@ StyledRect {
     id: root
 
     required property int activeWsId
-    required property int groupOffset
+    required property var workspaceIds
     required property Repeater workspaces
     required property Item mask
     required property bool fullscreen
 
-    readonly property int currentWsIdx: {
-        let i = activeWsId - groupOffset - 1;
-        while (i < 0)
-            i += Config.bar.workspaces.shown;
-        return i % Config.bar.workspaces.shown;
-    }
+    readonly property int currentWsIdx: workspaceIds.indexOf(activeWsId)
+    visible: currentWsIdx >= 0
 
     property real leading: workspaces.count > 0 ? workspaces.itemAt(currentWsIdx)?.y ?? 0 : 0
     property real trailing: workspaces.count > 0 ? workspaces.itemAt(currentWsIdx)?.y ?? 0 : 0

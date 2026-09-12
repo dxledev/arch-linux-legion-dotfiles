@@ -11,36 +11,32 @@ Item {
 
     required property Repeater workspaces
     required property var occupied
-    required property int groupOffset
+    required property var workspaceIds
 
     property list<var> pills: []
 
-    onOccupiedChanged: {
-        if (!occupied)
-            return;
+    function updatePills(): void {
         let count = 0;
-        const start = groupOffset;
-        const end = start + Config.bar.workspaces.shown;
-        for (const [ws, occ] of Object.entries(occupied)) {
-            if (ws > start && ws <= end && occ) {
-                const isFirstInGroup = Number(ws) === start + 1;
-                const isLastInGroup = Number(ws) === end;
-                if (isFirstInGroup || !occupied[ws - 1]) {
-                    if (pills[count])
-                        pills[count].start = ws;
-                    else
-                        pills.push(pillComp.createObject(root, {
-                            start: ws
-                        }));
-                    count++;
-                }
-                if ((isLastInGroup || !occupied[ws + 1]) && pills[count - 1])
-                    pills[count - 1].end = ws;
+        for (let index = 0; index < workspaceIds.length; index++) {
+            const ws = workspaceIds[index];
+            if (!occupied[ws])
+                continue;
+            if (index === 0 || !occupied[workspaceIds[index - 1]]) {
+                if (pills[count])
+                    pills[count].start = ws;
+                else
+                    pills.push(pillComp.createObject(root, { start: ws }));
+                count++;
             }
+            pills[count - 1].end = ws;
         }
         if (pills.length > count)
-            pills.splice(count, pills.length - count).forEach(p => p.destroy());
+            pills.splice(count).forEach(pill => pill.destroy());
     }
+
+    onOccupiedChanged: updatePills()
+    onWorkspaceIdsChanged: updatePills()
+    Component.onCompleted: updatePills()
 
     Repeater {
         model: ScriptModel {
@@ -56,10 +52,7 @@ Item {
             readonly property Workspace end: root.workspaces.count > 0 ? root.workspaces.itemAt(getWsIdx(modelData.end)) ?? null : null // qmllint disable incompatible-type
 
             function getWsIdx(ws: int): int {
-                let i = ws - root.groupOffset - 1;
-                while (i < 0)
-                    i += Config.bar.workspaces.shown;
-                return i % Config.bar.workspaces.shown;
+                return root.workspaceIds.indexOf(ws);
             }
 
             anchors.horizontalCenter: root.horizontalCenter

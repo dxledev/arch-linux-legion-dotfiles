@@ -213,7 +213,8 @@ StyledWindow {
             visible: panels.osd.visible
             group: visible ? blobGroup : null
             panel: panels.osdWrapper
-            deformAmount: 0.25
+            // Compensate for the short horizontal travel of this tall drawer.
+            deformAmount: 0.15 * Math.max(1, panels.osd.height / Math.max(1, panels.osd.width))
             x: panels.osdWrapper.x + panels.osd.x + bar.implicitWidth
             implicitWidth: panels.osd.width
         }

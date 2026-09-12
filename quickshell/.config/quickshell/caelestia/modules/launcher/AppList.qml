@@ -114,6 +114,10 @@ StyledListView {
 
     states: [
         State {
+            name: "workspace-icons"
+            PropertyChanges { root.delegate: actionItem }
+        },
+        State {
             name: "capture"
             PropertyChanges { root.delegate: actionItem }
         },

@@ -101,9 +101,10 @@ ColumnLayout {
             if (specialWs?.length > 0)
                 Hypr.dispatch(Hypr.usingLua ? `hl.dsp.workspace.toggle_special("${specialWs.slice(8)}")` : `togglespecialworkspace ${specialWs.slice(8)}`);
             else {
-                const first = System.workspaceStarts[screen.name] ?? 1;
-                const current = mon.activeWorkspace?.id ?? first;
-                const next = Math.max(first, Math.min(first + Config.bar.workspaces.shown - 1, current + (angleDelta.y > 0 ? -1 : 1)));
+                const ids = WorkspaceAppearance.visibleIds(screen, Config.bar.workspaces.shown);
+                const current = mon.activeWorkspace?.id ?? ids[0];
+                const index = Math.max(0, ids.indexOf(current));
+                const next = ids[Math.max(0, Math.min(ids.length - 1, index + (angleDelta.y > 0 ? -1 : 1)))];
                 if (next !== current)
                     Hypr.dispatch(Hypr.usingLua ? `hl.plugin.hymission.workspace("${next}")` : `hymission:workspace ${next}`);
             }

@@ -24,7 +24,7 @@ StyledClippingRect {
             occ[ws.id] = ws.lastIpcObject.windows > 0;
         return occ;
     }
-    readonly property int groupOffset: (System.workspaceStarts[screen.name] ?? (Math.floor((activeWsId - 1) / Config.bar.workspaces.shown) * Config.bar.workspaces.shown + 1)) - 1
+    readonly property var workspaceIds: WorkspaceAppearance.visibleIds(screen, Config.bar.workspaces.shown)
 
     property real blur: onSpecial ? 1 : 0
 
@@ -57,7 +57,7 @@ StyledClippingRect {
             sourceComponent: OccupiedBg {
                 workspaces: workspaces
                 occupied: root.occupied
-                groupOffset: root.groupOffset
+                workspaceIds: root.workspaceIds
             }
         }
 
@@ -70,12 +70,12 @@ StyledClippingRect {
             Repeater {
                 id: workspaces
 
-                model: Config.bar.workspaces.shown
+                model: root.workspaceIds
 
                 Workspace {
                     activeWsId: root.activeWsId
                     occupied: root.occupied
-                    groupOffset: root.groupOffset
+                    ws: modelData
                 }
             }
         }
@@ -83,10 +83,10 @@ StyledClippingRect {
         Loader {
             asynchronous: true
             anchors.horizontalCenter: parent.horizontalCenter
-            active: Config.bar.workspaces.activeIndicator
+            active: Config.bar.workspaces.activeIndicator && WorkspaceAppearance.style !== "simple"
 
             sourceComponent: ActiveIndicator {
-                groupOffset: root.groupOffset
+                workspaceIds: root.workspaceIds
                 activeWsId: root.activeWsId
                 workspaces: workspaces
                 mask: layout

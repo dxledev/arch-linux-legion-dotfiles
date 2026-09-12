@@ -15,15 +15,15 @@ ColumnLayout {
     required property int index
     required property int activeWsId
     required property var occupied
-    required property int groupOffset
+    required property int modelData
+    required property int ws
 
     readonly property bool isWorkspace: true // Flag for finding workspace children
     // Unanimated prop for others to use as reference
     readonly property int size: implicitHeight + (hasWindows ? Tokens.padding.extraSmall : 0)
 
-    readonly property int ws: groupOffset + index + 1
     readonly property bool isOccupied: occupied[ws] ?? false
-    readonly property bool hasWindows: isOccupied && Config.bar.workspaces.showWindows && (Config.bar.workspaces.maxWindowIcons > 0)
+    readonly property bool hasWindows: WorkspaceAppearance.style === "active-window" && isOccupied && Config.bar.workspaces.showWindows && (Config.bar.workspaces.maxWindowIcons > 0)
     readonly property bool focused: activeWsId === ws
     readonly property list<int> focusedShapeList: [MaterialShape.Slanted, MaterialShape.Oval, MaterialShape.Pill, MaterialShape.Triangle, MaterialShape.Arrow, MaterialShape.Diamond, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.VerySunny, MaterialShape.Sunny, MaterialShape.Cookie4Sided, MaterialShape.Cookie6Sided, MaterialShape.Cookie7Sided, MaterialShape.Cookie9Sided, MaterialShape.Cookie12Sided, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Ghostish]
 
@@ -51,9 +51,31 @@ ColumnLayout {
 
         Layout.alignment: Qt.AlignHCenter | Qt.AlignTop
         Layout.preferredHeight: Tokens.sizes.bar.innerWidth - Tokens.padding.small
-        sourceComponent: Config.bar.workspaces.displayType === BarWorkspaceDisplay.Text ? textComponent : shapeComponent
+        sourceComponent: WorkspaceAppearance.style === "simple" ? simpleComponent
+            : WorkspaceAppearance.style === "numbered" || Config.bar.workspaces.displayType === BarWorkspaceDisplay.Text ? textComponent : shapeComponent
 
         onItemChanged: root.updateShape()
+    }
+
+    Component {
+        id: simpleComponent
+
+        Item {
+            implicitWidth: Tokens.sizes.bar.innerWidth - Tokens.padding.small
+            implicitHeight: implicitWidth
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: root.focused ? parent.width * 0.8 : 5
+                height: 4
+                radius: height / 2
+                color: root.focused ? Colours.palette.m3primary
+                    : root.isOccupied ? Colours.palette.m3onSurface : Colours.palette.m3outlineVariant
+
+                Behavior on width { Anim {} }
+                Behavior on color { CAnim {} }
+            }
+        }
     }
 
     Component {
@@ -84,6 +106,8 @@ ColumnLayout {
         StyledText {
             animate: true
             text: {
+                if (WorkspaceAppearance.style === "numbered")
+                    return root.ws.toString();
                 if (root.focused) {
                     const label = Config.bar.workspaces.activeLabel;
                     if (label)

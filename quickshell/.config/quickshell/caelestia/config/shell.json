@@ -47,7 +47,7 @@
     ],
     "workspaces": {
       "perMonitorWorkspaces": true,
-      "shown": 9,
+      "shown": 5,
       "specialWorkspaceIcons": [
         {
           "icon": "music_note",
@@ -288,6 +288,15 @@
         "command": [
           "autocomplete",
           "layout"
+        ]
+      },
+      {
+        "name": "Workspace Icons",
+        "description": "Choose workspace icon style",
+        "icon": "view_week",
+        "command": [
+          "autocomplete",
+          "workspace-icons"
         ]
       }
     ]

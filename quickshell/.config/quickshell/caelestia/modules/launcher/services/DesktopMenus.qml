@@ -4,11 +4,12 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Caelestia.Config
+import qs.services
 
 Singleton {
     id: root
 
-    readonly property var menus: ["capture", "screenshot", "emojis", "unicode", "layout"]
+    readonly property var menus: ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons"]
     readonly property var captureModes: [
         { id: "region", name: "Region", icon: "select" },
         { id: "window", name: "Window", icon: "window" },
@@ -55,6 +56,9 @@ Singleton {
             return emojis;
         case "unicode":
             return unicode;
+        case "workspace-icons":
+            return WorkspaceAppearance.styles.map(item => ({ name: item.name, icon: item.icon,
+                desc: WorkspaceAppearance.style === item.id ? "Current style" : "", style: item.id }));
         case "layout":
             return layouts.map(item => ({ name: item.name, icon: "view_quilt", desc: item.current ? "Current layout" : "",
                 command: ["/usr/bin/bash", `${Quickshell.env("HOME")}/bin/menu-layout`, "--layout", item.id] }));
@@ -71,6 +75,8 @@ Singleton {
                     list.search.text = `${GlobalConfig.launcher.actionPrefix}${item.path} `;
                 } else {
                     list.screenState.launcher = false;
+                    if (item.style)
+                        WorkspaceAppearance.selectStyle(item.style);
                     const command = item.glyph
                         ? ["/usr/bin/bash", Quickshell.shellPath("integration/characters"), "--copy", item.glyph]
                         : item.command;
