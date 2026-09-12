@@ -9,7 +9,48 @@ import qs.utils
 Item {
     id: root
 
-    readonly property var today: Weather.forecast && Weather.forecast.length > 0 ? Weather.forecast[0] : null
+    property bool showHourlyForecast: false
+    property bool use24Hour: !GlobalConfig.services.useTwelveHourClock
+    property int hourlyForecastHours: 7
+    property double now: Date.now()
+    readonly property date locationNow: new Date(now + (Number.isFinite(Weather.utcOffsetSeconds) ? Weather.utcOffsetSeconds : 0) * 1000)
+    readonly property string locationTime: Number.isFinite(Weather.utcOffsetSeconds)
+        ? formatHour(locationNow.getUTCHours(), locationNow.getUTCMinutes()) : "--:--"
+
+    function formatHour(hour, minute): string {
+        const minutes = String(minute).padStart(2, "0");
+        return use24Hour ? String(hour).padStart(2, "0") + ":" + minutes
+            : (hour % 12 || 12) + ":" + minutes + (hour >= 12 ? " PM" : " AM");
+    }
+
+    function forecastHour(timestamp): string {
+        const time = timestamp.split("T")[1].split(":");
+        return formatHour(Number(time[0]), Number(time[1]));
+    }
+
+    WeatherLocations { id: locations }
+
+    WeatherLocationPicker {
+        id: locationPicker
+        locations: locations
+        x: locationTitle.mapToItem(root, 0, 0).x
+        y: locationTitle.mapToItem(root, 0, locationTitle.height).y + 6
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        z: 20
+        visible: locationPicker.visible
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        onPressed: locationPicker.close()
+    }
+
+    Timer {
+        interval: 1000
+        running: root.visible
+        repeat: true
+        onTriggered: root.now = Date.now()
+    }
 
     implicitWidth: layout.implicitWidth > 800 ? layout.implicitWidth : 840
     implicitHeight: layout.implicitHeight
@@ -30,13 +71,22 @@ Item {
                 spacing: Tokens.spacing.extraSmall
 
                 StyledText {
-                    text: Weather.city || Tr.tr("Loading...")
+                    id: locationTitle
+                    text: locations.displayName || Tr.tr("Loading...")
+                    HoverHandler {
+                        id: locationHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    TapHandler {
+                        onTapped: locationPicker.visible ? locationPicker.close() : locationPicker.open()
+                    }
                     font: Tokens.font.body.builders.large.size(28).weight(Font.DemiBold).build()
-                    color: Colours.palette.m3onSurface
+                    color: locationHover.hovered ? Colours.palette.m3primary : Colours.palette.m3onSurface
                 }
 
                 StyledText {
-                    text: new Date().toLocaleDateString(Qt.locale(), "dddd, MMMM d")
+                    text: Number.isFinite(Weather.utcOffsetSeconds)
+                        ? new Date(root.locationNow.getUTCFullYear(), root.locationNow.getUTCMonth(), root.locationNow.getUTCDate()).toLocaleDateString(Qt.locale(), "dddd, MMMM d") : ""
                     font: Tokens.font.body.small
                     color: Colours.palette.m3onSurfaceVariant
                 }
@@ -48,6 +98,18 @@ Item {
 
             Row {
                 spacing: Tokens.spacing.largeIncreased
+
+                WeatherStat {
+                    icon: "schedule"
+                    label: Tr.tr("Time")
+                    value: root.locationTime
+                    colour: timeHover.hovered ? Colours.palette.m3primary : Colours.palette.m3tertiary
+                    HoverHandler {
+                        id: timeHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    TapHandler { onTapped: root.use24Hour = !root.use24Hour }
+                }
 
                 WeatherStat {
                     icon: "wb_twilight"
@@ -134,9 +196,15 @@ Item {
             Layout.topMargin: Tokens.spacing.medium
             Layout.leftMargin: Tokens.padding.medium
             visible: forecastRepeater.count > 0
-            text: Tr.tr("7-day forecast")
+            Layout.fillWidth: true
+            text: root.showHourlyForecast ? Tr.tr("Hourly Forecast") : Tr.tr("7-Day Forecast")
+            HoverHandler {
+                id: forecastHover
+                cursorShape: Qt.PointingHandCursor
+            }
+            TapHandler { onTapped: root.showHourlyForecast = !root.showHourlyForecast }
             font: Tokens.font.body.builders.medium.weight(Font.DemiBold).build()
-            color: Colours.palette.m3onSurface
+            color: forecastHover.hovered ? Colours.palette.m3primary : Colours.palette.m3onSurface
         }
 
         RowLayout {
@@ -146,7 +214,7 @@ Item {
             Repeater {
                 id: forecastRepeater
 
-                model: Weather.forecast
+                model: root.showHourlyForecast ? Weather.hourlyForecast.slice(0, root.hourlyForecastHours) : Weather.forecast
 
                 StyledRect {
                     id: forecastItem
@@ -168,7 +236,7 @@ Item {
 
                         StyledText {
                             Layout.alignment: Qt.AlignHCenter
-                            text: forecastItem.index === 0 ? Tr.trCtx("Today", "forecast column") : new Date(forecastItem.modelData.date).toLocaleDateString(Qt.locale(), "ddd")
+                            text: forecastItem.index === 0 ? (root.showHourlyForecast ? Tr.tr("Now") : Tr.trCtx("Today", "forecast column")) : new Date(root.showHourlyForecast ? forecastItem.modelData.timestamp : forecastItem.modelData.date).toLocaleDateString(Qt.locale(), "ddd")
                             font: Tokens.font.body.builders.medium.weight(Font.DemiBold).build()
                             color: Colours.palette.m3primary
                         }
@@ -176,7 +244,7 @@ Item {
                         StyledText {
                             Layout.topMargin: -Tokens.spacing.extraSmall
                             Layout.alignment: Qt.AlignHCenter
-                            text: new Date(forecastItem.modelData.date).toLocaleDateString(Qt.locale(), "MMM d")
+                            text: root.showHourlyForecast ? root.forecastHour(forecastItem.modelData.timestamp) : new Date(forecastItem.modelData.date).toLocaleDateString(Qt.locale(), "MMM d")
                             font: Tokens.font.body.small
                             opacity: 0.7
                             color: Colours.palette.m3onSurfaceVariant
@@ -191,11 +259,14 @@ Item {
 
                         StyledText {
                             Layout.alignment: Qt.AlignHCenter
-                            text: {
-                                const min = Weather.formatTemp(forecastItem.modelData.minTempC, true);
-                                const max = Weather.formatTemp(forecastItem.modelData.maxTempC, true);
-                                return Tr.trCtx("%1 / %2", "min/max temperature").arg(min).arg(max);
-                            }
+                            text: "Hi: " + Weather.formatTemp(root.showHourlyForecast ? Math.max(forecastItem.modelData.tempC, forecastItem.modelData.feelsLikeC) : forecastItem.modelData.maxTempC, true)
+                            font: Tokens.font.body.builders.small.weight(Font.DemiBold).build()
+                            color: Colours.palette.m3tertiary
+                        }
+
+                        StyledText {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "Lo: " + Weather.formatTemp(root.showHourlyForecast ? Math.min(forecastItem.modelData.tempC, forecastItem.modelData.feelsLikeC) : forecastItem.modelData.minTempC, true)
                             font: Tokens.font.body.builders.small.weight(Font.DemiBold).build()
                             color: Colours.palette.m3tertiary
                         }

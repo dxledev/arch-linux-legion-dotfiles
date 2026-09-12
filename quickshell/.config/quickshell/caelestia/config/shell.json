@@ -335,9 +335,10 @@
     },
     "services": {
         "gpuType": "Nvidia",
+        "sensorUnits": "Fahrenheit",
         "smartScheme": false,
         "useTwelveHourClock": false,
-        "weatherUnits": "Celsius"
+        "weatherUnits": "Fahrenheit"
     },
     "session": {
         "commands": {

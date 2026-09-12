@@ -114,8 +114,6 @@ local simple_binds = {
   { mainMod .. " ALT", "W", "Workspace Axis Menu", "~/bin/menu-workspace-axis" },
   { "CTRL ALT", "SPACE", "Next Background", "~/bin/bg-next" },
   { "CTRL ALT SHIFT", "SPACE", "Previous Background", "~/bin/bg-prev" },
-  { mainMod .. " CTRL ALT", "SPACE", "Set Background", "~/bin/bg-set" },
-  { mainMod .. " ALT SHIFT", "SPACE", "Live Background", "~/bin/bg-live" },
   { mainMod .. " CTRL", "Space", "Toggle Background Slideshow", "~/bin/bg-toggle-slideshow" },
   { mainMod, "RETURN", "Terminal", "~/bin/launch-terminal" },
   { mainMod .. " SHIFT", "RETURN", "Main Tmux", "~/bin/launch-tmux-main" },

@@ -1,4 +1,6 @@
 local bindings = {
+  { "SUPER + ALT + SHIFT + SPACE", "Live Background", "~/bin/bg-live" },
+  { "SUPER + CTRL + ALT + SPACE", "Set Background", "~/bin/bg-set" },
   { "SUPER + ALT + L", "Layout Menu", "~/bin/menu-layout" },
   { "SUPER + ALT + SHIFT + C", "Color Converter", "~/bin/menu-color-converter" },
   { "SUPER + SHIFT + ALT + T", "Style Menu", "~/bin/menu-style" },

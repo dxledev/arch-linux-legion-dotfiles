@@ -8,6 +8,7 @@ Item {
 
     required property var modelData
     required property var list
+    required property int index
     property bool reserveDescriptionSpace: true
 
     implicitHeight: Tokens.sizes.launcher.itemHeight
@@ -17,6 +18,8 @@ Item {
 
     StateLayer {
         radius: Tokens.rounding.large
+        stateOpacity: 0
+        onPositionChanged: root.list.currentIndex = root.index
         onClicked: root.modelData?.onClicked(root.list)
     }
 

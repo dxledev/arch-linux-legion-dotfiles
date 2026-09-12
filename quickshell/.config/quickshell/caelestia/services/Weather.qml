@@ -11,6 +11,9 @@ import qs.utils
 Singleton {
     id: root
 
+    property string selectedLocation: ""
+    property real utcOffsetSeconds: NaN
+
     property string city
     property string loc
     property var cc
@@ -40,7 +43,7 @@ Singleton {
     }
 
     function reload(): void {
-        const configLocation = GlobalConfig.services.weatherLocation;
+        const configLocation = selectedLocation || GlobalConfig.services.weatherLocation;
 
         if (configLocation) {
             if (configLocation.indexOf(",") !== -1 && !isNaN(parseFloat(configLocation.split(",")[0]))) {
@@ -58,7 +61,7 @@ Singleton {
 
                 // Protect against stale responses overwriting the manually-set location,
                 // in case the config was updated while this request was in-flight.
-                if (GlobalConfig.services.weatherLocation)
+                if (selectedLocation || GlobalConfig.services.weatherLocation)
                     return;
 
                 let response;
@@ -228,15 +231,17 @@ Singleton {
     }
 
     function fetchWeatherData(): void {
+        const requestedLocation = loc;
         const url = getWeatherUrl();
         if (url === "")
             return;
 
         Requests.get(url, text => {
             const json = JSON.parse(text);
-            if (!json.current || !json.daily)
+            if (requestedLocation !== loc || !json.current || !json.daily)
                 return;
 
+            utcOffsetSeconds = Number(json.utc_offset_seconds);
             cc = {
                 weatherCode: json.current.weather_code,
                 tempC: json.current.temperature_2m,
@@ -260,17 +265,19 @@ Singleton {
             forecast = forecastList;
 
             const hourlyList = [];
-            const now = new Date();
+            const now = new Date(Date.now() + utcOffsetSeconds * 1000);
+            const currentHour = now.toISOString().slice(0, 13);
             for (let i = 0; i < json.hourly.time.length; i++) {
                 const time = new Date(json.hourly.time[i].replace("T", " "));
 
-                if (time < now)
+                if (json.hourly.time[i].slice(0, 13) < currentHour)
                     continue;
 
                 hourlyList.push({
                     timestamp: json.hourly.time[i],
                     hour: time.getHours(),
-                    tempC: Math.round(json.hourly.temperature_2m[i]),
+                    tempC: json.hourly.temperature_2m[i],
+                    feelsLikeC: json.hourly.apparent_temperature[i],
                     precipChance: json.hourly.precipitation_probability[i],
                     weatherCode: json.hourly.weather_code[i],
                     icon: Icons.getWeatherIcon(json.hourly.weather_code[i])
@@ -286,7 +293,7 @@ Singleton {
 
         const [lat, lon] = loc.split(",").map(s => s.trim());
         const baseUrl = "https://api.open-meteo.com/v1/forecast";
-        const params = ["latitude=" + lat, "longitude=" + lon, "hourly=weather_code,temperature_2m,precipitation_probability", "daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset", "current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m", "timezone=auto", "forecast_days=7"];
+        const params = ["latitude=" + lat, "longitude=" + lon, "hourly=weather_code,temperature_2m,apparent_temperature,precipitation_probability", "daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset", "current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m", "timezone=auto", "forecast_days=7"];
 
         return baseUrl + "?" + params.join("&");
     }
@@ -325,7 +332,13 @@ Singleton {
         return conditions[code] || Tr.trCtx("Unknown", "weather condition");
     }
 
-    onLocChanged: fetchWeatherData()
+    onLocChanged: {
+        cc = null;
+        forecast = [];
+        hourlyForecast = [];
+        utcOffsetSeconds = NaN;
+        fetchWeatherData();
+    }
     onCitiesLoadedChanged: {
         if (!citiesLoaded || !pendingCoords)
             return;

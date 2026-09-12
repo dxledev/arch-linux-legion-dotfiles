@@ -148,6 +148,11 @@ Scope {
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu("theme");
         }
 
+        function wallpaper(): void {
+            if (!root.hasFullscreen)
+                ShellState.componentsForActive()?.panels?.launcher.openSubmenu("wallpaper");
+        }
+
         function menu(name: string): void {
             if (!root.hasFullscreen && ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons"].includes(name))
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu(name);

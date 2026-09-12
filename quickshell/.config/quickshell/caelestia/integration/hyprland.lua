@@ -20,6 +20,7 @@ local bindings = {
     { "SUPER + SPACE", "Caelestia Launcher", "drawers toggle launcher" },
     { "SUPER + ALT + SPACE", "Caelestia Command Menu", "launcher commands" },
     { "SUPER + ALT + T", "Caelestia Theme Menu", "launcher theme" },
+    { "SUPER + CTRL + ALT + SPACE", "Caelestia Wallpaper Menu", "launcher wallpaper" },
     { "SUPER + SHIFT + ALT + P", "Caelestia Terminal Prompt Menu", "launcher terminalPrompt" },
     { "SUPER + ALT + P", "Caelestia Session", "drawers toggle session" },
     { "SUPER + ALT + K", "Caelestia Keybindings", "launcher learn keybindings" },
