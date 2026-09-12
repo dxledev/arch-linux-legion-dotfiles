@@ -1,4 +1,12 @@
 local bindings = {
+  { "SUPER + ALT + L", "Layout Menu", "~/bin/menu-layout" },
+  { "SUPER + ALT + SHIFT + C", "Color Converter", "~/bin/menu-color-converter" },
+  { "SUPER + SHIFT + ALT + T", "Style Menu", "~/bin/menu-style" },
+  { "SUPER + ALT + S", "Screenshot Menu", "~/bin/menu-screenshot" },
+  { "SUPER + SHIFT + ALT + S", "Capture Menu", "~/bin/menu-capture" },
+  { "SUPER + ALT + E", "Emoji Menu", "~/bin/menu-emojis" },
+  { "SUPER + ALT + U", "Unicode Menu", "~/bin/menu-unicode" },
+  { "SUPER + SHIFT + ALT + P", "Terminal Prompt Menu", "~/bin/menu-starship" },
   { "SUPER + ALT + P", "System Menu", "~/bin/menu-system" },
   { "SUPER + ALT + K", "Keybindings Menu", "~/bin/menu-keybindings" },
   { "SUPER + SHIFT + ALT + K", "Neovim Keybindings", "~/bin/menu-neovim-bindings" },

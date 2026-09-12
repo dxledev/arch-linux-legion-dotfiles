@@ -56,7 +56,7 @@ Item {
 
                 onRightClicked: Audio.toggleMuted()
 
-                SliderTooltip {
+                OsdTooltip {
                     parent: volumeSlider
                     Tokens.screen: root.Tokens.screen
                     visible: volumeSlider.hovered || volumeSlider.pressed
@@ -102,6 +102,10 @@ Item {
                 label: modelData.label
                 showInitialValue: root.initialValueDisplays[modelData.monitor.modelData.name] ?? false
             }
+        }
+
+        NightlightToggle {
+            Layout.alignment: Qt.AlignHCenter
         }
     }
 

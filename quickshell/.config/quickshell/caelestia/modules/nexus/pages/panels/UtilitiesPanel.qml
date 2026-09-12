@@ -60,7 +60,7 @@ PageBase {
         ToggleRow {
             first: true
             text: Tr.tr("Keep awake")
-            subtext: Tr.tr("Show the idle inhibitor card")
+            subtext: Tr.tr("Show the idle lock toggle")
             checked: Config.utilities.cards.keepAwake
             onToggled: GlobalConfig.utilities.cards.keepAwake = checked
         }
@@ -119,11 +119,11 @@ PageBase {
         }
 
         ToggleRow {
-            text: Tr.tr("Game mode")
-            subtext: Tr.tr("Toggle game mode")
+            text: Tr.tr("Nightlight")
+            subtext: Tr.tr("Toggle nightlight")
             disabled: !Config.utilities.cards.quickToggles
-            checked: root.isToggleOn("gameMode")
-            onToggled: root.setToggleOn("gameMode", checked)
+            checked: root.isToggleOn("nightlight")
+            onToggled: root.setToggleOn("nightlight", checked)
         }
 
         ToggleRow {

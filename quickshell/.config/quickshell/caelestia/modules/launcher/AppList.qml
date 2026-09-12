@@ -29,7 +29,7 @@ StyledListView {
     function stateForText(text: string): string {
         const prefix = GlobalConfig.launcher.actionPrefix;
         if (text.startsWith(prefix)) {
-            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install", "fonts"])
+            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install", "fonts", "terminal-prompt", ...DesktopMenus.menus])
                 if (text.startsWith(`${prefix}${action} `))
                     return action;
 
@@ -40,6 +40,8 @@ StyledListView {
     }
 
     function resultsForText(text: string): var {
+        if (DesktopMenus.menus.includes(stateForText(text)))
+            return DesktopMenus.query(text);
         switch (stateForText(text)) {
         case "actions":
             return Actions.query(text);
@@ -51,6 +53,8 @@ StyledListView {
             return Learn.query(text);
         case "fonts":
             return Fonts.query(text);
+        case "terminal-prompt":
+            return TerminalPrompts.query(text);
         case "install":
             return Install.query(text);
         case "scheme":
@@ -93,10 +97,13 @@ StyledListView {
     state: screenState.launcher ? requestedState : displayState
 
     onStateChanged: {
+        DesktopMenus.reload(state);
         if (state === "learn")
             Learn.reload();
         if (state === "fonts")
             Fonts.reload();
+        if (state === "terminal-prompt")
+            TerminalPrompts.reload();
         if (state === "theme")
             Themes.reload();
         if (state === "scheme" || state === "variant")
@@ -106,6 +113,33 @@ StyledListView {
     Component.onCompleted: displayText = search.text
 
     states: [
+        State {
+            name: "capture"
+            PropertyChanges { root.delegate: actionItem }
+        },
+        State {
+            name: "screenshot"
+            PropertyChanges { root.delegate: actionItem }
+        },
+        State {
+            name: "emojis"
+            PropertyChanges { root.delegate: actionItem }
+        },
+        State {
+            name: "unicode"
+            PropertyChanges { root.delegate: actionItem }
+        },
+        State {
+            name: "layout"
+            PropertyChanges { root.delegate: actionItem }
+        },
+        State {
+            name: "terminal-prompt"
+
+            PropertyChanges {
+                root.delegate: actionItem
+            }
+        },
         State {
             name: "fonts"
 
@@ -302,6 +336,7 @@ StyledListView {
 
         ActionItem {
             list: root
+            reserveDescriptionSpace: root.displayState !== "terminal-prompt" && !DesktopMenus.menus.includes(root.displayState)
         }
     }
 

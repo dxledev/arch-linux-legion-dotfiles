@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+    --help) printf 'Usage: screenrecord [--dry-run]\n'; exit 0 ;;
+    --dry-run) [[ $# -eq 1 ]] || exit 2 ;;
+    '') [[ $# -eq 0 ]] || exit 2 ;;
+    *) exit 2 ;;
+esac
+
+focus_command='hl.dsp.focus({window = "class:^(obs|com[.]obsproject[.]Studio)$"})'
+if /usr/bin/hyprctl -j clients | /usr/bin/jq -e 'any(.[]; .class == "obs" or .class == "com.obsproject.Studio")' >/dev/null; then
+    if [[ "${1:-}" == --dry-run ]]; then
+        printf 'Would focus OBS\n'
+        exit 0
+    fi
+    exec /usr/bin/hyprctl dispatch "$focus_command"
+fi
+if [[ "${1:-}" == --dry-run ]]; then
+    printf 'Would launch OBS\n'
+    exit 0
+fi
+exec /usr/bin/obs

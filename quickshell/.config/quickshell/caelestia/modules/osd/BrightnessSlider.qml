@@ -33,7 +33,7 @@ CustomMouseArea {
         Accessible.name: root.label + " brightness"
     }
 
-    SliderTooltip {
+    OsdTooltip {
         parent: root
         Tokens.screen: root.Tokens.screen
         visible: root.containsMouse || slider.hovered || slider.pressed

@@ -9,6 +9,19 @@ Singleton {
     property string statePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/system-toggle-nightlight.state"
     readonly property bool enabled: state.enabled
 
+    property list<string> toggleCommand: [Quickshell.env("HOME") + "/bin/system-toggle-nightlight"]
+
+    function toggle(): void {
+        if (!toggleProcess.running)
+            toggleProcess.running = true;
+    }
+
+    Process {
+        id: toggleProcess
+
+        command: root.toggleCommand
+    }
+
     FileView {
         id: state
 

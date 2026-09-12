@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: characters --list emojis|unicode | --copy TEXT | --dry-run TEXT\n'
+}
+
+[[ "${1:-}" != --help ]] || { usage; exit 0; }
+[[ $# -eq 2 ]] || { usage >&2; exit 2; }
+case "$1" in
+    --list)
+        [[ "$2" == emojis || "$2" == unicode ]] || { usage >&2; exit 2; }
+        script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+        /usr/bin/perl "$script_dir/$2.pl" | /usr/bin/jq -Rsc --arg kind "$2" '
+            split("\n") | map(select(length > 0) | split("\t") |
+                if $kind == "emojis" then {glyph:.[0],name:.[1],meta:.[2],desc:""}
+                else {glyph:.[0],name:.[2],meta:.[3],desc:.[1]} end)'
+        ;;
+    --copy|--dry-run)
+        [[ -n "$2" && ${#2} -le 32 ]] || exit 2
+        if [[ "$1" == --dry-run ]]; then
+            /usr/bin/jq -cn --arg text "$2" '{text:$text}'
+        else
+            printf '%s' "$2" | /usr/bin/wl-copy
+            "${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/notify-send" -t 2000 'Clipboard' "Copied: $2"
+        fi
+        ;;
+    *) usage >&2; exit 2 ;;
+esac

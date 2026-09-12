@@ -148,6 +148,16 @@ Scope {
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu("theme");
         }
 
+        function menu(name: string): void {
+            if (!root.hasFullscreen && ["capture", "screenshot", "emojis", "unicode", "layout"].includes(name))
+                ShellState.componentsForActive()?.panels?.launcher.openSubmenu(name);
+        }
+
+        function terminalPrompt(): void {
+            if (!root.hasFullscreen)
+                ShellState.componentsForActive()?.panels?.launcher.openSubmenu("terminal-prompt");
+        }
+
         function learn(section: string): void {
             if (!root.hasFullscreen && ["", "keybindings", "neovim"].includes(section))
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu(section ? `learn ${section}` : "learn");

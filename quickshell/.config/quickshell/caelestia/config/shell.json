@@ -135,6 +135,15 @@
         ]
       },
       {
+        "name": "Terminal Prompt",
+        "description": "Choose a Starship prompt style",
+        "icon": "terminal",
+        "command": [
+          "autocomplete",
+          "terminal-prompt"
+        ]
+      },
+      {
         "command": [
           "/home/dxle/bin/bg-next"
         ],
@@ -162,7 +171,8 @@
       },
       {
         "command": [
-          "/home/dxle/bin/menu-capture"
+          "autocomplete",
+          "capture"
         ],
         "description": "Screenshot and recording tools",
         "icon": "screenshot_monitor",
@@ -252,6 +262,33 @@
           "session",
           "reboot"
         ]
+      },
+      {
+        "name": "Emojis",
+        "description": "Search and copy emojis",
+        "icon": "mood",
+        "command": [
+          "autocomplete",
+          "emojis"
+        ]
+      },
+      {
+        "name": "Unicode",
+        "description": "Search and copy Unicode characters",
+        "icon": "special_character",
+        "command": [
+          "autocomplete",
+          "unicode"
+        ]
+      },
+      {
+        "name": "Layout",
+        "description": "Choose a window layout",
+        "icon": "view_quilt",
+        "command": [
+          "autocomplete",
+          "layout"
+        ]
       }
     ]
   },
@@ -285,6 +322,36 @@
     },
     "toasts": {
       "configLoaded": false
-    }
+    },
+    "quickToggles": [
+      {
+        "id": "wifi",
+        "enabled": true
+      },
+      {
+        "id": "bluetooth",
+        "enabled": true
+      },
+      {
+        "id": "mic",
+        "enabled": true
+      },
+      {
+        "id": "settings",
+        "enabled": true
+      },
+      {
+        "id": "nightlight",
+        "enabled": true
+      },
+      {
+        "id": "dnd",
+        "enabled": true
+      },
+      {
+        "id": "vpn",
+        "enabled": true
+      }
+    ]
   }
 }

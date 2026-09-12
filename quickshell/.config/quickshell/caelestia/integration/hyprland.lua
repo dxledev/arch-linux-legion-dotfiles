@@ -11,9 +11,16 @@ if not quickshell then return end
 
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
 local bindings = {
+    { "SUPER + SHIFT + ALT + S", "Caelestia Capture Menu", "launcher menu capture" },
+    { "SUPER + ALT + S", "Caelestia Screenshot Menu", "launcher menu screenshot" },
+    { "SUPER + ALT + E", "Caelestia Emoji Menu", "launcher menu emojis" },
+    { "SUPER + ALT + U", "Caelestia Unicode Menu", "launcher menu unicode" },
+    { "SUPER + ALT + L", "Caelestia Layout Menu", "launcher menu layout" },
+
     { "SUPER + SPACE", "Caelestia Launcher", "drawers toggle launcher" },
     { "SUPER + ALT + SPACE", "Caelestia Command Menu", "launcher commands" },
     { "SUPER + ALT + T", "Caelestia Theme Menu", "launcher theme" },
+    { "SUPER + SHIFT + ALT + P", "Caelestia Terminal Prompt Menu", "launcher terminalPrompt" },
     { "SUPER + ALT + P", "Caelestia Session", "drawers toggle session" },
     { "SUPER + ALT + K", "Caelestia Keybindings", "launcher learn keybindings" },
     { "SUPER + SHIFT + ALT + K", "Caelestia Neovim Keybindings", "launcher learn neovim" },

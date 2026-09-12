@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+scripts_dir="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
+source "$scripts_dir/lib-hypr-lua"
+config="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
+current="$(hypr_lua_unquote "$(hypr_get_config_value "$config" general layout)")"
+/usr/bin/jq -cn --arg current "$current" '
+    [{id:"dwindle",name:"Dwindle"},{id:"scrolling",name:"Scrolling"},
+     {id:"master",name:"Master"},{id:"monocle",name:"Monocle"},
+     {id:"lua:grid",name:"Grid"},{id:"lua:spiral",name:"Spiral"},
+     {id:"lua:manual",name:"Manual"},{id:"lua:centerstack",name:"Center-Stack"}]
+    | map(. + {current:(.id == $current)})'

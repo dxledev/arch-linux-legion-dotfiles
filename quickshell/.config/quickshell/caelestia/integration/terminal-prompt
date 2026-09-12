@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+STYLES_DIR="$CONFIG_DIR/starship-styles"
+SCRIPTS_DIR="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
+
+usage() {
+    printf 'Usage: terminal-prompt [--list | --apply STYLE | --dry-run STYLE]\n'
+}
+
+current_style() {
+    local target
+    target="$(/usr/bin/readlink -f -- "$CONFIG_DIR/starship.toml" || true)"
+    target="${target##*/}"
+    printf '%s' "${target%.toml}"
+}
+
+display_name() {
+    printf '%s\n' "$1" | /usr/bin/sed -E 's/[-_]+/ /g; s/(^|[[:space:]])([[:alpha:]])/\1\U\2/g'
+}
+
+list_styles() {
+    local path style current
+    current="$(current_style)"
+    for path in "$STYLES_DIR"/*.toml; do
+        [[ -f "$path" ]] || continue
+        style="${path##*/}"
+        style="${style%.toml}"
+        /usr/bin/jq -cn --arg id "$style" --arg name "$(display_name "$style")" --arg current "$current" \
+            '{id: $id, name: $name, current: ($id == $current)}'
+    done | /usr/bin/jq -s 'sort_by(.id)'
+}
+
+validate_style() {
+    [[ -n "$1" && "$1" != */* && -f "$STYLES_DIR/$1.toml" ]] || {
+        printf 'Unknown terminal prompt style: %s\n' "$1" >&2
+        return 1
+    }
+}
+
+refresh_prompts() {
+    local shell_pid tty_name
+    while read -r shell_pid tty_name; do
+        [[ -n "$shell_pid" && -n "$tty_name" ]] || continue
+        { printf '\033[H\033[2J\033[3J' > "/dev/$tty_name"; } 2>/dev/null || true
+        kill -USR1 "$shell_pid" 2>/dev/null || true
+    done < <(/usr/bin/ps -eo pid=,comm=,tty=,stat= |
+        /usr/bin/awk '$2 == "zsh" && $3 != "?" && $4 ~ /\+/ { print $1, $3 }')
+}
+
+apply_style() {
+    local style="$1"
+    validate_style "$style"
+    [[ "$style" != "$(current_style)" ]] || return 0
+    /usr/bin/bash "$SCRIPTS_DIR/starship-style" "$style"
+    /usr/bin/sleep 0.5
+    /usr/bin/bash "$SCRIPTS_DIR/reload-terminal" || true
+    refresh_prompts
+    "$SCRIPTS_DIR/notify-send" -t 5000 'Terminal Prompt' "Updated to $(display_name "$style")."
+}
+
+case "${1:---list}" in
+    --list) [[ $# -le 1 ]] || { usage >&2; exit 2; }; list_styles ;;
+    --apply) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; apply_style "$2" ;;
+    --dry-run)
+        [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+        validate_style "$2"
+        /usr/bin/jq -cn --arg style "$2" --arg current "$(current_style)" \
+            '{style: $style, current: $current, changed: ($style != $current)}'
+        ;;
+    --help|-h) usage ;;
+    *) usage >&2; exit 2 ;;
+esac

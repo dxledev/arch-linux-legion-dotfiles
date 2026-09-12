@@ -124,11 +124,11 @@ StyledRect {
                     }
                 }
                 DelegateChoice {
-                    roleValue: "gameMode"
+                    roleValue: "nightlight"
                     delegate: Toggle {
-                        icon: "gamepad"
-                        checked: GameMode.enabled
-                        onClicked: GameMode.enabled = !GameMode.enabled
+                        icon: Nightlight.enabled ? "nightlight" : "light_mode"
+                        checked: Nightlight.enabled
+                        onClicked: Nightlight.toggle()
                     }
                 }
                 DelegateChoice {
