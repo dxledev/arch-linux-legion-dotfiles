@@ -122,6 +122,13 @@ Scope {
                 if (root.hasFullscreen && ["launcher", "session", "dashboard"].includes(drawer))
                     return;
                 const screenState = ShellState.forActive();
+                if (drawer === "launcher") {
+                    const launcher = ShellState.componentsForActive()?.panels?.launcher;
+                    if (launcher) {
+                        launcher.toggleApps();
+                        return;
+                    }
+                }
                 screenState[drawer] = !screenState[drawer];
             } else {
                 console.warn(lc, `Drawer "${drawer}" does not exist`);

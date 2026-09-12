@@ -19,6 +19,12 @@ Item {
 
     readonly property int padding: Tokens.padding.large
     readonly property int rounding: Tokens.rounding.extraLarge
+    readonly property bool showingApps: !search.text.startsWith(GlobalConfig.launcher.actionPrefix)
+
+    function openApps(): void {
+        search.text = "";
+        search.forceActiveFocus();
+    }
 
     function openSubmenu(submenu: string): void {
         search.text = GlobalConfig.launcher.actionPrefix + (submenu ? `${submenu} ` : "");

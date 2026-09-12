@@ -26,6 +26,17 @@ Item {
     property real offsetScale: shouldBeActive ? 0 : 1
     property var pendingSubmenu: null
 
+    function toggleApps(): void {
+        if (screenState.launcher && (content.item?.showingApps ?? (pendingSubmenu === null))) {
+            screenState.launcher = false;
+            return;
+        }
+
+        pendingSubmenu = null;
+        screenState.launcher = true;
+        content.item?.openApps();
+    }
+
     function openSubmenu(submenu: string): void {
         pendingSubmenu = submenu;
         screenState.launcher = true;
