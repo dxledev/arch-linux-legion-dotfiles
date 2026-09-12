@@ -30,7 +30,7 @@ FocusScope {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 0
+            spacing: -Style.size("tab-overlap", 1)
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 0

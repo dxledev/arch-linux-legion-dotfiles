@@ -28,6 +28,10 @@ StyledClippingRect {
 
     property real blur: onSpecial ? 1 : 0
 
+    function workspaceAt(x: real, y: real): var {
+        return layout.childAt(x, y) as Workspace;
+    }
+
     implicitWidth: Tokens.sizes.bar.innerWidth
     implicitHeight: layout.implicitHeight + Tokens.padding.small
 
@@ -76,6 +80,7 @@ StyledClippingRect {
                     activeWsId: root.activeWsId
                     occupied: root.occupied
                     ws: modelData
+                    hovered: workspaceMouseArea.hoveredWsId === ws
                 }
             }
         }
@@ -95,9 +100,20 @@ StyledClippingRect {
         }
 
         MouseArea {
+            id: workspaceMouseArea
+
+            readonly property int hoveredWsId: {
+                if (!containsMouse)
+                    return -1;
+
+                return root.workspaceAt(mouseX, mouseY)?.ws ?? -1;
+            }
+
             anchors.fill: layout
+            hoverEnabled: true
+            cursorShape: hoveredWsId >= 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: event => {
-                const ws = (layout.childAt(event.x, event.y) as Workspace)?.ws;
+                const ws = root.workspaceAt(event.x, event.y)?.ws;
                 if (!ws)
                     return;
                 if (root.activeWsId !== ws)

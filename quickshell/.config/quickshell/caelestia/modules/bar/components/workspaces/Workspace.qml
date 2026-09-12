@@ -17,6 +17,7 @@ ColumnLayout {
     required property var occupied
     required property int modelData
     required property int ws
+    required property bool hovered
 
     readonly property bool isWorkspace: true // Flag for finding workspace children
     // Unanimated prop for others to use as reference
@@ -66,10 +67,11 @@ ColumnLayout {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: root.focused ? parent.width * 0.8 : 5
-                height: 4
+                width: root.focused ? parent.width * 0.8 : 10
+                height: 8
                 radius: height / 2
-                color: root.focused ? Colours.palette.m3primary
+                color: root.hovered ? Colours.palette.m3tertiary
+                    : root.focused ? Colours.palette.m3primary
                     : root.isOccupied ? Colours.palette.m3onSurface : Colours.palette.m3outlineVariant
 
                 Behavior on width { Anim {} }
@@ -84,7 +86,8 @@ ColumnLayout {
         MaterialShape {
             implicitSize: Tokens.sizes.bar.innerWidth - Tokens.padding.small
 
-            color: Config.bar.workspaces.occupiedBg || root.isOccupied || root.focused ? Colours.palette.m3onSurface : Colours.layer(Colours.palette.m3outlineVariant, 2)
+            color: root.hovered ? Colours.palette.m3tertiary
+                : Config.bar.workspaces.occupiedBg || root.isOccupied || root.focused ? Colours.palette.m3onSurface : Colours.layer(Colours.palette.m3outlineVariant, 2)
             scale: root.focused ? 2 / 3 : root.isOccupied ? 1 / 3 : 1 / 4
 
             animationEasing: Tokens.anim.expressiveDefaultSpatial
@@ -134,7 +137,8 @@ ColumnLayout {
                     return wsName.toString().toLowerCase();
                 return wsName;
             }
-            color: Config.bar.workspaces.occupiedBg || root.isOccupied || root.focused ? Colours.palette.m3onSurface : Colours.layer(Colours.palette.m3outlineVariant, 2)
+            color: root.hovered ? Colours.palette.m3tertiary
+                : Config.bar.workspaces.occupiedBg || root.isOccupied || root.focused ? Colours.palette.m3onSurface : Colours.layer(Colours.palette.m3outlineVariant, 2)
             verticalAlignment: Qt.AlignVCenter
             font.family: Tokens.font.workspaces
         }
