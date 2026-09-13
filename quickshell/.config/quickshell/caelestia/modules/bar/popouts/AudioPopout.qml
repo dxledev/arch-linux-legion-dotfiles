@@ -101,6 +101,7 @@ Item {
                 hoverEnabled: true
 
                 value: Audio.volume
+                to: GlobalConfig.services.maxVolume
                 onInteraction: value => Audio.setVolume(value)
 
                 onRightClicked: Audio.toggleMuted()

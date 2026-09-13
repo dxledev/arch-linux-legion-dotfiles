@@ -41,7 +41,7 @@ local volume_bindings = {
   { "XF86AudioLowerVolume", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume -1" },
   { "SUPER + XF86AudioRaiseVolume", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume +5" },
   { "SUPER + XF86AudioLowerVolume", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume -5" },
-  { "XF86AudioMute", "~/bin/knob-press" },
+  { "XF86AudioMute", "~/bin/knob-press -- ~/bin/menu-audio" },
   { "XF86AudioMute", "~/bin/knob-release", true },
 }
 

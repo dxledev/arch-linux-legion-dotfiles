@@ -362,6 +362,7 @@
     },
     "services": {
         "gpuType": "Nvidia",
+        "maxVolume": 2.0,
         "sensorUnits": "Fahrenheit",
         "smartScheme": false,
         "useTwelveHourClock": false,

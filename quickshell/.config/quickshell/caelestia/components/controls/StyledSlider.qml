@@ -28,6 +28,10 @@ Slider {
     signal interaction(v: real)
     signal rightClicked()
 
+    function valueAt(position: real): real {
+        return from + position * (to - from);
+    }
+
     Component.onCompleted: filledWidth = Qt.binding(() => (width - handle.implicitWidth - handle.anchors.leftMargin) * pos)
 
     implicitWidth: 200
@@ -175,12 +179,12 @@ Slider {
         onPositionChanged: e => {
             dragMovement = (e.x - pressStartX) / width;
             if (root.interactionOnMove)
-                root.interaction(posBinding.value);
+                root.interaction(root.valueAt(posBinding.value));
         }
         onReleased: e => {
             const clickPos = e.x / width;
             const finalPos = mouse.dragMovement !== 0 ? posBinding.value : CUtils.clamp(clickPos, 0, 1);
-            root.interaction(finalPos);
+            root.interaction(root.valueAt(finalPos));
             widthBehavior.enabled = true;
             dragMovement = 0;
         }

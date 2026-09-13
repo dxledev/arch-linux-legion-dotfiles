@@ -117,6 +117,14 @@ Scope {
     }
 
     IpcHandler {
+        target: "popouts"
+
+        function openAudio(): void {
+            ShellState.componentsForActive()?.bar?.pinPopout("audio");
+        }
+    }
+
+    IpcHandler {
         function toggle(drawer: string): void {
             if (list().split("\n").includes(drawer)) {
                 if (root.hasFullscreen && ["launcher", "session", "dashboard"].includes(drawer))

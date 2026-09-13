@@ -10,6 +10,7 @@ end
 if not quickshell then return end
 
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
+local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")
 local bindings = {
     { "SUPER + SHIFT + ALT + S", "Caelestia Capture Menu", "launcher menu capture" },
     { "SUPER + ALT + S", "Caelestia Screenshot Menu", "launcher menu screenshot" },
@@ -43,7 +44,7 @@ local volume_bindings = {
     { "XF86AudioLowerVolume", "/usr/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 1%-" },
     { "SUPER + XF86AudioRaiseVolume", "/usr/bin/wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+" },
     { "SUPER + XF86AudioLowerVolume", "/usr/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-" },
-    { "XF86AudioMute", "~/bin/knob-press" },
+    { "XF86AudioMute", knob_hold },
     { "XF86AudioMute", "~/bin/knob-release --quickshell", true },
 }
 
