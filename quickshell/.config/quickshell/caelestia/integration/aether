@@ -1,0 +1,417 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+shell_root="$(/usr/bin/readlink -f -- "$script_dir/../..")"
+shell_entry="$config_home/quickshell/shell.qml"
+aether_bin="${AETHER_BIN:-$shell_root/.runtime/aether/bin/aether}"
+aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
+aether_wallpapers_dir="${AETHER_WALLPAPERS_DIR:-$config_home/aether/theme/backgrounds}"
+dynamic_wallpapers_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic/caelestia}"
+hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+jq_bin="${JQ_BIN:-/usr/bin/jq}"
+notify_send_bin="${NOTIFY_SEND_BIN:-$HOME/bin/notify-send}"
+workspace="special:aether"
+state_dir="$state_home/caelestia"
+launch_lock="$state_dir/aether-launch.lock"
+apply_lock="$state_dir/aether-apply.lock"
+log_file="$state_dir/aether.log"
+dry_run=0
+
+usage() {
+    printf 'Usage: aether [--dry-run] launch|quit|apply|status\n'
+}
+
+fail() {
+    printf 'aether: %s\n' "$*" >&2
+    exit 1
+}
+
+notify_failure() {
+    local message="$1"
+    if [[ -x "$notify_send_bin" ]]; then
+        "$notify_send_bin" -t 6000 "Aether" "$message" >/dev/null 2>&1 || true
+    fi
+    fail "$message"
+}
+
+run() {
+    if (( dry_run )); then
+        printf '%q ' "$@"
+        printf '\n'
+    else
+        "$@"
+    fi
+}
+
+find_binary() {
+    local candidate
+    local candidates=("$aether_bin")
+    if [[ -z "${AETHER_BIN+x}" ]]; then
+        candidates+=("$HOME/.local/bin/aether" /usr/local/bin/aether /usr/bin/aether)
+    fi
+    for candidate in "${candidates[@]}"; do
+        if [[ -x "$candidate" ]]; then
+            /usr/bin/readlink -f -- "$candidate"
+            return
+        fi
+    done
+    return 1
+}
+
+resolve_binary() {
+    local binary
+    binary="$(find_binary)" || notify_failure "Aether is unavailable. Expected an executable at $aether_bin"
+    printf '%s\n' "$binary"
+}
+
+missing_libraries() {
+    local binary="$1" output
+    output="$(/usr/bin/ldd "$binary" 2>&1 || true)"
+    /usr/bin/awk '/=> not found/ { print $1 }' <<< "$output"
+}
+
+validate_runtime() {
+    local binary="$1" missing
+    missing="$(missing_libraries "$binary")"
+    [[ -z "$missing" ]] || notify_failure "Aether cannot start because runtime libraries are missing: ${missing//$'\n'/, }. Install webkit2gtk-4.1."
+}
+
+client_info() {
+    local clients
+    clients="$("$hyprctl_bin" clients -j 2>/dev/null)" || return 0
+    "$jq_bin" -c '
+        first(.[] | select(
+            ((.class // "") | ascii_downcase) == "aether" or
+            ((.initialClass // "") | ascii_downcase) == "aether"
+        )) // empty
+    ' <<< "$clients" 2>/dev/null || true
+}
+
+workspace_visible() {
+    local monitors
+    monitors="$("$hyprctl_bin" monitors -j 2>/dev/null)" || return 1
+    "$jq_bin" -e --arg workspace "$workspace" \
+        'any(.[]; .specialWorkspace.name == $workspace)' <<< "$monitors" >/dev/null 2>&1
+}
+
+place_client() {
+    local address="$1"
+    run "$hyprctl_bin" dispatch "hl.dsp.window.float({ action = \"on\", window = \"address:$address\" })"
+    run "$hyprctl_bin" dispatch "hl.dsp.window.resize({ x = 1320, y = 880, window = \"address:$address\" })"
+    run "$hyprctl_bin" dispatch "hl.dsp.window.center({ window = \"address:$address\" })"
+}
+
+focus_client() {
+    local address="$1"
+    local client_workspace="${2:-}"
+    if [[ "$client_workspace" != "$workspace" ]]; then
+        run "$hyprctl_bin" dispatch "hl.dsp.window.move({ window = \"address:$address\", workspace = \"$workspace\", follow = false })"
+    fi
+    if ! workspace_visible; then
+        run "$hyprctl_bin" dispatch 'hl.dsp.focus({ monitor = "HDMI-A-1" })'
+        run "$hyprctl_bin" dispatch 'hl.dsp.workspace.toggle_special("aether")'
+    fi
+    place_client "$address"
+    run "$hyprctl_bin" dispatch "hl.dsp.focus({ window = \"address:$address\" })"
+}
+
+install_apply_hook() {
+    local source="$script_dir/aether-custom" destination="$config_home/aether/custom/caelestia"
+    local source_path destination_path file
+    local -a managed_files=(config.json shell-integration.txt post-apply.sh)
+    [[ -r "$source/config.json" && -r "$source/shell-integration.txt" && -x "$source/post-apply.sh" ]] || \
+        fail "Managed Aether integration is incomplete: $source"
+    source_path="$(/usr/bin/readlink -f -- "$source")"
+
+    if [[ -L "$destination" ]]; then
+        destination_path="$(/usr/bin/readlink -f -- "$destination")"
+        [[ "$destination_path" == "$source_path" ]] || fail "Refusing to replace unmanaged Aether integration: $destination"
+        run /usr/bin/unlink -- "$destination"
+    elif [[ -e "$destination" && ! -d "$destination" ]]; then
+        fail "Refusing to replace unmanaged Aether integration: $destination"
+    fi
+
+    run /usr/bin/mkdir -p -- "$destination"
+    for file in "${managed_files[@]}"; do
+        if [[ -e "$destination/$file" || -L "$destination/$file" ]]; then
+            [[ -L "$destination/$file" ]] || fail "Refusing to replace unmanaged Aether integration file: $destination/$file"
+            destination_path="$(/usr/bin/readlink -f -- "$destination/$file")"
+            [[ "$destination_path" == "$source_path/$file" ]] || fail "Refusing to replace unmanaged Aether integration file: $destination/$file"
+        fi
+        run /usr/bin/ln -sfnT -- "$source_path/$file" "$destination/$file"
+    done
+}
+
+resolve_aether_wallpaper() {
+    local binary="$1" attempt status wallpaper="" generated_wallpaper
+    # Aether briefly clears the wallpaper while Apply rebuilds its outputs.
+    for (( attempt=0; attempt<10; attempt++ )); do
+        status="$("$binary" status --json 2>/dev/null || true)"
+        if "$jq_bin" -e '.ok == true' <<< "$status" >/dev/null 2>&1; then
+            wallpaper="$("$jq_bin" -r '.wallpaper // empty' <<< "$status")"
+            [[ "$wallpaper" == /* && -f "$wallpaper" ]] && break
+        fi
+        /usr/bin/sleep 0.2
+    done
+    [[ "$wallpaper" == /* && -f "$wallpaper" ]] || fail 'Aether did not report an existing wallpaper.'
+
+    generated_wallpaper="$aether_wallpapers_dir/${wallpaper##*/}"
+    if [[ -f "$generated_wallpaper" ]]; then
+        wallpaper="$generated_wallpaper"
+    fi
+    /usr/bin/readlink -f -- "$wallpaper"
+}
+
+save_aether_wallpaper() {
+    local source="$1" destination temporary
+    [[ "$dynamic_wallpapers_dir" == /* ]] || fail 'CAELESTIA_DYNAMIC_WALLPAPERS_DIR must be an absolute path.'
+    destination="$dynamic_wallpapers_dir/${source##*/}"
+    saved_wallpaper="$destination"
+
+    if [[ "$(/usr/bin/readlink -f -- "$source")" == "$(/usr/bin/readlink -m -- "$destination")" ]]; then
+        return
+    fi
+    if (( dry_run )); then
+        run /usr/bin/mkdir -p -- "$dynamic_wallpapers_dir"
+        run /usr/bin/cp -- "$source" "$destination"
+        return
+    fi
+
+    /usr/bin/mkdir -p -- "$dynamic_wallpapers_dir"
+    temporary="$(/usr/bin/mktemp "$dynamic_wallpapers_dir/.${destination##*/}.XXXXXX")"
+    /usr/bin/cp -- "$source" "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$destination"
+}
+
+write_shell_palette() {
+    local palette_json="$1" output="$aether_theme_file" temporary
+    [[ "$output" == /* ]] || fail 'AETHER_THEME_FILE must be an absolute path.'
+    run /usr/bin/mkdir -p -- "${output%/*}"
+    (( dry_run )) && { printf 'Generate Aether chrome palette: %s\n' "$output"; return; }
+    temporary="$(/usr/bin/mktemp "${output%/*}/.colors.toml.XXXXXX")"
+    "$jq_bin" -r '
+        def line($name; $value): $name + " = \"" + $value + "\"";
+        [line("mode"; .mode),
+         line("accent"; .accent), line("cursor"; .foreground),
+         line("foreground"; .foreground), line("background"; .background),
+         line("selection_foreground"; .background), line("selection_background"; .accent),
+         line("bg"; .background), line("lighter_bg"; .terminal[8]),
+         line("dark_bg"; .background), line("darker_bg"; .terminal[0]),
+         line("fg"; .muted), line("light_fg"; .foreground),
+         line("bright_fg"; .terminal[15]), line("dark_fg"; .terminal[8]),
+         line("muted"; .muted), line("selection"; .accent),
+         line("red"; .red), line("green"; .green), line("yellow"; .yellow),
+         line("blue"; .blue), line("magenta"; .magenta), line("cyan"; .cyan),
+         line("orange"; .yellow), line("brown"; .muted),
+         line("bright_red"; .terminal[9]), line("bright_green"; .terminal[10]),
+         line("bright_yellow"; .terminal[11]), line("bright_blue"; .terminal[12]),
+         line("bright_magenta"; .terminal[13]), line("bright_cyan"; .terminal[14]),
+         line("black"; .terminal[0]), line("white"; .terminal[7]),
+         line("bright_black"; .terminal[8]), line("bright_white"; .terminal[15])] +
+        [range(0; 16) as $i | line("color" + ($i | tostring); .terminal[$i])]
+        | .[]
+    ' <<< "$palette_json" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$output"
+}
+
+sync_shell_palette() {
+    local palette
+    if ! palette="$($shell_root/scripts/quickshell -p "$shell_entry" ipc call theme aetherPalette 2>&1)"; then
+        notify_failure "Could not read Caelestia's palette. Restart the shell and try again."
+    fi
+    "$jq_bin" -e '
+        (.mode == "light" or .mode == "dark") and
+        ([.background, .foreground, .accent, .muted, .red, .green, .yellow, .blue, .magenta, .cyan] | all(test("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))) and
+        (.terminal | type == "array" and length == 16 and all(.[]; type == "string" and test("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")))
+    ' <<< "$palette" >/dev/null || notify_failure "Caelestia returned an invalid Aether palette. Restart the shell and try again."
+    write_shell_palette "$palette"
+}
+
+wait_for_client() {
+    local attempt info
+    for (( attempt=0; attempt<100; attempt++ )); do
+        info="$(client_info)"
+        if [[ -n "$info" ]]; then
+            printf '%s\n' "$info"
+            return
+        fi
+        /usr/bin/sleep 0.1
+    done
+    return 1
+}
+
+focus_info() {
+    local info="$1" address client_workspace
+    address="$("$jq_bin" -r '.address // empty' <<< "$info")"
+    client_workspace="$("$jq_bin" -r '.workspace.name // empty' <<< "$info")"
+    [[ -n "$address" ]] || return 1
+    focus_client "$address" "$client_workspace"
+}
+
+ipc_running() {
+    local binary="$1" output
+    output="$("$binary" status --json 2>/dev/null)" || return 1
+    "$jq_bin" -e '.ok == true' <<< "$output" >/dev/null 2>&1
+}
+
+running_pids() {
+    local user_id
+    user_id="$(/usr/bin/id -u)"
+    /usr/bin/pgrep -u "$user_id" -x aether 2>/dev/null || true
+}
+
+launch() {
+    local binary info launched_pid
+    install_apply_hook
+    info="$(client_info)"
+    if [[ -n "$info" ]]; then
+        focus_info "$info"
+        return
+    fi
+    binary="$(resolve_binary)"
+    validate_runtime "$binary"
+
+    if ipc_running "$binary"; then
+        info="$(wait_for_client)" || notify_failure "Aether is running, but its window could not be found."
+        focus_info "$info"
+        return
+    fi
+
+    if (( dry_run )); then
+        sync_shell_palette
+        printf 'Launch native Wayland Theme Editor on %s: GDK_BACKEND=wayland %q --tab editor\n' "$workspace" "$binary"
+        return
+    fi
+
+    /usr/bin/mkdir -p -- "$state_dir"
+    exec 9>"$launch_lock"
+    if ! /usr/bin/flock -n 9; then
+        info="$(wait_for_client)" || notify_failure "Another Aether launch is in progress, but no window appeared."
+        focus_info "$info"
+        return
+    fi
+
+    info="$(client_info)"
+    if [[ -n "$info" ]]; then
+        focus_info "$info"
+        return
+    fi
+    if ipc_running "$binary"; then
+        info="$(wait_for_client)" || notify_failure "Aether is running, but its window could not be found."
+        focus_info "$info"
+        return
+    fi
+
+    sync_shell_palette
+    GDK_BACKEND=wayland "$binary" --tab editor >>"$log_file" 2>&1 &
+    launched_pid=$!
+    if info="$(wait_for_client)"; then
+        focus_info "$info"
+        return
+    fi
+    if /usr/bin/kill -0 "$launched_pid" 2>/dev/null; then
+        notify_failure "Aether started, but no window appeared. See $log_file"
+    fi
+    wait "$launched_pid" 2>/dev/null || true
+    notify_failure "Aether could not start. See $log_file"
+}
+
+quit() {
+    local attempt pid
+    local -a pids=()
+    mapfile -t pids < <(running_pids)
+    (( ${#pids[@]} )) || return
+
+    if (( dry_run )); then
+        for pid in "${pids[@]}"; do
+            run /usr/bin/kill -TERM -- "$pid"
+        done
+        return
+    fi
+
+    /usr/bin/kill -TERM -- "${pids[@]}"
+    for (( attempt=0; attempt<50; attempt++ )); do
+        mapfile -t pids < <(running_pids)
+        (( ${#pids[@]} )) || return
+        /usr/bin/sleep 0.1
+    done
+    notify_failure 'Aether did not exit after SIGTERM.'
+}
+
+apply_to_shell() {
+    local binary colors wallpaper
+    binary="$(resolve_binary)"
+    validate_runtime "$binary"
+    colors="$aether_theme_file"
+    [[ -r "$colors" ]] || fail "Aether palette not found: $colors"
+    wallpaper="$(resolve_aether_wallpaper "$binary")"
+    "$script_dir/shell-theme" --dry-run set-aether "$colors" >/dev/null
+
+    if (( dry_run )); then
+        printf 'Source wallpaper: %s\n' "$wallpaper"
+        save_aether_wallpaper "$wallpaper"
+        printf 'Saved wallpaper: %s\n' "$saved_wallpaper"
+        "$script_dir/shell-theme" --dry-run set-aether "$colors"
+        "$script_dir/system-action" --dry-run dynamic-wallpaper "$saved_wallpaper"
+        return
+    fi
+
+    /usr/bin/mkdir -p -- "$state_dir"
+    exec 8>"$apply_lock"
+    /usr/bin/flock 8
+    save_aether_wallpaper "$wallpaper"
+    "$script_dir/system-action" dynamic-wallpaper "$saved_wallpaper"
+    "$script_dir/shell-theme" set-aether "$colors"
+}
+
+status() {
+    local binary="" info="" missing="" source="system" address="" client_workspace="" pid="0"
+    local -a pids=()
+    local ipc=false process=false visible=false
+    binary="$(find_binary || true)"
+    info="$(client_info)"
+    mapfile -t pids < <(running_pids)
+    if (( ${#pids[@]} )); then
+        process=true
+        pid="${pids[0]}"
+    fi
+    source="$($script_dir/shell-theme status 2>/dev/null | "$jq_bin" -r '.source // "system"' 2>/dev/null || printf system)"
+    if [[ -n "$binary" ]]; then
+        missing="$(missing_libraries "$binary")"
+        if [[ -z "$missing" ]] && ipc_running "$binary"; then ipc=true; fi
+    fi
+    if [[ -n "$info" ]]; then
+        address="$("$jq_bin" -r '.address // empty' <<< "$info")"
+        client_workspace="$("$jq_bin" -r '.workspace.name // empty' <<< "$info")"
+        [[ "$process" == true ]] || pid="$("$jq_bin" -r '.pid // 0' <<< "$info")"
+    fi
+    if workspace_visible; then visible=true; fi
+    "$jq_bin" -cn \
+        --arg binary "$binary" --arg missing "$missing" --arg address "$address" \
+        --arg workspace "$workspace" --arg clientWorkspace "$client_workspace" \
+        --arg source "$source" --argjson pid "$pid" --argjson process "$process" --argjson ipc "$ipc" --argjson visible "$visible" \
+        '{available: ($binary != ""), binary: $binary,
+          runtimeReady: ($binary != "" and $missing == ""),
+          missingLibraries: ($missing | split("\n") | map(select(length > 0))),
+          running: ($process or $ipc or $address != ""), process: $process, ipc: $ipc, pid: $pid, address: $address,
+          workspace: $workspace, clientWorkspace: $clientWorkspace,
+          onWorkspace: ($clientWorkspace == $workspace), workspaceVisible: $visible,
+          shellSource: $source}'
+}
+
+[[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
+command_name="${1:-launch}"
+(( $# == 0 )) || shift
+(( $# == 0 )) || { usage >&2; exit 2; }
+
+case "$command_name" in
+    launch) launch ;;
+    quit) quit ;;
+    apply) apply_to_shell ;;
+    status) status ;;
+    --help|-h) usage ;;
+    *) usage >&2; exit 2 ;;
+esac

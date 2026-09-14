@@ -64,8 +64,10 @@ Searcher {
         readonly property string name: modelData.name ? Tr.trMarked(modelData.name) : Tr.trCtx("Unnamed", "launcher action with no name")
         readonly property bool isNightlight: command[0] === "nightlight"
         readonly property bool isIdleLock: command[0] === "idle-lock"
-        readonly property string desc: isNightlight ? (Nightlight.enabled ? "Turn Nightlight Off" : "Turn Nightlight On") : isIdleLock ? (IdleLock.enabled ? "Turn Idle Lock Off" : "Turn Idle Lock On") : modelData.description ? Tr.trMarked(modelData.description) : Tr.trCtx("No description", "launcher action with no description")
-        readonly property string icon: isNightlight ? (Nightlight.enabled ? "nightlight" : "light_mode") : isIdleLock ? (IdleLock.enabled ? "lock" : "coffee") : modelData.icon ?? "help_outline"
+        readonly property bool isModeToggle: command[0] === "toggleMode"
+        readonly property bool isNextWallpaper: command[0] === "next-wallpaper"
+        readonly property string desc: isNightlight ? (Nightlight.enabled ? "Turn Nightlight Off" : "Turn Nightlight On") : isIdleLock ? (IdleLock.enabled ? "Turn Idle Lock Off" : "Turn Idle Lock On") : isModeToggle ? (Colours.light ? "Switch Caelestia to Dark Mode" : "Switch Caelestia to Light Mode") : modelData.description ? Tr.trMarked(modelData.description) : Tr.trCtx("No description", "launcher action with no description")
+        readonly property string icon: isNightlight ? (Nightlight.enabled ? "nightlight" : "light_mode") : isIdleLock ? (IdleLock.enabled ? "lock" : "coffee") : isModeToggle ? (Colours.light ? "dark_mode" : "light_mode") : modelData.icon ?? "help_outline"
         readonly property list<string> command: modelData.command ?? []
         readonly property bool enabled: modelData.enabled ?? true
         readonly property bool dangerous: modelData.dangerous ?? false
@@ -89,6 +91,12 @@ Searcher {
             } else if (command[0] === "setMode" && command.length > 1) {
                 list.screenState.launcher = false;
                 Colours.setMode(command[1]);
+            } else if (isModeToggle) {
+                list.screenState.launcher = false;
+                Colours.toggleMode();
+            } else if (isNextWallpaper) {
+                list.screenState.launcher = false;
+                Wallpapers.setRandom();
             } else if (command[0] === "notification-center") {
                 list.screenState.launcher = false;
                 list.screenState.sidebar = true;

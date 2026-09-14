@@ -1,0 +1,4 @@
+{
+    "template": "shell-integration.txt",
+    "destination": "~/.local/state/caelestia/aether-integration"
+}

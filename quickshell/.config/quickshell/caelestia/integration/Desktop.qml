@@ -34,21 +34,35 @@ Scope {
         target: "theme"
         function reloadColors(): void {
             Colors.reload();
+            Colours.setSource("system");
             NotificationFormat.reload();
             Wallpapers.refresh();
         }
         function palette(): string {
             return JSON.stringify(Colors.values);
         }
+        function aetherPalette(): string {
+            return JSON.stringify(Colours.aetherPalette());
+        }
     }
 
     IpcHandler {
         target: "integration"
         function status(): string {
-            return JSON.stringify({theme: System.themeFile, font: Typography.family,
-                                   wallpaper: Wallpapers.actualCurrent, primary: String(Colours.palette.m3primary),
-                                   background: String(Colours.palette.m3background), workspaceStarts: System.workspaceStarts,
-                                   windowRadius: GlobalConfig.border.rounding, roundingPower: System.windowRoundingPower});
+            return JSON.stringify({
+                theme: System.themeFile,
+                font: Typography.family,
+                wallpaper: Wallpapers.actualCurrent,
+                primary: String(Colours.palette.m3primary),
+                background: String(Colours.palette.m3background),
+                scheme: Colours.scheme,
+                source: Colours.source,
+                mode: Colours.light ? "light" : "dark",
+                variant: Colours.variant,
+                workspaceStarts: System.workspaceStarts,
+                windowRadius: GlobalConfig.border.rounding,
+                roundingPower: System.windowRoundingPower
+            });
         }
     }
 }

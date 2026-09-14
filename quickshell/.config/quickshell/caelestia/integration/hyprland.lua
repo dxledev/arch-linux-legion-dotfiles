@@ -9,6 +9,22 @@ end
 
 if not quickshell then return end
 
+hl.window_rule({
+    name = "caelestia-aether-workspace",
+    match = { class = "^Aether$" },
+    workspace = "special:aether",
+    float = true,
+    center = true,
+    size = { 1320, 880 },
+    animation = "slide bottom",
+})
+
+hl.workspace_rule({
+    workspace = "special:aether",
+    monitor = "HDMI-A-1",
+    persistent = false,
+})
+
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
 local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")
 local bindings = {

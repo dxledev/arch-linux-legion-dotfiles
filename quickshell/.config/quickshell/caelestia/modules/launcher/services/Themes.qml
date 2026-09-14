@@ -7,6 +7,7 @@ import Quickshell.Io
 import Caelestia.Config
 import qs.utils
 import qs.integration
+import qs.services
 
 Searcher {
     id: root
@@ -64,12 +65,22 @@ Searcher {
         readonly property string name: modelData.name
         readonly property string themeId: modelData.id
         readonly property string icon: modelData.icon
+        readonly property string iconType: modelData.iconType ?? "image"
         readonly property bool current: modelData.current
+        readonly property bool applied: modelData.applied ?? false
+        readonly property bool dynamic: modelData.dynamic ?? false
 
         function onClicked(list: AppList): void {
             list.screenState.launcher = false;
-            if (!current)
+            if (current)
+                return;
+            if (dynamic) {
+                Colours.setSource("dynamic");
+            } else if (applied) {
+                Colours.setSource("system");
+            } else {
                 System.run("theme", [themeId]);
+            }
         }
     }
 }

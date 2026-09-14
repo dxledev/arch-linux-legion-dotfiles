@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
+output_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
+template_dir="${THEME_TEMPLATE_DIR:-$themes_dir/current}"
+spicetify_template="${SPICETIFY_TEMPLATE_DIR:-$config_home/spicetify/Themes/text}"
+dry_run=0
+force=0
+staging_dir=""
+backup_dir=""
+temporary_palette=""
+
+usage() {
+    printf 'Usage: theme-render [--dry-run] [--force] PALETTE_JSON ABSOLUTE_WALLPAPER\n'
+}
+
+fail() {
+    printf 'theme-render: %s\n' "$*" >&2
+    exit 1
+}
+
+cleanup() {
+    [[ -z "$staging_dir" || ! -e "$staging_dir" ]] || /usr/bin/rm -rf -- "$staging_dir"
+    [[ -z "$backup_dir" || ! -e "$backup_dir" ]] || /usr/bin/rm -rf -- "$backup_dir"
+    [[ -z "$temporary_palette" || ! -e "$temporary_palette" ]] || /usr/bin/rm -f -- "$temporary_palette"
+}
+
+require_absolute() {
+    [[ "$2" == /* ]] || fail "$1 must be an absolute path: $2"
+}
+
+validate_paths() {
+    local palette_file="$1" wallpaper="$2" themes_resolved template_resolved
+    require_absolute THEMES_DIR "$themes_dir"
+    require_absolute DYNAMIC_THEME_DIR "$output_dir"
+    require_absolute THEME_TEMPLATE_DIR "$template_dir"
+    require_absolute SPICETIFY_TEMPLATE_DIR "$spicetify_template"
+    require_absolute PALETTE_JSON "$palette_file"
+    require_absolute WALLPAPER "$wallpaper"
+    [[ "$output_dir" == "$themes_dir/.dynamic/caelestia" ]] ||
+        fail "DYNAMIC_THEME_DIR is not the managed output: $output_dir"
+    [[ -r "$palette_file" && -f "$palette_file" ]] || fail "Palette not found: $palette_file"
+    [[ -f "$wallpaper" ]] || fail "Wallpaper not found: $wallpaper"
+    themes_resolved="$(/usr/bin/readlink -f -- "$themes_dir")"
+    template_resolved="$(/usr/bin/readlink -f -- "$template_dir")"
+    [[ -d "$themes_resolved" && -d "$template_resolved" ]] || fail 'Theme directories are unavailable.'
+    [[ "${template_resolved%/*}" == "$themes_resolved" && "${template_resolved##*/}" != .* && "${template_resolved##*/}" != current ]] ||
+        fail "Template must resolve to an immediate named theme: $template_dir"
+    for required_file in alacritty.toml btop.theme cava chromium-flags.conf discord.css hellpaper.conf obsidian.css; do
+        [[ -r "$template_dir/$required_file" ]] || fail "Template is missing $required_file: $template_dir"
+    done
+    if [[ -e "$output_dir" || -L "$output_dir" ]]; then
+        [[ -d "$output_dir" && ! -L "$output_dir" && -f "$output_dir/.caelestia-generated" ]] ||
+            fail "Refusing to replace unmanaged output: $output_dir"
+    fi
+}
+
+normalise_palette() {
+    local palette_file="$1" output="$2"
+    /usr/bin/jq -e '
+        def colour:
+            if type != "string" then error("colour must be a string")
+            else sub("^#"; "") | ascii_downcase | if test("^[0-9a-f]{6}([0-9a-f]{2})?$") then .[0:6] else error("invalid colour") end
+            end;
+        def pick($names): first($names[] as $name | .colours[$name] // empty) | colour;
+        if (.mode != "dark" and .mode != "light") or (.colours | type != "object") then error("invalid palette") else . end |
+        {
+          mode,
+          base: pick(["base", "background"]),
+          mantle: pick(["mantle", "surfaceContainerLow", "surface", "background"]),
+          crust: pick(["crust", "surfaceContainerLowest", "term0", "background"]),
+          surface0: pick(["surface0", "surfaceContainer", "term0", "outlineVariant"]),
+          surface1: pick(["surface1", "surfaceContainerHigh", "term8", "outlineVariant"]),
+          surface2: pick(["surface2", "surfaceContainerHighest", "outlineVariant", "term8"]),
+          overlay0: pick(["overlay0", "outlineVariant", "term8", "muted"]),
+          overlay1: pick(["overlay1", "outline", "term8", "muted"]),
+          overlay2: pick(["overlay2", "outline", "muted", "term8"]),
+          text: pick(["text", "onBackground", "foreground", "term15", "term7"]),
+          subtext1: pick(["subtext1", "onSurfaceVariant", "foreground", "muted", "term7"]),
+          subtext0: pick(["subtext0", "outline", "muted", "term8"]),
+          primary: pick(["primary", "accent", "blue", "term4"]),
+          secondary: pick(["secondary", "cyan", "magenta", "term6"]),
+          tertiary: pick(["tertiary", "yellow", "term3"]),
+          red: pick(["red", "error", "term1"]),
+          green: pick(["green", "success", "term2"]),
+          yellow: pick(["yellow", "tertiary", "term3"]),
+          peach: pick(["peach", "yellow", "term3"]),
+          pink: pick(["pink", "magenta", "secondary", "term5"]),
+          mauve: pick(["mauve", "primary", "accent", "term5"]),
+          blue: pick(["blue", "primary", "term4"]),
+          sapphire: pick(["sapphire", "blue", "primary", "term4"]),
+          sky: pick(["sky", "cyan", "secondary", "term6"]),
+          teal: pick(["teal", "cyan", "secondary", "term6"]),
+          lavender: pick(["lavender", "primaryFixed", "primary", "term12"]),
+          rosewater: pick(["rosewater", "onPrimaryContainer", "text", "term15"]),
+          flamingo: pick(["flamingo", "pink", "secondary", "term13"]),
+          terminal: [range(0; 16) as $i | pick(["term" + ($i | tostring)])]
+        }
+    ' "$palette_file" > "$output" || fail 'Palette is malformed or incomplete.'
+}
+
+load_palette() {
+    local palette_file="$1"
+    mapfile -t values < <(/usr/bin/jq -r '[.mode, .base, .mantle, .crust, .surface0, .surface1, .surface2, .overlay0, .overlay1, .overlay2, .text, .subtext1, .subtext0, .primary, .secondary, .tertiary, .red, .green, .yellow, .peach, .pink, .mauve, .blue, .sapphire, .sky, .teal, .lavender, .rosewater, .flamingo] + .terminal | .[]' "$palette_file")
+    (( ${#values[@]} == 45 )) || fail 'Normalised palette is incomplete.'
+    mode="${values[0]}" base="${values[1]}" mantle="${values[2]}" crust="${values[3]}"
+    surface0="${values[4]}" surface1="${values[5]}" surface2="${values[6]}"
+    overlay0="${values[7]}" overlay1="${values[8]}" overlay2="${values[9]}"
+    text_colour="${values[10]}" subtext1="${values[11]}" subtext0="${values[12]}"
+    primary="${values[13]}" secondary="${values[14]}" tertiary="${values[15]}"
+    red="${values[16]}" green="${values[17]}" yellow="${values[18]}" peach="${values[19]}"
+    pink="${values[20]}" mauve="${values[21]}" blue="${values[22]}" sapphire="${values[23]}"
+    sky="${values[24]}" teal="${values[25]}" lavender="${values[26]}" rosewater="${values[27]}" flamingo="${values[28]}"
+    terminal=("${values[@]:29:16}")
+}
+
+rgb() {
+    local value="$1"
+    printf '%d, %d, %d' "$((16#${value:0:2}))" "$((16#${value:2:2}))" "$((16#${value:4:2}))"
+}
+
+write_terminals() {
+    local directory="$1" index
+    {
+        printf '[colors.primary]\nbackground = "#%s"\nforeground = "#%s"\n\n' "$base" "$text_colour"
+        printf '[colors.normal]\n'
+        for index in {0..7}; do printf '%-7s = "#%s"\n' "${terminal_names[index]}" "${terminal[index]}"; done
+        printf '\n[colors.bright]\n'
+        for index in {8..15}; do printf '%-7s = "#%s"\n' "${terminal_names[index - 8]}" "${terminal[index]}"; done
+    } > "$directory/alacritty.toml"
+    {
+        printf 'foreground #%s\nbackground #%s\n\n' "$text_colour" "$base"
+        for index in {0..15}; do printf 'color%-2d #%s\n' "$index" "${terminal[index]}"; done
+    } > "$directory/kitty.conf"
+    {
+        printf 'background = #%s\nforeground = #%s\n\n' "$base" "$text_colour"
+        for index in {0..15}; do printf 'palette = %d=#%s\n' "$index" "${terminal[index]}"; done
+    } > "$directory/ghostty.ghostty"
+}
+
+write_shared_formats() {
+    local directory="$1" user_rgb
+    user_rgb="$(rgb "$base")"
+    printf '{ "BrowserThemeColor": "#%s" }\n' "$base" > "$directory/brave.json"
+    /usr/bin/awk -v rgb="${user_rgb// /}" -v scheme="$mode" '
+        /^--set-user-color=/ { print "--set-user-color=" rgb; next }
+        /^--set-color-variant=/ { print "--set-color-variant=standard"; next }
+        /^--set-color-scheme=/ { print "--set-color-scheme=" scheme; next }
+        { print }
+    ' "$template_dir/chromium-flags.conf" > "$directory/chromium-flags.conf"
+    printf 'hl.config({\n  general = {\n    col = {\n      active_border = { colors = { "rgba(%sff)", "rgba(%sff)" }, angle = 45 },\n      inactive_border = "rgba(%sff)",\n    },\n  },\n})\n' "$primary" "$text_colour" "$surface0" > "$directory/borders.lua"
+    printf 'general {\n    col.active_border = rgba(%sff) rgba(%sff) 45deg\n    col.inactive_border = rgba(%sff)\n}\n' "$primary" "$text_colour" "$surface0" > "$directory/borders.conf"
+    printf 'hl.config({\n    plugin = {\n        hymission = {\n            niri_mode_wallpaper_zoom_background_color = "#%sff"\n        }\n    }\n})\n' "$mantle" > "$directory/hymission-background.lua"
+    printf '* {\n    bg:        #%sEB;\n    bg-2:      #%s;\n    fg:        #%s;\n    accent:    #%s;\n    border:    #%s;\n    muted:     #%s;\n}\n' "$base" "$base" "$text_colour" "$primary" "$primary" "$subtext0" > "$directory/rofi.rasi"
+    printf '@define-color base #%s;\n@define-color mantle #%s;\n@define-color crust #%s;\n@define-color surface0 #%s;\n@define-color surface1 #%s;\n@define-color surface2 #%s;\n@define-color text #%s;\n@define-color subtext #%s;\n@define-color accent #%s;\n@define-color blue #%s;\n@define-color green #%s;\n@define-color red #%s;\n@define-color orange #%s;\n' "$base" "$mantle" "$crust" "$surface0" "$surface1" "$surface2" "$text_colour" "$subtext1" "$primary" "$blue" "$green" "$red" "$peach" > "$directory/gtk.css"
+}
+
+write_shell_formats() {
+    local directory="$1"
+    printf 'pragma Singleton\n\nimport Quickshell\nimport QtQuick\n\nSingleton {\n    readonly property color background: "#%s"\n    readonly property color backgroundAlt: "#%s"\n    readonly property color backgroundAlpha: Qt.rgba(%s, 0.87)\n    readonly property color backgroundGray: "#%s"\n    readonly property color foreground: "#%s"\n    readonly property color foregroundInactive: "#%s"\n    readonly property color primary: "#%s"\n    readonly property color muted: "#%s"\n    readonly property color border: "#%s"\n    readonly property color secondary: "#%s"\n    readonly property color success: "#%s"\n    readonly property color warning: "#%s"\n    readonly property color danger: "#%s"\n}\n' "$base" "$mantle" "$(rgb "$surface0" | /usr/bin/sed 's/, / \/ 255, /g; s/$/ \/ 255/')" "$surface0" "$text_colour" "$subtext0" "$primary" "$overlay1" "$primary" "$secondary" "$green" "$yellow" "$red" > "$directory/Colors.qml"
+    printf 'pragma Singleton\nimport QtQuick\n\nQtObject {\n    property color bg:        "#%s"\n    property color fg:        "#%s"\n    property color muted:     "#%s"\n    property color accent:    "#%s"\n    property color secondary: "#%s"\n    property color green:     "#%s"\n    property color border:    "#%s"\n\n    property real opacity: 1.0\n}\n' "$base" "$text_colour" "$subtext0" "$primary" "$secondary" "$green" "$primary" > "$directory/dashboard.qml"
+    printf ':root {\n    --color-primary: #%s;\n    --color-secondary: #%s;\n    --color-accent: #%s;\n    --color-surface: #%s;\n    --color-surface-alt: #%s;\n    --color-panel-backdrop: var(--color-surface);\n    --color-picker-backdrop: var(--color-surface);\n    --color-content-backdrop: var(--color-surface-alt);\n    --color-border: #%s;\n    --color-text: #%s;\n    --color-muted: #%s;\n    --color-success: #%s;\n    --color-warning: #%s;\n    --color-danger: #%s;\n    --panel-bg: var(--color-surface);\n    --header-bg: var(--color-surface-alt);\n    --content-bg: var(--color-surface);\n    --border-color: var(--color-border);\n    --text-color: var(--color-text);\n    --text-muted-color: var(--color-muted);\n    --button-primary-bg: var(--color-primary);\n    --button-primary-fg: var(--color-surface);\n    --input-bg: #%s;\n    --slider-track-bg: #%s;\n    --slider-fill-bg: var(--color-primary);\n    --swatch-selected-border-color: var(--color-secondary);\n}\n' "$primary" "$secondary" "$tertiary" "$base" "$surface0" "$subtext0" "$text_colour" "$subtext1" "$green" "$yellow" "$red" "$surface1" "$surface0" > "$directory/chromack.css"
+    printf ':root { --background: #%sD9; --text-color: #%s; --primary-color: #%s; --secondary-color: #%s; --border-color: #%s; }\n' "$base" "$text_colour" "$primary" "$secondary" "$primary" > "$directory/ward.css"
+    printf '@define-color foreground #%s;\n@define-color background #%s;\n@define-color primary #%s;\n@define-color muted #%s;\n@define-color border #%s;\n@define-color background-alpha rgba(%s, 0.87);\n@define-color background-alt #%s;\n@define-color foreground-inactive #%s;\n' "$text_colour" "$base" "$primary" "$overlay1" "$primary" "$(rgb "$surface0")" "$mantle" "$subtext0" > "$directory/waybar.css"
+    for index in {0..7}; do printf '@define-color %s #%s;\n' "${terminal_names[index]}" "${terminal[index]}"; done >> "$directory/waybar.css"
+    for index in {8..15}; do printf '@define-color bright-%s #%s;\n' "${terminal_names[index - 8]}" "${terminal[index]}"; done >> "$directory/waybar.css"
+    printf '@define-color background-gray #%s;\n' "$surface0" >> "$directory/waybar.css"
+    printf '@define-color background-color #%sD9;\n@define-color border-color #%s;\n@define-color progress #%s;\n@define-color label #%s;\n@define-color image #%s;\n' "$base" "$primary" "$primary" "$text_colour" "$secondary" > "$directory/swayosd.css"
+    printf '@define-color window-background rgba(%s, 0);\n@define-color app-background rgba(%s, 0.6);\n@define-color button-background rgba(%s, 0.25);\n@define-color indicator-point #%s;\n@define-color preview-item-background rgba(%s, 0.47);\n@define-color preview-item-border rgba(%s, 0.12);\n@define-color preview-item-hover-background rgba(%s, 0.30);\n' "$(rgb "$base")" "$(rgb "$base")" "$(rgb "$overlay1")" "$primary" "$(rgb "$overlay1")" "$(rgb "$primary")" "$(rgb "$overlay1")" > "$directory/dock.css"
+    printf ':root {\n  --panel-bg: #%s; --panel-border: #%s; --list-bg: #%s; --header-bg: #%s; --header-color: #%s; --footer-bg: #%s; --footer-color: #%s;\n  --card-bg: #%s; --card-border: #%s; --summary-color: #%s; --body-color: #%s; --app-name-color: #%s; --timestamp-color: #%s;\n  --badge-bg: #%s; --badge-color: #%s; --clear-bg: #%s; --clear-hover-bg: #%s; --clear-color: #%s;\n  --dismiss-color: #%s; --dismiss-hover-bg: #%s; --action-bg: #%s; --action-hover-bg: #%s; --action-color: #%s;\n  --icon-bg: #%s; --handle-bg: #%s; --scrollbar-track-bg: #%s; --scrollbar-thumb-bg: #%s; --scrollbar-thumb-hover-bg: #%s;\n}\n' "$base" "$subtext0" "$base" "$surface0" "$text_colour" "$surface0" "$subtext0" "$surface1" "$subtext0" "$text_colour" "$subtext1" "$primary" "$subtext0" "$surface1" "$primary" "$primary" "$secondary" "$crust" "$subtext1" "$surface1" "$surface0" "$surface2" "$text_colour" "$surface0" "$primary" "$surface0" "$primary" "$secondary" > "$directory/wardnc.css"
+}
+
+write_btop() {
+    local directory="$1"
+    /usr/bin/awk -v main_bg="#$base" -v main_fg="#$text_colour" -v title="#$text_colour" -v hi_fg="#$primary" \
+        -v selected_bg="#$surface1" -v selected_fg="#$primary" -v inactive_fg="#$subtext0" -v graph_text="#$rosewater" \
+        -v meter_bg="#$surface1" -v proc_misc="#$rosewater" -v cpu_box="#$mauve" -v mem_box="#$green" \
+        -v net_box="#$flamingo" -v proc_box="#$blue" -v div_line="#$overlay2" -v temp_start="#$green" \
+        -v temp_mid="#$yellow" -v temp_end="#$red" -v cpu_start="#$teal" -v cpu_mid="#$sky" -v cpu_end="#$lavender" \
+        -v free_start="#$mauve" -v free_mid="#$lavender" -v free_end="#$blue" -v cached_start="#$sky" \
+        -v cached_mid="#$blue" -v cached_end="#$lavender" -v available_start="#$peach" -v available_mid="#$flamingo" \
+        -v available_end="#$red" -v used_start="#$green" -v used_mid="#$teal" -v used_end="#$sky" \
+        -v download_start="#$peach" -v download_mid="#$flamingo" -v download_end="#$red" \
+        -v upload_start="#$green" -v upload_mid="#$teal" -v upload_end="#$sky" -v process_start="#$sky" \
+        -v process_mid="#$lavender" -v process_end="#$mauve" '
+        BEGIN { split("main_bg main_fg title hi_fg selected_bg selected_fg inactive_fg graph_text meter_bg proc_misc cpu_box mem_box net_box proc_box div_line temp_start temp_mid temp_end cpu_start cpu_mid cpu_end free_start free_mid free_end cached_start cached_mid cached_end available_start available_mid available_end used_start used_mid used_end download_start download_mid download_end upload_start upload_mid upload_end process_start process_mid process_end", names) }
+        { for (i in names) if ($0 ~ "^theme\\[" names[i] "\\]=") { value = SYMTAB[names[i]]; sub(/"#[0-9A-Fa-f]+"/, "\"" value "\"") } print }
+    ' "$template_dir/btop.theme" > "$directory/btop.theme"
+}
+
+write_template_preserving_formats() {
+    local directory="$1"
+    /usr/bin/awk -v c1="#$primary" -v c2="#$red" -v c3="#$pink" -v c4="#$flamingo" -v c5="#$rosewater" -v c6="#$peach" -v c7="#$lavender" -v c8="#$blue" '
+        /^gradient_color_[1-8][[:space:]]*=/ { split($0, parts, "_"); gradient_index=parts[3]+0; value=SYMTAB["c" gradient_index]; sub(/=.*/, "= '\''" value "'\''"); print; next }
+        { print }
+    ' "$template_dir/cava" > "$directory/cava"
+    /usr/bin/awk -v bg="$(rgb "$base"), 255" -v idle="$(rgb "$mantle"), 255" -v hover="$(rgb "$surface0"), 255" \
+        -v border="$(rgb "$primary"), 255" -v ripple="$(rgb "$secondary"), 255" -v overlay="$(rgb "$base"), 200" -v text="$(rgb "$text_colour"), 255" '
+        /^\[Theme\]/ { in_theme=1; print; next }
+        /^\[/ { in_theme=0 }
+        in_theme && /^[[:space:]]*(bg|idle|hover|border|ripple|overlay|text)[[:space:]]*=/ {
+            key=$1; value=SYMTAB[key]; sub(/=.*/, "= " value); print; next
+        }
+        { print }
+    ' "$template_dir/hellpaper.conf" > "$directory/hellpaper.conf"
+}
+
+write_application_css() {
+    local directory="$1"
+    /usr/bin/cp -- "$template_dir/discord.css" "$directory/discord.css"
+    printf '\nbody {\n  --bg-4: #%s; --bg-3: #%s; --bg-2: #%s; --bg-1: #%s;\n  --text-0: #%s; --text-1: #%s; --text-2: #%s; --text-3: #%s; --text-4: #%s; --text-5: #%s;\n  --accent-1: #%s; --accent-2: #%s; --accent-3: #%s; --accent-4: #%s; --accent-5: #%s; --accent-new: #%s;\n  --online: #%s; --idle: #%s; --dnd: #%s; --streaming: #%s; --offline: #%s;\n  --border-light: #%s; --border: #%s; --border-hover: #%s;\n}\n' "$base" "$mantle" "$crust" "$crust" "$crust" "$text_colour" "$pink" "$subtext1" "$subtext0" "$overlay1" "$blue" "$primary" "$pink" "$lavender" "$sapphire" "$red" "$green" "$yellow" "$red" "$mauve" "$overlay1" "$surface1" "$primary" "$primary" >> "$directory/discord.css"
+    /usr/bin/cp -- "$template_dir/obsidian.css" "$directory/obsidian.css"
+    printf '\n.theme-dark, .theme-light {\n  --background-primary: #%s; --background-primary-alt: #%s; --background-secondary: #%s; --background-secondary-alt: #%s;\n  --text-normal: #%s; --text-selection: #%s; --background-modifier-border: #%s;\n  --text-title-h1: #%s; --text-title-h2: #%s; --text-title-h3: #%s; --text-title-h4: #%s; --text-title-h5: #%s; --text-title-h6: #%s;\n  --text-link: #%s; --text-accent: #%s; --text-accent-hover: #%s; --interactive-accent: #%s; --interactive-accent-hover: #%s;\n  --text-muted: #%s; --text-faint: #%s; --code-normal: #%s; --text-error: #%s; --text-error-hover: #%s; --text-success: #%s;\n  --tag-color: #%s; --tag-background: #%s; --graph-line: #%s; --graph-node: #%s; --graph-node-focused: #%s; --graph-node-tag: #%s; --graph-node-attachment: #%s;\n}\n' "$base" "$base" "$mantle" "$mantle" "$text_colour" "$surface1" "$surface1" "$red" "$green" "$yellow" "$blue" "$primary" "$secondary" "$blue" "$primary" "$primary" "$primary" "$secondary" "$subtext1" "$surface2" "$primary" "$red" "$red" "$green" "$primary" "$surface1" "$surface1" "$primary" "$blue" "$primary" "$green" >> "$directory/obsidian.css"
+}
+
+write_hyprlock() {
+    local directory="$1" index colour role
+    local -a first=("$mantle" "$surface0" "$surface1" "$surface2" "$overlay0" "$overlay1" "$overlay2" "$subtext1" "$text_colour")
+    local -a second=("$sapphire" "$sky" "$teal" "$green" "$yellow" "$peach" "$red" "$pink" "$lavender")
+    local -a third=("$pink" "$flamingo" "$rosewater" "$red" "$peach" "$yellow" "$green" "$teal" "$sky")
+    local -a fourth=("$mauve" "$lavender" "$blue" "$sapphire" "$sky" "$teal" "$green" "$yellow" "$peach")
+    : > "$directory/hyprlock.conf"
+    for role in 1 2 3 4; do
+        case "$role" in
+            1) colour="$base"; accent=("${first[@]}") ;;
+            2) colour="$blue"; accent=("${second[@]}") ;;
+            3) colour="$primary"; accent=("${third[@]}") ;;
+            4) colour="$pink"; accent=("${fourth[@]}") ;;
+        esac
+        printf '$primary_%d   = %s\n$text_%d      = %s\n' "$role" "${colour^^}" "$role" "${text_colour^^}" >> "$directory/hyprlock.conf"
+        for index in {1..9}; do printf '$p%d_accent_%d = %s\n' "$role" "$index" "${accent[index - 1]^^}"; done >> "$directory/hyprlock.conf"
+        printf '\n$primary_%d_rgba   = rgba(%s,0.9)\n$text_%d_rgba      = rgba(%s,0.9)\n' "$role" "$(rgb "$colour" | tr -d ' ')" "$role" "$(rgb "$text_colour" | tr -d ' ')" >> "$directory/hyprlock.conf"
+        for index in {1..9}; do printf '$p%d_accent_%d_rgba = rgba(%s,0.9)\n' "$role" "$index" "$(rgb "${accent[index - 1]}" | tr -d ' ')"; done >> "$directory/hyprlock.conf"
+        printf '\n' >> "$directory/hyprlock.conf"
+    done
+    printf '$primary_5_rgba = rgba(%s,0.5)\n$primary_6_rgba = rgba(%s,0.5)\n$primary_7_rgba = rgba(%s,0.5)\n$primary_8_rgba = rgba(%s,0.5)\n\n$accent1_2   = %sCC\n$accent1_2ff = %sFF\n' "$(rgb "$base" | tr -d ' ')" "$(rgb "$blue" | tr -d ' ')" "$(rgb "$primary" | tr -d ' ')" "$(rgb "$pink" | tr -d ' ')" "${blue^^}" "${blue^^}" >> "$directory/hyprlock.conf"
+}
+
+write_spicetify() {
+    local directory="$1"
+    /usr/bin/mkdir -p -- "$directory/spicetify"
+    if [[ -r "$spicetify_template/user.css" ]]; then
+        /usr/bin/cp -- "$spicetify_template/user.css" "$directory/spicetify/user.css"
+    else
+        : > "$directory/spicetify/user.css"
+    fi
+    printf '[Dynamic]\naccent             = %s\naccent-active      = %s\naccent-inactive    = %s\nbanner             = %s\nborder-active      = %s\nborder-inactive    = %s\nheader             = %s\nhighlight          = %s\nmain               = %s\nnotification       = %s\nnotification-error = %s\nsubtext            = %s\ntext               = %s\n' "$primary" "$secondary" "$base" "$primary" "$primary" "$surface1" "$surface0" "$surface1" "$base" "$blue" "$red" "$subtext1" "$text_colour" > "$directory/spicetify/color.ini"
+}
+
+build_output() {
+    local normalised="$1" wallpaper="$2" fingerprint="$3"
+    local wallpaper_resolved wallpaper_directory
+    wallpaper_resolved="$(/usr/bin/readlink -f -- "$wallpaper")"
+    wallpaper_directory="${wallpaper_resolved%/*}"
+    staging_dir="$(/usr/bin/mktemp -d "$themes_dir/.dynamic/.caelestia.render.XXXXXX")"
+    /usr/bin/cp -a -- "$template_dir/." "$staging_dir/"
+    write_terminals "$staging_dir"
+    write_shared_formats "$staging_dir"
+    write_shell_formats "$staging_dir"
+    write_btop "$staging_dir"
+    write_template_preserving_formats "$staging_dir"
+    write_application_css "$staging_dir"
+    write_hyprlock "$staging_dir"
+    write_spicetify "$staging_dir"
+    /usr/bin/ln -sfnT -- "$wallpaper_resolved" "$staging_dir/wallpaper.png"
+    /usr/bin/ln -sfnT -- "$wallpaper_directory" "$staging_dir/wallpapers"
+    printf '%s\n' "$fingerprint" > "$staging_dir/.caelestia-generated"
+    /usr/bin/cp -- "$normalised" "$staging_dir/palette.json"
+}
+
+install_output() {
+    /usr/bin/mkdir -p -- "${output_dir%/*}"
+    if [[ -e "$output_dir" ]]; then
+        backup_dir="${output_dir%/*}/.caelestia.previous.$$"
+        /usr/bin/mv -- "$output_dir" "$backup_dir"
+    fi
+    if ! /usr/bin/mv -- "$staging_dir" "$output_dir"; then
+        [[ -z "$backup_dir" || ! -e "$backup_dir" ]] || /usr/bin/mv -- "$backup_dir" "$output_dir"
+        fail 'Could not activate rendered output.'
+    fi
+    staging_dir=""
+    [[ -z "$backup_dir" || ! -e "$backup_dir" ]] || /usr/bin/rm -rf -- "$backup_dir"
+    backup_dir=""
+}
+
+main() {
+    local palette_file wallpaper fingerprint current_fingerprint="" template_fingerprint renderer_fingerprint
+    while (( $# )); do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --force) force=1 ;;
+            --help|-h) usage; return ;;
+            --*) usage >&2; exit 2 ;;
+            *) break ;;
+        esac
+        shift
+    done
+    (( $# == 2 )) || { usage >&2; exit 2; }
+    palette_file="$1" wallpaper="$2"
+    validate_paths "$palette_file" "$wallpaper"
+    temporary_palette="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/caelestia-palette.XXXXXX")"
+    trap 'status=$?; cleanup; exit "$status"' EXIT
+    normalise_palette "$palette_file" "$temporary_palette"
+    load_palette "$temporary_palette"
+    template_fingerprint="$(/usr/bin/find -L "$template_dir" -maxdepth 1 -type f ! -name wallpaper.png -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 -r /usr/bin/sha256sum | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)"
+    renderer_fingerprint="$(/usr/bin/sha256sum "${BASH_SOURCE[0]}" | /usr/bin/cut -d' ' -f1)"
+    fingerprint="$( { /usr/bin/sha256sum "$temporary_palette" | /usr/bin/cut -d' ' -f1; /usr/bin/readlink -f -- "$wallpaper"; /usr/bin/readlink -f -- "$template_dir"; printf '%s\n%s\n' "$template_fingerprint" "$renderer_fingerprint"; } | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1 )"
+    [[ ! -r "$output_dir/.caelestia-generated" ]] || current_fingerprint="$(<"$output_dir/.caelestia-generated")"
+    if (( ! force )) && [[ "$fingerprint" == "$current_fingerprint" ]]; then
+        printf 'unchanged\n'
+        return
+    fi
+    if (( dry_run )); then
+        printf 'Render: %s\nTemplate: %s\nWallpaper: %s\nFingerprint: %s\n' "$output_dir" "$(/usr/bin/readlink -f -- "$template_dir")" "$(/usr/bin/readlink -f -- "$wallpaper")" "$fingerprint"
+        return
+    fi
+    /usr/bin/mkdir -p -- "$themes_dir/.dynamic"
+    build_output "$temporary_palette" "$wallpaper" "$fingerprint"
+    install_output
+    printf 'changed\n'
+}
+
+terminal_names=(black red green yellow blue magenta cyan white)
+main "$@"

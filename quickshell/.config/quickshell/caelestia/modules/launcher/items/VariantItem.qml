@@ -66,7 +66,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
 
-            active: root.modelData?.variant === Schemes.currentVariant
+            active: root.modelData?.variant === Colours.variant
 
             sourceComponent: MaterialIcon {
                 text: "check"

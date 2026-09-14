@@ -16,6 +16,8 @@ Singleton {
     property bool showPreview
     property string scheme
     property string flavour
+    property string source: "system"
+    property string variant: "tonalspot"
     readonly property bool light: showPreview ? previewLight : currentLight
     property bool currentLight
     property bool previewLight
@@ -28,6 +30,9 @@ Singleton {
 
     property bool cooldownPending
     property real lastBaseTransparency
+    property list<string> pendingControllerArgs: []
+
+    readonly property string controller: Quickshell.shellPath("integration/shell-theme")
 
     function getLuminance(c: color): real {
         if (c.r == 0 && c.g == 0 && c.b == 0)
@@ -65,6 +70,12 @@ Singleton {
         const scheme = JSON.parse(data);
 
         if (!isPreview) {
+            root.source = scheme.source ?? (scheme.name === "dynamic" ? "dynamic" : "system");
+            variant = scheme.variant ?? "tonalspot";
+            if (root.source === "system") {
+                loadSystemPalette();
+                return;
+            }
             root.scheme = scheme.name;
             flavour = scheme.flavour;
             currentLight = scheme.mode === "light";
@@ -77,15 +88,148 @@ Singleton {
             if (colours.hasOwnProperty(propName))
                 colours[propName] = `#${colour}`;
         }
+        if (!isPreview && scheme.provider === "aether")
+            loadAetherPalette(scheme.colours);
+    }
+
+    function paletteColour(colours: var, name: string, fallback: color): color {
+        const value = colours[name];
+        return value ? `#${value}` : fallback;
+    }
+
+    function loadAetherPalette(colours: var): void {
+        const background = paletteColour(colours, "background", current.m3background);
+        const foreground = paletteColour(colours, "onBackground", current.m3onBackground);
+        const accent = paletteColour(colours, "accent", paletteColour(colours, "blue", current.m3primary));
+        const muted = paletteColour(colours, "muted", current.m3onSurfaceVariant);
+        const secondary = paletteColour(colours, "cyan", current.m3secondary);
+        const tertiary = paletteColour(colours, "yellow", current.m3tertiary);
+        const error = paletteColour(colours, "red", current.m3error);
+        const success = paletteColour(colours, "green", current.m3success);
+        const surface = paletteColour(colours, "term8", muted);
+
+        const values = {
+            m3primary_paletteKeyColor: accent,
+            m3secondary_paletteKeyColor: secondary,
+            m3tertiary_paletteKeyColor: tertiary,
+            m3neutral_paletteKeyColor: background,
+            m3neutral_variant_paletteKeyColor: surface,
+            m3background: background,
+            m3onBackground: foreground,
+            m3surface: background,
+            m3surfaceDim: background,
+            m3surfaceBright: surface,
+            m3surfaceContainerLowest: background,
+            m3surfaceContainerLow: Qt.tint(background, Qt.alpha(foreground, 0.035)),
+            m3surfaceContainer: Qt.tint(background, Qt.alpha(foreground, 0.055)),
+            m3surfaceContainerHigh: Qt.tint(background, Qt.alpha(foreground, 0.085)),
+            m3surfaceContainerHighest: surface,
+            m3onSurface: foreground,
+            m3surfaceVariant: surface,
+            m3onSurfaceVariant: muted,
+            m3inverseSurface: foreground,
+            m3inverseOnSurface: background,
+            m3outline: muted,
+            m3outlineVariant: surface,
+            m3shadow: "#000000",
+            m3scrim: "#000000",
+            m3surfaceTint: accent,
+            m3primary: accent,
+            m3onPrimary: on(accent),
+            m3primaryContainer: Qt.tint(background, Qt.alpha(accent, 0.22)),
+            m3onPrimaryContainer: foreground,
+            m3inversePrimary: accent,
+            m3secondary: secondary,
+            m3onSecondary: on(secondary),
+            m3secondaryContainer: Qt.tint(background, Qt.alpha(secondary, 0.22)),
+            m3onSecondaryContainer: foreground,
+            m3tertiary: tertiary,
+            m3onTertiary: on(tertiary),
+            m3tertiaryContainer: Qt.tint(background, Qt.alpha(tertiary, 0.22)),
+            m3onTertiaryContainer: foreground,
+            m3error: error,
+            m3onError: on(error),
+            m3errorContainer: Qt.tint(background, Qt.alpha(error, 0.22)),
+            m3onErrorContainer: foreground,
+            m3success: success,
+            m3onSuccess: on(success),
+            m3successContainer: Qt.tint(background, Qt.alpha(success, 0.22)),
+            m3onSuccessContainer: foreground
+        };
+        for (const [name, value] of Object.entries(values))
+            current[name] = value;
+        for (const role of ["primary", "secondary", "tertiary"]) {
+            const capital = role[0].toUpperCase() + role.slice(1);
+            const value = values[`m3${role}`];
+            current[`m3${role}Fixed`] = value;
+            current[`m3${role}FixedDim`] = Qt.tint(background, Qt.alpha(value, 0.8));
+            current[`m3on${capital}Fixed`] = on(value);
+            current[`m3on${capital}FixedVariant`] = on(value);
+        }
+        for (let index = 0; index < 16; index++)
+            current[`term${index}`] = paletteColour(colours, `term${index}`, index < 8 ? background : foreground);
+    }
+
+    function aetherPalette(): var {
+        const active = palette;
+        const terminal = [];
+        for (let index = 0; index < 16; index++)
+            terminal.push(String(active[`term${index}`]));
+        return {
+            mode: light ? "light" : "dark",
+            background: String(active.m3background),
+            foreground: String(active.m3onBackground),
+            accent: String(active.m3primary),
+            muted: String(active.m3onSurfaceVariant),
+            red: String(active.m3error),
+            green: String(active.m3success),
+            yellow: String(active.m3tertiary),
+            blue: String(active.m3primary),
+            magenta: String(active.m3secondary),
+            cyan: String(active.term6),
+            terminal
+        };
     }
 
     function setMode(mode: string): void {
-        System.run("theme", []);
+        if (source !== "dynamic")
+            return;
+        runController(["set-mode", mode]);
+    }
+
+    function toggleMode(): void {
+        if (source !== "dynamic")
+            return;
+        runController(["toggle-mode"]);
+    }
+
+    function setVariant(name: string): void {
+        if (source !== "dynamic")
+            return;
+        runController(["set-variant", name]);
+    }
+
+    function setSource(name: string): void {
+        runController(["set-source", name]);
+    }
+
+    function refresh(): void {
+        runController(["refresh"]);
+    }
+
+    function runController(args: list<string>): void {
+        if (controllerProc.running) {
+            pendingControllerArgs = args;
+            return;
+        }
+        controllerProc.command = [controller, ...args];
+        controllerProc.running = true;
     }
 
     function loadSystemPalette(): void {
         scheme = "system";
         flavour = "";
+        source = "system";
         currentLight = Colors.light;
         showPreview = false;
         for (const [name, color] of Object.entries(Colors.palette()))
@@ -115,6 +259,7 @@ Singleton {
 
     Component.onCompleted: {
         root.loadSystemPalette();
+        root.refresh();
         root.requestReloadHyprRules();
     }
 
@@ -128,7 +273,37 @@ Singleton {
 
     Connections {
         target: Colors
-        function onValuesChanged(): void { root.loadSystemPalette(); }
+        function onValuesChanged(): void {
+            if (root.source === "system")
+                root.loadSystemPalette();
+        }
+    }
+
+    FileView {
+        id: paletteSource
+        path: `${Paths.state}/shell-theme-palette.json`
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.load(text(), false)
+    }
+
+    Process {
+        id: controllerProc
+
+        stderr: StdioCollector {}
+        onExited: code => {
+            if (code === 0)
+                paletteSource.reload();
+            else
+                console.warn("Shell theme update failed:", stderr.text);
+
+            if (root.pendingControllerArgs.length) {
+                const args = root.pendingControllerArgs;
+                root.pendingControllerArgs = [];
+                Qt.callLater(() => root.runController(args));
+            }
+        }
     }
 
     ImageAnalyser {

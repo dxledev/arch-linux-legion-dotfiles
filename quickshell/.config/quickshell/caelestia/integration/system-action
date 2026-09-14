@@ -2,8 +2,14 @@
 set -euo pipefail
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 scripts_dir="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
 theme_dir="${SHELL_THEMES_DIR:-$config_home/themes}"
+shell_theme_controller="$script_dir/shell-theme"
+shell_theme_state="$state_home/caelestia/shell-theme.json"
+dynamic_wallpaper="${SHELL_DYNAMIC_WALLPAPER:-$state_home/caelestia/dynamic-wallpaper}"
+dynamic_wallpaper_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic/caelestia}"
 dry_run=0
 
 fail() { printf 'system-action: %s\n' "$*" >&2; exit 1; }
@@ -20,19 +26,54 @@ show_wallpaper() {
         --transition-fps "${AWWW_TRANSITION_FPS:-144}"
 }
 
+theme_source() {
+    if [[ -r "$shell_theme_state" ]]; then
+        /usr/bin/jq -r 'if .source == "dynamic" or .source == "aether" then "dynamic" else "system" end' "$shell_theme_state" 2>/dev/null || printf 'system\n'
+    else
+        printf 'system\n'
+    fi
+}
+
+current_wallpaper() {
+    if [[ "$(theme_source)" == dynamic ]]; then
+        [[ -e "$dynamic_wallpaper" ]] && /usr/bin/readlink -f -- "$dynamic_wallpaper"
+    else
+        /usr/bin/readlink -f -- "${SHELL_WALLPAPER:-$theme_dir/current/wallpaper.png}"
+    fi
+}
+
+save_source_wallpaper() {
+    local source="$1" wallpaper_path="$2"
+    if [[ "$source" == dynamic ]]; then
+        run /usr/bin/mkdir -p -- "${dynamic_wallpaper%/*}"
+        run /usr/bin/ln -sfn -- "$wallpaper_path" "$dynamic_wallpaper"
+    else
+        local selected_theme
+        selected_theme="$(/usr/bin/readlink -f -- "$theme_dir/current")"
+        run /usr/bin/ln -sfn -- "$wallpaper_path" "$selected_theme/wallpaper.png"
+    fi
+}
+
+wallpapers_in() {
+    local directory="$1"
+    [[ "$directory" == /* ]] || fail 'Wallpaper directories must be absolute paths.'
+    /usr/bin/find -L "$directory" -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.gif' \) -print0 2>/dev/null
+}
+
 [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
 action="${1:---help}"
 (( $# == 0 )) || shift
 
 case "$action" in
     --help|-h)
-        printf 'Usage: system-action [--dry-run] lock|theme [NAME]|wallpaper PATH|wallpaper-preview PATH|next-wallpaper|wallpaper-path|wallpaper-state DIRECTORY|theme-list\n'
+        printf 'Usage: system-action [--dry-run] lock|theme [NAME]|wallpaper PATH|wallpaper-preview PATH|dynamic-wallpaper PATH|next-wallpaper|wallpaper-path|wallpaper-state DIRECTORY|theme-list\n'
         ;;
     lock) run "$config_home/hyprlock/scripts/launch-lock-screen.sh" ;;
     theme)
         if (( $# )); then
             [[ $# == 1 && -n "$1" && "$1" != current && "$1" != .* && "$1" != */* && -d "$theme_dir/$1" ]] || fail 'Invalid theme.'
-            run "$scripts_dir/theme" "$1"
+            run /usr/bin/env THEME_SET_SHELL_SOURCE=1 "$scripts_dir/theme" "$1"
         else
             run "$scripts_dir/menu-theme"
         fi
@@ -40,18 +81,37 @@ case "$action" in
     wallpaper|wallpaper-preview)
         [[ $# == 1 && "$1" == /* && -f "$1" ]] || fail 'Expected an existing absolute wallpaper path.'
         wallpaper_path="$(/usr/bin/readlink -f -- "$1")"
-        selected_theme="$(/usr/bin/readlink -f -- "$theme_dir/current")"
         show_wallpaper "$wallpaper_path"
         if [[ "$action" == wallpaper ]]; then
-            run /usr/bin/ln -sfn -- "$wallpaper_path" "$selected_theme/wallpaper.png"
+            source_name="$(theme_source)"
+            save_source_wallpaper "$source_name" "$wallpaper_path"
+            [[ "$source_name" != dynamic ]] || run "$shell_theme_controller" refresh-wallpaper
         fi
         ;;
-    next-wallpaper) run "$scripts_dir/bg-next" ;;
-    wallpaper-path) /usr/bin/readlink -f -- "${SHELL_WALLPAPER:-$theme_dir/current/wallpaper.png}" ;;
+    dynamic-wallpaper)
+        [[ $# == 1 && "$1" == /* && ( -f "$1" || "$dry_run" == 1 ) ]] || fail 'Expected an existing absolute Dynamic wallpaper path.'
+        if [[ -f "$1" ]]; then wallpaper_path="$(/usr/bin/readlink -f -- "$1")"; else wallpaper_path="$1"; fi
+        show_wallpaper "$wallpaper_path"
+        save_source_wallpaper dynamic "$wallpaper_path"
+        ;;
+    next-wallpaper)
+        source_name="$(theme_source)"
+        if [[ "$source_name" == dynamic ]]; then
+            mapfile -d '' -t wallpapers < <(wallpapers_in "$dynamic_wallpaper_dir")
+            (( ${#wallpapers[@]} )) || fail "No wallpapers found in $dynamic_wallpaper_dir"
+            wallpaper_path="${wallpapers[RANDOM % ${#wallpapers[@]}]}"
+            show_wallpaper "$wallpaper_path"
+            save_source_wallpaper dynamic "$wallpaper_path"
+            run "$shell_theme_controller" refresh-wallpaper
+        else
+            run "$scripts_dir/bg-next"
+        fi
+        ;;
+    wallpaper-path) current_wallpaper ;;
     wallpaper-state)
         [[ $# == 1 && "$1" == /* ]] || fail 'Expected an absolute wallpaper directory.'
         /usr/bin/jq -n \
-            --arg wallpaper "$(/usr/bin/readlink -f -- "${SHELL_WALLPAPER:-$theme_dir/current/wallpaper.png}" || true)" \
+            --arg wallpaper "$(current_wallpaper || true)" \
             --arg directory "$(/usr/bin/readlink -f -- "$1" || true)" \
             --arg theme "$(/usr/bin/readlink -f -- "$theme_dir/current" || true)" \
             '{wallpaper: $wallpaper, directory: $directory, theme: $theme}'

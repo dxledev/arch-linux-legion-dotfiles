@@ -14,8 +14,9 @@ Searcher {
     id: root
 
     readonly property string currentNamePath: `${Paths.state}/wallpaper/path.txt`
-    readonly property list<string> smartArg: GlobalConfig.services.smartScheme ? [] : ["--no-smart"]
     readonly property string fallback: Quickshell.shellPath("assets/wallpaper.webp")
+    readonly property string dynamicDirectory: Quickshell.env("CAELESTIA_DYNAMIC_WALLPAPERS_DIR") || `${Paths.home}/files/pictures/wallpapers/dynamic/caelestia`
+    readonly property string requestedDirectory: Colours.source === "dynamic" ? dynamicDirectory : Paths.wallsdir
 
     property bool showPreview: false
     readonly property string current: showPreview ? previewPath : actualCurrent
@@ -27,6 +28,7 @@ Searcher {
     property string directory
     property string themePath
     property bool refreshPending: false
+    property bool applyPersists: false
 
     function displayName(path: string): string {
         return WallpaperNames.displayName(path);
@@ -64,7 +66,12 @@ Searcher {
         if (!path)
             return;
 
-        wallpaperQueue = [...wallpaperQueue.filter(job => job.persist), { path, persist }];
+        wallpaperQueue = [...wallpaperQueue.filter(job => job.persist),
+            {
+                path,
+                persist
+            }
+        ];
         wallpaperDebounce.restart();
     }
 
@@ -74,6 +81,7 @@ Searcher {
 
         const job = wallpaperQueue[0];
         wallpaperQueue = wallpaperQueue.slice(1);
+        applyPersists = job.persist;
         applyWallpaper.command = [System.actionScript, job.persist ? "wallpaper" : "wallpaper-preview", job.path];
         applyWallpaper.running = true;
     }
@@ -169,7 +177,10 @@ Searcher {
             if (code !== 0) {
                 console.warn("Wallpaper update failed:", code);
                 root.refresh();
+            } else if (root.applyPersists) {
+                root.previewColourLock = false;
             }
+            root.applyPersists = false;
             Qt.callLater(root.applyNextWallpaper);
         }
     }
@@ -183,7 +194,7 @@ Searcher {
     Process {
         id: currentWallpaper
         running: true
-        command: [System.actionScript, "wallpaper-state", Paths.wallsdir]
+        command: [System.actionScript, "wallpaper-state", root.requestedDirectory]
         onExited: {
             if (root.refreshPending) {
                 root.refreshPending = false;
@@ -205,6 +216,13 @@ Searcher {
         onTriggered: root.refresh()
     }
 
+    Connections {
+        target: Colours
+        function onSourceChanged(): void {
+            root.refresh();
+        }
+    }
+
     FileSystemModel {
         id: wallpapers
 
@@ -216,7 +234,7 @@ Searcher {
     Process {
         id: getPreviewColoursProc
 
-        command: ["caelestia", "wallpaper", "-p", root.previewPath, ...root.smartArg]
+        command: [Quickshell.shellPath("integration/shell-theme"), "preview", root.previewPath]
         stdout: StdioCollector {
             onStreamFinished: {
                 Colours.load(text, true);

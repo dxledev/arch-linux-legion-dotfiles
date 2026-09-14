@@ -53,7 +53,7 @@ StyledListView {
             return DesktopMenus.query(text);
         switch (stateForText(text)) {
         case "actions":
-            return Actions.query(text);
+            return Actions.query(text).filter(action => Colours.source === "dynamic" || !(action.modelData.dynamicOnly ?? false));
         case "calc":
             return [0];
         case "theme":
@@ -69,7 +69,7 @@ StyledListView {
         case "scheme":
             return Schemes.query(text);
         case "variant":
-            return M3Variants.query(text);
+            return Colours.source === "dynamic" ? M3Variants.query(text) : [];
         default:
             return Apps.search(text);
         }

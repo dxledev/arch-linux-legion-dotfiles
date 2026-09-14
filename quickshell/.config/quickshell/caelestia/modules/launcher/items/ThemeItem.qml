@@ -27,13 +27,28 @@ Item {
         anchors.leftMargin: Tokens.padding.medium
         anchors.rightMargin: Tokens.padding.medium
 
-        IconImage {
+        Item {
             id: preview
 
             anchors.verticalCenter: parent.verticalCenter
-            asynchronous: true
-            source: root.modelData?.icon ? Qt.resolvedUrl(root.modelData.icon) : ""
-            implicitSize: parent.height * 0.8
+            implicitWidth: parent.height * 0.8
+            implicitHeight: implicitWidth
+
+            IconImage {
+                anchors.fill: parent
+                asynchronous: true
+                visible: root.modelData?.iconType !== "material"
+                source: visible && root.modelData?.icon ? Qt.resolvedUrl(root.modelData.icon) : ""
+                implicitSize: parent.height
+            }
+
+            MaterialIcon {
+                anchors.centerIn: parent
+                visible: root.modelData?.iconType === "material"
+                text: visible ? root.modelData?.icon ?? "" : ""
+                color: Colours.palette.m3primary
+                fontStyle: Tokens.font.icon.extraLarge
+            }
         }
 
         Column {

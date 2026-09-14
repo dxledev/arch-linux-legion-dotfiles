@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+shell_root="$(/usr/bin/readlink -f -- "$script_dir/../..")"
+cli_bin="${CAELESTIA_BIN:-$shell_root/.runtime/cli/bin/caelestia}"
+theme_file="${SHELL_THEME_FILE:-$config_home/themes/current/Colors.qml}"
+wallpaper_file="${SHELL_WALLPAPER:-$config_home/themes/current/wallpaper.png}"
+aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
+state_dir="$state_home/caelestia"
+settings_file="$state_dir/shell-theme.json"
+palette_file="$state_dir/shell-theme-palette.json"
+dynamic_wallpaper_file="${SHELL_DYNAMIC_WALLPAPER:-$state_dir/dynamic-wallpaper}"
+cache_dir="$cache_home/caelestia/shell-theme"
+engine_dir="$cache_dir/engine"
+theme_renderer="${THEME_RENDERER:-$script_dir/theme-render}"
+theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
+application_selector="${APPLICATION_THEME_LINK:-$config_home/themes/.caelestia-use}"
+dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$config_home/themes/.dynamic/caelestia}"
+dry_run=0
+
+usage() {
+    printf 'Usage: shell-theme [--dry-run] status|refresh|refresh-wallpaper|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
+}
+
+fail() {
+    printf 'shell-theme: %s\n' "$*" >&2
+    exit 1
+}
+
+is_variant() {
+    case "$1" in
+        tonalspot|vibrant|expressive|fidelity|fruitsalad|monochrome|neutral|rainbow|content) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+theme_colour() {
+    local name="$1"
+    /usr/bin/awk -v name="$name" '
+        $0 ~ "property[[:space:]]+color[[:space:]]+" name "[[:space:]]*:" {
+            if (match($0, /#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?/)) {
+                print substr($0, RSTART, RLENGTH)
+                exit
+            }
+        }
+    ' "$theme_file"
+}
+
+default_mode() {
+    local colour hex red green blue luminance
+    colour="$(theme_colour background)"
+    [[ "$colour" =~ ^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$ ]] || { printf 'dark\n'; return; }
+    hex="${colour#\#}"
+    red=$((16#${hex:0:2}))
+    green=$((16#${hex:2:2}))
+    blue=$((16#${hex:4:2}))
+    luminance=$((red * 299 + green * 587 + blue * 114))
+    if (( luminance > 127500 )); then printf 'light\n'; else printf 'dark\n'; fi
+}
+
+load_settings() {
+    source_name=system
+    mode_name="$(default_mode)"
+    variant_name=tonalspot
+    provider_name=theme
+
+    [[ -r "$settings_file" ]] || return 0
+    /usr/bin/jq -e '
+        (.source == "system" or .source == "dynamic" or .source == "aether") and
+        (.mode == "light" or .mode == "dark") and
+        (.variant | IN("tonalspot", "vibrant", "expressive", "fidelity", "fruitsalad", "monochrome", "neutral", "rainbow", "content")) and
+        ((.provider // "") | IN("", "theme", "caelestia", "aether"))
+    ' "$settings_file" >/dev/null 2>&1 || return 0
+
+    source_name="$(/usr/bin/jq -r '.source' "$settings_file")"
+    mode_name="$(/usr/bin/jq -r '.mode' "$settings_file")"
+    variant_name="$(/usr/bin/jq -r '.variant' "$settings_file")"
+    if [[ "$source_name" == aether ]]; then
+        source_name=dynamic
+        provider_name=aether
+    elif [[ "$source_name" == dynamic ]]; then
+        provider_name="$(/usr/bin/jq -r '.provider // "caelestia"' "$settings_file")"
+        [[ "$provider_name" == aether ]] || provider_name=caelestia
+    fi
+}
+
+toml_value() {
+    local file="$1" name="$2"
+    /usr/bin/awk -F= -v name="$name" '
+        $1 ~ "^[[:space:]]*" name "[[:space:]]*$" {
+            value=$2
+            sub(/^[[:space:]]*/, "", value)
+            sub(/[[:space:]]*$/, "", value)
+            gsub(/^['\"']|['\"']$/, "", value)
+            print value
+            exit
+        }
+    ' "$file"
+}
+
+aether_palette() {
+    local file="$1" mode colour name args=()
+    [[ "$file" == /* ]] || fail 'Aether palette must be an absolute path.'
+    [[ -r "$file" ]] || fail "Aether palette not found: $file"
+    mode="$(toml_value "$file" mode)"
+    [[ "$mode" == light || "$mode" == dark ]] || fail 'Aether palette has an invalid mode.'
+
+    for name in background foreground accent muted red green yellow blue magenta cyan; do
+        colour="$(toml_value "$file" "$name")"
+        [[ "$colour" =~ ^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$ ]] || fail "Aether palette has an invalid $name colour."
+        args+=(--arg "$name" "${colour#\#}")
+    done
+    for name in {0..15}; do
+        colour="$(toml_value "$file" "color$name")"
+        [[ "$colour" =~ ^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$ ]] || fail "Aether palette has an invalid color$name value."
+        args+=(--arg "term$name" "${colour#\#}")
+    done
+
+    /usr/bin/jq -cn --arg mode "$mode" "${args[@]}" '
+        {source: "dynamic", provider: "aether", name: "dynamic", flavour: "", mode: $mode, variant: "tonalspot",
+         colours: ({background: $background, onBackground: $foreground,
+                    foreground: $foreground, accent: $accent, muted: $muted,
+                    red: $red, green: $green, yellow: $yellow, blue: $blue,
+                    magenta: $magenta, cyan: $cyan} +
+                   (reduce range(0; 16) as $i ({}; .["term" + ($i | tostring)] = $ARGS.named["term" + ($i | tostring)])))}'
+}
+
+settings_json() {
+    /usr/bin/jq -cn --arg source "$1" --arg mode "$2" --arg variant "$3" --arg provider "$4" \
+        '{source: $source, mode: $mode, variant: $variant, provider: $provider}'
+}
+
+write_json() {
+    local path="$1" contents="$2" temporary
+    /usr/bin/mkdir -p -- "${path%/*}"
+    temporary="$(/usr/bin/mktemp "${path%/*}/.${path##*/}.XXXXXX")"
+    printf '%s\n' "$contents" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$path"
+}
+
+require_executable() {
+    [[ "$1" == /* && -x "$1" ]] || fail "Executable must be an absolute path: $1"
+}
+
+selector_source() {
+    local resolved=""
+    [[ -L "$application_selector" ]] && resolved="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
+    if [[ "$resolved" == "$(/usr/bin/readlink -f -- "$dynamic_theme_dir" 2>/dev/null || true)" && -n "$resolved" ]]; then
+        printf 'dynamic\n'
+    else
+        printf 'system\n'
+    fi
+}
+
+render_dynamic() {
+    local palette="$1" wallpaper="$2" force_render="$3" temporary result
+    require_executable "$theme_renderer"
+    if (( dry_run )); then
+        temporary="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/caelestia-desktop-palette.XXXXXX")"
+    else
+        temporary="$(/usr/bin/mktemp "$state_dir/.desktop-palette.XXXXXX")"
+    fi
+    printf '%s\n' "$palette" > "$temporary"
+    if (( dry_run )); then
+        if ! "$theme_renderer" --dry-run "$temporary" "$wallpaper"; then
+            /usr/bin/rm -f -- "$temporary"
+            fail 'Dynamic desktop palette validation failed.'
+        fi
+        /usr/bin/rm -f -- "$temporary"
+        printf 'dry-run\n'
+        return
+    fi
+    if (( force_render )); then
+        if ! result="$("$theme_renderer" --force "$temporary" "$wallpaper")"; then
+            /usr/bin/rm -f -- "$temporary"
+            fail 'Dynamic desktop palette rendering failed.'
+        fi
+    else
+        if ! result="$("$theme_renderer" "$temporary" "$wallpaper")"; then
+            /usr/bin/rm -f -- "$temporary"
+            fail 'Dynamic desktop palette rendering failed.'
+        fi
+    fi
+    /usr/bin/rm -f -- "$temporary"
+    [[ "$result" == changed || "$result" == unchanged ]] || fail "Unexpected renderer result: $result"
+    printf '%s\n' "$result"
+}
+
+apply_desktop() {
+    local source="$1" changed="$2" force_apply="$3"
+    require_executable "$theme_apply"
+    if (( dry_run )); then
+        "$theme_apply" --dry-run "$source"
+        return
+    fi
+    if [[ "$changed" == changed || "$(selector_source)" != "$source" ]] || (( force_apply )); then
+        "$theme_apply" "$source"
+    fi
+}
+
+theme_id() {
+    local resolved
+    resolved="$(/usr/bin/readlink -f -- "$theme_file")"
+    [[ -f "$resolved" ]] || fail "Theme palette not found: $theme_file"
+    /usr/bin/basename -- "$(/usr/bin/dirname -- "$resolved")"
+}
+
+dynamic_seed() {
+    local requested="${1:-}" resolved
+    if [[ -z "$requested" ]]; then
+        if [[ -e "$dynamic_wallpaper_file" ]]; then
+            requested="$dynamic_wallpaper_file"
+        else
+            requested="$wallpaper_file"
+        fi
+    fi
+    [[ "$requested" == /* ]] || fail 'Dynamic wallpaper must be an absolute path.'
+    resolved="$(/usr/bin/readlink -f -- "$requested")"
+    [[ -f "$resolved" ]] || fail "Dynamic wallpaper not found: $requested"
+    printf '%s\n' "$resolved"
+}
+
+prepare_engine() {
+    local seed="$1"
+    /usr/bin/mkdir -p -- "$engine_dir/config/caelestia" "$engine_dir/state/caelestia/wallpaper" "$engine_dir/cache"
+    /usr/bin/cp -- "$shell_root/caelestia/config/cli.json" "$engine_dir/config/caelestia/cli.json"
+    /usr/bin/ln -sfn -- "$seed" "$engine_dir/state/caelestia/wallpaper/thumbnail.jpg"
+}
+
+generate_palette() {
+    local source="$1" mode="$2" variant="$3" requested="${4:-}" seed output name
+    [[ "$source" == dynamic ]] || fail 'Generated palettes are only available for Dynamic.'
+    [[ -x "$cli_bin" ]] || fail "Caelestia CLI not found: $cli_bin"
+    seed="$(dynamic_seed "$requested")"
+    name=dynamic
+
+    prepare_engine "$seed" || fail 'Could not prepare the palette engine.'
+    if ! XDG_CONFIG_HOME="$engine_dir/config" XDG_STATE_HOME="$engine_dir/state" XDG_CACHE_HOME="$engine_dir/cache" \
+        "$cli_bin" scheme set -n dynamic -m "$mode" -v "$variant" >/dev/null; then
+        fail 'Could not configure the palette engine.'
+    fi
+    if ! output="$(XDG_CONFIG_HOME="$engine_dir/config" XDG_STATE_HOME="$engine_dir/state" XDG_CACHE_HOME="$engine_dir/cache" \
+        "$cli_bin" wallpaper -p "$seed" --no-smart)"; then
+        fail 'Could not generate the Dynamic palette.'
+    fi
+    /usr/bin/jq -e --arg mode "$mode" --arg variant "$variant" '
+        .mode == $mode and .variant == $variant and
+        (.colours | type == "object") and
+        (["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"] - (.colours | keys) | length == 0)
+    ' <<< "$output" >/dev/null || fail 'Generated palette is incomplete.'
+    /usr/bin/jq -c --arg source "$source" --arg name "$name" --arg mode "$mode" --arg variant "$variant" '
+        .source = $source | .provider = "caelestia" | .name = $name | .mode = $mode | .variant = $variant |
+        if $source == "system" then .flavour = "" else . end
+    ' <<< "$output"
+}
+
+system_palette() {
+    local variant="$1"
+    /usr/bin/jq -cn --arg name "$(theme_id)" --arg mode "$(default_mode)" --arg variant "$variant" \
+        '{source: "system", provider: "theme", name: $name, flavour: "", mode: $mode, variant: $variant, colours: {}}'
+}
+
+show_dry_run() {
+    local source="$1" mode="$2" variant="$3" provider="$4" requested="${5:-}" seed palette dry_engine previous_engine
+    printf 'Source: %s\nProvider: %s\nMode: %s\nVariant: %s\n' "$source" "$provider" "$mode" "$variant"
+    if [[ "$source" == dynamic && "$provider" == aether ]]; then
+        printf 'Aether palette: %s\n' "$aether_theme_file"
+    elif [[ "$source" == dynamic ]]; then
+        seed="$(dynamic_seed "$requested")"
+        printf 'Seed: %s\n' "$seed"
+    else
+        printf 'Authored palette: %s\n' "$(/usr/bin/readlink -f -- "$theme_file")"
+    fi
+    printf 'Settings: %s\nPalette: %s\n' "$settings_file" "$palette_file"
+    if [[ "$source" == dynamic ]]; then
+        if [[ "$provider" == aether ]]; then
+            palette="$(aether_palette "$aether_theme_file")"
+        else
+            dry_engine="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/caelestia-engine.XXXXXX")"
+            previous_engine="$engine_dir"
+            engine_dir="$dry_engine"
+            if ! palette="$(generate_palette dynamic "$mode" "$variant" "$requested")"; then
+                engine_dir="$previous_engine"
+                /usr/bin/rm -rf -- "$dry_engine"
+                fail 'Could not validate the Dynamic palette.'
+            fi
+            engine_dir="$previous_engine"
+            /usr/bin/rm -rf -- "$dry_engine"
+        fi
+        render_dynamic "$palette" "$(dynamic_seed "$requested")" 0 >/dev/null
+    fi
+    apply_desktop "$source" changed 0
+}
+
+apply_settings() {
+    local source="$1" mode="$2" variant="$3" provider="$4" requested="${5:-}" force_apply="${6:-0}" palette wallpaper changed=unchanged
+    if (( dry_run )); then
+        show_dry_run "$source" "$mode" "$variant" "$provider"
+        return
+    fi
+    if [[ "$source" == dynamic && "$provider" == aether ]]; then
+        palette="$(aether_palette "$aether_theme_file")"
+        mode="$(/usr/bin/jq -r '.mode' <<< "$palette")"
+    elif [[ "$source" == dynamic ]]; then
+        palette="$(generate_palette "$source" "$mode" "$variant" "$requested")"
+    else
+        palette="$(system_palette "$variant")"
+    fi
+    if [[ "$source" == dynamic ]]; then
+        wallpaper="$(dynamic_seed "$requested")"
+        changed="$(render_dynamic "$palette" "$wallpaper" "$force_apply")"
+    fi
+    apply_desktop "$source" "$changed" "$force_apply"
+    write_json "$palette_file" "$palette"
+    write_json "$settings_file" "$(settings_json "$source" "$mode" "$variant" "$provider")"
+}
+
+if [[ "${1:-}" == --dry-run ]]; then
+    dry_run=1
+    shift
+fi
+
+command_name="${1:---help}"
+(( $# == 0 )) || shift
+load_settings
+
+if (( ! dry_run )) && [[ "$command_name" != status && "$command_name" != --help && "$command_name" != -h ]]; then
+    /usr/bin/mkdir -p -- "$state_dir"
+    exec 9>"$state_dir/shell-theme.lock"
+    /usr/bin/flock 9
+    load_settings
+fi
+
+case "$command_name" in
+    --help|-h)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        usage
+        ;;
+    status)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name"
+        ;;
+    refresh)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        apply_settings "$source_name" "$mode_name" "$variant_name" "$provider_name"
+        ;;
+    refresh-wallpaper)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        [[ "$source_name" == dynamic ]] || fail 'Wallpaper palette refresh is only available for Dynamic.'
+        apply_settings dynamic "$mode_name" "$variant_name" caelestia
+        ;;
+    set-source)
+        [[ $# == 1 && ( "$1" == system || "$1" == dynamic ) ]] || { usage >&2; exit 2; }
+        if [[ "$1" == dynamic ]]; then
+            apply_settings dynamic "$mode_name" "$variant_name" caelestia
+        else
+            apply_settings system "$mode_name" "$variant_name" theme "" 1
+        fi
+        ;;
+    set-aether)
+        (( $# <= 1 )) || { usage >&2; exit 2; }
+        [[ $# == 0 ]] || aether_theme_file="$1"
+        mode_name="$(/usr/bin/jq -r '.mode' <<< "$(aether_palette "$aether_theme_file")")"
+        apply_settings dynamic "$mode_name" "$variant_name" aether "" 1
+        ;;
+    set-mode)
+        [[ $# == 1 && ( "$1" == light || "$1" == dark ) ]] || { usage >&2; exit 2; }
+        [[ "$source_name" == dynamic ]] || fail 'Light and dark mode are only available for Dynamic.'
+        apply_settings dynamic "$1" "$variant_name" caelestia
+        ;;
+    toggle-mode)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        [[ "$source_name" == dynamic ]] || fail 'Light and dark mode are only available for Dynamic.'
+        if [[ "$mode_name" == dark ]]; then mode_name=light; else mode_name=dark; fi
+        apply_settings dynamic "$mode_name" "$variant_name" caelestia
+        ;;
+    set-variant)
+        [[ $# == 1 ]] && is_variant "$1" || { usage >&2; exit 2; }
+        [[ "$source_name" == dynamic ]] || fail 'Variants are only available for Dynamic.'
+        apply_settings dynamic "$mode_name" "$1" caelestia
+        ;;
+    preview)
+        [[ $# == 1 ]] || { usage >&2; exit 2; }
+        if (( dry_run )); then
+            show_dry_run dynamic "$mode_name" "$variant_name" caelestia "$1"
+        else
+            generate_palette dynamic "$mode_name" "$variant_name" "$1"
+        fi
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

@@ -129,9 +129,28 @@
                     "autocomplete",
                     "theme"
                 ],
-                "description": "Choose a system theme",
+                "description": "Choose a system or Dynamic theme",
                 "icon": "palette",
                 "name": "Theme"
+            },
+            {
+                "command": [
+                    "autocomplete",
+                    "variant"
+                ],
+                "description": "Change the Dynamic theme variant",
+                "dynamicOnly": true,
+                "icon": "colors",
+                "name": "Variant"
+            },
+            {
+                "command": [
+                    "toggleMode"
+                ],
+                "description": "Switch Dynamic between light and dark mode",
+                "dynamicOnly": true,
+                "icon": "contrast",
+                "name": "Light/Dark Mode"
             },
             {
                 "command": [
@@ -162,7 +181,7 @@
             },
             {
                 "command": [
-                    "/home/dxle/bin/bg-next"
+                    "next-wallpaper"
                 ],
                 "description": "Next wallpaper",
                 "icon": "casino",
@@ -203,6 +222,16 @@
                 "description": "Test network and disk speed",
                 "icon": "speed",
                 "name": "Speed Test"
+            },
+            {
+                "command": [
+                    "/home/dxle/.config/quickshell/active/integration/aether",
+                    "launch"
+                ],
+                "description": "Open Aether in its wallpaper workspace",
+                "dynamicOnly": true,
+                "icon": "wallpaper",
+                "name": "Browse Wallpapers"
             },
             {
                 "command": [

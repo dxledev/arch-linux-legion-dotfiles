@@ -24,26 +24,32 @@ load_menu_parser() {
 
 list_themes() {
     local dry_run="$1"
-    local theme_path theme name icon current_path
+    local theme_path theme name icon current_path state_file source applied current
 
     load_menu_parser
     current_path="$(/usr/bin/readlink -f -- "$THEME_DIR_RESOLVED/current" || true)"
-    for theme_path in "$THEME_DIR_RESOLVED"/*; do
-        [[ -d "$theme_path" ]] || continue
-        theme="${theme_path##*/}"
-        [[ "$theme" != current && "$theme" != .* ]] || continue
-        name="$(format_theme_display "$theme")"
-        if (( dry_run )); then
-            icon="$(cached_palette_icon_path "$theme")"
-        else
-            require_command "$MAGICK_BIN" ImageMagick
-            require_command "$MKDIR_BIN" mkdir
-            icon="$(palette_icon "$theme" "$theme_path")"
-        fi
-        /usr/bin/jq -cn --arg id "$theme" --arg name "$name" --arg icon "$icon" \
-            --argjson current "$([[ "$(/usr/bin/readlink -f -- "$theme_path")" == "$current_path" ]] && printf true || printf false)" \
-            '{id: $id, name: $name, icon: $icon, current: $current}'
-    done | /usr/bin/jq -s .
+    state_file="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/shell-theme.json"
+    source="$([ -r "$state_file" ] && /usr/bin/jq -r 'if .source == "dynamic" or .source == "aether" then "dynamic" else "system" end' "$state_file" 2>/dev/null || printf system)"
+    {
+        /usr/bin/jq -cn --argjson current "$([[ "$source" == dynamic ]] && printf true || printf false)" \
+            '{id: "dynamic", name: "Dynamic", icon: "auto_awesome", iconType: "material", current: $current, applied: false, dynamic: true}'
+        while IFS= read -r theme_path; do
+            theme="${theme_path##*/}"
+            name="$(format_theme_display "$theme")"
+            if (( dry_run )); then
+                icon="$(cached_palette_icon_path "$theme")"
+            else
+                require_command "$MAGICK_BIN" ImageMagick
+                require_command "$MKDIR_BIN" mkdir
+                icon="$(palette_icon "$theme" "$theme_path")"
+            fi
+            applied="$([[ "$(/usr/bin/readlink -f -- "$theme_path")" == "$current_path" ]] && printf true || printf false)"
+            current="$([[ "$source" == system && "$applied" == true ]] && printf true || printf false)"
+            /usr/bin/jq -cn --arg id "$theme" --arg name "$name" --arg icon "$icon" \
+                --argjson current "$current" --argjson applied "$applied" \
+                '{id: $id, name: $name, icon: $icon, iconType: "image", current: $current, applied: $applied, dynamic: false}'
+        done < <(list_named_theme_paths)
+    } | /usr/bin/jq -s .
 }
 
 [[ $# -le 1 ]] || { usage >&2; exit 2; }

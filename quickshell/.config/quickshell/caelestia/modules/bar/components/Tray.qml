@@ -13,7 +13,7 @@ StyledRect {
     readonly property alias layout: layout
     readonly property alias items: items
     readonly property alias expandIcon: expandIcon
-    readonly property int itemCount: items.count + (recorderItem.active ? 1 : 0)
+    readonly property int itemCount: items.count + (recorderItem.active ? 1 : 0) + (aetherItem.active ? 1 : 0)
 
     readonly property int padding: Config.bar.tray.background ? Tokens.padding.medium : Tokens.padding.extraSmall
     readonly property int spacing: Config.bar.tray.background ? Tokens.spacing.medium : Tokens.spacing.extraSmall
@@ -24,7 +24,12 @@ StyledRect {
         if (recorderItem.active) {
             if (index === 0)
                 return recorderItem;
-            return items.itemAt(index - 1);
+            index--;
+        }
+        if (aetherItem.active) {
+            if (index === 0)
+                return aetherItem;
+            index--;
         }
         return items.itemAt(index);
     }
@@ -84,6 +89,15 @@ StyledRect {
 
             active: Recorder.running
             sourceComponent: RecorderTrayItem {}
+        }
+
+        Loader {
+            id: aetherItem
+
+            property string popoutName: "traymenu:aether"
+
+            active: Aether.running
+            sourceComponent: AetherTrayItem {}
         }
 
         Repeater {

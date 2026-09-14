@@ -2,11 +2,10 @@ pragma Singleton
 
 import ".."
 import QtQuick
-import Quickshell
 import Caelestia.Config
 import Caelestia.I18n
 import qs.utils
-import qs.integration
+import qs.services
 
 Searcher {
     id: root
@@ -15,7 +14,7 @@ Searcher {
         return search.slice(`${GlobalConfig.launcher.actionPrefix}variant `.length);
     }
 
-    list: [
+    property list<QtObject> allVariants: [
         Variant {
             variant: "vibrant"
             icon: "sentiment_very_dissatisfied"
@@ -71,6 +70,7 @@ Searcher {
             description: Tr.tr("All colours are greyscale, no chroma.")
         }
     ]
+    list: allVariants
     useFuzzy: GlobalConfig.launcher.useFuzzy.variants
 
     component Variant: QtObject {
@@ -80,8 +80,10 @@ Searcher {
         required property string description
 
         function onClicked(list: AppList): void {
+            if (Colours.source !== "dynamic")
+                return;
             list.screenState.launcher = false;
-            System.run("theme", []);
+            Colours.setVariant(variant);
         }
     }
 }

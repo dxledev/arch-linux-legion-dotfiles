@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$(/usr/bin/readlink -f -- "$script_dir/..")"
+renderer="$integration_dir/theme-render"
+theme_list="$integration_dir/theme-list"
+menu_theme="${MENU_THEME_SCRIPT:-$HOME/bin/menu-theme}"
+theme_apply="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
+template="${TEST_THEME_TEMPLATE:-$HOME/.config/themes/current}"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/caelestia-theme-test.XXXXXX")"
+config_home="$test_root/config"
+themes_dir="$config_home/themes"
+dynamic_dir="$themes_dir/.dynamic/caelestia"
+selector="$themes_dir/.caelestia-use"
+wallpaper="$test_root/wallpaper.png"
+
+fail() {
+    printf 'theme-desktop test: %s\n' "$*" >&2
+    exit 1
+}
+
+cleanup() {
+    /usr/bin/rm -rf -- "$test_root"
+}
+
+write_palette() {
+    local path="$1" mode="$2" background="$3" foreground="$4"
+    /usr/bin/jq -n --arg mode "$mode" --arg background "$background" --arg foreground "$foreground" '
+        {mode: $mode, variant: "tonalspot", source: "dynamic", provider: "test",
+         colours: ({background: $background, onBackground: $foreground,
+                    surfaceContainerLowest: $background, surfaceContainerLow: $background,
+                    surfaceContainer: "30343b", surfaceContainerHigh: "41464f", surfaceContainerHighest: "525863",
+                    outline: "7c8490", outlineVariant: "606873", primary: "81a1c1", secondary: "88c0d0",
+                    tertiary: "ebcb8b", error: "bf616a", success: "a3be8c", red: "bf616a", green: "a3be8c",
+                    yellow: "ebcb8b", blue: "81a1c1", magenta: "b48ead", cyan: "88c0d0", muted: "7c8490"} +
+                   (reduce range(0; 16) as $i ({}; .["term" + ($i | tostring)] =
+                       ["2e3440", "bf616a", "a3be8c", "ebcb8b", "81a1c1", "b48ead", "88c0d0", "d8dee9",
+                        "4c566a", "bf616a", "a3be8c", "ebcb8b", "81a1c1", "b48ead", "8fbcbb", "eceff4"][$i])))}
+    ' > "$path"
+}
+
+assert_files() {
+    local file
+    local -a expected=(Colors.qml alacritty.toml borders.conf borders.lua brave.json btop.theme cava chromack.css chromium-flags.conf cursor dashboard.qml discord.css dock.css ghostty.ghostty gtk.css hellpaper.conf hymission-background.lua hyprlock.conf kitty.conf neovim.lua obsidian.css palette.json rofi.rasi spicetify/color.ini spicetify/user.css swayosd.css ward.css wardnc.css waybar.css wallpaper.png wallpapers)
+    for file in "${expected[@]}"; do
+        [[ -e "$dynamic_dir/$file" || -L "$dynamic_dir/$file" ]] || fail "Missing rendered file: $file"
+    done
+}
+
+validate_formats() {
+    /usr/bin/jq -e . "$dynamic_dir/brave.json" "$dynamic_dir/palette.json" >/dev/null
+    /usr/bin/luac -p "$dynamic_dir/borders.lua" "$dynamic_dir/hymission-background.lua"
+    /usr/bin/grep -q '^\[colors.primary\]$' "$dynamic_dir/alacritty.toml"
+    /usr/bin/grep -q '^\[Dynamic\]$' "$dynamic_dir/spicetify/color.ini"
+    /usr/bin/grep -q '^@define-color base ' "$dynamic_dir/gtk.css"
+    /usr/bin/grep -q '^pragma Singleton$' "$dynamic_dir/Colors.qml"
+    /usr/bin/grep -q '^gradient_color_8 = ' "$dynamic_dir/cava"
+    /usr/bin/grep -q '^\[Settings\]$' "$dynamic_dir/hellpaper.conf"
+    if [[ -x /usr/lib/qt6/bin/qmlformat ]]; then
+        /usr/bin/cp -- "$dynamic_dir/Colors.qml" "$test_root/Colors.qml"
+        /usr/lib/qt6/bin/qmlformat -i "$test_root/Colors.qml"
+    fi
+}
+
+test_hidden_themes() {
+    local parser payload
+    parser="$(/usr/bin/awk '/^require_command "\$ROFI_BIN"/ { found = 1; exit } { print } END { if (!found) exit 1 }' "$menu_theme")"
+    source /dev/stdin <<< "$parser"
+    THEME_DIR_RESOLVED="$(/usr/bin/readlink -f -- "$themes_dir")"
+    shopt -s dotglob
+    mapfile -t named_paths < <(list_named_theme_paths)
+    (( ${#named_paths[@]} == 23 )) || fail "menu-theme exposed ${#named_paths[@]} named themes"
+    printf '%s\n' "${named_paths[@]}" | /usr/bin/grep -Eq '/\.(dynamic|caelestia-use)(/|$)' && fail 'menu-theme exposed a hidden entry.'
+    payload="$(XDG_CONFIG_HOME="$config_home" SHELL_THEMES_DIR="$themes_dir" MENU_THEME_SCRIPT="$menu_theme" "$theme_list" --dry-run)"
+    [[ "$(/usr/bin/jq '[.[] | select(.dynamic == false)] | length' <<< "$payload")" == 23 ]] || fail 'theme-list named count is not 23.'
+    [[ "$(/usr/bin/jq '[.[] | select(.dynamic == true and .id == "dynamic")] | length' <<< "$payload")" == 1 ]] || fail 'theme-list Dynamic entry is invalid.'
+}
+
+trap cleanup EXIT
+[[ -d "$template" ]] || fail "Template not found: $template"
+/usr/bin/mkdir -p -- "$themes_dir/.dynamic" "$config_home/spicetify/Themes/text"
+/usr/bin/mkdir -p -- "$themes_dir/theme-01"
+while IFS= read -r -d '' template_file; do
+    /usr/bin/cp -- "$template_file" "$themes_dir/theme-01/${template_file##*/}"
+done < <(/usr/bin/find -L "$template" -maxdepth 1 -type f ! -name wallpaper.png -print0)
+for index in {2..23}; do /usr/bin/mkdir -p -- "$themes_dir/theme-$(printf '%02d' "$index")"; done
+/usr/bin/ln -s -- theme-01 "$themes_dir/current"
+/usr/bin/ln -s -- current "$selector"
+/usr/bin/mkdir -p -- "$themes_dir/.dynamic/hidden" "$themes_dir/theme-01/nested"
+/usr/bin/ln -s -- /tmp "$themes_dir/escape"
+printf 'body {}\n' > "$config_home/spicetify/Themes/text/user.css"
+: > "$wallpaper"
+write_palette "$test_root/dark.json" dark 101318 eaeff5
+write_palette "$test_root/light.json" light f4f6f8 20242a
+
+common_env=(XDG_CONFIG_HOME="$config_home" THEMES_DIR="$themes_dir" DYNAMIC_THEME_DIR="$dynamic_dir" THEME_TEMPLATE_DIR="$themes_dir/current" SPICETIFY_TEMPLATE_DIR="$config_home/spicetify/Themes/text")
+[[ "$(/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/dark.json" "$wallpaper")" == changed ]] || fail 'Dark render did not change output.'
+assert_files
+validate_formats
+[[ "$(/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/dark.json" "$wallpaper")" == unchanged ]] || fail 'Unchanged render was not skipped.'
+[[ "$(/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/light.json" "$wallpaper")" == changed ]] || fail 'Light render did not change output.'
+/usr/bin/grep -q '^--set-color-scheme=light$' "$dynamic_dir/chromium-flags.conf"
+
+printf '{}\n' > "$test_root/bad.json"
+before_selector="$(/usr/bin/readlink -- "$selector")"
+/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/bad.json" "$wallpaper" >/dev/null 2>&1 && fail 'Malformed palette succeeded.'
+/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/light.json" relative.png >/dev/null 2>&1 && fail 'Relative wallpaper succeeded.'
+/usr/bin/env "${common_env[@]}" DYNAMIC_THEME_DIR="$themes_dir/not-managed" "$renderer" "$test_root/light.json" "$wallpaper" >/dev/null 2>&1 && fail 'Unmanaged output succeeded.'
+/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/light.json" "$test_root/missing.png" >/dev/null 2>&1 && fail 'Missing wallpaper succeeded.'
+[[ "$(/usr/bin/readlink -- "$selector")" == "$before_selector" ]] || fail 'A failed render changed the selector.'
+
+apply_env=(THEMES_DIR="$themes_dir" APPLICATION_THEME_LINK="$selector" DYNAMIC_THEME_DIR="$dynamic_dir" SPICETIFY_DYNAMIC_LINK="$config_home/spicetify/Themes/CaelestiaDynamic")
+/usr/bin/env "${apply_env[@]}" "$theme_apply" --dry-run system >/dev/null
+/usr/bin/env "${apply_env[@]}" "$theme_apply" --dry-run dynamic >/dev/null
+test_hidden_themes
+
+for script in "$renderer" "$integration_dir/shell-theme" "$theme_list" "$theme_apply" "$menu_theme" "$HOME/bin/theme" "$HOME/bin/toggle-shell-mode" "$HOME/bin/spicetify-set"; do /usr/bin/bash -n "$script"; done
+if command -v shellcheck >/dev/null 2>&1; then shellcheck "$renderer" "$integration_dir/shell-theme" "$theme_list" "$theme_apply"; fi
+printf 'theme-desktop: ok\n'
