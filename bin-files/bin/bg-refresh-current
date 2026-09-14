@@ -2,7 +2,7 @@
 set -euo pipefail
 
 FLAGS="--transition-type=none"
-SELECTED="$HOME/.config/themes/current/wallpaper.png"
+SELECTED="$HOME/.config/themes/.caelestia-use/wallpaper.png"
 READY=0
 
 # Ensure the daemon exists, but don't let a failed restart stall theme changes.

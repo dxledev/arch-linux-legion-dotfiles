@@ -7,75 +7,46 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 THEME_DIR="$HOME/.config/themes"
 CURRENT_LINK="$THEME_DIR/current"
 NOTIFY_SEND_BIN="/home/dxle/bin/notify-send"
-HYPRLOCK_RANDOM_WALLPAPER_SCRIPT="$HOME/.config/hyprlock/scripts/random-wallpaper.sh"
-HYPRLOCK_RANDOM_WALLPAPER_LINK="/tmp/hyprlock-random-wallpaper"
-SHELL_MODE_SCRIPT="${SHELL_MODE_SCRIPT:-$SCRIPT_DIR/toggle-shell-mode}"
+THEME_APPLY_SCRIPT="${THEME_APPLY_SCRIPT:-$SCRIPT_DIR/theme-apply}"
+SHELL_THEME_SCRIPT="${SHELL_THEME_SCRIPT:-$HOME/.config/quickshell/active/integration/shell-theme}"
 
-reload_waybar_apps() {
-    [[ "$("$SHELL_MODE_SCRIPT" --status 2>/dev/null)" == waybar ]] || return 0
-
-    local app
-    for app in wardnc chromack waybar dashboard dock; do
-        "$SCRIPT_DIR/reload-$app" || true
-    done
-}
-
-[ -z "$1" ] && {
-    echo "Usage: theme <theme-name>"
+[[ $# == 1 ]] || { printf 'Usage: theme <theme-name>\n' >&2; exit 2; }
+THEME_NAME="$1"
+[[ -n "$THEME_NAME" && "$THEME_NAME" != current && "$THEME_NAME" != .* && "$THEME_NAME" != */* && "$THEME_NAME" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
+    printf 'theme: Invalid named theme: %s\n' "$THEME_NAME" >&2
     exit 1
 }
-
-NEW_THEME="$THEME_DIR/$1"
-
-[ ! -d "$NEW_THEME" ] && {
-    echo "Theme '$1' does not exist in $THEME_DIR"
+THEME_ROOT="$(/usr/bin/readlink -f -- "$THEME_DIR")"
+NEW_THEME="$(/usr/bin/readlink -f -- "$THEME_DIR/$THEME_NAME" 2>/dev/null || true)"
+[[ -d "$NEW_THEME" && "${NEW_THEME%/*}" == "$THEME_ROOT" && "${NEW_THEME##*/}" == "$THEME_NAME" ]] || {
+    printf "theme: Theme '%s' does not exist as an immediate named theme in %s\n" "$THEME_NAME" "$THEME_DIR" >&2
     exit 1
 }
+[[ "$THEME_APPLY_SCRIPT" == /* && -x "$THEME_APPLY_SCRIPT" ]] || { printf 'theme: Invalid theme coordinator.\n' >&2; exit 1; }
 
-# Stop apps that will be restarted against the new theme, if they are running.
-# pgrep -x spotify >/dev/null && pkill -x spotify || true
+TEMPORARY_DIR="$(/usr/bin/mktemp -d "$THEME_DIR/.current.XXXXXX")"
+/usr/bin/ln -s -- "$NEW_THEME" "$TEMPORARY_DIR/link"
+/usr/bin/mv -Tf -- "$TEMPORARY_DIR/link" "$CURRENT_LINK"
+/usr/bin/rmdir -- "$TEMPORARY_DIR"
 
-"$SCRIPT_DIR/reload-nemo" || true
-"$SCRIPT_DIR/reload-pavucontrol" || true
-
-# Atomic theme switch (IMPORTANT)
-ln -sfn "$NEW_THEME" "$CURRENT_LINK"
+if [[ "${THEME_SET_SHELL_SOURCE:-0}" == 1 ]]; then
+    [[ "$SHELL_THEME_SCRIPT" == /* && -x "$SHELL_THEME_SCRIPT" ]] || { printf 'theme: Invalid shell theme controller.\n' >&2; exit 1; }
+    "$SHELL_THEME_SCRIPT" set-source system
+else
+    "$THEME_APPLY_SCRIPT" system
+fi
 /usr/bin/qs ipc call theme reloadColors >/dev/null 2>&1 || true
-"$HYPRLOCK_RANDOM_WALLPAPER_SCRIPT" --dir "$CURRENT_LINK/wallpapers" --link "$HYPRLOCK_RANDOM_WALLPAPER_LINK" >/dev/null 2>&1 || true
-
-"$SCRIPT_DIR/bg-refresh-current" >/dev/null 2>&1 &
-"$SCRIPT_DIR/cursor-set" >/dev/null 2>&1 &
-"$SCRIPT_DIR/reload-browsers" || true
-reload_waybar_apps
-
-"$SCRIPT_DIR/reload-borders" || true
-"$SCRIPT_DIR/reload-terminal" || true
-"$SCRIPT_DIR/reload-btop" || true
-"$SCRIPT_DIR/reload-cava" || true
-"$SCRIPT_DIR/reload-mako" || true
-"$SCRIPT_DIR/reload-ward" || true
-
-"$SCRIPT_DIR/reload-discord" >/dev/null 2>&1 & 
-"$SCRIPT_DIR/spicetify-set" --live "$1" >/dev/null 2>&1 &
-"$SCRIPT_DIR/reload-obsidian" >/dev/null 2>&1 &
-
-"$SCRIPT_DIR/reload-celluloid" || true
-"$SCRIPT_DIR/reload-swayosd" || true
-
-killall xdg-desktop-portal >/dev/null 2>&1 || true
-killall xdg-desktop-portal-gtk >/dev/null 2>&1 || true
-killall xdg-desktop-portal-hyprland >/dev/null 2>&1 || true
 
 if [[ "${THEME_SUPPRESS_NOTIFY:-0}" != "1" ]]; then
     # Pretty notification
-    if [[ "$1" == "rose-pine" ]]; then
+    if [[ "$THEME_NAME" == "rose-pine" ]]; then
         FORMATTED_NAME="Rosé Pine"
     else
-        FORMATTED_NAME=$(echo "$1" | tr '-' ' ' | sed -E 's/\b(.)/\U\1/g')
+        FORMATTED_NAME=$(printf '%s\n' "$THEME_NAME" | tr '-' ' ' | sed -E 's/\b(.)/\U\1/g')
     fi
 
     (
-        if [[ "$("$SHELL_MODE_SCRIPT" --status 2>/dev/null)" == waybar ]]; then
+        if [[ "$("$SCRIPT_DIR/toggle-shell-mode" --status 2>/dev/null)" == waybar ]]; then
             /usr/bin/systemctl --user start ward.service || true
         fi
 

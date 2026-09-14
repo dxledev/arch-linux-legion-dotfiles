@@ -4,7 +4,7 @@ CONFIG="$HOME/.config/hypr/hyprlock.conf"
 TEXT="$1"
 RANDOM_WALLPAPER_SCRIPT="$HOME/.config/hyprlock/scripts/random-wallpaper.sh"
 RANDOM_WALLPAPER_LINK="/tmp/hyprlock-random-wallpaper"
-DEFAULT_WALLPAPER="$HOME/.config/themes/current/wallpaper.png"
+DEFAULT_WALLPAPER="$HOME/.config/themes/.caelestia-use/wallpaper.png"
 
 SAFE_TEXT=$(echo "$TEXT" | sed 's/"/\\"/g')
 

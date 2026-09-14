@@ -31,7 +31,7 @@ PROFILE_DIR="$HOME/.config/chromium-webapps/$DOMAIN"
 mkdir -p "$PROFILE_DIR"
 
 # Read flags safely (preserve spacing, no xargs)
-FLAGS_FILE="$HOME/.config/themes/current/chromium-flags.conf"
+FLAGS_FILE="$HOME/.config/themes/.caelestia-use/chromium-flags.conf"
 
 EXTRA_FLAGS=()
 if [ -f "$FLAGS_FILE" ]; then

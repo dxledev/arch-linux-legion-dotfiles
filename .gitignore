@@ -4,3 +4,6 @@
 .config/discord/WebStorage
 .config/discord
 .config/chromium-webapps
+themes/.config/themes/.dynamic/
+themes/.config/themes/.caelestia-use
+spicetify/.config/spicetify/Themes/CaelestiaDynamic

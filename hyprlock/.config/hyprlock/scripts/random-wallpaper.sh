@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-wallpaper_dir="$HOME/.config/themes/current/wallpapers"
+wallpaper_dir="$HOME/.config/themes/.caelestia-use/wallpapers"
 link_path="/tmp/hyprlock-random-wallpaper"
 dry_run=0
 

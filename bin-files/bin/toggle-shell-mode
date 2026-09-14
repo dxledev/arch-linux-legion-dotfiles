@@ -16,6 +16,8 @@ WARD_BIN="${WARD_BIN:-$HOME/.local/bin/ward}"
 WARDNC_BIN="${WARDNC_BIN:-$HOME/builds/wardnc/build/wardnc}"
 CHROMACK_LAUNCHER="${CHROMACK_LAUNCHER:-$HOME/bin/launch-chromack}"
 DASHBOARD_BIN="${DASHBOARD_BIN:-$HOME/builds/dashboard/build/topdash}"
+THEME_APPLY_SCRIPT="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
+SHELL_THEME_SCRIPT="${SHELL_THEME_SCRIPT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/active/integration/shell-theme}"
 LOCK_FILE="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$UID.lock}"
 QUICKSHELL_STOP_TIMEOUT="${QUICKSHELL_STOP_TIMEOUT:-5}"
 WAYBAR_START_DELAY="${WAYBAR_START_DELAY:-0.5}"
@@ -100,6 +102,8 @@ validate_target() {
     for executable in "$HYPRCTL_BIN" "$PGREP_BIN" "$PKILL_BIN" "$QUICKSHELL_BIN" "$KILL_BIN" "$JQ_BIN"; do
         require_executable "$executable"
     done
+    require_executable "$THEME_APPLY_SCRIPT"
+    require_executable "$SHELL_THEME_SCRIPT"
     [[ "$QUICKSHELL_STOP_TIMEOUT" =~ ^([1-9]|[1-5][0-9]|60)$ ]] ||
         fail 'QUICKSHELL_STOP_TIMEOUT must be an integer from 1 to 60.'
     [[ "$WAYBAR_START_DELAY" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
@@ -146,14 +150,13 @@ start_process() {
 }
 
 start_waybar() {
-    # toggle-dock starts the dock on demand, avoiding a visible startup flash.
-    stop_process hypr-dock &&
-        start_process waybar "$WAYBAR_BIN" &&
-        /usr/bin/systemctl --user start ward.service &&
-        start_process wardnc "$WARDNC_BIN" &&
-        start_process chromack "$CHROMACK_LAUNCHER" &&
-        start_process topdash "$DASHBOARD_BIN" &&
-        start_process swayosd-server "$SWAYOSD_SERVER_BIN"
+    stop_process hypr-dock || { printf 'toggle-shell-mode: Could not stop hypr-dock.\n' >&2; return 1; }
+    start_process waybar "$WAYBAR_BIN" || return 1
+    /usr/bin/systemctl --user start ward.service || { printf 'toggle-shell-mode: ward.service failed to start.\n' >&2; return 1; }
+    start_process wardnc "$WARDNC_BIN" || return 1
+    start_process chromack "$CHROMACK_LAUNCHER" || return 1
+    start_process topdash "$DASHBOARD_BIN" || return 1
+    start_process swayosd-server "$SWAYOSD_SERVER_BIN" || return 1
 }
 
 quickshell_pids() {
@@ -193,6 +196,20 @@ stop_quickshell() {
     return 1
 }
 
+start_quickshell() {
+    local attempt pids
+    pids="$(quickshell_pids)" || return 1
+    [[ -n "$pids" ]] && return 0
+    "$QUICKSHELL_BIN" --daemonize --no-duplicate --path "$QUICKSHELL_CONFIG" 9>&- || return 1
+    for (( attempt=0; attempt<50; attempt++ )); do
+        pids="$(quickshell_pids)" || return 1
+        [[ -n "$pids" ]] && return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: Quickshell failed to start.\n' >&2
+    return 1
+}
+
 apply_mode() {
     local target="$1" previous="${2:-$1}" name
     if [[ "$target" == quickshell ]]; then
@@ -200,12 +217,16 @@ apply_mode() {
         for name in "${WAYBAR_PROCESSES[@]}"; do
             stop_process "$name" || return 1
         done
-        "$QUICKSHELL_BIN" --daemonize --no-duplicate --path "$QUICKSHELL_CONFIG" 9>&-
+        "$SHELL_THEME_SCRIPT" refresh || return 1
+        /usr/bin/systemctl --user stop ward.service || return 1
+        stop_process ward || return 1
+        start_quickshell
     else
         stop_quickshell || return 1
         if [[ "$previous" == quickshell ]]; then
             /usr/bin/sleep "$WAYBAR_START_DELAY" || return 1
         fi
+        "$THEME_APPLY_SCRIPT" system || return 1
         start_waybar
     fi
 }
@@ -215,6 +236,7 @@ show_plan() {
     printf '%s -> %s\n' "$current" "$target"
     if [[ "$target" == quickshell ]]; then
         printf 'Stop: %s\n' "${WAYBAR_PROCESSES[*]}"
+        printf 'Refresh saved shell theme: %s refresh\n' "$SHELL_THEME_SCRIPT"
         printf 'Start: %s --daemonize --no-duplicate --path %q\n' "$QUICKSHELL_BIN" "$QUICKSHELL_CONFIG"
         printf 'Comment: %s\n' "$REQUIRE_LINE"
     else
@@ -223,6 +245,7 @@ show_plan() {
         if [[ "$current" == quickshell ]]; then
             printf 'Pause %s seconds after Quickshell stops\n' "$WAYBAR_START_DELAY"
         fi
+        printf 'Restore named desktop theme: %s system\n' "$THEME_APPLY_SCRIPT"
         printf 'Stop: hypr-dock (SUPER + D starts it on demand)\n'
         printf 'Start: waybar ward wardnc chromack topdash swayosd-server\n'
         printf 'Uncomment: %s\n' "$REQUIRE_LINE"

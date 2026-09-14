@@ -2,7 +2,7 @@
 
 RANDOM_WALLPAPER_SCRIPT="$HOME/.config/hyprlock/scripts/random-wallpaper.sh"
 RANDOM_WALLPAPER_LINK="/tmp/hyprlock-random-wallpaper"
-DEFAULT_WALLPAPER="$HOME/.config/themes/current/wallpaper.png"
+DEFAULT_WALLPAPER="$HOME/.config/themes/.caelestia-use/wallpaper.png"
 
 if ! "$RANDOM_WALLPAPER_SCRIPT" --link "$RANDOM_WALLPAPER_LINK" >/dev/null 2>&1; then
     ln -sfn -- "$DEFAULT_WALLPAPER" "$RANDOM_WALLPAPER_LINK"

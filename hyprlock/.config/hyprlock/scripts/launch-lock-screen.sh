@@ -3,7 +3,7 @@ set -euo pipefail
 
 random_wallpaper_script="$HOME/.config/hyprlock/scripts/random-wallpaper.sh"
 random_wallpaper_link="/tmp/hyprlock-random-wallpaper"
-default_wallpaper="$HOME/.config/themes/current/wallpaper.png"
+default_wallpaper="$HOME/.config/themes/.caelestia-use/wallpaper.png"
 hyprlock_bin="/usr/bin/hyprlock"
 ln_bin="/usr/bin/ln"
 pgrep_bin="/usr/bin/pgrep"

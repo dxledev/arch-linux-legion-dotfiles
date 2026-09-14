@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SPICETIFY_BIN="${SPICETIFY_BIN:-/usr/bin/spicetify}"
 LIVE=0
 if [ "${1:-}" = "--live" ]; then
     LIVE=1
@@ -20,6 +21,10 @@ WATCH_PID_FILE="/tmp/spicetify-watch.pid"
 WATCH_WRAPPER_DIR="/tmp/spicetify-watch-bin"
 
 case "$MODE" in
+    dynamic)
+        THEME="CaelestiaDynamic"
+        FLAVOR="Dynamic"
+        ;;
     aetheria)
         THEME="StarryNight"
         FLAVOR="Galaxy"
@@ -118,12 +123,14 @@ case "$MODE" in
         ;;
 esac
 
-spicetify config current_theme "${THEME}"
+[[ "$SPICETIFY_BIN" == /* && -x "$SPICETIFY_BIN" ]] || { echo "Invalid Spicetify executable: $SPICETIFY_BIN" >&2; exit 1; }
+
+"$SPICETIFY_BIN" config current_theme "${THEME}"
 if [ -n "${FLAVOR}" ]; then
-  spicetify config color_scheme "${FLAVOR}"
+  "$SPICETIFY_BIN" config color_scheme "${FLAVOR}"
 fi
 
-spicetify -n apply
+"$SPICETIFY_BIN" -n apply
 
 if [ "$LIVE" -eq 1 ]; then
     "$SCRIPT_DIR/reload-spotify"

@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
+selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
+dynamic_theme="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
+spicetify_link="${SPICETIFY_DYNAMIC_LINK:-$config_home/spicetify/Themes/CaelestiaDynamic}"
+shell_mode_script="${SHELL_MODE_SCRIPT:-$script_dir/toggle-shell-mode}"
+notify_send_bin="${NOTIFY_SEND_BIN:-$script_dir/notify-send}"
+dry_run=0
+failures=()
+
+usage() {
+    printf 'Usage: theme-apply [--dry-run] system|dynamic\n'
+}
+
+fail() {
+    printf 'theme-apply: %s\n' "$*" >&2
+    exit 1
+}
+
+require_absolute() {
+    [[ "$2" == /* ]] || fail "$1 must be an absolute path: $2"
+}
+
+validate_named_current() {
+    local themes_resolved current_resolved
+    themes_resolved="$(/usr/bin/readlink -f -- "$themes_dir")"
+    current_resolved="$(/usr/bin/readlink -f -- "$themes_dir/current")"
+    [[ -d "$current_resolved" && "${current_resolved%/*}" == "$themes_resolved" && "${current_resolved##*/}" != .* ]] ||
+        fail "current must resolve to an immediate named theme: $themes_dir/current"
+}
+
+validate_paths() {
+    local mode="$1" selector_target="" dynamic_resolved=""
+    require_absolute THEMES_DIR "$themes_dir"
+    require_absolute APPLICATION_THEME_LINK "$selector"
+    require_absolute DYNAMIC_THEME_DIR "$dynamic_theme"
+    require_absolute SPICETIFY_DYNAMIC_LINK "$spicetify_link"
+    [[ "$selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $selector"
+    [[ "$dynamic_theme" == "$themes_dir/.dynamic/caelestia" ]] || fail "Unexpected Dynamic theme directory: $dynamic_theme"
+    [[ -d "$themes_dir" ]] || fail "Themes directory not found: $themes_dir"
+    validate_named_current
+    if [[ -d "$dynamic_theme" && -f "$dynamic_theme/.caelestia-generated" ]]; then
+        dynamic_resolved="$(/usr/bin/readlink -f -- "$dynamic_theme")"
+    fi
+    if [[ "$mode" == dynamic ]]; then
+        if [[ -z "$dynamic_resolved" ]]; then
+            (( dry_run )) || fail "Dynamic theme has not been rendered: $dynamic_theme"
+        else
+            [[ -r "$dynamic_theme/spicetify/color.ini" && -r "$dynamic_theme/spicetify/user.css" ]] || fail 'Dynamic Spicetify theme is incomplete.'
+        fi
+    fi
+    if [[ -e "$selector" || -L "$selector" ]]; then
+        [[ -L "$selector" ]] || fail "Refusing to replace non-symlink selector: $selector"
+        selector_target="$(/usr/bin/readlink -- "$selector")"
+        [[ "$selector_target" == current || "$selector_target" == .dynamic/caelestia ]] ||
+            fail "Refusing to replace unmanaged selector: $selector"
+    fi
+}
+
+ensure_spicetify_link() {
+    local target="$dynamic_theme/spicetify" resolved="" temporary_dir
+    [[ -e "$spicetify_link" || -L "$spicetify_link" ]] || {
+        /usr/bin/mkdir -p -- "${spicetify_link%/*}"
+        temporary_dir="$(/usr/bin/mktemp -d "${spicetify_link%/*}/.caelestia-dynamic.XXXXXX")"
+        /usr/bin/ln -s -- "$target" "$temporary_dir/link"
+        /usr/bin/mv -Tf -- "$temporary_dir/link" "$spicetify_link"
+        /usr/bin/rmdir -- "$temporary_dir"
+        return
+    }
+    [[ -L "$spicetify_link" ]] || fail "Refusing to replace unmanaged Spicetify path: $spicetify_link"
+    resolved="$(/usr/bin/readlink -f -- "$spicetify_link" 2>/dev/null || true)"
+    [[ "$resolved" == "$(/usr/bin/readlink -f -- "$target")" ]] || fail "Refusing to replace unmanaged Spicetify link: $spicetify_link"
+}
+
+activate_selector() {
+    local mode="$1" target temporary_dir
+    if [[ "$mode" == dynamic ]]; then target='.dynamic/caelestia'; else target='current'; fi
+    temporary_dir="$(/usr/bin/mktemp -d "$themes_dir/.caelestia-use.XXXXXX")"
+    /usr/bin/ln -s -- "$target" "$temporary_dir/link"
+    /usr/bin/mv -Tf -- "$temporary_dir/link" "$selector"
+    /usr/bin/rmdir -- "$temporary_dir"
+}
+
+record_failure() {
+    failures+=("$1")
+}
+
+run_reload() {
+    local label="$1"
+    shift
+    if [[ "$1" != /* || ! -x "$1" ]] || ! "$@" >/dev/null 2>&1; then
+        record_failure "$label"
+    fi
+}
+
+run_if_running() {
+    local process="$1" label="$2"
+    shift 2
+    /usr/bin/pgrep -u "$UID" -x "$process" >/dev/null 2>&1 || return 0
+    run_reload "$label" "$@"
+}
+
+reload_waybar_apps() {
+    local mode
+    [[ -x "$shell_mode_script" ]] || { record_failure shell-mode; return; }
+    mode="$("$shell_mode_script" --status 2>/dev/null || true)"
+    [[ "$mode" == waybar ]] || return 0
+    run_if_running wardnc wardnc "$script_dir/reload-wardnc"
+    run_if_running chromack chromack "$script_dir/reload-chromack"
+    run_if_running waybar waybar "$script_dir/reload-waybar"
+    run_if_running topdash dashboard "$script_dir/reload-dashboard"
+    run_if_running hypr-dock dock "$script_dir/reload-dock"
+    run_if_running swayosd-server swayosd "$script_dir/reload-swayosd"
+}
+
+reload_portals() {
+    /usr/bin/pkill -u "$UID" -x xdg-desktop-portal >/dev/null 2>&1 || true
+    /usr/bin/pkill -u "$UID" -x xdg-desktop-portal-gtk >/dev/null 2>&1 || true
+    /usr/bin/pkill -u "$UID" -x xdg-desktop-portal-hyprland >/dev/null 2>&1 || true
+}
+
+reload_applications() {
+    local mode="$1" spotify_mode
+    if [[ "$mode" == dynamic ]]; then spotify_mode=dynamic; else spotify_mode="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current")")"; fi
+    run_reload nemo "$script_dir/reload-nemo"
+    run_reload pavucontrol "$script_dir/reload-pavucontrol"
+    run_reload hyprlock-wallpaper "$config_home/hyprlock/scripts/random-wallpaper.sh" --dir "$selector/wallpapers" --link /tmp/hyprlock-random-wallpaper
+    run_reload wallpaper "$script_dir/bg-refresh-current"
+    run_reload cursor "$script_dir/cursor-set"
+    run_reload browsers "$script_dir/reload-browsers"
+    run_reload borders "$script_dir/reload-borders"
+    run_reload terminals "$script_dir/reload-terminal"
+    run_reload btop "$script_dir/reload-btop"
+    run_if_running cava cava "$script_dir/reload-cava"
+    run_reload discord "$script_dir/reload-discord"
+    run_reload spotify "$script_dir/spicetify-set" --live "$spotify_mode"
+    run_reload obsidian "$script_dir/reload-obsidian"
+    run_if_running celluloid celluloid "$script_dir/reload-celluloid"
+    if [[ "$mode" == system ]]; then
+        run_reload mako "$script_dir/reload-mako"
+        run_reload ward "$script_dir/reload-ward"
+        reload_waybar_apps
+    fi
+    reload_portals
+}
+
+notify_failures() {
+    local joined
+    (( ${#failures[@]} )) || return 0
+    joined="$(IFS=', '; printf '%s' "${failures[*]}")"
+    if [[ -x "$notify_send_bin" ]]; then
+        "$notify_send_bin" -t 5000 'Theme' "Some applications could not reload: $joined" >/dev/null 2>&1 || true
+    fi
+    printf 'theme-apply: reload failures: %s\n' "$joined" >&2
+}
+
+show_plan() {
+    local mode="$1" target
+    if [[ "$mode" == dynamic ]]; then target='.dynamic/caelestia'; else target=current; fi
+    printf 'Selector: %s -> %s\n' "$selector" "$target"
+    [[ "$mode" != dynamic ]] || printf 'Spicetify: %s -> %s/spicetify\n' "$spicetify_link" "$dynamic_theme"
+    printf 'Reload desktop applications for %s\n' "$mode"
+}
+
+main() {
+    local mode
+    [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
+    [[ $# == 1 && ( "$1" == system || "$1" == dynamic ) ]] || { usage >&2; exit 2; }
+    mode="$1"
+    validate_paths "$mode"
+    if (( dry_run )); then show_plan "$mode"; return; fi
+    [[ "$mode" != dynamic ]] || ensure_spicetify_link
+    activate_selector "$mode"
+    reload_applications "$mode"
+    notify_failures
+}
+
+main "$@"

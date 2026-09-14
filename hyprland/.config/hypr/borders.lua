@@ -1,1 +1,1 @@
-/home/dxle/.config/themes/current/borders.lua
+/home/dxle/.config/themes/.caelestia-use/borders.lua

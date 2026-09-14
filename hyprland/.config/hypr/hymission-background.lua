@@ -1,1 +1,1 @@
-/home/dxle/.config/themes/current/hymission-background.lua
+/home/dxle/.config/themes/.caelestia-use/hymission-background.lua

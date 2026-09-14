@@ -1,4 +1,4 @@
-config-file = ?"~/.config/themes/current/ghostty.ghostty"
+config-file = ?"~/.config/themes/.caelestia-use/ghostty.ghostty"
 config-file = ?"~/.config/ghostty/keybinds.ghostty"
 
 app-notifications = no-config-reload
@@ -18,5 +18,4 @@ cursor-style = "block"
 mouse-scroll-multiplier = 0.95
 
 custom-shader = shaders/cursor_warp.glsl
-
 
