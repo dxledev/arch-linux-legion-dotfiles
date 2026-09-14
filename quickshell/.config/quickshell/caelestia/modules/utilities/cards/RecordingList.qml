@@ -57,7 +57,7 @@ ColumnLayout {
 
         model: FileSystemModel {
             path: Paths.recsdir
-            nameFilters: ["recording_*.mp4"]
+            nameFilters: ["*.mkv", "*.mov", "*.mp4", "*.webm"]
             sortReverse: true
         }
 

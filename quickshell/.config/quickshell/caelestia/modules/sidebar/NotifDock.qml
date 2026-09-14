@@ -67,7 +67,7 @@ Item {
             anchors.leftMargin: Tokens.spacing.extraSmall
 
             // TRANSLATORS: the count itself is rendered separately, immediately to the left
-            text: root.notifCount > 0 ? Tr.trCtxN("notification", "notifications", root.notifCount, "notification count label, number shown separately") : Tr.tr("Notifications")
+            text: root.notifCount > 0 ? Tr.trCtxN("Notification", "Notifications", root.notifCount, "notification count label, number shown separately") : Tr.tr("Notifications")
             color: Colours.palette.m3outline
             font: Tokens.font.label.large
             elide: Text.ElideRight

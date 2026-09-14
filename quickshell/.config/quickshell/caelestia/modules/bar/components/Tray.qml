@@ -13,11 +13,21 @@ StyledRect {
     readonly property alias layout: layout
     readonly property alias items: items
     readonly property alias expandIcon: expandIcon
+    readonly property int itemCount: items.count + (recorderItem.active ? 1 : 0)
 
     readonly property int padding: Config.bar.tray.background ? Tokens.padding.medium : Tokens.padding.extraSmall
     readonly property int spacing: Config.bar.tray.background ? Tokens.spacing.medium : Tokens.spacing.extraSmall
 
     property bool expanded
+
+    function itemAt(index: int): Item {
+        if (recorderItem.active) {
+            if (index === 0)
+                return recorderItem;
+            return items.itemAt(index - 1);
+        }
+        return items.itemAt(index);
+    }
 
     readonly property real nonAnimHeight: {
         if (!Config.bar.tray.compact)
@@ -34,7 +44,7 @@ StyledRect {
     implicitWidth: Tokens.sizes.bar.innerWidth
     implicitHeight: nonAnimHeight
 
-    color: Qt.alpha(Colours.tPalette.m3surfaceContainer, (Config.bar.tray.background && items.count > 0) ? Colours.tPalette.m3surfaceContainer.a : 0)
+    color: Qt.alpha(Colours.tPalette.m3surfaceContainer, (Config.bar.tray.background && itemCount > 0) ? Colours.tPalette.m3surfaceContainer.a : 0)
     radius: Tokens.rounding.full
 
     Column {
@@ -67,6 +77,15 @@ StyledRect {
             }
         }
 
+        Loader {
+            id: recorderItem
+
+            property string popoutName: "traymenu:recorder"
+
+            active: Recorder.running
+            sourceComponent: RecorderTrayItem {}
+        }
+
         Repeater {
             id: items
 
@@ -92,7 +111,7 @@ StyledRect {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
 
-        active: Config.bar.tray.compact && items.count > 0
+        active: Config.bar.tray.compact && root.itemCount > 0
 
         sourceComponent: Item {
             implicitWidth: expandIconInner.implicitWidth

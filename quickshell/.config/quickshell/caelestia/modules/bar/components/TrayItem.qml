@@ -12,6 +12,7 @@ MouseArea {
     id: root
 
     required property SystemTrayItem modelData
+    readonly property string popoutName: `traymenu:${modelData.id}`
 
     acceptedButtons: Qt.LeftButton | Qt.RightButton
     implicitWidth: Tokens.font.body.small.pointSize * 2

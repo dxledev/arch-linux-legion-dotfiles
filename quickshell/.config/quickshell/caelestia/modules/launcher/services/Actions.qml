@@ -89,6 +89,9 @@ Searcher {
             } else if (command[0] === "setMode" && command.length > 1) {
                 list.screenState.launcher = false;
                 Colours.setMode(command[1]);
+            } else if (command[0] === "notification-center") {
+                list.screenState.launcher = false;
+                list.screenState.sidebar = true;
             } else if (command[0] === "panel" && ["battery", "bluetooth", "network", "audio"].includes(command[1])) {
                 list.screenState.launcher = false;
                 root.openPanel(command[1]);
