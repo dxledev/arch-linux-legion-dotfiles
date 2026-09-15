@@ -13,7 +13,11 @@ StyledRect {
     readonly property alias layout: layout
     readonly property alias items: items
     readonly property alias expandIcon: expandIcon
-    readonly property int itemCount: items.count + (recorderItem.active ? 1 : 0) + (aetherItem.active ? 1 : 0)
+    readonly property int itemCount: 
+        items.count
+        + (recorderItem.active ? 1 : 0)
+        + (aetherItem.active ? 1 : 0)
+        + (obsidianItem.active ? 1 : 0)
 
     readonly property int padding: Config.bar.tray.background ? Tokens.padding.medium : Tokens.padding.extraSmall
     readonly property int spacing: Config.bar.tray.background ? Tokens.spacing.medium : Tokens.spacing.extraSmall
@@ -29,6 +33,11 @@ StyledRect {
         if (aetherItem.active) {
             if (index === 0)
                 return aetherItem;
+            index--;
+        }
+        if (obsidianItem.active) {
+            if (index === 0)
+                return obsidianItem;
             index--;
         }
         return items.itemAt(index);
@@ -98,6 +107,19 @@ StyledRect {
 
             active: Aether.running
             sourceComponent: AetherTrayItem {}
+        }
+        
+        Loader {
+            id: obsidianItem
+
+            property string popoutName: "traymenu:obsidian"
+
+            active: Hypr.toplevels.values.some(t =>
+                t.lastIpcObject.class === "md.obsidian.Obsidian"
+                && t.lastIpcObject.mapped
+            )
+      
+            sourceComponent: ObsidianTrayItem {}
         }
 
         Repeater {
