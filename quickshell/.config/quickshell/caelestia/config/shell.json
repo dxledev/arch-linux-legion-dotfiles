@@ -403,7 +403,7 @@
         "sensorUnits": "Fahrenheit",
         "smartScheme": false,
         "useTwelveHourClock": false,
-        "weatherUnits": "Fahrenheit"
+        "weatherUnits": "Celsius"
     },
     "session": {
         "commands": {

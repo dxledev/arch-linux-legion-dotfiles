@@ -28,6 +28,13 @@ Item {
         return formatHour(Number(time[0]), Number(time[1]));
     }
 
+    function toggleTemperatureUnit(): void {
+        GlobalConfig.services.weatherUnits =
+            GlobalConfig.services.weatherUnits === TemperatureUnit.Fahrenheit
+                ? TemperatureUnit.Celsius
+                : TemperatureUnit.Fahrenheit;
+    }
+
     WeatherLocations { id: locations }
 
     WeatherLocationPicker {
@@ -156,6 +163,12 @@ Item {
                         text: Weather.temp
                         font: Tokens.font.body.builders.large.size(28 * 2).weight(Font.Medium).build()
                         color: Colours.palette.m3primary
+
+                        MouseArea {
+                            anchors.fill: parent 
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleTemperatureUnit()
+                        }
                     }
 
                     StyledText {
@@ -183,6 +196,7 @@ Item {
                 label: Tr.trCtx("Feels like", "apparent temperature")
                 value: Weather.feelsLike
                 colour: Colours.palette.m3primary
+                temperatureToggle: true
             }
             DetailCard {
                 icon: "air"
@@ -262,6 +276,12 @@ Item {
                             text: "Hi: " + Weather.formatTemp(root.showHourlyForecast ? Math.max(forecastItem.modelData.tempC, forecastItem.modelData.feelsLikeC) : forecastItem.modelData.maxTempC, true)
                             font: Tokens.font.body.builders.small.weight(Font.DemiBold).build()
                             color: Colours.palette.m3tertiary
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.toggleTemperatureUnit()
+                            }
                         }
 
                         StyledText {
@@ -269,6 +289,12 @@ Item {
                             text: "Lo: " + Weather.formatTemp(root.showHourlyForecast ? Math.min(forecastItem.modelData.tempC, forecastItem.modelData.feelsLikeC) : forecastItem.modelData.minTempC, true)
                             font: Tokens.font.body.builders.small.weight(Font.DemiBold).build()
                             color: Colours.palette.m3tertiary
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.toggleTemperatureUnit()
+                            }
                         }
                     }
                 }
@@ -283,6 +309,7 @@ Item {
         property string label
         property string value
         property color colour
+        property bool temperatureToggle: false
 
         Layout.fillWidth: true
         Layout.preferredHeight: 60
@@ -314,6 +341,13 @@ Item {
                     text: detailRoot.value
                     font: Tokens.font.body.builders.small.weight(Font.DemiBold).build()
                     horizontalAlignment: Text.AlignLeft
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: detailRoot.temperatureToggle
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.toggleTemperatureUnit()
+                    }
                 }
             }
         }

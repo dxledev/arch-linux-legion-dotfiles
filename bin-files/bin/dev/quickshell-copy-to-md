@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "/home/dxle/.config/quickshell"
+
+find . \
+  \( -type d \( \
+      -name build -o \
+      -name CMakeFiles -o \
+      -name .git -o \
+      -name assets \
+    \) -prune \) \
+  -o \
+  \( -type f \
+    ! -name 'CMakeLists.txt' \
+    ! -name '*.cmake' \
+    ! -name 'CMakeCache.txt' \
+    ! -name 'LICENSE*' \
+    -print0 \
+  \) |
+while IFS= read -r -d '' file; do
+    mime=$(file --brief --mime-type "$file")
+
+    case "$mime" in
+        text/*|application/json|application/javascript|application/xml|application/x-shellscript)
+            printf '\n\n# ===== FILE: %s =====\n\n' "$file"
+            cat "$file"
+            ;;
+    esac
+done > ~/quickshell-project.md
