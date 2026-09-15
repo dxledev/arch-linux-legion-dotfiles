@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

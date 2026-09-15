@@ -1,0 +1,7 @@
+module Shell.Chromack
+linktarget shellchromackplugin
+optional plugin shellchromackplugin
+classname Shell_ChromackPlugin
+typeinfo shellchromack.qmltypes
+prefer :/qt/qml/Shell/Chromack/
+

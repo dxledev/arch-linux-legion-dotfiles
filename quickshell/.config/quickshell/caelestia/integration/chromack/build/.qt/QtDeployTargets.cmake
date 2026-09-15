@@ -1,0 +1,6 @@
+set(__QT_DEPLOY_TARGET_shellchromack_FILE /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/libshellchromack.so)
+set(__QT_DEPLOY_TARGET_shellchromack_TYPE SHARED_LIBRARY)
+set(__QT_DEPLOY_TARGET_shellchromackplugin_FILE /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/Shell/Chromack/libshellchromackplugin.so)
+set(__QT_DEPLOY_TARGET_shellchromackplugin_TYPE MODULE_LIBRARY)
+set(__QT_DEPLOY_TARGET_test-chromack_FILE /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/test-chromack)
+set(__QT_DEPLOY_TARGET_test-chromack_TYPE EXECUTABLE)

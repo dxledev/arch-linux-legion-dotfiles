@@ -1,0 +1,56 @@
+[
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromack_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -isystem /usr/include/qt6/QtGui -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromack.dir/shellchromack_autogen/mocs_compilation.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/mocs_compilation.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/mocs_compilation.cpp",
+  "output": "CMakeFiles/shellchromack.dir/shellchromack_autogen/mocs_compilation.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromack_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -isystem /usr/include/qt6/QtGui -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromack.dir/shellchromack_qmltyperegistrations.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_qmltyperegistrations.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_qmltyperegistrations.cpp",
+  "output": "CMakeFiles/shellchromack.dir/shellchromack_qmltyperegistrations.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromack_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -isystem /usr/include/qt6/QtGui -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromack.dir/build/.qt/rcc/qrc_qmake_Shell_Chromack.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/.qt/rcc/qrc_qmake_Shell_Chromack.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/.qt/rcc/qrc_qmake_Shell_Chromack.cpp",
+  "output": "CMakeFiles/shellchromack.dir/build/.qt/rcc/qrc_qmake_Shell_Chromack.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromack_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -isystem /usr/include/qt6/QtGui -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromack.dir/chromack-model.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/chromack-model.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/chromack-model.cpp",
+  "output": "CMakeFiles/shellchromack.dir/chromack-model.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromack_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -isystem /usr/include/qt6/QtGui -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromack.dir/ChromackConfig.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/ChromackConfig.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/ChromackConfig.cpp",
+  "output": "CMakeFiles/shellchromack.dir/ChromackConfig.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_DEPRECATED_WARNINGS -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_PLUGIN -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromackplugin_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromackplugin_autogen/include -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromackplugin.dir/shellchromackplugin_autogen/mocs_compilation.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromackplugin_autogen/mocs_compilation.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromackplugin_autogen/mocs_compilation.cpp",
+  "output": "CMakeFiles/shellchromackplugin.dir/shellchromackplugin_autogen/mocs_compilation.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_DEPRECATED_WARNINGS -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_PLUGIN -DQT_QMLINTEGRATION_LIB -DQT_QML_LIB -Dshellchromackplugin_EXPORTS -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromackplugin_autogen/include -isystem /usr/include/qt6/QtQml -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtQmlIntegration -isystem /usr/include/qt6/QtNetwork -fPIC -mno-direct-extern-access -o CMakeFiles/shellchromackplugin.dir/shellchromackplugin_Shell_ChromackPlugin.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromackplugin_Shell_ChromackPlugin.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromackplugin_Shell_ChromackPlugin.cpp",
+  "output": "CMakeFiles/shellchromackplugin.dir/shellchromackplugin_Shell_ChromackPlugin.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_TESTCASE_BUILDDIR=\\\"/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build\\\" -DQT_TESTCASE_SOURCEDIR=\\\"/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack\\\" -DQT_TESTLIB_LIB -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/test-chromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtTest -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -mno-direct-extern-access -o CMakeFiles/test-chromack.dir/test-chromack_autogen/mocs_compilation.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/test-chromack_autogen/mocs_compilation.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/test-chromack_autogen/mocs_compilation.cpp",
+  "output": "CMakeFiles/test-chromack.dir/test-chromack_autogen/mocs_compilation.cpp.o"
+},
+{
+  "directory": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_TESTCASE_BUILDDIR=\\\"/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build\\\" -DQT_TESTCASE_SOURCEDIR=\\\"/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack\\\" -DQT_TESTLIB_LIB -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/test-chromack_autogen/include -I/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack -isystem /usr/include/qt6/QtTest -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -mno-direct-extern-access -o CMakeFiles/test-chromack.dir/tests/model.cpp.o -c /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/tests/model.cpp",
+  "file": "/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/tests/model.cpp",
+  "output": "CMakeFiles/test-chromack.dir/tests/model.cpp.o"
+}
+]

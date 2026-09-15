@@ -1,0 +1,13 @@
+--bare
+-I
+/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build
+-I
+/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/Shell/Chromack
+-I
+/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build
+-I
+/usr/lib/qt6/qml
+--resource
+/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/.qt/rcc/qmake_Shell_Chromack.qrc
+--json
+/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/shellchromack_qmllint.json

@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/qt/qml/Shell/Chromack">
+    <file alias="qmldir">/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/Shell/Chromack/qmldir</file>
+  </qresource>
+</RCC>
+

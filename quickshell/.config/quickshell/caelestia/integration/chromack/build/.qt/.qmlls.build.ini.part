@@ -1,0 +1,3 @@
+[<SLASH>home<SLASH>dxle<SLASH>dotfiles<SLASH>quickshell<SLASH>.config<SLASH>quickshell<SLASH>caelestia<SLASH>integration<SLASH>chromack]
+importPaths="/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build:/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/Shell/Chromack:/usr/lib/qt6/qml"
+resourceFiles="/home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/.qt/rcc/qmake_Shell_Chromack.qrc"
