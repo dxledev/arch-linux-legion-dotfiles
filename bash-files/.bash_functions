@@ -1,3 +1,7 @@
+termshark() {
+  env -u COLORTERM /usr/bin/termshark "$@"
+}
+
 lsn() {
   local dir="."
   local order="newest"
