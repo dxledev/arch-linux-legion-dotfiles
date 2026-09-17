@@ -18,6 +18,7 @@ StyledRect {
         + (recorderItem.active ? 1 : 0)
         + (aetherItem.active ? 1 : 0)
         + (obsidianItem.active ? 1 : 0)
+        + (nexusItem.active ? 1 : 0 )
 
     readonly property int padding: Config.bar.tray.background ? Tokens.padding.medium : Tokens.padding.extraSmall
     readonly property int spacing: Config.bar.tray.background ? Tokens.spacing.medium : Tokens.spacing.extraSmall
@@ -38,6 +39,11 @@ StyledRect {
         if (obsidianItem.active) {
             if (index === 0)
                 return obsidianItem;
+            index--;
+        }
+        if (nexusItem.active) {
+            if (index === 0)
+                return nexusItem;
             index--;
         }
         return items.itemAt(index);
@@ -107,6 +113,19 @@ StyledRect {
 
             active: Aether.running
             sourceComponent: AetherTrayItem {}
+        }
+
+        Loader {
+            id: nexusItem
+
+            property string popoutName: "traymenu:nexus"
+
+            active: Hypr.toplevels.values.some(t =>
+                t.title?.startsWith("Nexus — ")
+                && t.lastIpcObject.mapped
+            )
+  
+            sourceComponent: NexusTrayItem {}
         }
         
         Loader {

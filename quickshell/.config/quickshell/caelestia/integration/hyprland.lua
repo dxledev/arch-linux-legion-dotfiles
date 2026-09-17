@@ -25,6 +25,21 @@ hl.workspace_rule({
     persistent = false,
 })
 
+hl.window_rule({
+    name = "caelestia-nexus-workspace",
+    match = { title = "^Nexus — .*$" },
+    workspace = "special:nexus",
+    float = true,
+    center = true,
+    animation = "slide bottom",
+})
+
+hl.workspace_rule({
+    workspace = "special:nexus",
+    monitor = "HDMI-A-1",
+    persistent = false,
+})
+
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
 local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")
 local bindings = {

@@ -25,7 +25,8 @@
     },
     "bar": {
         "clock": {
-            "showDate": true
+            "showDate": true,
+            "showSeconds": false
         },
         "statusIcons": [
             {
@@ -75,6 +76,21 @@
                 }
             ]
         }
+    },
+    "dashboard": {
+        "performance": {
+            "showBattery": true,
+            "showCpu": true,
+            "showGpu": true,
+            "showMemory": true,
+            "showNetwork": true,
+            "showStorage": true
+        },
+        "showClockSeconds": true,
+        "showDashboard": true,
+        "showMedia": true,
+        "showPerformance": true,
+        "showWeather": true
     },
     "general": {
         "apps": {

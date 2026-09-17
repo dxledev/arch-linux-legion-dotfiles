@@ -12,6 +12,20 @@ Singleton {
     id: root
 
     function create(parent: Item, props: var): void {
+        const nexusVisible = Hypr.monitors.values.some(m =>
+            m.lastIpcObject.specialWorkspace?.name === "special:nexus"
+        );
+
+        if (!nexusVisible) {
+            Hypr.dispatch(Hypr.usingLua
+                ? 'hl.dsp.focus({ monitor = "HDMI-A-1" })'
+                : 'focusmonitor HDMI-A-1');
+
+            Hypr.dispatch(Hypr.usingLua
+                ? 'hl.dsp.workspace.toggle_special("nexus")'
+                : 'togglespecialworkspace nexus');
+        }
+
         nexusComp.createObject(parent ?? dummy, props);
     }
 
