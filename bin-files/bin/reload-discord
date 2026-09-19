@@ -2,5 +2,5 @@
 
 set -euo pipefail
 
-cp ~/.config/themes/.caelestia-use/discord.css ~/.config/vesktop/themes/theme.css
-touch ~/.config/vesktop/themes/theme.css
+/usr/bin/cp "$HOME/.config/themes/.caelestia-use/discord.css" "$HOME/.config/vesktop/themes/theme.css"
+/usr/bin/touch "$HOME/.config/vesktop/themes/theme.css"

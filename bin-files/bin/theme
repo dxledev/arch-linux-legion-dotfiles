@@ -42,7 +42,7 @@ if [[ "${THEME_SUPPRESS_NOTIFY:-0}" != "1" ]]; then
     if [[ "$THEME_NAME" == "rose-pine" ]]; then
         FORMATTED_NAME="Rosé Pine"
     else
-        FORMATTED_NAME=$(printf '%s\n' "$THEME_NAME" | tr '-' ' ' | sed -E 's/\b(.)/\U\1/g')
+        FORMATTED_NAME=$(printf '%s\n' "$THEME_NAME" | /usr/bin/tr '-' ' ' | /usr/bin/sed -E 's/\b(.)/\U\1/g')
     fi
 
     (

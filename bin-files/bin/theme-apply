@@ -11,8 +11,12 @@ dynamic_theme="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
 spicetify_link="${SPICETIFY_DYNAMIC_LINK:-$config_home/spicetify/Themes/CaelestiaDynamic}"
 shell_mode_script="${SHELL_MODE_SCRIPT:-$script_dir/toggle-shell-mode}"
 notify_send_bin="${NOTIFY_SEND_BIN:-$script_dir/notify-send}"
+spicetify_lock="${THEME_APPLY_SPICETIFY_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/theme-apply-spicetify-$UID.lock}"
 dry_run=0
 failures=()
+reload_pids=()
+reload_labels=()
+wait_for_reloads="${THEME_APPLY_WAIT_FOR_RELOADS:-0}"
 
 usage() {
     printf 'Usage: theme-apply [--dry-run] system|dynamic\n'
@@ -41,9 +45,11 @@ validate_paths() {
     require_absolute APPLICATION_THEME_LINK "$selector"
     require_absolute DYNAMIC_THEME_DIR "$dynamic_theme"
     require_absolute SPICETIFY_DYNAMIC_LINK "$spicetify_link"
+    require_absolute THEME_APPLY_SPICETIFY_LOCK "$spicetify_lock"
     [[ "$selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $selector"
     [[ "$dynamic_theme" == "$themes_dir/.dynamic/caelestia" ]] || fail "Unexpected Dynamic theme directory: $dynamic_theme"
     [[ -d "$themes_dir" ]] || fail "Themes directory not found: $themes_dir"
+    [[ "$wait_for_reloads" == 0 || "$wait_for_reloads" == 1 ]] || fail 'THEME_APPLY_WAIT_FOR_RELOADS must be 0 or 1.'
     validate_named_current
     if [[ -d "$dynamic_theme" && -f "$dynamic_theme/.caelestia-generated" ]]; then
         dynamic_resolved="$(/usr/bin/readlink -f -- "$dynamic_theme")"
@@ -91,19 +97,59 @@ record_failure() {
     failures+=("$1")
 }
 
-run_reload() {
+queue_reload() {
     local label="$1"
     shift
-    if [[ "$1" != /* || ! -x "$1" ]] || ! "$@" >/dev/null 2>&1; then
+    if [[ "$1" != /* || ! -x "$1" ]]; then
         record_failure "$label"
+        return
     fi
+    "$@" >/dev/null 2>&1 &
+    reload_pids+=("$!")
+    reload_labels+=("$label")
 }
 
-run_if_running() {
+queue_if_running() {
     local process="$1" label="$2"
     shift 2
     /usr/bin/pgrep -u "$UID" -x "$process" >/dev/null 2>&1 || return 0
-    run_reload "$label" "$@"
+    queue_reload "$label" "$@"
+}
+
+active_theme_key() {
+    local resolved
+    resolved="$(/usr/bin/readlink -f -- "$selector" 2>/dev/null || true)"
+    if [[ "$resolved" == "$(/usr/bin/readlink -f -- "$dynamic_theme" 2>/dev/null || true)" && -n "$resolved" ]]; then
+        printf 'dynamic\n'
+    else
+        /usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current")"
+    fi
+}
+
+queue_spicetify_reload() {
+    local expected="$1" executable="$2"
+    shift 2
+    if [[ "$executable" != /* || ! -x "$executable" ]]; then
+        record_failure spotify
+        return
+    fi
+    (
+        exec 8>"$spicetify_lock"
+        /usr/bin/flock 8
+        [[ "$(active_theme_key)" == "$expected" ]] || exit 0
+        "$executable" "$@"
+    ) >/dev/null 2>&1 &
+    reload_pids+=("$!")
+    reload_labels+=(spotify)
+}
+
+wait_for_queued_reloads() {
+    local index
+    for index in "${!reload_pids[@]}"; do
+        if ! wait "${reload_pids[index]}"; then
+            record_failure "${reload_labels[index]}"
+        fi
+    done
 }
 
 reload_waybar_apps() {
@@ -111,12 +157,12 @@ reload_waybar_apps() {
     [[ -x "$shell_mode_script" ]] || { record_failure shell-mode; return; }
     mode="$("$shell_mode_script" --status 2>/dev/null || true)"
     [[ "$mode" == waybar ]] || return 0
-    run_if_running wardnc wardnc "$script_dir/reload-wardnc"
-    run_if_running chromack chromack "$script_dir/reload-chromack"
-    run_if_running waybar waybar "$script_dir/reload-waybar"
-    run_if_running topdash dashboard "$script_dir/reload-dashboard"
-    run_if_running hypr-dock dock "$script_dir/reload-dock"
-    run_if_running swayosd-server swayosd "$script_dir/reload-swayosd"
+    queue_if_running wardnc wardnc "$script_dir/reload-wardnc"
+    queue_if_running chromack chromack "$script_dir/reload-chromack"
+    queue_if_running waybar waybar "$script_dir/reload-waybar"
+    queue_if_running topdash dashboard "$script_dir/reload-dashboard"
+    queue_if_running hypr-dock dock "$script_dir/reload-dock"
+    queue_if_running swayosd-server swayosd "$script_dir/reload-swayosd"
 }
 
 reload_portals() {
@@ -128,26 +174,44 @@ reload_portals() {
 reload_applications() {
     local mode="$1" spotify_mode
     if [[ "$mode" == dynamic ]]; then spotify_mode=dynamic; else spotify_mode="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current")")"; fi
-    run_reload nemo "$script_dir/reload-nemo"
-    run_reload pavucontrol "$script_dir/reload-pavucontrol"
-    run_reload hyprlock-wallpaper "$config_home/hyprlock/scripts/random-wallpaper.sh" --dir "$selector/wallpapers" --link /tmp/hyprlock-random-wallpaper
-    run_reload wallpaper "$script_dir/bg-refresh-current"
-    run_reload cursor "$script_dir/cursor-set"
-    run_reload browsers "$script_dir/reload-browsers"
-    run_reload borders "$script_dir/reload-borders"
-    run_reload terminals "$script_dir/reload-terminal"
-    run_reload btop "$script_dir/reload-btop"
-    run_if_running cava cava "$script_dir/reload-cava"
-    run_reload discord "$script_dir/reload-discord"
-    run_reload spotify "$script_dir/spicetify-set" --live "$spotify_mode"
-    run_reload obsidian "$script_dir/reload-obsidian"
-    run_if_running celluloid celluloid "$script_dir/reload-celluloid"
+    queue_reload nemo "$script_dir/reload-nemo"
+    queue_reload pavucontrol "$script_dir/reload-pavucontrol"
+    queue_reload hyprlock-wallpaper "$config_home/hyprlock/scripts/random-wallpaper.sh" --dir "$selector/wallpapers" --link /tmp/hyprlock-random-wallpaper
+    queue_reload wallpaper "$script_dir/bg-refresh-current"
+    queue_reload cursor "$script_dir/cursor-set"
+    queue_reload browsers "$script_dir/reload-browsers"
+    queue_reload borders "$script_dir/reload-borders"
+    queue_reload terminals "$script_dir/reload-terminal"
+    queue_reload btop "$script_dir/reload-btop"
+    queue_if_running cava cava "$script_dir/reload-cava"
+    queue_reload discord "$script_dir/reload-discord"
+    queue_spicetify_reload "$spotify_mode" "$script_dir/spicetify-set" --live "$spotify_mode"
+    queue_reload obsidian "$script_dir/reload-obsidian"
+    queue_if_running celluloid celluloid "$script_dir/reload-celluloid"
     if [[ "$mode" == system ]]; then
-        run_reload mako "$script_dir/reload-mako"
-        run_reload ward "$script_dir/reload-ward"
+        queue_reload mako "$script_dir/reload-mako"
+        queue_reload ward "$script_dir/reload-ward"
         reload_waybar_apps
     fi
     reload_portals
+    wait_for_queued_reloads
+}
+
+reload_worker() {
+    reload_applications "$1"
+    notify_failures
+}
+
+dispatch_reloads() {
+    local mode="$1"
+    if (( wait_for_reloads )); then
+        reload_worker "$mode"
+        return
+    fi
+    (
+        trap '' HUP
+        reload_worker "$mode"
+    ) >/dev/null 2>&1 9>&- &
 }
 
 notify_failures() {
@@ -177,8 +241,7 @@ main() {
     if (( dry_run )); then show_plan "$mode"; return; fi
     [[ "$mode" != dynamic ]] || ensure_spicetify_link
     activate_selector "$mode"
-    reload_applications "$mode"
-    notify_failures
+    dispatch_reloads "$mode"
 }
 
 main "$@"

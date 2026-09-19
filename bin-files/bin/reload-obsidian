@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-cp ~/.config/themes/.caelestia-use/obsidian.css "/home/dxle/files/documents/Obsidian Vault/.obsidian/snippets/theme.css"
+/usr/bin/cp "$HOME/.config/themes/.caelestia-use/obsidian.css" "/home/dxle/files/documents/Obsidian Vault/.obsidian/snippets/theme.css"

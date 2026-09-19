@@ -1,6 +1,60 @@
 #!/usr/bin/env bash
-chromium --no-startup-window --refresh-platform-policy &
+set -euo pipefail
 
-if pgrep -x brave >/dev/null; then
-  brave --nostartup-window --refresh-platform-policy &
-fi
+CHROMIUM_BIN="${CHROMIUM_BIN:-/usr/bin/chromium}"
+BRAVE_BIN="${BRAVE_BIN:-/usr/bin/brave}"
+BRAVE_POLICY_LINK="${BRAVE_POLICY_LINK:-/etc/brave/policies/managed/brave.json}"
+APPLICATION_THEME_LINK="${APPLICATION_THEME_LINK:-${XDG_CONFIG_HOME:-$HOME/.config}/themes/.caelestia-use}"
+
+usage() {
+    printf 'Usage: reload-browsers\n'
+}
+
+fail() {
+    printf 'reload-browsers: %s\n' "$1" >&2
+    exit 1
+}
+
+require_absolute_executable() {
+    [[ "$1" == /* && -x "$1" ]]
+}
+
+validate_inputs() {
+    [[ $# == 0 ]] || { usage >&2; exit 2; }
+    [[ "$CHROMIUM_BIN" == /* ]] || fail 'CHROMIUM_BIN must be an absolute path.'
+    [[ "$BRAVE_BIN" == /* ]] || fail 'BRAVE_BIN must be an absolute path.'
+    [[ "$BRAVE_POLICY_LINK" == /* ]] || fail 'BRAVE_POLICY_LINK must be an absolute path.'
+    [[ "$APPLICATION_THEME_LINK" == /* ]] || fail 'APPLICATION_THEME_LINK must be an absolute path.'
+}
+
+validate_brave_policy() {
+    local expected resolved
+    expected="$(/usr/bin/readlink -f -- "$APPLICATION_THEME_LINK/brave.json")"
+    resolved="$(/usr/bin/readlink -f -- "$BRAVE_POLICY_LINK" 2>/dev/null || true)"
+    [[ -f "$expected" && "$resolved" == "$expected" ]] || {
+        printf 'reload-browsers: Brave policy must link to %s/brave.json\n' "$APPLICATION_THEME_LINK" >&2
+        return 1
+    }
+}
+
+refresh_policy() {
+    "$1" --no-startup-window --refresh-platform-policy >/dev/null 2>&1
+}
+
+main() {
+    local status=0
+    validate_inputs "$@"
+    if require_absolute_executable "$CHROMIUM_BIN"; then
+        refresh_policy "$CHROMIUM_BIN" || status=1
+    fi
+    if require_absolute_executable "$BRAVE_BIN"; then
+        if validate_brave_policy; then
+            refresh_policy "$BRAVE_BIN" || status=1
+        else
+            status=1
+        fi
+    fi
+    return "$status"
+}
+
+main "$@"
