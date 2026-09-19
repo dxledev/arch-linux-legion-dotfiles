@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+launcher="$root/caelestia/integration/aether"
+wrapper="$root/caelestia/integration/tests/aether-sync-wrapper"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/aether-sync-test.XXXXXX")"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+
+fail() {
+    printf 'aether-sync test: %s\n' "$*" >&2
+    exit 1
+}
+
+palette() {
+    /usr/bin/jq -cn '
+        {mode: "dark", background: "#101112", foreground: "#f1f2f3", accent: "#aabbcc", muted: "#667788",
+         red: "#ff0000", green: "#00ff00", yellow: "#ffff00", blue: "#0000ff", magenta: "#ff00ff", cyan: "#00ffff",
+         terminal: ["#000000", "#111111", "#222222", "#333333", "#444444", "#555555", "#666666", "#777777",
+                    "#888888", "#999999", "#aaaaaa", "#bbbbbb", "#cccccc", "#dddddd", "#eeeeee", "#ffffff"]}'
+}
+
+theme_file="$test_root/config/aether/theme/colors.toml"
+valid_palette="$(palette)"
+
+HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_THEME_FILE="$theme_file" AETHER_QUICKSHELL_WRAPPER="$wrapper" AETHER_TEST_PALETTE="$valid_palette" \
+    "$launcher" sync
+
+[[ "$(/usr/bin/awk -F' = ' '$1 == "mode" { print $2 }' "$theme_file")" == '"dark"' ]] || fail 'did not write palette mode'
+[[ "$(/usr/bin/awk -F' = ' '$1 == "accent" { print $2 }' "$theme_file")" == '"#aabbcc"' ]] || fail 'did not write palette accent'
+[[ "$(/usr/bin/awk -F' = ' '$1 == "color15" { print $2 }' "$theme_file")" == '"#ffffff"' ]] || fail 'did not write terminal palette'
+
+first_inode="$(/usr/bin/stat -c %i "$theme_file")"
+HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_THEME_FILE="$theme_file" AETHER_QUICKSHELL_WRAPPER="$wrapper" AETHER_TEST_PALETTE="$valid_palette" \
+    "$launcher" sync
+[[ "$first_inode" != "$(/usr/bin/stat -c %i "$theme_file")" ]] || fail 'palette write was not atomic'
+
+before_hash="$(/usr/bin/sha256sum "$theme_file")"
+if HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_THEME_FILE="$theme_file" AETHER_QUICKSHELL_WRAPPER="$wrapper" AETHER_TEST_PALETTE='{}' \
+    "$launcher" sync >/dev/null 2>&1; then
+    fail 'malformed palette unexpectedly succeeded'
+fi
+[[ "$before_hash" == "$(/usr/bin/sha256sum "$theme_file")" ]] || fail 'malformed palette changed existing file'
+
+dry_hash="$(/usr/bin/sha256sum "$theme_file")"
+dry_output="$(HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_THEME_FILE="$theme_file" AETHER_QUICKSHELL_WRAPPER="$wrapper" AETHER_TEST_PALETTE="$valid_palette" \
+    "$launcher" --dry-run sync)"
+[[ "$dry_hash" == "$(/usr/bin/sha256sum "$theme_file")" ]] || fail 'dry-run changed existing file'
+[[ "$dry_output" == *"Generate Aether chrome palette: $theme_file"* ]] || fail 'dry-run did not report palette target'
+
+printf 'aether-sync: ok\n'

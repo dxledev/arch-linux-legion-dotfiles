@@ -17,6 +17,7 @@ Singleton {
     property string scheme
     property string flavour
     property string source: "system"
+    property string provider: "theme"
     property string variant: "tonalspot"
     readonly property bool light: showPreview ? previewLight : currentLight
     property bool currentLight
@@ -31,6 +32,7 @@ Singleton {
     property bool cooldownPending
     property real lastBaseTransparency
     property list<string> pendingControllerArgs: []
+    property bool aetherSyncQueued
 
     readonly property string controller: Quickshell.shellPath("integration/shell-theme")
 
@@ -71,6 +73,7 @@ Singleton {
 
         if (!isPreview) {
             root.source = scheme.source ?? (scheme.name === "dynamic" ? "dynamic" : "system");
+            root.provider = scheme.provider ?? (root.source === "dynamic" ? "caelestia" : "theme");
             variant = scheme.variant ?? "tonalspot";
             if (root.source === "system") {
                 loadSystemPalette();
@@ -90,6 +93,16 @@ Singleton {
         }
         if (!isPreview && scheme.provider === "aether")
             loadAetherPalette(scheme.colours);
+        if (!isPreview && root.source === "dynamic" && root.provider === "caelestia")
+            queueAetherSync();
+    }
+
+    function queueAetherSync(): void {
+        if (aetherSyncProc.running) {
+            aetherSyncQueued = true;
+            return;
+        }
+        aetherSyncProc.running = true;
     }
 
     function paletteColour(colours: var, name: string, fallback: color): color {
@@ -230,6 +243,7 @@ Singleton {
         scheme = "system";
         flavour = "";
         source = "system";
+        provider = "theme";
         currentLight = Colors.light;
         showPreview = false;
         for (const [name, color] of Object.entries(Colors.palette()))
@@ -302,6 +316,21 @@ Singleton {
                 const args = root.pendingControllerArgs;
                 root.pendingControllerArgs = [];
                 Qt.callLater(() => root.runController(args));
+            }
+        }
+    }
+
+    Process {
+        id: aetherSyncProc
+
+        command: [Quickshell.shellPath("integration/aether"), "sync"]
+        stderr: StdioCollector {}
+        onExited: code => {
+            if (code !== 0)
+                console.warn("Aether palette sync failed:", stderr.text.trim());
+            if (root.aetherSyncQueued) {
+                root.aetherSyncQueued = false;
+                Qt.callLater(root.queueAetherSync);
             }
         }
     }

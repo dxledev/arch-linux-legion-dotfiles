@@ -11,6 +11,7 @@ aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
 aether_wallpapers_dir="${AETHER_WALLPAPERS_DIR:-$config_home/aether/theme/backgrounds}"
 aether_library_dir="${AETHER_LIBRARY_DIR:-$HOME/files/pictures/Aether}"
 dynamic_wallpapers_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic}"
+quickshell_wrapper="${AETHER_QUICKSHELL_WRAPPER:-$shell_root/scripts/quickshell}"
 hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 jq_bin="${JQ_BIN:-/usr/bin/jq}"
 notify_send_bin="${NOTIFY_SEND_BIN:-$HOME/bin/notify-send}"
@@ -22,7 +23,7 @@ log_file="$state_dir/aether.log"
 dry_run=0
 
 usage() {
-    printf 'Usage: aether [--dry-run] launch|quit|apply|status\n'
+    printf 'Usage: aether [--dry-run] launch|quit|apply|sync|status\n'
 }
 
 fail() {
@@ -243,15 +244,20 @@ write_shell_palette() {
 
 sync_shell_palette() {
     local palette
-    if ! palette="$($shell_root/scripts/quickshell -p "$shell_entry" ipc call theme aetherPalette 2>&1)"; then
-        notify_failure "Could not read Caelestia's palette. Restart the shell and try again."
+    [[ "$quickshell_wrapper" == /* && -x "$quickshell_wrapper" ]] || fail "Quickshell wrapper must be an executable absolute path: $quickshell_wrapper"
+    if ! palette="$("$quickshell_wrapper" -p "$shell_entry" ipc call theme aetherPalette 2>&1)"; then
+        fail "Could not read Caelestia's palette. Restart the shell and try again."
     fi
     "$jq_bin" -e '
         (.mode == "light" or .mode == "dark") and
         ([.background, .foreground, .accent, .muted, .red, .green, .yellow, .blue, .magenta, .cyan] | all(test("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))) and
         (.terminal | type == "array" and length == 16 and all(.[]; type == "string" and test("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")))
-    ' <<< "$palette" >/dev/null || notify_failure "Caelestia returned an invalid Aether palette. Restart the shell and try again."
+    ' <<< "$palette" >/dev/null || fail "Caelestia returned an invalid Aether palette. Restart the shell and try again."
     write_shell_palette "$palette"
+}
+
+sync() {
+    sync_shell_palette
 }
 
 wait_for_client() {
@@ -436,6 +442,7 @@ case "$command_name" in
     launch) launch ;;
     quit) quit ;;
     apply) apply_to_shell ;;
+    sync) sync ;;
     status) status ;;
     --help|-h) usage ;;
     *) usage >&2; exit 2 ;;

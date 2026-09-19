@@ -11,6 +11,7 @@ patch_file="$root/scripts/patches/aether-v4.29.8-wallpaper-library.patch"
 expected_commit="a3b0099355b8162b495bf9e661c8913d49231519"
 expected_version="4.29.8"
 dry_run=0
+export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.24.7}"
 
 usage() {
     printf 'Usage: build-aether [--dry-run]\nBuild patched Aether v4.29.8 into QUICKSHELL_RUNTIME.\n'
@@ -56,7 +57,8 @@ run /usr/bin/git -C "$work_dir" checkout --detach "$expected_commit"
 run /usr/bin/git -C "$work_dir" apply --check "$patch_file"
 run /usr/bin/git -C "$work_dir" apply "$patch_file"
 run /usr/bin/bash -c 'command -v "$1" >/dev/null' _ "$wails_bin"
-run /usr/bin/bash -c 'cd -- "$1" && exec "$2" build -tags webkit2_41 -ldflags "-X aether/cli.Version=$3"' _ "$work_dir" "$wails_bin" "$expected_version"
+run /usr/bin/mkdir -p -- "$work_dir/.config"
+run /usr/bin/env XDG_CONFIG_HOME="$work_dir/.config" /usr/bin/bash -c 'cd -- "$1" && exec "$2" build -tags webkit2_41 -ldflags "-X aether/cli.Version=$3"' _ "$work_dir" "$wails_bin" "$expected_version"
 run /usr/bin/bash -c 'cd -- "$1" && exec /usr/bin/go test ./...' _ "$work_dir"
 candidate="$work_dir/build/bin/aether"
 run /usr/bin/test -x "$candidate"

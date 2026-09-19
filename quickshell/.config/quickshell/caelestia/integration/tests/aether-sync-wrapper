@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ "${1:-}" == -p && "${3:-}" == ipc && "${4:-}" == call && "${5:-}" == theme && "${6:-}" == aetherPalette ]] || exit 2
+printf '%s\n' "${AETHER_TEST_PALETTE:?AETHER_TEST_PALETTE is required}"
