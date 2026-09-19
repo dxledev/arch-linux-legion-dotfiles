@@ -24,9 +24,17 @@
         "enabled": false
     },
     "bar": {
+        "activeWindow": {
+            "compact": false,
+            "inverted": true,
+            "showOnHover": false
+        },
         "clock": {
             "showDate": true,
             "showSeconds": false
+        },
+        "popouts": {
+            "activeWindow": true
         },
         "statusIcons": [
             {
@@ -55,7 +63,10 @@
             ]
         },
         "workspaces": {
+            "activeTrail": true,
+            "occupiedBg": false,
             "perMonitorWorkspaces": true,
+            "showWindows": true,
             "shown": 5,
             "specialWorkspaceIcons": [
                 {

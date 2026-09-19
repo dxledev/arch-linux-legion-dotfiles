@@ -59,7 +59,6 @@ ColumnLayout {
         }
 
         const id = ch.entryId;
-        const top = ch.y;
 
         if (id === "statusIcons" && Config.bar.popouts.statusIcons) {
             const items = (ch.item as StatusIcons).items;
@@ -72,8 +71,7 @@ ColumnLayout {
         } else if (id === "tray" && Config.bar.popouts.tray) {
             const tray = ch.item as Tray;
             if (!Config.bar.tray.compact || (tray.expanded && !tray.expandIcon.contains(mapToItem(tray.expandIcon, tray.implicitWidth / 2, y)))) {
-                const index = Math.floor(((y - top - tray.padding * 2 + tray.spacing) / tray.layout.implicitHeight) * tray.itemCount);
-                const trayItem = tray.itemAt(index);
+                const trayItem = tray.layout.childAt(tray.layout.width / 2, mapToItem(tray.layout, 0, y).y);
                 if (trayItem) {
                     popouts.currentName = trayItem.popoutName;
                     popouts.currentCenter = Qt.binding(() => trayItem.mapToItem(root, 0, trayItem.implicitHeight / 2).y);

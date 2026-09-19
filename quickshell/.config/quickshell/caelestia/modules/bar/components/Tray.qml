@@ -25,30 +25,6 @@ StyledRect {
 
     property bool expanded
 
-    function itemAt(index: int): Item {
-        if (recorderItem.active) {
-            if (index === 0)
-                return recorderItem;
-            index--;
-        }
-        if (aetherItem.active) {
-            if (index === 0)
-                return aetherItem;
-            index--;
-        }
-        if (obsidianItem.active) {
-            if (index === 0)
-                return obsidianItem;
-            index--;
-        }
-        if (nexusItem.active) {
-            if (index === 0)
-                return nexusItem;
-            index--;
-        }
-        return items.itemAt(index);
-    }
-
     readonly property real nonAnimHeight: {
         if (!Config.bar.tray.compact)
             return layout.implicitHeight + padding * 2;
@@ -103,6 +79,7 @@ StyledRect {
             property string popoutName: "traymenu:recorder"
 
             active: Recorder.running
+            visible: active
             sourceComponent: RecorderTrayItem {}
         }
 
@@ -112,6 +89,7 @@ StyledRect {
             property string popoutName: "traymenu:aether"
 
             active: Aether.running
+            visible: active
             sourceComponent: AetherTrayItem {}
         }
 
@@ -124,7 +102,7 @@ StyledRect {
                 t.title?.startsWith("Nexus — ")
                 && t.lastIpcObject.mapped
             )
-  
+            visible: active
             sourceComponent: NexusTrayItem {}
         }
         
@@ -137,7 +115,7 @@ StyledRect {
                 t.lastIpcObject.class === "md.obsidian.Obsidian"
                 && t.lastIpcObject.mapped
             )
-      
+            visible: active
             sourceComponent: ObsidianTrayItem {}
         }
 
