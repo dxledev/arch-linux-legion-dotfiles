@@ -16,11 +16,15 @@ palette_file="$state_dir/shell-theme-palette.json"
 dynamic_wallpaper_file="${SHELL_DYNAMIC_WALLPAPER:-$state_dir/dynamic-wallpaper}"
 cache_dir="$cache_home/caelestia/shell-theme"
 engine_dir="$cache_dir/engine"
+palette_cache_dir="$cache_dir/palettes"
+prewarm_marker="$cache_dir/prewarm-current"
 theme_renderer="${THEME_RENDERER:-$script_dir/theme-render}"
 theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
 application_selector="${APPLICATION_THEME_LINK:-$config_home/themes/.caelestia-use}"
 dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$config_home/themes/.dynamic/caelestia}"
 dry_run=0
+palette_cache_version=1
+variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral rainbow content)
 
 usage() {
     printf 'Usage: shell-theme [--dry-run] status|refresh|refresh-wallpaper|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
@@ -32,10 +36,11 @@ fail() {
 }
 
 is_variant() {
-    case "$1" in
-        tonalspot|vibrant|expressive|fidelity|fruitsalad|monochrome|neutral|rainbow|content) return 0 ;;
-        *) return 1 ;;
-    esac
+    local candidate
+    for candidate in "${variants[@]}"; do
+        [[ "$candidate" != "$1" ]] || return 0
+    done
+    return 1
 }
 
 theme_colour() {
@@ -142,6 +147,14 @@ write_json() {
     /usr/bin/mv -f -- "$temporary" "$path"
 }
 
+write_text() {
+    local path="$1" contents="$2" temporary
+    /usr/bin/mkdir -p -- "${path%/*}"
+    temporary="$(/usr/bin/mktemp "${path%/*}/.${path##*/}.XXXXXX")"
+    printf '%s\n' "$contents" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$path"
+}
+
 require_executable() {
     [[ "$1" == /* && -x "$1" ]] || fail "Executable must be an absolute path: $1"
 }
@@ -225,25 +238,44 @@ dynamic_seed() {
 }
 
 prepare_engine() {
-    local seed="$1"
-    /usr/bin/mkdir -p -- "$engine_dir/config/caelestia" "$engine_dir/state/caelestia/wallpaper" "$engine_dir/cache"
-    /usr/bin/cp -- "$shell_root/caelestia/config/cli.json" "$engine_dir/config/caelestia/cli.json"
-    /usr/bin/ln -sfn -- "$seed" "$engine_dir/state/caelestia/wallpaper/thumbnail.jpg"
+    local seed="$1" directory="$2"
+    /usr/bin/mkdir -p -- "$directory/config/caelestia" "$directory/state/caelestia/wallpaper" "$directory/cache"
+    /usr/bin/cp -- "$shell_root/caelestia/config/cli.json" "$directory/config/caelestia/cli.json"
+    /usr/bin/ln -sfn -- "$seed" "$directory/state/caelestia/wallpaper/thumbnail.jpg"
 }
 
-generate_palette() {
-    local source="$1" mode="$2" variant="$3" requested="${4:-}" seed output name
+palette_is_valid() {
+    local path="$1" mode="$2" variant="$3"
+    [[ -r "$path" ]] || return 1
+    /usr/bin/jq -e --arg mode "$mode" --arg variant "$variant" '
+        .mode == $mode and .variant == $variant and
+        (.colours | type == "object") and
+        (["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"] - (.colours | keys) | length == 0)
+    ' "$path" >/dev/null 2>&1
+}
+
+palette_cache_key() {
+    local seed="$1" cli_config="$shell_root/caelestia/config/cli.json"
+    [[ -x "$cli_bin" ]] || fail "Caelestia CLI not found: $cli_bin"
+    [[ -r "$cli_config" ]] || fail "Caelestia CLI config not found: $cli_config"
+    {
+        printf '%s\n' "$palette_cache_version"
+        /usr/bin/sha256sum "$seed" "$cli_bin" "$cli_config"
+    } | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1
+}
+
+generate_palette_uncached() {
+    local source="$1" mode="$2" variant="$3" seed="$4" palette_engine_dir="$5" output name
     [[ "$source" == dynamic ]] || fail 'Generated palettes are only available for Dynamic.'
     [[ -x "$cli_bin" ]] || fail "Caelestia CLI not found: $cli_bin"
-    seed="$(dynamic_seed "$requested")"
     name=dynamic
 
-    prepare_engine "$seed" || fail 'Could not prepare the palette engine.'
-    if ! XDG_CONFIG_HOME="$engine_dir/config" XDG_STATE_HOME="$engine_dir/state" XDG_CACHE_HOME="$engine_dir/cache" \
+    prepare_engine "$seed" "$palette_engine_dir" || fail 'Could not prepare the palette engine.'
+    if ! XDG_CONFIG_HOME="$palette_engine_dir/config" XDG_STATE_HOME="$palette_engine_dir/state" XDG_CACHE_HOME="$palette_engine_dir/cache" \
         "$cli_bin" scheme set -n dynamic -m "$mode" -v "$variant" >/dev/null; then
         fail 'Could not configure the palette engine.'
     fi
-    if ! output="$(XDG_CONFIG_HOME="$engine_dir/config" XDG_STATE_HOME="$engine_dir/state" XDG_CACHE_HOME="$engine_dir/cache" \
+    if ! output="$(XDG_CONFIG_HOME="$palette_engine_dir/config" XDG_STATE_HOME="$palette_engine_dir/state" XDG_CACHE_HOME="$palette_engine_dir/cache" \
         "$cli_bin" wallpaper -p "$seed" --no-smart)"; then
         fail 'Could not generate the Dynamic palette.'
     fi
@@ -256,6 +288,68 @@ generate_palette() {
         .source = $source | .provider = "caelestia" | .name = $name | .mode = $mode | .variant = $variant |
         if $source == "system" then .flavour = "" else . end
     ' <<< "$output"
+}
+
+generate_palette() {
+    local source="$1" mode="$2" variant="$3" requested="${4:-}" known_cache_key="${5:-}"
+    local seed cache_key cache_file cache_lock_fd palette
+    seed="$(dynamic_seed "$requested")"
+    if (( dry_run )); then
+        generate_palette_uncached "$source" "$mode" "$variant" "$seed" "$engine_dir"
+        return
+    fi
+
+    cache_key="${known_cache_key:-$(palette_cache_key "$seed")}"
+    cache_file="$palette_cache_dir/$cache_key/$mode/$variant.json"
+    if palette_is_valid "$cache_file" "$mode" "$variant"; then
+        /usr/bin/jq -c . "$cache_file"
+        return
+    fi
+
+    /usr/bin/mkdir -p -- "${cache_file%/*}"
+    exec {cache_lock_fd}>"$cache_file.lock"
+    /usr/bin/flock "$cache_lock_fd"
+    if palette_is_valid "$cache_file" "$mode" "$variant"; then
+        /usr/bin/jq -c . "$cache_file"
+        exec {cache_lock_fd}>&-
+        return
+    fi
+
+    palette="$(generate_palette_uncached "$source" "$mode" "$variant" "$seed" "$engine_dir/$cache_key/$mode/$variant")"
+    write_json "$cache_file" "$palette"
+    printf '%s\n' "$palette"
+    exec {cache_lock_fd}>&-
+}
+
+prewarm_palette_combination() {
+    local token="$1" cache_key="$2" seed="$3" mode="$4" variant="$5" active_token
+    [[ -r "$prewarm_marker" ]] || return 1
+    active_token="$(<"$prewarm_marker")"
+    [[ "$active_token" == "$token" ]] || return 1
+    generate_palette dynamic "$mode" "$variant" "$seed" "$cache_key" >/dev/null
+}
+
+prewarm_palettes_async() {
+    local current_mode="$1" current_variant="$2" requested="${3:-}" seed cache_key token alternate_mode
+    seed="$(dynamic_seed "$requested")"
+    cache_key="$(palette_cache_key "$seed")"
+    token="$cache_key"
+    if [[ "$current_mode" == dark ]]; then alternate_mode=light; else alternate_mode=dark; fi
+    write_text "$prewarm_marker" "$token"
+    (
+        exec 9>&-
+        trap '' HUP
+        local candidate
+        prewarm_palette_combination "$token" "$cache_key" "$seed" "$alternate_mode" "$current_variant" || exit 0
+        for candidate in "${variants[@]}"; do
+            [[ "$candidate" != "$current_variant" ]] || continue
+            prewarm_palette_combination "$token" "$cache_key" "$seed" "$current_mode" "$candidate" || exit 0
+        done
+        for candidate in "${variants[@]}"; do
+            [[ "$candidate" != "$current_variant" ]] || continue
+            prewarm_palette_combination "$token" "$cache_key" "$seed" "$alternate_mode" "$candidate" || exit 0
+        done
+    ) </dev/null >/dev/null 2>&1 &
 }
 
 system_palette() {
@@ -317,6 +411,9 @@ apply_settings() {
     apply_desktop "$source" "$changed" "$force_apply"
     write_json "$palette_file" "$palette"
     write_json "$settings_file" "$(settings_json "$source" "$mode" "$variant" "$provider")"
+    if [[ "$source" == dynamic && "$provider" == caelestia ]]; then
+        prewarm_palettes_async "$mode" "$variant" "$requested"
+    fi
 }
 
 if [[ "${1:-}" == --dry-run ]]; then

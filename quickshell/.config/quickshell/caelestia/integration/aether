@@ -9,7 +9,8 @@ shell_entry="$config_home/quickshell/shell.qml"
 aether_bin="${AETHER_BIN:-$shell_root/.runtime/aether/bin/aether}"
 aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
 aether_wallpapers_dir="${AETHER_WALLPAPERS_DIR:-$config_home/aether/theme/backgrounds}"
-dynamic_wallpapers_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic/caelestia}"
+aether_library_dir="${AETHER_LIBRARY_DIR:-$HOME/files/pictures/Aether}"
+dynamic_wallpapers_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic}"
 hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 jq_bin="${JQ_BIN:-/usr/bin/jq}"
 notify_send_bin="${NOTIFY_SEND_BIN:-$HOME/bin/notify-send}"
@@ -48,17 +49,40 @@ run() {
 
 find_binary() {
     local candidate
-    local candidates=("$aether_bin")
-    if [[ -z "${AETHER_BIN+x}" ]]; then
-        candidates+=("$HOME/.local/bin/aether" /usr/local/bin/aether /usr/bin/aether)
-    fi
-    for candidate in "${candidates[@]}"; do
+    for candidate in "$aether_bin"; do
         if [[ -x "$candidate" ]]; then
             /usr/bin/readlink -f -- "$candidate"
             return
         fi
     done
     return 1
+}
+
+configure_library() {
+    local settings_dir settings_file temporary
+    settings_dir="$config_home/aether"
+    settings_file="$settings_dir/settings.json"
+    [[ "$aether_library_dir" == /* ]] || fail 'AETHER_LIBRARY_DIR must be an absolute path.'
+
+    if [[ -e "$settings_file" ]]; then
+        "$jq_bin" -e 'type == "object"' "$settings_file" >/dev/null 2>&1 || \
+            fail "Aether settings are malformed: $settings_file"
+    fi
+
+    if (( dry_run )); then
+        printf 'Create Aether wallpaper library: %s\n' "$aether_library_dir"
+        printf 'Set Aether wallpaperFolder in %s: %s\n' "$settings_file" "$aether_library_dir"
+        return
+    fi
+
+    /usr/bin/mkdir -p -- "$aether_library_dir" "$settings_dir"
+    temporary="$(/usr/bin/mktemp "$settings_dir/.settings.json.XXXXXX")"
+    if [[ -e "$settings_file" ]]; then
+        "$jq_bin" --arg folder "$aether_library_dir" '.wallpaperFolder = $folder' "$settings_file" > "$temporary"
+    else
+        "$jq_bin" -n --arg folder "$aether_library_dir" '{wallpaperFolder: $folder}' > "$temporary"
+    fi
+    /usr/bin/mv -f -- "$temporary" "$settings_file"
 }
 
 resolve_binary() {
@@ -265,6 +289,7 @@ running_pids() {
 
 launch() {
     local binary info launched_pid
+    configure_library
     install_apply_hook
     info="$(client_info)"
     if [[ -n "$info" ]]; then

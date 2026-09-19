@@ -9,7 +9,7 @@ theme_dir="${SHELL_THEMES_DIR:-$config_home/themes}"
 shell_theme_controller="$script_dir/shell-theme"
 shell_theme_state="$state_home/caelestia/shell-theme.json"
 dynamic_wallpaper="${SHELL_DYNAMIC_WALLPAPER:-$state_home/caelestia/dynamic-wallpaper}"
-dynamic_wallpaper_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic/caelestia}"
+dynamic_wallpaper_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic}"
 dry_run=0
 
 fail() { printf 'system-action: %s\n' "$*" >&2; exit 1; }

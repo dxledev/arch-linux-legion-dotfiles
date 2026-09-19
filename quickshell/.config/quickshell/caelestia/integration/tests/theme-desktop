@@ -77,6 +77,64 @@ test_hidden_themes() {
     [[ "$(/usr/bin/jq '[.[] | select(.dynamic == true and .id == "dynamic")] | length' <<< "$payload")" == 1 ]] || fail 'theme-list Dynamic entry is invalid.'
 }
 
+test_palette_cache() {
+    local controller_root="$test_root/controller" fake_cli="$test_root/fake-caelestia"
+    local fake_renderer="$test_root/fake-renderer" fake_apply="$test_root/fake-theme-apply"
+    local controller_state="$controller_root/state" controller_cache="$controller_root/cache"
+    local dynamic_wallpaper="$controller_root/dynamic-wallpaper" cli_log="$controller_root/cli.log"
+    local palette_count deadline before_calls after_calls start_ms elapsed_ms
+
+    /usr/bin/mkdir -p -- "$controller_state/caelestia" "$controller_cache"
+    /usr/bin/ln -s -- "$wallpaper" "$dynamic_wallpaper"
+    printf '{"source":"dynamic","mode":"dark","variant":"tonalspot","provider":"caelestia"}\n' > "$controller_state/caelestia/shell-theme.json"
+
+    /usr/bin/cp -- "$script_dir/fake-caelestia" "$fake_cli"
+    /usr/bin/cp -- "$script_dir/fake-theme-renderer" "$fake_renderer"
+    /usr/bin/cp -- "$script_dir/fake-theme-apply" "$fake_apply"
+    /usr/bin/chmod +x "$fake_cli" "$fake_renderer" "$fake_apply"
+
+    controller_env=(
+        XDG_CONFIG_HOME="$config_home"
+        XDG_STATE_HOME="$controller_state"
+        XDG_CACHE_HOME="$controller_cache"
+        CAELESTIA_BIN="$fake_cli"
+        FAKE_CAELESTIA_LOG="$cli_log"
+        THEME_RENDERER="$fake_renderer"
+        THEME_APPLY="$fake_apply"
+        SHELL_DYNAMIC_WALLPAPER="$dynamic_wallpaper"
+        SHELL_THEME_FILE="$themes_dir/current/Colors.qml"
+        SHELL_WALLPAPER="$wallpaper"
+        APPLICATION_THEME_LINK="$selector"
+        DYNAMIC_THEME_DIR="$dynamic_dir"
+    )
+
+    start_ms="$(/usr/bin/date +%s%3N)"
+    /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" refresh-wallpaper
+    elapsed_ms=$(( $(/usr/bin/date +%s%3N) - start_ms ))
+    (( elapsed_ms < 700 )) || fail "Palette prewarming blocked refresh for ${elapsed_ms}ms."
+    [[ "$(/usr/bin/jq -r '.variant' "$controller_state/caelestia/shell-theme-palette.json")" == tonalspot ]] || fail 'Current variant was not applied first.'
+
+    deadline=$((SECONDS + 8))
+    while :; do
+        palette_count="$(/usr/bin/find "$controller_cache/caelestia/shell-theme/palettes" -type f -name '*.json' | /usr/bin/wc -l)"
+        (( palette_count == 18 )) && break
+        (( SECONDS < deadline )) || fail "Only $palette_count Dynamic mode and variant combinations were cached."
+        /usr/bin/sleep 0.05
+    done
+
+    before_calls="$(/usr/bin/grep -c '^wallpaper ' "$cli_log")"
+    /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" set-variant expressive
+    after_calls="$(/usr/bin/grep -c '^wallpaper ' "$cli_log")"
+    [[ "$after_calls" == "$before_calls" ]] || fail 'A cached variant invoked the palette engine again.'
+    [[ "$(/usr/bin/jq -r '.variant' "$controller_state/caelestia/shell-theme-palette.json")" == expressive ]] || fail 'Cached variant was not applied.'
+
+    before_calls="$after_calls"
+    /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" set-mode light
+    after_calls="$(/usr/bin/grep -c '^wallpaper ' "$cli_log")"
+    [[ "$after_calls" == "$before_calls" ]] || fail 'A cached Light mode invoked the palette engine again.'
+    [[ "$(/usr/bin/jq -r '.mode' "$controller_state/caelestia/shell-theme-palette.json")" == light ]] || fail 'Cached Light mode was not applied.'
+}
+
 trap cleanup EXIT
 [[ -d "$template" ]] || fail "Template not found: $template"
 /usr/bin/mkdir -p -- "$themes_dir/.dynamic" "$config_home/spicetify/Themes/text"
@@ -98,6 +156,7 @@ common_env=(XDG_CONFIG_HOME="$config_home" THEMES_DIR="$themes_dir" DYNAMIC_THEM
 [[ "$(/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/dark.json" "$wallpaper")" == changed ]] || fail 'Dark render did not change output.'
 assert_files
 validate_formats
+[[ "$(<"$dynamic_dir/cursor")" == Simp1e-Dark ]] || fail 'Dynamic render inherited a themed cursor.'
 [[ "$(/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/dark.json" "$wallpaper")" == unchanged ]] || fail 'Unchanged render was not skipped.'
 [[ "$(/usr/bin/env "${common_env[@]}" "$renderer" "$test_root/light.json" "$wallpaper")" == changed ]] || fail 'Light render did not change output.'
 /usr/bin/grep -q '^--set-color-scheme=light$' "$dynamic_dir/chromium-flags.conf"
@@ -114,6 +173,7 @@ apply_env=(THEMES_DIR="$themes_dir" APPLICATION_THEME_LINK="$selector" DYNAMIC_T
 /usr/bin/env "${apply_env[@]}" "$theme_apply" --dry-run system >/dev/null
 /usr/bin/env "${apply_env[@]}" "$theme_apply" --dry-run dynamic >/dev/null
 test_hidden_themes
+test_palette_cache
 
 for script in "$renderer" "$integration_dir/shell-theme" "$theme_list" "$theme_apply" "$menu_theme" "$HOME/bin/theme" "$HOME/bin/toggle-shell-mode" "$HOME/bin/spicetify-set"; do /usr/bin/bash -n "$script"; done
 if command -v shellcheck >/dev/null 2>&1; then shellcheck "$renderer" "$integration_dir/shell-theme" "$theme_list" "$theme_apply"; fi

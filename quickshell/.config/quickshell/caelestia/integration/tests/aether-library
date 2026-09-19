@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+launcher="$root/caelestia/integration/aether"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/aether-library-test.XXXXXX")"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+
+fail() {
+    printf 'aether-library test: %s\n' "$*" >&2
+    exit 1
+}
+
+run_launch() {
+    HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+        AETHER_BIN=/usr/bin/true "$launcher" "$@" >/dev/null 2>&1 || true
+}
+
+settings="$test_root/config/aether/settings.json"
+library="$test_root/home/files/pictures/Aether"
+run_launch launch
+[[ -d "$library" ]] || fail 'default library was not created'
+/usr/bin/jq -e --arg folder "$library" '.wallpaperFolder == $folder' "$settings" >/dev/null || fail 'default library was not configured'
+
+/usr/bin/jq -n --arg folder "$library" '{keep: {enabled: true}, wallpaperFolder: $folder}' > "$settings"
+run_launch launch
+/usr/bin/jq -e --arg folder "$library" '.keep.enabled and .wallpaperFolder == $folder' "$settings" >/dev/null || fail 'settings merge did not preserve keys'
+first_hash="$(/usr/bin/sha256sum "$settings")"
+run_launch launch
+[[ "$first_hash" == "$(/usr/bin/sha256sum "$settings")" ]] || fail 'settings merge is not idempotent'
+
+override="$test_root/override/library"
+HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_BIN=/usr/bin/true AETHER_LIBRARY_DIR="$override" "$launcher" launch >/dev/null 2>&1 || true
+[[ -d "$override" ]] || fail 'override library was not created'
+/usr/bin/jq -e --arg folder "$override" '.wallpaperFolder == $folder' "$settings" >/dev/null || fail 'override library was not configured'
+
+before_relative="$(/usr/bin/sha256sum "$settings")"
+if HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_BIN=/usr/bin/true AETHER_LIBRARY_DIR=relative "$launcher" launch >/dev/null 2>&1; then
+    fail 'relative library unexpectedly succeeded'
+fi
+[[ "$before_relative" == "$(/usr/bin/sha256sum "$settings")" ]] || fail 'relative library changed settings'
+
+printf '%s' '{' > "$settings"
+if HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+    AETHER_BIN=/usr/bin/true "$launcher" launch >/dev/null 2>&1; then
+    fail 'malformed settings unexpectedly succeeded'
+fi
+[[ "$(/usr/bin/cat "$settings")" == '{' ]] || fail 'malformed settings were overwritten'
+
+dry_home="$test_root/dry-home"
+dry_config="$test_root/dry-config"
+if HOME="$dry_home" XDG_CONFIG_HOME="$dry_config" XDG_STATE_HOME="$test_root/dry-state" \
+    AETHER_BIN=/usr/bin/true "$launcher" --dry-run launch > "$test_root/dry-run.out" 2>&1; then
+    fail 'dry-run unexpectedly launched Aether'
+fi
+[[ ! -e "$dry_home" && ! -e "$dry_config" ]] || fail 'dry-run wrote filesystem state'
+/usr/bin/grep -F "Create Aether wallpaper library: $dry_home/files/pictures/Aether" "$test_root/dry-run.out" >/dev/null || fail 'dry-run did not report library configuration'

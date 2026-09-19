@@ -1,0 +1,163 @@
+diff --git a/app.go b/app.go
+index 3a12dff..161eef1 100644
+--- a/app.go
++++ b/app.go
+@@ -670,9 +670,8 @@ func (a *App) SaveSettings(config map[string]interface{}) error {
+ func (a *App) ChooseWallpaperFolder() (string, error) {
+ 	defaultDir := wallpaperFolderFromConfig(readConfigJSON("settings.json"))
+ 	if info, err := os.Stat(defaultDir); err != nil || !info.IsDir() {
+-		defaultDir = platform.WallpaperDir()
+ 		if err := platform.EnsureDir(defaultDir); err != nil {
+-			return "", fmt.Errorf("prepare default wallpaper directory: %w", err)
++			return "", fmt.Errorf("prepare wallpaper directory: %w", err)
+ 		}
+ 	}
+ 
+diff --git a/default_wallpapers.go b/default_wallpapers.go
+index e745ebb..b4e9b9d 100644
+--- a/default_wallpapers.go
++++ b/default_wallpapers.go
+@@ -5,6 +5,7 @@ import (
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
++	"strings"
+ 
+ 	"aether/internal/platform"
+ )
+@@ -17,7 +17,7 @@ var defaultWallpapers embed.FS
+ 
+ // installDefaultWallpapers copies bundled Aether artwork without overwriting user files.
+ func installDefaultWallpapers() error {
+-	destination := filepath.Join(platform.WallpaperDir(), "Aether")
++	destination := defaultWallpapersDestination(readConfigJSON("settings.json"))
+ 	if err := os.MkdirAll(destination, 0o755); err != nil {
+ 		return fmt.Errorf("create default wallpapers directory: %w", err)
+ 	}
+@@ -46,3 +46,10 @@ func installDefaultWallpapers() error {
+ 	}
+ 	return nil
+ }
++
++func defaultWallpapersDestination(config map[string]interface{}) string {
++	if folder, ok := config[wallpaperFolderSetting].(string); ok && strings.TrimSpace(folder) != "" {
++		return folder
++	}
++	return filepath.Join(platform.WallpaperDir(), "Aether")
++}
+diff --git a/default_wallpapers_test.go b/default_wallpapers_test.go
+index cad961b..5b90459 100644
+--- a/default_wallpapers_test.go
++++ b/default_wallpapers_test.go
+@@ -1,40 +1,99 @@
+ package main
+ 
+ import (
++	"io/fs"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
++
++	"aether/internal/platform"
+ )
+ 
+-func TestInstallDefaultWallpapers(t *testing.T) {
++func bundledWallpaperNames(t *testing.T) []string {
++	t.Helper()
++	entries, err := fs.ReadDir(defaultWallpapers, defaultWallpapersDir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	names := make([]string, 0, len(entries))
++	for _, entry := range entries {
++		if !entry.IsDir() {
++			names = append(names, entry.Name())
++		}
++	}
++	return names
++}
++
++func TestInstallDefaultWallpapersUsesConfiguredFolder(t *testing.T) {
++	configHome := t.TempDir()
+ 	home := t.TempDir()
++	library := filepath.Join(home, "files", "pictures", "Aether")
++	t.Setenv("XDG_CONFIG_HOME", configHome)
+ 	t.Setenv("HOME", home)
++	if err := writeConfigJSON("settings.json", map[string]interface{}{wallpaperFolderSetting: library}); err != nil {
++		t.Fatal(err)
++	}
+ 
+ 	if err := installDefaultWallpapers(); err != nil {
+ 		t.Fatal(err)
+ 	}
++	names := bundledWallpaperNames(t)
++	if len(names) != 8 {
++		t.Fatalf("bundled wallpaper count = %d; want 8", len(names))
++	}
++	for _, name := range names {
++		if _, err := os.Stat(filepath.Join(library, name)); err != nil {
++			t.Errorf("configured wallpaper %q: %v", name, err)
++		}
++	}
++	if _, err := os.Stat(filepath.Join(platform.WallpaperDir(), "Aether")); !os.IsNotExist(err) {
++		t.Errorf("fallback wallpapers directory exists or could not be inspected: %v", err)
++	}
++}
+ 
+-	dir := filepath.Join(home, "Wallpapers", "Aether")
+-	entries, err := os.ReadDir(dir)
+-	if err != nil {
++func TestInstallDefaultWallpapersPreservesExistingFiles(t *testing.T) {
++	configHome := t.TempDir()
++	home := t.TempDir()
++	library := filepath.Join(home, "library")
++	t.Setenv("XDG_CONFIG_HOME", configHome)
++	t.Setenv("HOME", home)
++	if err := writeConfigJSON("settings.json", map[string]interface{}{wallpaperFolderSetting: library}); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if got, want := len(entries), 8; got != want {
+-		t.Fatalf("bundled wallpaper count = %d; want %d", got, want)
++	if err := os.MkdirAll(library, 0o755); err != nil {
++		t.Fatal(err)
+ 	}
+-
+-	path := filepath.Join(dir, "aether-dark-2k.jpg")
+-	if err := os.WriteFile(path, []byte("custom"), 0o644); err != nil {
++	name := bundledWallpaperNames(t)[0]
++	path := filepath.Join(library, name)
++	if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
++
+ 	if err := installDefaultWallpapers(); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	data, err := os.ReadFile(path)
++	got, err := os.ReadFile(path)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if got, want := string(data), "custom"; got != want {
+-		t.Errorf("existing wallpaper = %q; want %q", got, want)
++	if string(got) != "existing" {
++		t.Errorf("existing wallpaper = %q; want preserved content", got)
++	}
++}
++
++func TestInstallDefaultWallpapersUsesFallbackWithoutConfiguredFolder(t *testing.T) {
++	configHome := t.TempDir()
++	home := t.TempDir()
++	t.Setenv("XDG_CONFIG_HOME", configHome)
++	t.Setenv("HOME", home)
++
++	if err := installDefaultWallpapers(); err != nil {
++		t.Fatal(err)
++	}
++	fallback := filepath.Join(platform.WallpaperDir(), "Aether")
++	for _, name := range bundledWallpaperNames(t) {
++		if _, err := os.Stat(filepath.Join(fallback, name)); err != nil {
++			t.Errorf("fallback wallpaper %q: %v", name, err)
++		}
+ 	}
+ }

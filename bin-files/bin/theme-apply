@@ -126,6 +126,15 @@ active_theme_key() {
     fi
 }
 
+active_cursor_theme() {
+    local cursor_file="$selector/cursor" cursor_theme="Bibata-Modern-Ice"
+    if [[ -r "$cursor_file" ]]; then
+        IFS= read -r cursor_theme < "$cursor_file"
+        [[ -n "$cursor_theme" ]] || cursor_theme="Bibata-Modern-Ice"
+    fi
+    printf '%s\n' "$cursor_theme"
+}
+
 queue_spicetify_reload() {
     local expected="$1" executable="$2"
     shift 2
@@ -178,7 +187,7 @@ reload_applications() {
     queue_reload pavucontrol "$script_dir/reload-pavucontrol"
     queue_reload hyprlock-wallpaper "$config_home/hyprlock/scripts/random-wallpaper.sh" --dir "$selector/wallpapers" --link /tmp/hyprlock-random-wallpaper
     queue_reload wallpaper "$script_dir/bg-refresh-current"
-    queue_reload cursor "$script_dir/cursor-set"
+    queue_reload cursor "$script_dir/cursor-set" "$(active_cursor_theme)"
     queue_reload browsers "$script_dir/reload-browsers"
     queue_reload borders "$script_dir/reload-borders"
     queue_reload terminals "$script_dir/reload-terminal"

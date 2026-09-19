@@ -15,7 +15,7 @@ Searcher {
 
     readonly property string currentNamePath: `${Paths.state}/wallpaper/path.txt`
     readonly property string fallback: Quickshell.shellPath("assets/wallpaper.webp")
-    readonly property string dynamicDirectory: Quickshell.env("CAELESTIA_DYNAMIC_WALLPAPERS_DIR") || `${Paths.home}/files/pictures/wallpapers/dynamic/caelestia`
+    readonly property string dynamicDirectory: Quickshell.env("CAELESTIA_DYNAMIC_WALLPAPERS_DIR") || `${Paths.home}/files/pictures/wallpapers/dynamic`
     readonly property string requestedDirectory: Colours.source === "dynamic" ? dynamicDirectory : Paths.wallsdir
 
     property bool showPreview: false

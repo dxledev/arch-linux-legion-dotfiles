@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
+source_dir="${AETHER_SOURCE:-$HOME/builds/shells/aether}"
+build_root="${AETHER_BUILD_DIR:-${TMPDIR:-/tmp}/caelestia-build/aether}"
+runtime="${QUICKSHELL_RUNTIME:-$root/.runtime}"
+wails_bin="${WAILS_BIN:-wails}"
+jobs="${BUILD_JOBS:-6}"
+patch_file="$root/scripts/patches/aether-v4.29.8-wallpaper-library.patch"
+expected_commit="a3b0099355b8162b495bf9e661c8913d49231519"
+expected_version="4.29.8"
+dry_run=0
+
+usage() {
+    printf 'Usage: build-aether [--dry-run]\nBuild patched Aether v4.29.8 into QUICKSHELL_RUNTIME.\n'
+}
+
+case "${1:-}" in
+    --dry-run) dry_run=1 ;;
+    --help|-h) usage; exit 0 ;;
+    '') ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+[[ "$root" == /* && "$source_dir" == /* && "$build_root" == /* && "$runtime" == /* ]] || {
+    printf 'build-aether: root, source, build, and runtime paths must be absolute\n' >&2
+    exit 2
+}
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || { printf 'build-aether: BUILD_JOBS must be positive\n' >&2; exit 2; }
+[[ -d "$source_dir/.git" && -r "$patch_file" ]] || { printf 'build-aether: source or patch is missing\n' >&2; exit 1; }
+[[ "$(/usr/bin/git -C "$source_dir" rev-parse HEAD)" == "$expected_commit" ]] || {
+    printf 'build-aether: expected Aether v%s source commit %s\n' "$expected_version" "$expected_commit" >&2
+    exit 1
+}
+
+run() {
+    if (( dry_run )); then
+        printf '%q ' "$@"
+        printf '\n'
+    else
+        "$@"
+    fi
+}
+
+if (( dry_run )); then
+    work_dir="$build_root/aether-v$expected_version"
+else
+    /usr/bin/mkdir -p -- "$build_root"
+    work_dir="$(/usr/bin/mktemp -d "$build_root/aether-v$expected_version.XXXXXX")"
+    trap '/usr/bin/rm -rf -- "$work_dir"' EXIT
+fi
+
+run /usr/bin/git clone --no-hardlinks --shared "$source_dir" "$work_dir"
+run /usr/bin/git -C "$work_dir" checkout --detach "$expected_commit"
+run /usr/bin/git -C "$work_dir" apply --check "$patch_file"
+run /usr/bin/git -C "$work_dir" apply "$patch_file"
+run /usr/bin/bash -c 'command -v "$1" >/dev/null' _ "$wails_bin"
+run /usr/bin/bash -c 'cd -- "$1" && exec "$2" build -tags webkit2_41 -ldflags "-X aether/cli.Version=$3"' _ "$work_dir" "$wails_bin" "$expected_version"
+run /usr/bin/bash -c 'cd -- "$1" && exec /usr/bin/go test ./...' _ "$work_dir"
+candidate="$work_dir/build/bin/aether"
+run /usr/bin/test -x "$candidate"
+run /usr/bin/bash -c '"$1" --version | /usr/bin/grep -Fx "aether 4.29.8"' _ "$candidate"
+run /usr/bin/bash -c '! /usr/bin/ldd "$1" | /usr/bin/grep -q "=> not found"' _ "$candidate"
+
+if (( dry_run )); then
+    printf 'Atomically install verified binary: %s\n' "$runtime/aether/bin/aether"
+    exit 0
+fi
+
+destination_dir="$runtime/aether/bin"
+/usr/bin/mkdir -p -- "$destination_dir"
+temporary="$(/usr/bin/mktemp "$destination_dir/.aether.XXXXXX")"
+/usr/bin/install -m 0755 -- "$candidate" "$temporary"
+/usr/bin/mv -f -- "$temporary" "$destination_dir/aether"
+/usr/bin/sha256sum "$destination_dir/aether"

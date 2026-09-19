@@ -143,6 +143,7 @@ write_terminals() {
 write_shared_formats() {
     local directory="$1" user_rgb
     user_rgb="$(rgb "$base")"
+    printf 'Simp1e-Dark\n' > "$directory/cursor"
     printf '{ "BrowserThemeColor": "#%s" }\n' "$base" > "$directory/brave.json"
     /usr/bin/awk -v rgb="${user_rgb// /}" -v scheme="$mode" '
         /^--set-user-color=/ { print "--set-user-color=" rgb; next }
