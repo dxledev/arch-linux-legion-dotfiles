@@ -74,6 +74,11 @@ CustomMouseArea {
         }
     }
 
+    function setBarPersistence(persistent: bool): void {
+        if (GlobalConfig.bar.persistent !== persistent)
+            GlobalConfig.bar.persistent = persistent;
+    }
+
     anchors.fill: parent
     acceptedButtons: fullscreen ? Qt.NoButton : Qt.AllButtons
     hoverEnabled: true
@@ -121,15 +126,15 @@ CustomMouseArea {
         }
 
         // Show bar in non-exclusive mode on hover
-        if (!screenState.bar && Config.bar.showOnHover && x < bar.clampedWidth)
+        if (Config.bar.showOnHover && x < bar.clampedWidth)
             bar.isHovered = true;
 
         // Show/hide bar on drag
         if (pressed && dragStart.x < bar.clampedWidth) {
             if (dragX > Config.bar.dragThreshold)
-                screenState.bar = true;
+                setBarPersistence(true);
             else if (dragX < -Config.bar.dragThreshold)
-                screenState.bar = false;
+                setBarPersistence(false);
         }
 
         if (panels.sidebar.offsetScale === 1) {

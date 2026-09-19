@@ -37,7 +37,7 @@ ColumnLayout {
         Binding {
             target: root.nState
             property: "searchOpen"
-            value: searchField.text.length > 0
+            value: searchField.text.trim().length > 0
         }
     }
 
@@ -47,5 +47,6 @@ ColumnLayout {
         Layout.topMargin: -topMargin
         Layout.bottomMargin: -bottomMargin
         nState: root.nState
+        searchQuery: searchField.text
     }
 }

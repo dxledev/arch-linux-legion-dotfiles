@@ -1,10 +1,10 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import Quickshell
 import Caelestia.Config
 import qs.components
 import qs.services
+import qs.modules.nexus
 
 Column {
     id: root
@@ -32,15 +32,12 @@ Column {
 
     function runAction(action: string): void {
         if (action === "open") {
-            Quickshell.execDetached([
-                "/home/dxle/bin/hypr-focus-special-workspace",
-                "nexus"
-            ]);
+            WindowFactory.create();
         } else if (action === "close" && nexusClient) {
             Hypr.dispatch(
                 Hypr.usingLua
-                    ? `hl.dsp.window.kill({ window = "address:0x${nexusClient.address}" })`
-                    : `killwindow address:0x${nexusClient.address}`
+                        ? `hl.dsp.window.close({ window = "address:0x${nexusClient.address}" })`
+                        : `closewindow address:0x${nexusClient.address}`
             );
         }
 

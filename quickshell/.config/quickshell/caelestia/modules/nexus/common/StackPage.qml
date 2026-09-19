@@ -15,21 +15,24 @@ StackView {
         const page = pages[idx];
         if (page) {
             push(page, {
-                nState
+                nState: root.nState
             }, immediate ? StackView.Immediate : StackView.PushTransition);
         } else {
             console.warn(logCat, "Attempted to open invalid sub-page index", idx);
-            nState.closeSubPage();
+            root.nState?.closeSubPage();
         }
+    }
+
+    function navigateTo(path: var): void {
+        root.clear(StackView.Immediate);
+        root.openSubPage(0, true);
+        for (const page of path ?? [])
+            root.openSubPage(page, true);
     }
 
     clip: busy
 
-    Component.onCompleted: {
-        openSubPage(0, true);
-        for (const page of nState.subPageIdxStack)
-            openSubPage(page, true);
-    }
+    Component.onCompleted: root.navigateTo(root.nState?.subPageIdxStack ?? [])
 
     pushEnter: Transition {
         SequentialAnimation {

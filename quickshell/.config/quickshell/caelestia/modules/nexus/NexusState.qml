@@ -21,6 +21,7 @@ QtObject {
     signal close
     signal subPageOpened(idx: int)
     signal subPageClosed
+    signal navigationRequested(pageIndex: int, subPagePath: var)
 
     function openSubPage(idx: int): void {
         subPageIdxStack.push(idx);
@@ -30,6 +31,12 @@ QtObject {
     function closeSubPage(): void {
         subPageClosed();
         subPageIdxStack.pop();
+    }
+
+    function navigateTo(pageIdx: int, path: var): void {
+        const route = Array.from(path ?? []).map(index => Number(index));
+        currentPageIdx = pageIdx;
+        navigationRequested(pageIdx, route);
     }
 
     onCurrentPageIdxChanged: subPageIdxStack.length = 0

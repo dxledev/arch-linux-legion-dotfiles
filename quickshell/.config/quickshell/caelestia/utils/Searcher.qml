@@ -4,7 +4,7 @@ import QtQuick
 import Quickshell
 
 Singleton {
-    required property list<QtObject> list
+    required property var list
     property string key: "name"
     property bool useFuzzy: false
     property var extraOpts: ({})

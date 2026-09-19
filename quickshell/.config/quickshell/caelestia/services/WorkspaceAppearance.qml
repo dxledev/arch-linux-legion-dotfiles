@@ -10,7 +10,7 @@ Singleton {
 
     property string style: "active-window"
     readonly property var styles: [
-        { id: "active-window", name: "Active Window", icon: "window" },
+        { id: "active-window", name: "Default", icon: "window" },
         { id: "simple", name: "Simple", icon: "horizontal_rule" },
         { id: "numbered", name: "Numbered", icon: "format_list_numbered" }
     ]

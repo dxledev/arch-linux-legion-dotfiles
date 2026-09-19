@@ -1,8 +1,8 @@
 import QtQuick
-import Quickshell
 import Caelestia.Config
 import qs.components
 import qs.services
+import qs.modules.nexus
 
 MouseArea {
     id: root
@@ -14,10 +14,7 @@ MouseArea {
     implicitWidth: Tokens.font.body.small.pointSize * 2
     implicitHeight: Tokens.font.body.small.pointSize * 2
 
-    onClicked: Quickshell.execDetached([
-        "/home/dxle/bin/hypr-focus-special-workspace",
-        "nexus"
-    ])
+    onClicked: WindowFactory.create()
 
     MaterialIcon {
         anchors.fill: parent

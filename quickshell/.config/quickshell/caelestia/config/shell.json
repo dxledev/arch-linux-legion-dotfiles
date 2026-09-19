@@ -33,9 +33,11 @@
             "showDate": true,
             "showSeconds": false
         },
+        "persistent": true,
         "popouts": {
             "activeWindow": true
         },
+        "showOnHover": true,
         "statusIcons": [
             {
                 "enabled": true,

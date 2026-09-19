@@ -3,10 +3,30 @@ pragma ComponentBehavior: Bound
 import QtQuick.Layouts
 import Caelestia.Config
 import Caelestia.I18n
+import qs.components.controls
+import qs.services
 import qs.modules.nexus.common
 
 PageBase {
     id: root
+
+    readonly property list<MenuItem> workspaceIconItems: [
+        MenuItem {
+            text: WorkspaceAppearance.styles[0].name
+            icon: WorkspaceAppearance.styles[0].icon
+            property string style: WorkspaceAppearance.styles[0].id
+        },
+        MenuItem {
+            text: WorkspaceAppearance.styles[1].name
+            icon: WorkspaceAppearance.styles[1].icon
+            property string style: WorkspaceAppearance.styles[1].id
+        },
+        MenuItem {
+            text: WorkspaceAppearance.styles[2].name
+            icon: WorkspaceAppearance.styles[2].icon
+            property string style: WorkspaceAppearance.styles[2].id
+        }
+    ]
 
     title: Tr.tr("Workspaces")
     isSubPage: true
@@ -17,8 +37,16 @@ PageBase {
         width: root.cappedWidth
         spacing: Tokens.spacing.extraSmall / 2
 
-        StepperRow {
+        SelectRow {
             first: true
+            label: Tr.tr("Workspace icons")
+            subtext: Tr.tr("Choose how workspace indicators are displayed")
+            menuItems: root.workspaceIconItems
+            active: root.workspaceIconItems.find(item => item.style === WorkspaceAppearance.style)
+            onSelected: item => WorkspaceAppearance.selectStyle(item.style)
+        }
+
+        StepperRow {
             label: Tr.trCtx("Shown", "number of workspaces")
             subtext: Tr.tr("Number of workspaces displayed")
             value: Config.bar.workspaces.shown
