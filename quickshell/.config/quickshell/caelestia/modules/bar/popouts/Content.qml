@@ -110,6 +110,13 @@ Item {
         }
 
         Popout {
+            name: "hymission"
+            sourceComponent: HymissionPopout {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
             name: "kblayout"
             sourceComponent: KbLayout {}
         }

@@ -65,6 +65,10 @@
         "statusIcons": [
             {
                 "enabled": true,
+                "id": "hymission"
+            },
+            {
+                "enabled": true,
                 "id": "audio"
             },
             {

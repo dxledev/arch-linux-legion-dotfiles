@@ -4,6 +4,7 @@ AetherMenu 1.0 AetherMenu.qml
 AudioPopout 1.0 AudioPopout.qml
 Battery 1.0 Battery.qml
 Bluetooth 1.0 Bluetooth.qml
+HymissionPopout 1.0 HymissionPopout.qml
 ClipWrapper 1.0 ClipWrapper.qml
 Content 1.0 Content.qml
 LockStatus 1.0 LockStatus.qml

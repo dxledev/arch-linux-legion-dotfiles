@@ -142,6 +142,14 @@ StyledRect {
                         }
                     }
                 }
+                DelegateChoice {
+                    roleValue: "hymission"
+                    delegate: EntryWrapper {
+                        HymissionStatus {
+                            colour: root.colour
+                        }
+                    }
+                }
             }
         }
     }
