@@ -65,8 +65,10 @@ Searcher {
         readonly property bool isNightlight: command[0] === "nightlight"
         readonly property bool isIdleLock: command[0] === "idle-lock"
         readonly property bool isModeToggle: command[0] === "toggleMode"
+        readonly property bool isDesktopClockToggle: command[0] === "toggleDesktopClock"
+        readonly property bool isDesktopVisualiserToggle: command[0] === "toggleDesktopVisualiser"
         readonly property bool isNextWallpaper: command[0] === "next-wallpaper"
-        readonly property string desc: isNightlight ? (Nightlight.enabled ? "Turn Nightlight Off" : "Turn Nightlight On") : isIdleLock ? (IdleLock.enabled ? "Turn Idle Lock Off" : "Turn Idle Lock On") : isModeToggle ? (Colours.light ? "Switch Caelestia to Dark Mode" : "Switch Caelestia to Light Mode") : modelData.description ? Tr.trMarked(modelData.description) : Tr.trCtx("No description", "launcher action with no description")
+        readonly property string desc: isNightlight ? (Nightlight.enabled ? "Turn Nightlight Off" : "Turn Nightlight On") : isIdleLock ? (IdleLock.enabled ? "Turn Idle Lock Off" : "Turn Idle Lock On") : isModeToggle ? (Colours.light ? "Switch Caelestia to Dark Mode" : "Switch Caelestia to Light Mode") : isDesktopClockToggle ? (Config.background.desktopClock.enabled ? "Hide Desktop Clock" : "Show Desktop Clock") : isDesktopVisualiserToggle ? (Config.background.visualiser.enabled ? "Hide Audio Visualiser" : "Show Audio Visualiser") : modelData.description ? Tr.trMarked(modelData.description) : Tr.trCtx("No description", "launcher action with no description")
         readonly property string icon: isNightlight ? (Nightlight.enabled ? "nightlight" : "light_mode") : isIdleLock ? (IdleLock.enabled ? "lock" : "coffee") : isModeToggle ? (Colours.light ? "dark_mode" : "light_mode") : modelData.icon ?? "help_outline"
         readonly property list<string> command: modelData.command ?? []
         readonly property bool enabled: modelData.enabled ?? true
@@ -94,6 +96,12 @@ Searcher {
             } else if (isModeToggle) {
                 list.screenState.launcher = false;
                 Colours.toggleMode();
+            } else if (isDesktopClockToggle) {
+                list.screenState.launcher = false;
+                GlobalConfig.background.desktopClock.enabled = !Config.background.desktopClock.enabled;
+            } else if (isDesktopVisualiserToggle) {
+                list.screenState.launcher = false;
+                GlobalConfig.background.visualiser.enabled = !Config.background.visualiser.enabled;
             } else if (isNextWallpaper) {
                 list.screenState.launcher = false;
                 Wallpapers.setRandom();

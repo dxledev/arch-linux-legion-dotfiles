@@ -184,6 +184,15 @@ PageBase {
             }
         }
 
+        NavRow {
+            first: true
+            last: true
+            icon: "widgets"
+            text: Tr.tr("Desktop widgets")
+            subtext: Tr.tr("Configure the desktop clock and audio visualiser")
+            onClicked: root.nState.openSubPage(4)
+        }
+
         ToggleRow {
             first: true
             text: Tr.tr("Display wallpaper")

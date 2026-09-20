@@ -1,4 +1,5 @@
 module qs.modules.nexus.pages.wallandstyle
 ColourSelect 1.0 ColourSelect.qml
+DesktopWidgets 1.0 DesktopWidgets.qml
 WallpaperCategory 1.0 WallpaperCategory.qml
 WallpaperSelect 1.0 WallpaperSelect.qml

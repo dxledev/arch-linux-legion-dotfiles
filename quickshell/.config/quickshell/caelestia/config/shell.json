@@ -21,7 +21,31 @@
         }
     },
     "background": {
-        "enabled": false
+        "desktopClock": {
+            "background": {
+                "blur": true,
+                "enabled": false,
+                "opacity": 0.45230382424033144
+            },
+            "enabled": true,
+            "invertColors": false,
+            "position": "bottom-right",
+            "scale": 0.9971269639157457,
+            "shadow": {
+                "blur": 0.4,
+                "enabled": true,
+                "opacity": 0.761440348756906
+            }
+        },
+        "enabled": true,
+        "visualiser": {
+            "autoHide": true,
+            "blur": false,
+            "enabled": false,
+            "rounding": 1,
+            "spacing": 1
+        },
+        "wallpaperEnabled": false
     },
     "bar": {
         "activeWindow": {
@@ -189,6 +213,22 @@
                 "description": "Choose a wallpaper from the current theme",
                 "icon": "image",
                 "name": "Wallpaper"
+            },
+            {
+                "command": [
+                    "toggleDesktopClock"
+                ],
+                "description": "Show the desktop clock",
+                "icon": "schedule",
+                "name": "Desktop Clock"
+            },
+            {
+                "command": [
+                    "toggleDesktopVisualiser"
+                ],
+                "description": "Show the audio visualiser",
+                "icon": "graphic_eq",
+                "name": "Audio Visualiser"
             },
             {
                 "command": [
