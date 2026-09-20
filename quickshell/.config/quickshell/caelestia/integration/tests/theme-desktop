@@ -79,19 +79,22 @@ test_hidden_themes() {
 
 test_palette_cache() {
     local controller_root="$test_root/controller" fake_cli="$test_root/fake-caelestia"
-    local fake_renderer="$test_root/fake-renderer" fake_apply="$test_root/fake-theme-apply"
-    local controller_state="$controller_root/state" controller_cache="$controller_root/cache"
-    local dynamic_wallpaper="$controller_root/dynamic-wallpaper" cli_log="$controller_root/cli.log"
+    local fake_renderer="$test_root/fake-renderer" fake_apply="$test_root/fake-theme-apply" fake_notify="$test_root/fake-notify-send"
+    local controller_state="$controller_root/state" controller_cache="$controller_root/cache" controller_dynamic_dir="$controller_root/dynamic"
+    local dynamic_wallpaper="$controller_root/dynamic-wallpaper" cli_log="$controller_root/cli.log" notify_log="$controller_root/notify.log"
     local palette_count deadline before_calls after_calls start_ms elapsed_ms
 
-    /usr/bin/mkdir -p -- "$controller_state/caelestia" "$controller_cache"
+    /usr/bin/mkdir -p -- "$controller_state/caelestia" "$controller_cache" "$controller_dynamic_dir"
+    printf 'already-generated\n' > "$controller_state/caelestia/dynamic-theme-generated"
+    printf 'already-generated\n' > "$controller_dynamic_dir/.caelestia-generated"
     /usr/bin/ln -s -- "$wallpaper" "$dynamic_wallpaper"
     printf '{"source":"dynamic","mode":"dark","variant":"tonalspot","provider":"caelestia"}\n' > "$controller_state/caelestia/shell-theme.json"
 
     /usr/bin/cp -- "$script_dir/fake-caelestia" "$fake_cli"
     /usr/bin/cp -- "$script_dir/fake-theme-renderer" "$fake_renderer"
     /usr/bin/cp -- "$script_dir/fake-theme-apply" "$fake_apply"
-    /usr/bin/chmod +x "$fake_cli" "$fake_renderer" "$fake_apply"
+    /usr/bin/cp -- "$script_dir/fake-notify-send" "$fake_notify"
+    /usr/bin/chmod +x "$fake_cli" "$fake_renderer" "$fake_apply" "$fake_notify"
 
     controller_env=(
         XDG_CONFIG_HOME="$config_home"
@@ -101,11 +104,13 @@ test_palette_cache() {
         FAKE_CAELESTIA_LOG="$cli_log"
         THEME_RENDERER="$fake_renderer"
         THEME_APPLY="$fake_apply"
+        NOTIFY_SEND_BIN="$fake_notify"
+        FAKE_NOTIFY_LOG="$notify_log"
         SHELL_DYNAMIC_WALLPAPER="$dynamic_wallpaper"
         SHELL_THEME_FILE="$themes_dir/current/Colors.qml"
         SHELL_WALLPAPER="$wallpaper"
         APPLICATION_THEME_LINK="$selector"
-        DYNAMIC_THEME_DIR="$dynamic_dir"
+        DYNAMIC_THEME_DIR="$controller_dynamic_dir"
     )
 
     start_ms="$(/usr/bin/date +%s%3N)"
@@ -113,6 +118,7 @@ test_palette_cache() {
     elapsed_ms=$(( $(/usr/bin/date +%s%3N) - start_ms ))
     (( elapsed_ms < 700 )) || fail "Palette prewarming blocked refresh for ${elapsed_ms}ms."
     [[ "$(/usr/bin/jq -r '.variant' "$controller_state/caelestia/shell-theme-palette.json")" == tonalspot ]] || fail 'Current variant was not applied first.'
+    /usr/bin/grep -Fq -- '-t 5000 Dynamic Theme Pulling colors from the applied background for the first time.' "$notify_log" || fail 'First Dynamic generation notification was not sent.'
     /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" cache-ready || fail 'Current Dynamic palette was not accepted as cached.'
 
     deadline=$((SECONDS + 8))
@@ -141,6 +147,10 @@ test_palette_cache() {
     if /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" cache-ready; then
         fail 'A stale Dynamic palette was accepted as cached.'
     fi
+
+    /usr/bin/jq -n '{source: "system", mode: "dark", variant: "tonalspot", provider: "theme"}' > "$controller_state/caelestia/shell-theme.json"
+    /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" set-source dynamic
+    /usr/bin/grep -Fq -- '-t 5000 Theme Updated to <b><span foreground="var(--primary-color)">Dynamic</span></b>.' "$notify_log" || fail 'Static-to-Dynamic notification was not sent.'
 }
 
 trap cleanup EXIT

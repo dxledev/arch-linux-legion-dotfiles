@@ -156,7 +156,7 @@
                 "command": [
                     "apps"
                 ],
-                "description": "Open the app menu",
+                "description": "Launch an application",
                 "icon": "apps",
                 "name": "Apps"
             },
@@ -182,7 +182,7 @@
                     "autocomplete",
                     "theme"
                 ],
-                "description": "Choose a system or Dynamic theme",
+                "description": "Change the scheme of the shell",
                 "icon": "palette",
                 "name": "Theme"
             },
@@ -210,7 +210,7 @@
                     "autocomplete",
                     "wallpaper"
                 ],
-                "description": "Choose a wallpaper from the current theme",
+                "description": "Change the background of the desktop",
                 "icon": "image",
                 "name": "Wallpaper"
             },
@@ -244,7 +244,7 @@
                     "autocomplete",
                     "terminal-prompt"
                 ],
-                "description": "Choose a Starship prompt style",
+                "description": "Choose a prompt style for the terminal",
                 "icon": "terminal",
                 "name": "Terminal Prompt"
             },
@@ -297,7 +297,7 @@
                     "/home/dxle/.config/quickshell/active/integration/aether",
                     "launch"
                 ],
-                "description": "Open Aether in its wallpaper workspace",
+                "description": "Choose a new background to add to the desktop",
                 "dynamicOnly": true,
                 "icon": "wallpaper",
                 "name": "Browse Wallpapers"

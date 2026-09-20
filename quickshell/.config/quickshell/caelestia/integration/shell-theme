@@ -20,8 +20,10 @@ palette_cache_dir="$cache_dir/palettes"
 prewarm_marker="$cache_dir/prewarm-current"
 theme_renderer="${THEME_RENDERER:-$script_dir/theme-render}"
 theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
+notify_send_bin="${NOTIFY_SEND_BIN:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/notify-send}"
 application_selector="${APPLICATION_THEME_LINK:-$config_home/themes/.caelestia-use}"
 dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$config_home/themes/.dynamic/caelestia}"
+dynamic_generation_notification_marker="$state_dir/dynamic-theme-generation-notified"
 dry_run=0
 palette_cache_version=1
 variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral rainbow content)
@@ -153,6 +155,34 @@ write_text() {
     temporary="$(/usr/bin/mktemp "${path%/*}/.${path##*/}.XXXXXX")"
     printf '%s\n' "$contents" > "$temporary"
     /usr/bin/mv -f -- "$temporary" "$path"
+}
+
+notify_theme() {
+    local summary="$1" body="$2"
+    [[ -x "$notify_send_bin" ]] || return 0
+    "$notify_send_bin" -t 5000 "$summary" "$body" >/dev/null 2>&1 || true
+}
+
+dynamic_generation_notification_sent() {
+    [[ -e "$dynamic_generation_notification_marker" ]]
+}
+
+notify_first_dynamic_generation() {
+    if (( dry_run )) || dynamic_generation_notification_sent; then
+        return 0
+    fi
+    notify_theme 'Dynamic Theme' 'Pulling colors from the applied background for the first time.'
+}
+
+mark_dynamic_generation_notification() {
+    if (( dry_run )) || [[ -e "$dynamic_generation_notification_marker" ]]; then
+        return 0
+    fi
+    write_text "$dynamic_generation_notification_marker" notified
+}
+
+notify_dynamic_switch() {
+    notify_theme 'Theme' 'Updated to <b><span foreground="var(--primary-color)">Dynamic</span></b>.'
 }
 
 require_executable() {
@@ -424,7 +454,9 @@ apply_settings() {
         palette="$(aether_palette "$aether_theme_file")"
         mode="$(/usr/bin/jq -r '.mode' <<< "$palette")"
     elif [[ "$source" == dynamic ]]; then
+        notify_first_dynamic_generation
         palette="$(generate_palette "$source" "$mode" "$variant" "$requested")"
+        mark_dynamic_generation_notification
     else
         palette="$(system_palette "$variant")"
     fi
@@ -481,7 +513,9 @@ case "$command_name" in
     set-source)
         [[ $# == 1 && ( "$1" == system || "$1" == dynamic ) ]] || { usage >&2; exit 2; }
         if [[ "$1" == dynamic ]]; then
+            previous_source="$source_name"
             apply_settings dynamic "$mode_name" "$variant_name" caelestia
+            [[ "$previous_source" == system ]] && notify_dynamic_switch
         else
             apply_settings system "$mode_name" "$variant_name" theme "" 1
         fi
