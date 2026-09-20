@@ -9,10 +9,12 @@ PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
 PKILL_BIN="${PKILL_BIN:-/usr/bin/pkill}"
 KILL_BIN="${KILL_BIN:-/usr/bin/kill}"
 JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-/usr/bin/systemctl}"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/usr/bin/notify-send}"
 SWAYOSD_SERVER_BIN="${SWAYOSD_SERVER_BIN:-$HOME/bin/swayosd-server}"
 WAYBAR_BIN="${WAYBAR_BIN:-/usr/bin/waybar}"
 WARD_BIN="${WARD_BIN:-$HOME/.local/bin/ward}"
+WARD_SERVICE="${WARD_SERVICE:-ward.service}"
 WARDNC_BIN="${WARDNC_BIN:-$HOME/builds/wardnc/build/wardnc}"
 CHROMACK_LAUNCHER="${CHROMACK_LAUNCHER:-$HOME/bin/launch-chromack}"
 DASHBOARD_BIN="${DASHBOARD_BIN:-$HOME/builds/dashboard/build/topdash}"
@@ -24,7 +26,7 @@ QUICKSHELL_STOP_TIMEOUT="${QUICKSHELL_STOP_TIMEOUT:-5}"
 WAYBAR_START_DELAY="${WAYBAR_START_DELAY:-0.5}"
 SHELL_HEALTH_DELAY="${SHELL_HEALTH_DELAY:-1}"
 REQUIRE_LINE='require("waybar-mode-keybindings")'
-WAYBAR_PROCESSES=(waybar wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
+WAYBAR_PROCESSES=(ward waybar wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
 WAYBAR_REQUIRED_PROCESSES=(waybar ward wardnc chromack topdash swayosd-server)
 action=toggle
 dry_run=0
@@ -39,6 +41,7 @@ uncommented = Waybar; commented = Quickshell.
 
 Override HYPR_CONFIG, QUICKSHELL_CONFIG, or the *_BIN paths as needed.
 QUICKSHELL_CONFIG accepts an absolute path to a QML file or config directory.
+WARD_SERVICE sets the systemd user unit used for Waybar notifications.
 QUICKSHELL_STOP_TIMEOUT sets the shutdown timeout in seconds (1-60; default 5).
 WAYBAR_START_DELAY sets the pause after leaving Quickshell (seconds; default 0.5).
 SHELL_HEALTH_DELAY sets the post-transition health-check delay (default 1).
@@ -103,7 +106,7 @@ require_executable() {
 
 validate_target() {
     local target="$1" executable
-    for executable in "$HYPRCTL_BIN" "$PGREP_BIN" "$PKILL_BIN" "$QUICKSHELL_BIN" "$KILL_BIN" "$JQ_BIN"; do
+    for executable in "$HYPRCTL_BIN" "$PGREP_BIN" "$PKILL_BIN" "$QUICKSHELL_BIN" "$KILL_BIN" "$JQ_BIN" "$SYSTEMCTL_BIN"; do
         require_executable "$executable"
     done
     require_executable "$THEME_APPLY_SCRIPT"
@@ -162,11 +165,24 @@ start_process() {
 start_waybar() {
     stop_process hypr-dock || { printf 'toggle-shell-mode: Could not stop hypr-dock.\n' >&2; return 1; }
     start_process waybar "$WAYBAR_BIN" || return 1
-    /usr/bin/systemctl --user start ward.service || { printf 'toggle-shell-mode: ward.service failed to start.\n' >&2; return 1; }
+    "$SYSTEMCTL_BIN" --user reset-failed "$WARD_SERVICE" || { printf 'toggle-shell-mode: Could not reset %s.\n' "$WARD_SERVICE" >&2; return 1; }
+    "$SYSTEMCTL_BIN" --user start "$WARD_SERVICE" || { printf 'toggle-shell-mode: %s failed to start.\n' "$WARD_SERVICE" >&2; return 1; }
     start_process wardnc "$WARDNC_BIN" || return 1
     start_process chromack "$CHROMACK_LAUNCHER" || return 1
     start_process topdash "$DASHBOARD_BIN" || return 1
     start_process swayosd-server "$SWAYOSD_SERVER_BIN" || return 1
+}
+
+stop_waybar_process() {
+    local name="$1"
+    if [[ "$name" == ward ]]; then
+        # Stop the unit so systemd cannot restart Ward after its process is killed.
+        "$SYSTEMCTL_BIN" --user stop "$WARD_SERVICE" || {
+            printf 'toggle-shell-mode: %s failed to stop.\n' "$WARD_SERVICE" >&2
+            return 1
+        }
+    fi
+    stop_process "$name"
 }
 
 quickshell_pids() {
@@ -234,6 +250,10 @@ verify_quickshell() {
     local name pids
     pids="$(quickshell_pids)" || return 1
     [[ -n "$pids" ]] || { printf 'toggle-shell-mode: Quickshell is not running.\n' >&2; return 1; }
+    if "$SYSTEMCTL_BIN" --user is-active --quiet "$WARD_SERVICE"; then
+        printf 'toggle-shell-mode: %s overlaps Quickshell mode.\n' "$WARD_SERVICE" >&2
+        return 1
+    fi
     for name in "${WAYBAR_PROCESSES[@]}"; do
         if is_running "$name"; then
             printf 'toggle-shell-mode: %s overlaps Quickshell mode.\n' "$name" >&2
@@ -250,7 +270,7 @@ apply_mode() {
     local target="$1" previous="${2:-$1}" name
     if [[ "$target" == quickshell ]]; then
         for name in "${WAYBAR_PROCESSES[@]}"; do
-            stop_process "$name" || return 1
+            stop_waybar_process "$name" || return 1
         done
         if [[ "${CAELESTIA_START_LOCKED:-0}" != 1 ]] || ! "$SHELL_THEME_SCRIPT" cache-ready; then
             "$SHELL_THEME_SCRIPT" refresh || return 1
@@ -297,6 +317,7 @@ show_plan() {
     local current="$1" target="$2"
     printf '%s -> %s\n' "$current" "$target"
     if [[ "$target" == quickshell ]]; then
+        printf 'Stop notification daemon: %s --user stop %q\n' "$SYSTEMCTL_BIN" "$WARD_SERVICE"
         printf 'Stop: %s\n' "${WAYBAR_PROCESSES[*]}"
         if [[ "${CAELESTIA_START_LOCKED:-0}" == 1 ]]; then
             printf 'Reuse the saved shell palette when valid; refresh it before launch only when missing or stale\n'
@@ -313,6 +334,7 @@ show_plan() {
         fi
         printf 'Restore named desktop theme: %s system\n' "$THEME_APPLY_SCRIPT"
         printf 'Stop: hypr-dock (SUPER + D starts it on demand)\n'
+        printf 'Reset notification daemon failure state: %s --user reset-failed %q\n' "$SYSTEMCTL_BIN" "$WARD_SERVICE"
         printf 'Start: waybar ward wardnc chromack topdash swayosd-server\n'
         printf 'Verify after %s seconds; logs: %s\n' "$SHELL_HEALTH_DELAY" "$PROCESS_LOG_DIR"
         printf 'Uncomment: %s\n' "$REQUIRE_LINE"
