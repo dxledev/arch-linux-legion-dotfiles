@@ -18,6 +18,11 @@ Singleton {
     property list<PwNode> sinks: []
     property list<PwNode> sources: []
     property list<PwNode> streams: []
+    property var outputOptions: []
+
+    readonly property string hdmiCard: "alsa_card.pci-0000_01_00.1"
+    readonly property string hdmiProfile: "output:hdmi-stereo-extra1"
+    readonly property string hdmiSinkName: "alsa_output.pci-0000_01_00.1.hdmi-stereo-extra1"
 
     readonly property PwNode sink: Pipewire.defaultAudioSink
     readonly property PwNode source: Pipewire.defaultAudioSource
@@ -70,6 +75,59 @@ Singleton {
         Pipewire.preferredDefaultAudioSink = newSink;
     }
 
+    function sinkLabel(node: PwNode): string {
+        if (node.name.includes("usb"))
+            return "Headset";
+        if (node.name.includes("analog"))
+            return "Speakers";
+        return "Audio";
+    }
+
+    function sinkIcon(node: PwNode): string {
+        if (node.name.includes("usb"))
+            return "󰋋";
+        if (node.name.includes("analog"))
+            return "󰓃";
+        return "󰕾";
+    }
+
+    function isOutputSelected(output: var): bool {
+        if (output.kind === "hdmi")
+            return sink?.name === hdmiSinkName;
+        return sink?.id === output.node?.id;
+    }
+
+    function selectOutput(output: var): void {
+        if (output.kind === "hdmi") {
+            switchHdmiOutput();
+            return;
+        }
+
+        if (output.node)
+            setAudioSink(output.node);
+    }
+
+    function switchHdmiOutput(): void {
+        if (hdmiSwitch.running)
+            return;
+
+        hdmiSwitch.command = ["/usr/bin/bash", "-c", [
+            "/usr/bin/pactl set-card-profile " + hdmiCard + " " + hdmiProfile,
+            "found=0",
+            "for _ in 1 2 3 4 5 6 7 8 9 10; do",
+            "    if /usr/bin/pactl list sinks short | /usr/bin/awk -v target='" + hdmiSinkName + "' '$2 == target { found=1 } END { exit !found }'; then",
+            "        found=1",
+            "        break",
+            "    fi",
+            "    /usr/bin/sleep 0.2",
+            "done",
+            "if [ \"$found\" -ne 1 ]; then exit 1; fi",
+            "/usr/bin/pactl set-default-sink " + hdmiSinkName,
+            "/usr/bin/pactl list sink-inputs short | while read -r input rest; do /usr/bin/pactl move-sink-input \"$input\" " + hdmiSinkName + "; done"
+        ].join("\n")];
+        hdmiSwitch.running = true;
+    }
+
     function setAudioSource(newSource: PwNode): void {
         Pipewire.preferredDefaultAudioSource = newSource;
     }
@@ -115,13 +173,21 @@ Singleton {
         const newSinks = [];
         const newSources = [];
         const newStreams = [];
+        const newOutputOptions = [{
+            kind: "hdmi",
+            icon: "󰍹",
+            label: "Acer"
+        }];
 
         for (const node of Pipewire.nodes.values) {
             if (!node.isStream) {
-                if (node.isSink)
+                if (node.isSink) {
                     newSinks.push(node);
-                else if (node.audio)
+                    if (!node.name.includes("hdmi"))
+                        newOutputOptions.push({ kind: "sink", node, icon: root.sinkIcon(node), label: root.sinkLabel(node) });
+                } else if (node.audio) {
                     newSources.push(node);
+                }
             } else if (node.audio) {
                 newStreams.push(node);
             }
@@ -130,6 +196,7 @@ Singleton {
         root.sinks = newSinks;
         root.sources = newSources;
         root.streams = newStreams;
+        root.outputOptions = newOutputOptions;
     }
 
     onSinkChanged: {
@@ -170,6 +237,15 @@ Singleton {
         }
 
         target: Pipewire.nodes
+    }
+
+    Process {
+        id: hdmiSwitch
+
+        onExited: exitCode => {
+            if (exitCode !== 0)
+                console.warn("Could not switch to Acer audio output");
+        }
     }
 
     // Always track the current defaults so volume/mute bind even if the lists

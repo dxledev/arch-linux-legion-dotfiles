@@ -40,18 +40,37 @@ Item {
         }
 
         Repeater {
-            model: Audio.sinks
+            model: Audio.outputOptions
 
             StyledRadioButton {
-                id: control
-
-                required property PwNode modelData
+                required property var modelData
 
                 Layout.fillWidth: true
                 ButtonGroup.group: sinks
-                checked: Audio.sink?.id === modelData.id
-                onClicked: Audio.setAudioSink(modelData)
-                text: modelData.description
+                checked: Audio.isOutputSelected(modelData)
+                onClicked: Audio.selectOutput(modelData)
+
+                contentItem: RowLayout {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 32
+                    spacing: Tokens.spacing.small
+
+                    Text {
+                        text: modelData.icon
+                        color: Colours.palette.m3onSurface
+                        font.family: "JetBrainsMono Nerd Font"
+                        font.pixelSize: 16
+                        renderType: Text.NativeRendering
+                    }
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: modelData.label
+                        elide: Text.ElideRight
+                    }
+                }
             }
         }
 
