@@ -18,6 +18,9 @@
                 "family": "CaskaydiaMono Nerd Font"
             },
             "workspaces": "CaskaydiaMono Nerd Font"
+        },
+        "transparency": {
+            "enabled": false
         }
     },
     "background": {
@@ -34,7 +37,7 @@
             "shadow": {
                 "blur": 0.4,
                 "enabled": true,
-                "opacity": 0.761440348756906
+                "opacity": 0.7464120770027625
             }
         },
         "enabled": true,
@@ -43,9 +46,9 @@
             "blur": false,
             "enabled": false,
             "rounding": 1,
-            "spacing": 1
+            "spacing": 1.0444740590469614
         },
-        "wallpaperEnabled": false
+        "wallpaperEnabled": true
     },
     "bar": {
         "activeWindow": {
