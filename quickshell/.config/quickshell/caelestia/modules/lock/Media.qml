@@ -75,11 +75,14 @@ StyledClippingRect {
 
         ButtonRow {
             Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: previousButton.implicitWidth + playButton.implicitWidth + nextButton.implicitWidth + spacing * 2
             Layout.topMargin: Tokens.spacing.medium
 
             spacing: Tokens.spacing.extraSmall
 
             LockIconButton {
+                id: previousButton
+
                 type: LockButtonBase.Tonal
                 icon: "skip_previous"
                 isRound: true
@@ -89,6 +92,8 @@ StyledClippingRect {
             }
 
             LockIconButton {
+                id: playButton
+
                 icon: Players.active?.isPlaying ? "pause" : "play_arrow"
                 isRound: true
                 shapeMorph: true
@@ -99,6 +104,8 @@ StyledClippingRect {
             }
 
             LockIconButton {
+                id: nextButton
+
                 type: LockButtonBase.Tonal
                 icon: "skip_next"
                 isRound: true

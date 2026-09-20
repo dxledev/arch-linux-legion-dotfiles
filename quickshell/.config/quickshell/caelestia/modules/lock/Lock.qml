@@ -28,6 +28,7 @@ Scope {
         LockSurface {
             lock: lock
             pam: pam
+            startup: root.startLocked
         }
     }
 

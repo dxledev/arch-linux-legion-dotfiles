@@ -63,7 +63,7 @@ Optional environment overrides: `QUICKSHELL_ROOT`, `QUICKSHELL_RUNTIME`, `SHELL_
 
 `~/bin/system-lock [--dry-run] [--wait]` selects the active shell's lock owner. `--wait` retries the Caelestia IPC during startup for up to 10 seconds before falling back to Hyprlock; `--dry-run` prints the selected command without locking. Override its paths or timing with `SYSTEM_LOCK_MODE_SCRIPT`, `SYSTEM_LOCK_QUICKSHELL_BIN`, `SYSTEM_LOCK_QUICKSHELL_CONFIG`, `SYSTEM_LOCK_HYPRLOCK_SCRIPT`, `SYSTEM_LOCK_WAIT_TIMEOUT`, and `SYSTEM_LOCK_POLL_INTERVAL`.
 
-`CAELESTIA_START_LOCKED=1` constructs the native lock first, loads its saved palette and wallpaper synchronously, and defers the rest of the shell until the compositor confirms the session is secure. The startup wallpaper daemon also waits for that confirmation. A missing or stale palette is regenerated before launch. Do not set the variable for ordinary Caelestia launches or shell restarts.
+`CAELESTIA_START_LOCKED=1` constructs the native lock first, loads its saved palette and wallpaper synchronously, and defers the rest of the shell until the compositor confirms the session is secure. Hyprland starts the wallpaper daemon from the same pinned cache immediately, while the startup lock skips the normal entrance animation and opens at its settled size. A missing or stale palette is regenerated before launch. Do not set the variable for ordinary Caelestia launches or shell restarts.
 
 ## Controls
 

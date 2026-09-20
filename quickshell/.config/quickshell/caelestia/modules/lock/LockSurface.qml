@@ -13,13 +13,23 @@ WlSessionLockSurface {
 
     required property WlSessionLock lock
     required property Pam pam
+    required property bool startup
 
     readonly property alias unlocking: unlockAnim.running
+    readonly property real expandedWidth: (screen?.height ?? 0) * Tokens.sizes.lock.heightMult * Tokens.sizes.lock.ratio
+    readonly property real expandedHeight: (screen?.height ?? 0) * Tokens.sizes.lock.heightMult
+    property bool immediateEntry
 
     contentItem.Config.screen: screen.name
     contentItem.Tokens.screen: screen.name
 
-    color: "transparent"
+    color: immediateEntry ? Colours.palette.m3background : "transparent"
+
+    Component.onCompleted: {
+        immediateEntry = startup;
+        if (!immediateEntry)
+            initAnim.start();
+    }
 
     Connections {
         function onUnlock(): void {
@@ -88,8 +98,6 @@ WlSessionLockSurface {
     ParallelAnimation {
         id: initAnim
 
-        running: true
-
         Anim {
             target: background
             property: "opacity"
@@ -144,12 +152,12 @@ WlSessionLockSurface {
                 Anim {
                     target: lockContent
                     property: "implicitWidth"
-                    to: (root.screen?.height ?? 0) * lockContent.Tokens.sizes.lock.heightMult * lockContent.Tokens.sizes.lock.ratio
+                    to: root.expandedWidth
                 }
                 Anim {
                     target: lockContent
                     property: "implicitHeight"
-                    to: (root.screen?.height ?? 0) * lockContent.Tokens.sizes.lock.heightMult
+                    to: root.expandedHeight
                 }
             }
         }
@@ -159,7 +167,7 @@ WlSessionLockSurface {
         id: background
 
         anchors.fill: parent
-        opacity: 0
+        opacity: root.immediateEntry ? 1 : 0
 
         layer.enabled: true
         layer.effect: MultiEffect {
@@ -200,19 +208,19 @@ WlSessionLockSurface {
         readonly property int radius: size / 4 * Tokens.rounding.scale
 
         anchors.centerIn: parent
-        implicitWidth: size
-        implicitHeight: size
+        implicitWidth: root.immediateEntry ? root.expandedWidth : size
+        implicitHeight: root.immediateEntry ? root.expandedHeight : size
 
         visible: Config.lock.enabled
-        rotation: 180
-        scale: 0
+        rotation: root.immediateEntry ? 360 : 180
+        scale: root.immediateEntry ? 1 : 0
 
         StyledRect {
             id: lockBg
 
             anchors.fill: parent
             color: Colours.palette.m3surface
-            radius: parent.radius
+            radius: root.immediateEntry ? lockContent.Tokens.rounding.extraLarge * 1.5 : parent.radius
             opacity: Colours.transparency.enabled ? Colours.transparency.base : 1
 
             layer.enabled: true
@@ -229,7 +237,8 @@ WlSessionLockSurface {
             anchors.centerIn: parent
             text: "lock"
             fontStyle: Tokens.font.icon.builders.extraLarge.scale(4).weight(Font.Bold).build()
-            rotation: 180
+            rotation: root.immediateEntry ? 360 : 180
+            opacity: root.immediateEntry ? 0 : 1
         }
 
         Content {
@@ -240,8 +249,8 @@ WlSessionLockSurface {
             height: (root.screen?.height ?? 0) * Tokens.sizes.lock.heightMult - Tokens.padding.extraLargeIncreased
 
             lock: root
-            opacity: 0
-            scale: 0
+            opacity: root.immediateEntry ? 1 : 0
+            scale: root.immediateEntry ? 1 : 0
         }
     }
 }
