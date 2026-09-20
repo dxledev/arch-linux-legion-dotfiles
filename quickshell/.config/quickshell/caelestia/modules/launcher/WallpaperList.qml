@@ -56,6 +56,26 @@ PathView {
     Component.onCompleted: currentIndex = Wallpapers.list.findIndex(w => w.path === Wallpapers.actualCurrent)
     Component.onDestruction: Wallpapers.stopPreview()
 
+    WheelHandler {
+        property int scrollDelta
+
+        orientation: Qt.Vertical | Qt.Horizontal
+        acceptedButtons: Qt.NoButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+
+        onWheel: event => {
+            scrollDelta += event.angleDelta.y || event.angleDelta.x;
+            while (scrollDelta >= 120) {
+                scrollDelta -= 120;
+                root.decrementCurrentIndex();
+            }
+            while (scrollDelta <= -120) {
+                scrollDelta += 120;
+                root.incrementCurrentIndex();
+            }
+        }
+    }
+
     onCurrentItemChanged: {
         if (currentItem)
             Wallpapers.preview((currentItem as WallpaperItem).modelData.path);
