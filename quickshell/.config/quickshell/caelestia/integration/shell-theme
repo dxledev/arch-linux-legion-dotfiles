@@ -27,7 +27,7 @@ palette_cache_version=1
 variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral rainbow content)
 
 usage() {
-    printf 'Usage: shell-theme [--dry-run] status|refresh|refresh-wallpaper|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
+    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
 }
 
 fail() {
@@ -254,6 +254,30 @@ palette_is_valid() {
     ' "$path" >/dev/null 2>&1
 }
 
+cached_palette_is_current() {
+    [[ -r "$palette_file" ]] || return 1
+    /usr/bin/jq -e \
+        --arg source "$source_name" \
+        --arg mode "$mode_name" \
+        --arg variant "$variant_name" \
+        --arg provider "$provider_name" '
+        .source == $source and
+        (.colours | type == "object") and
+        if $source == "system" then
+            true
+        else
+            (.provider // "caelestia") == $provider and
+            .mode == $mode and
+            ($provider == "aether" or .variant == $variant) and
+            ((if $provider == "aether" then
+                ["background", "onBackground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"]
+            else
+                ["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"]
+            end) - (.colours | keys) | length == 0)
+        end
+    ' "$palette_file" >/dev/null 2>&1
+}
+
 palette_cache_key() {
     local seed="$1" cli_config="$shell_root/caelestia/config/cli.json"
     [[ -x "$cli_bin" ]] || fail "Caelestia CLI not found: $cli_bin"
@@ -425,7 +449,7 @@ command_name="${1:---help}"
 (( $# == 0 )) || shift
 load_settings
 
-if (( ! dry_run )) && [[ "$command_name" != status && "$command_name" != --help && "$command_name" != -h ]]; then
+if (( ! dry_run )) && [[ "$command_name" != status && "$command_name" != cache-ready && "$command_name" != --help && "$command_name" != -h ]]; then
     /usr/bin/mkdir -p -- "$state_dir"
     exec 9>"$state_dir/shell-theme.lock"
     /usr/bin/flock 9
@@ -440,6 +464,10 @@ case "$command_name" in
     status)
         (( $# == 0 )) || { usage >&2; exit 2; }
         settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name"
+        ;;
+    cache-ready)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        cached_palette_is_current
         ;;
     refresh)
         (( $# == 0 )) || { usage >&2; exit 2; }

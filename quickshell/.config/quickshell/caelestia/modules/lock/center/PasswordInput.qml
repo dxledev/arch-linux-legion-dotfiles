@@ -5,7 +5,6 @@ import QtQuick.Layouts
 import M3Shapes
 import Caelestia.Config
 import qs.components
-import qs.components.controls
 import qs.services
 
 StyledRect {
@@ -114,7 +113,7 @@ StyledRect {
             Component {
                 id: loadingComp
 
-                LoadingIndicator {
+                LockLoadingIndicator {
                     implicitSize: iconWrapper.height - Tokens.padding.small * 2
                 }
             }

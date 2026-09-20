@@ -67,17 +67,34 @@ Singleton {
         return Qt.hsla(c.hslHue, c.hslSaturation, 0.1, 1);
     }
 
-    function load(data: string, isPreview: bool): void {
+    function load(data: string, isPreview: bool): bool {
         const colours = isPreview ? preview : current;
-        const scheme = JSON.parse(data);
+        let scheme;
+        try {
+            scheme = JSON.parse(data);
+        } catch (error) {
+            console.warn("Could not load the cached shell palette:", error);
+            return false;
+        }
+
+        if (!scheme || typeof scheme !== "object" || !scheme.colours || typeof scheme.colours !== "object")
+            return false;
+
+        const source = scheme.source ?? (scheme.name === "dynamic" ? "dynamic" : "system");
+        const provider = scheme.provider ?? (source === "dynamic" ? "caelestia" : "theme");
+        if (source === "dynamic") {
+            const required = provider === "aether" ? ["background", "onBackground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"] : ["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"];
+            if (!["light", "dark"].includes(scheme.mode) || required.some(name => !scheme.colours.hasOwnProperty(name)))
+                return false;
+        }
 
         if (!isPreview) {
-            root.source = scheme.source ?? (scheme.name === "dynamic" ? "dynamic" : "system");
-            root.provider = scheme.provider ?? (root.source === "dynamic" ? "caelestia" : "theme");
+            root.source = source;
+            root.provider = provider;
             variant = scheme.variant ?? "tonalspot";
             if (root.source === "system") {
                 loadSystemPalette();
-                return;
+                return true;
             }
             root.scheme = scheme.name;
             flavour = scheme.flavour;
@@ -93,8 +110,9 @@ Singleton {
         }
         if (!isPreview && scheme.provider === "aether")
             loadAetherPalette(scheme.colours);
-        if (!isPreview && root.source === "dynamic" && root.provider === "caelestia")
+        if (!isPreview && root.source === "dynamic" && root.provider === "caelestia" && Quickshell.env("CAELESTIA_START_LOCKED") !== "1")
             queueAetherSync();
+        return true;
     }
 
     function queueAetherSync(): void {
@@ -272,8 +290,10 @@ Singleton {
     }
 
     Component.onCompleted: {
-        root.loadSystemPalette();
-        root.refresh();
+        if (!root.load(paletteSource.text(), false)) {
+            root.loadSystemPalette();
+            root.refresh();
+        }
         root.requestReloadHyprRules();
     }
 
@@ -296,6 +316,7 @@ Singleton {
     FileView {
         id: paletteSource
         path: `${Paths.state}/shell-theme-palette.json`
+        blockLoading: true
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

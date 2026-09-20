@@ -5,7 +5,6 @@ import Caelestia.Components
 import Caelestia.Config
 import Caelestia.I18n
 import qs.components
-import qs.components.controls
 import qs.components.images
 import qs.services
 
@@ -80,8 +79,8 @@ StyledClippingRect {
 
             spacing: Tokens.spacing.extraSmall
 
-            IconButton {
-                type: IconButton.Tonal
+            LockIconButton {
+                type: LockButtonBase.Tonal
                 icon: "skip_previous"
                 isRound: true
                 shapeMorph: true
@@ -89,7 +88,7 @@ StyledClippingRect {
                 onClicked: Players.active?.previous()
             }
 
-            IconButton {
+            LockIconButton {
                 icon: Players.active?.isPlaying ? "pause" : "play_arrow"
                 isRound: true
                 shapeMorph: true
@@ -99,8 +98,8 @@ StyledClippingRect {
                 implicitWidth: implicitHeight + Tokens.padding.largeIncreased * 2
             }
 
-            IconButton {
-                type: IconButton.Tonal
+            LockIconButton {
+                type: LockButtonBase.Tonal
                 icon: "skip_next"
                 isRound: true
                 shapeMorph: true

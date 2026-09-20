@@ -1,24 +1,98 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FLAGS="--transition-type=none"
-SELECTED="$HOME/.config/themes/.caelestia-use/wallpaper.png"
-READY=0
+readonly SELECTED="${XDG_CONFIG_HOME:-$HOME/.config}/themes/.caelestia-use/wallpaper.png"
+readonly MODE_SCRIPT="${BG_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+readonly QUICKSHELL_BIN="${BG_QUICKSHELL_BIN:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/scripts/quickshell}"
+readonly QUICKSHELL_CONFIG="${BG_QUICKSHELL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/shell.qml}"
+readonly LOCK_WAIT_TIMEOUT="${BG_LOCK_WAIT_TIMEOUT:-15}"
+readonly LOCK_POLL_INTERVAL="${BG_LOCK_POLL_INTERVAL:-0.05}"
+wait_for_lock=0
+dry_run=0
+ready=0
 
-# Ensure the daemon exists, but don't let a failed restart stall theme changes.
-if ! pgrep -x awww-daemon >/dev/null 2>&1; then
-    nohup awww-daemon >/dev/null 2>&1 &
-fi
+usage() {
+    /usr/bin/cat <<'EOF'
+Usage: bg-refresh-current [--wait-for-lock] [--dry-run]
 
-for _ in {1..8}; do
-    if timeout 0.25s awww query >/dev/null 2>&1; then
-        READY=1
-        break
+Refresh the current wallpaper without a transition.
+--wait-for-lock delays startup wallpaper creation until Caelestia owns the session lock.
+--dry-run prints the planned actions without changing the wallpaper.
+EOF
+}
+
+parse_args() {
+    while (($#)); do
+        case "$1" in
+            --wait-for-lock) wait_for_lock=1 ;;
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
+}
+
+validate_config() {
+    [[ "$SELECTED" == /* && "$MODE_SCRIPT" == /* && "$QUICKSHELL_BIN" == /* && "$QUICKSHELL_CONFIG" == /* ]] || {
+        printf 'bg-refresh-current: configured paths must be absolute.\n' >&2
+        exit 1
+    }
+    [[ "$LOCK_WAIT_TIMEOUT" =~ ^([1-9]|[1-5][0-9]|60)$ ]] || {
+        printf 'bg-refresh-current: BG_LOCK_WAIT_TIMEOUT must be an integer from 1 to 60.\n' >&2
+        exit 1
+    }
+    [[ "$LOCK_POLL_INTERVAL" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+        printf 'bg-refresh-current: BG_LOCK_POLL_INTERVAL must be a non-negative number.\n' >&2
+        exit 1
+    }
+}
+
+wait_for_startup_lock() {
+    local started lock_state
+    (( wait_for_lock )) || return 0
+    [[ -x "$MODE_SCRIPT" && "$("$MODE_SCRIPT" --status 2>/dev/null)" == quickshell ]] || return 0
+    [[ -x "$QUICKSHELL_BIN" && -f "$QUICKSHELL_CONFIG" ]] || return 1
+
+    started="$SECONDS"
+    while (( SECONDS - started < LOCK_WAIT_TIMEOUT )); do
+        lock_state="$("$QUICKSHELL_BIN" -p "$QUICKSHELL_CONFIG" ipc call lock state 2>/dev/null || true)"
+        case "$lock_state" in
+            true:true|false:false) return 0 ;;
+        esac
+        /usr/bin/sleep "$LOCK_POLL_INTERVAL"
+    done
+    return 1
+}
+
+refresh_wallpaper() {
+    [[ -f "$SELECTED" ]] || return 1
+
+    if (( dry_run )); then
+        (( wait_for_lock )) && printf 'Wait for the Caelestia startup lock: %s seconds maximum\n' "$LOCK_WAIT_TIMEOUT"
+        printf 'Ensure daemon: /usr/bin/awww-daemon\n'
+        printf 'Set wallpaper: %s --transition-type=none\n' "$SELECTED"
+        return
     fi
 
-    sleep 0.15
-done
+    if ! /usr/bin/pgrep -x awww-daemon >/dev/null 2>&1; then
+        /usr/bin/nohup /usr/bin/awww-daemon >/dev/null 2>&1 &
+    fi
 
-[ "$READY" -eq 1 ] || exit 0
+    for _ in {1..8}; do
+        if /usr/bin/timeout 0.25s /usr/bin/awww query >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
 
-awww img "$SELECTED" $FLAGS
+        /usr/bin/sleep 0.15
+    done
+
+    (( ready )) || return 0
+    /usr/bin/awww img "$SELECTED" --transition-type=none
+}
+
+parse_args "$@"
+validate_config
+(( dry_run )) || wait_for_startup_lock
+refresh_wallpaper

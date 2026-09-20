@@ -1,0 +1,6 @@
+module qs.modules.osd
+BrightnessSlider 1.0 BrightnessSlider.qml
+Content 1.0 Content.qml
+NightlightToggle 1.0 NightlightToggle.qml
+OsdTooltip 1.0 OsdTooltip.qml
+Wrapper 1.0 Wrapper.qml

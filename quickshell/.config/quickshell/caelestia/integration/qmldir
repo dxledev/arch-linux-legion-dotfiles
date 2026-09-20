@@ -1,0 +1,8 @@
+module qs.integration
+singleton Colors 1.0 Colors.qml
+Desktop 1.0 Desktop.qml
+singleton NotificationFormat 1.0 NotificationFormat.qml
+NotificationReplacements 1.0 NotificationReplacements.qml
+singleton System 1.0 System.qml
+singleton Typography 1.0 Typography.qml
+WindowRounding 1.0 WindowRounding.qml

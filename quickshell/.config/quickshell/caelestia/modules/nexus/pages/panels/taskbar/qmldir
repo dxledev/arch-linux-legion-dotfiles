@@ -1,0 +1,6 @@
+module qs.modules.nexus.pages.panels.taskbar
+BarActiveWindow 1.0 BarActiveWindow.qml
+BarClock 1.0 BarClock.qml
+BarStatusIcons 1.0 BarStatusIcons.qml
+BarTray 1.0 BarTray.qml
+BarWorkspaces 1.0 BarWorkspaces.qml

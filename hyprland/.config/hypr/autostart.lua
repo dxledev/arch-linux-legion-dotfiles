@@ -1,8 +1,7 @@
 local startup_commands = {
+  "if [ \"$(~/bin/toggle-shell-mode --status)\" = quickshell ]; then CAELESTIA_START_LOCKED=1 ~/bin/toggle-shell-mode --apply; else ~/bin/system-lock --wait & lock_pid=$!; ~/bin/toggle-shell-mode --apply; wait \"$lock_pid\"; fi",
   "hyprpm reload && hyprctl reload",
-  "~/bin/toggle-shell-mode --apply",
-  "awww-daemon",
-  "~/bin/bg-refresh-current",
+  "~/bin/bg-refresh-current --wait-for-lock",
   "~/bin/launch-hypridle",
   "~/bin/launch-hyprsunset",
   "~/bin/launch-cliphist",
@@ -11,7 +10,6 @@ local startup_commands = {
   "eval $(gnome-keyring-daemon --start --components=secrets)",
   "dbus-update-activation-environment --all",
   "rm -rf /tmp/hypr*",
-  "hyprlock",
 }
 
 hl.on("hyprland.start", function()

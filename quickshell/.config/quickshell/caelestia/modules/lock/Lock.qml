@@ -7,12 +7,23 @@ import Quickshell.Wayland
 import qs.components.misc
 
 Scope {
+    id: root
+
+    property bool startLocked
     property alias lock: lock
+    readonly property bool secure: lock.secure
 
     WlSessionLock {
         id: lock
 
+        locked: root.startLocked
+
         signal unlock
+
+        onLockedChanged: {
+            if (!locked)
+                root.startLocked = false;
+        }
 
         LockSurface {
             lock: lock
@@ -67,6 +78,10 @@ Scope {
 
         function isLocked(): bool {
             return lock.locked;
+        }
+
+        function state(): string {
+            return `${lock.locked}:${lock.secure}`;
         }
 
         target: "lock"

@@ -1,0 +1,18 @@
+module qs.modules.bar.popouts
+ActiveWindow 1.0 ActiveWindow.qml
+AetherMenu 1.0 AetherMenu.qml
+AudioPopout 1.0 AudioPopout.qml
+Battery 1.0 Battery.qml
+Bluetooth 1.0 Bluetooth.qml
+ClipWrapper 1.0 ClipWrapper.qml
+Content 1.0 Content.qml
+LockStatus 1.0 LockStatus.qml
+Network 1.0 Network.qml
+NexusMenu 1.0 NexusMenu.qml
+ObsidianMenu 1.0 ObsidianMenu.qml
+PopoutState 1.0 PopoutState.qml
+RecordingControls 1.0 RecordingControls.qml
+TrayMenu 1.0 TrayMenu.qml
+WifiQrModal 1.0 WifiQrModal.qml
+WirelessPassword 1.0 WirelessPassword.qml
+Wrapper 1.0 Wrapper.qml

@@ -1,0 +1,4 @@
+module qs.modules.session
+Content 1.0 Content.qml
+SessionTooltip 1.0 SessionTooltip.qml
+Wrapper 1.0 Wrapper.qml

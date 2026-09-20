@@ -252,7 +252,9 @@ apply_mode() {
         for name in "${WAYBAR_PROCESSES[@]}"; do
             stop_process "$name" || return 1
         done
-        "$SHELL_THEME_SCRIPT" refresh || return 1
+        if [[ "${CAELESTIA_START_LOCKED:-0}" != 1 ]] || ! "$SHELL_THEME_SCRIPT" cache-ready; then
+            "$SHELL_THEME_SCRIPT" refresh || return 1
+        fi
         start_quickshell
     else
         stop_quickshell || return 1
@@ -296,7 +298,11 @@ show_plan() {
     printf '%s -> %s\n' "$current" "$target"
     if [[ "$target" == quickshell ]]; then
         printf 'Stop: %s\n' "${WAYBAR_PROCESSES[*]}"
-        printf 'Refresh saved shell theme: %s refresh\n' "$SHELL_THEME_SCRIPT"
+        if [[ "${CAELESTIA_START_LOCKED:-0}" == 1 ]]; then
+            printf 'Reuse the saved shell palette when valid; refresh it before launch only when missing or stale\n'
+        else
+            printf 'Refresh saved shell theme: %s refresh\n' "$SHELL_THEME_SCRIPT"
+        fi
         printf 'Start: %s --daemonize --no-duplicate --path %q\n' "$QUICKSHELL_BIN" "$QUICKSHELL_CONFIG"
         printf 'Comment: %s\n' "$REQUIRE_LINE"
     else

@@ -1,0 +1,7 @@
+module qs.modules.lock.center
+Clock 1.0 Clock.qml
+InputField 1.0 InputField.qml
+LockLoadingIndicator 1.0 LockLoadingIndicator.qml
+PasswordInput 1.0 PasswordInput.qml
+ProfilePic 1.0 ProfilePic.qml
+StateMessage 1.0 StateMessage.qml

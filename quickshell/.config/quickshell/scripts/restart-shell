@@ -57,13 +57,13 @@ main() {
     if (( dry_run )); then
         [[ "$delay" == 0 ]] || printf 'Delay: %s seconds\n' "$delay"
         for pid in "${pids[@]}"; do printf 'Stop shell PID %s\n' "$pid"; done
-        printf 'Launch: %q -p %q -n -d\n' "$root/scripts/quickshell" "$root/shell.qml"
+        printf 'Launch: /usr/bin/env -u CAELESTIA_START_LOCKED %q -p %q -n -d\n' "$root/scripts/quickshell" "$root/shell.qml"
         return
     fi
 
     [[ "$delay" == 0 ]] || /usr/bin/sleep "$delay"
     for pid in "${pids[@]}"; do stop_shell "$pid"; done
-    "$root/scripts/quickshell" -p "$root/shell.qml" -n -d 9>&-
+    /usr/bin/env -u CAELESTIA_START_LOCKED "$root/scripts/quickshell" -p "$root/shell.qml" -n -d 9>&-
 }
 
 main "$@"

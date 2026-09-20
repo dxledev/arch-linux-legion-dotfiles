@@ -1,4 +1,5 @@
 local bindings = {
+  { "SUPER + SHIFT + L", "Lock Screen", "$HOME/.config/hyprlock/scripts/launch-lock-screen.sh" },
   { "SUPER + ALT + SHIFT + SPACE", "Live Background", "~/bin/bg-live" },
   { "SUPER + CTRL + ALT + SPACE", "Set Background", "~/bin/bg-set" },
   { "SUPER + ALT + L", "Layout Menu", "~/bin/menu-layout" },

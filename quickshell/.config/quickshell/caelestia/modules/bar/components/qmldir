@@ -1,0 +1,13 @@
+module qs.modules.bar.components
+ActiveWindow 1.0 ActiveWindow.qml
+AetherTrayItem 1.0 AetherTrayItem.qml
+Clock 1.0 Clock.qml
+NexusTrayItem 1.0 NexusTrayItem.qml
+ObsidianTrayItem 1.0 ObsidianTrayItem.qml
+OsIcon 1.0 OsIcon.qml
+PersistentTrayItem 1.0 PersistentTrayItem.qml
+Power 1.0 Power.qml
+RecorderTrayItem 1.0 RecorderTrayItem.qml
+StatusIcons 1.0 StatusIcons.qml
+Tray 1.0 Tray.qml
+TrayItem 1.0 TrayItem.qml

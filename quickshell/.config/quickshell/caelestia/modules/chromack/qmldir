@@ -1,0 +1,16 @@
+module qs.modules.chromack
+BaseInput 1.0 BaseInput.qml
+Button 1.0 Button.qml
+singleton ChromackState 1.0 ChromackState.qml
+Content 1.0 Content.qml
+Header 1.0 Header.qml
+Input 1.0 Input.qml
+Label 1.0 Label.qml
+PaletteTab 1.0 PaletteTab.qml
+Picker 1.0 Picker.qml
+Shades 1.0 Shades.qml
+singleton Style 1.0 Style.qml
+Swatch 1.0 Swatch.qml
+Theory 1.0 Theory.qml
+TheoryWheel 1.0 TheoryWheel.qml
+Wrapper 1.0 Wrapper.qml

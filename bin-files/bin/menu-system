@@ -62,6 +62,6 @@ case "$chosen" in
     ;;
   *Lock)
     sleep 0.1
-    "$HOME/.config/hyprlock/scripts/launch-lock-screen.sh"
+    "$HOME/bin/system-lock" --wait
     ;;
 esac

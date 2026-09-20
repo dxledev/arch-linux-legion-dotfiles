@@ -1,0 +1,4 @@
+module qs.modules.nexus.navpane
+NavLocations 1.0 NavLocations.qml
+NavNormalView 1.0 NavNormalView.qml
+NavSearchView 1.0 NavSearchView.qml

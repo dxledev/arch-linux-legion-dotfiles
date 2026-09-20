@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 //@ pragma Env QS_CRASHREPORT_URL=https://github.com/caelestia-dots/shell/issues/new?template=crash.yml
 //@ pragma DefaultEnv QS_NO_RELOAD_POPUP=1
 //@ pragma DefaultEnv QS_DROP_EXPENSIVE_FONTS=1
@@ -6,34 +8,47 @@
 //@ pragma DefaultEnv QML_IMPORT_PATH=/home/dxle/.config/quickshell/.runtime/qml
 //@ pragma DefaultEnv CAELESTIA_LIB_DIR=/home/dxle/.config/quickshell/.runtime/lib/caelestia
 
-import "modules"
-import "modules/drawers"
-import "modules/background"
-import "modules/areapicker"
 import "modules/lock"
 import QtQuick
 import Quickshell
-import qs.services
-import qs.integration
 
 ShellRoot {
     id: root
 
-    settings.watchFiles: false
+    readonly property bool startupLocked: Quickshell.env("CAELESTIA_START_LOCKED") === "1"
+    property bool shellContentRequested
 
-    Binding {
-        target: ShellState
-        property: "shellRoot"
-        value: root
+    function loadShellContent(): void {
+        if (shellContentRequested)
+            return;
+
+        shellContentRequested = true;
+        shellLoader.setSource(Quickshell.shellPath("active/deferred/Shell.qml"), {
+            lock: lockController,
+            shellRoot: root
+        });
     }
 
-    GSFLoader {}
-    Desktop {}
-    ServiceLoader {}
+    settings.watchFiles: false
 
-    Background {}
-    Drawers {}
-    AreaPicker {}
-    Shortcuts {}
-    BatteryMonitor {}
+    Lock {
+        id: lockController
+
+        startLocked: root.startupLocked
+        onSecureChanged: {
+            if (secure)
+                root.loadShellContent();
+        }
+    }
+
+    Loader {
+        id: shellLoader
+
+        asynchronous: root.startupLocked
+    }
+
+    Component.onCompleted: {
+        if (!root.startupLocked || lockController.secure)
+            root.loadShellContent();
+    }
 }

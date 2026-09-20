@@ -13,6 +13,7 @@ RowLayout {
 
     ColumnLayout {
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
         spacing: Tokens.spacing.medium
 
         WeatherInfo {
@@ -38,6 +39,7 @@ RowLayout {
 
     ColumnLayout {
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
         spacing: Tokens.spacing.medium
 
         Resources {

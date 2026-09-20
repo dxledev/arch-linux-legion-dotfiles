@@ -1,0 +1,6 @@
+module qs.modules.speedtest
+Button 1.0 Button.qml
+DiskPanel 1.0 DiskPanel.qml
+NetworkPanel 1.0 NetworkPanel.qml
+singleton SpeedTest 1.0 SpeedTest.qml
+SpeedTestOverlay 1.0 SpeedTestOverlay.qml

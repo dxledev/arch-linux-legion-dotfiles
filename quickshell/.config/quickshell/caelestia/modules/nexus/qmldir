@@ -1,0 +1,9 @@
+module qs.modules.nexus
+NavPane 1.0 NavPane.qml
+Nexus 1.0 Nexus.qml
+singleton NexusSearchRegistry 1.0 NexusSearchRegistry.qml
+NexusState 1.0 NexusState.qml
+singleton PageCompRegistry 1.0 PageCompRegistry.qml
+singleton PageRegistry 1.0 PageRegistry.qml
+Pages 1.0 Pages.qml
+singleton WindowFactory 1.0 WindowFactory.qml

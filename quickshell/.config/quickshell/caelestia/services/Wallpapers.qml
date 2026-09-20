@@ -15,13 +15,14 @@ Searcher {
 
     readonly property string currentNamePath: `${Paths.state}/wallpaper/path.txt`
     readonly property string fallback: Quickshell.shellPath("assets/wallpaper.webp")
+    readonly property string startupWallpaper: `${System.configHome}/themes/.caelestia-use/wallpaper.png`
     readonly property string dynamicDirectory: Quickshell.env("CAELESTIA_DYNAMIC_WALLPAPERS_DIR") || `${Paths.home}/files/pictures/wallpapers/dynamic`
     readonly property string requestedDirectory: Colours.source === "dynamic" ? dynamicDirectory : Paths.wallsdir
 
     property bool showPreview: false
     readonly property string current: showPreview ? previewPath : actualCurrent
     property string previewPath
-    property string actualCurrent
+    property string actualCurrent: startupWallpaper
     property bool previewColourLock
     property bool pendingPreviewClear
     property var wallpaperQueue: []

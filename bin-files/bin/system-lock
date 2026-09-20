@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+mode_script="${SYSTEM_LOCK_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+quickshell_bin="${SYSTEM_LOCK_QUICKSHELL_BIN:-$config_home/quickshell/scripts/quickshell}"
+quickshell_config="${SYSTEM_LOCK_QUICKSHELL_CONFIG:-$config_home/quickshell/shell.qml}"
+hyprlock_script="${SYSTEM_LOCK_HYPRLOCK_SCRIPT:-$config_home/hyprlock/scripts/launch-lock-screen.sh}"
+wait_timeout="${SYSTEM_LOCK_WAIT_TIMEOUT:-10}"
+poll_interval="${SYSTEM_LOCK_POLL_INTERVAL:-0.1}"
+dry_run=0
+wait_for_shell=0
+
+usage() {
+    /usr/bin/cat <<'EOF'
+Usage: system-lock [--dry-run] [--wait]
+
+Lock with Caelestia in Quickshell mode or Hyprlock in Waybar mode.
+--wait retries Caelestia while the shell is starting, then falls back to Hyprlock.
+SYSTEM_LOCK_WAIT_TIMEOUT sets the retry timeout in seconds (default: 10).
+SYSTEM_LOCK_MODE_SCRIPT, SYSTEM_LOCK_QUICKSHELL_BIN, SYSTEM_LOCK_QUICKSHELL_CONFIG,
+SYSTEM_LOCK_HYPRLOCK_SCRIPT, and SYSTEM_LOCK_POLL_INTERVAL override validated paths/settings.
+EOF
+}
+
+fail() {
+    printf 'system-lock: %s\n' "$1" >&2
+    exit 1
+}
+
+require_absolute_executable() {
+    [[ "$1" == /* && -x "$1" ]] || fail "executable not found: $1"
+}
+
+require_absolute_path() {
+    [[ "$1" == /* ]] || fail "$2 must be an absolute path: $1"
+}
+
+validate_number() {
+    [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "$2 must be a non-negative number"
+}
+
+parse_args() {
+    while (($#)); do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --wait) wait_for_shell=1 ;;
+            --help|-h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
+}
+
+mode() {
+    local current
+    [[ -x "$mode_script" ]] || return 1
+    current="$("$mode_script" --status 2>/dev/null)" || return 1
+    case "$current" in
+        quickshell|waybar) printf '%s\n' "$current" ;;
+        *) return 1 ;;
+    esac
+}
+
+quickshell_available() {
+    [[ -x "$quickshell_bin" && -f "$quickshell_config" ]] || return 1
+}
+
+call_quickshell() {
+    quickshell_available || return 1
+    "$quickshell_bin" -p "$quickshell_config" ipc call lock lock >/dev/null 2>&1
+}
+
+lock_quickshell() {
+    local started
+    if call_quickshell; then
+        return 0
+    fi
+
+    (( wait_for_shell )) || return 1
+    started="$SECONDS"
+    while :; do
+        (( SECONDS - started >= wait_timeout )) && return 1
+        /usr/bin/sleep "$poll_interval"
+        call_quickshell && return 0
+    done
+}
+
+run_lock() {
+    local selected_mode="${1:-unknown}"
+    if (( dry_run )); then
+        if [[ "$selected_mode" == quickshell ]] && quickshell_available; then
+            printf '%q -p %q ipc call lock lock\n' "$quickshell_bin" "$quickshell_config"
+        else
+            printf '%q\n' "$hyprlock_script"
+        fi
+        return 0
+    fi
+
+    if [[ "$selected_mode" == quickshell ]] && lock_quickshell; then
+        return 0
+    fi
+    "$hyprlock_script"
+}
+
+main() {
+    local selected_mode=unknown
+    parse_args "$@"
+    [[ "$config_home" == /* ]] || fail 'XDG_CONFIG_HOME must resolve to an absolute path'
+    require_absolute_path "$mode_script" SYSTEM_LOCK_MODE_SCRIPT
+    require_absolute_path "$quickshell_bin" SYSTEM_LOCK_QUICKSHELL_BIN
+    require_absolute_path "$quickshell_config" SYSTEM_LOCK_QUICKSHELL_CONFIG
+    require_absolute_path "$hyprlock_script" SYSTEM_LOCK_HYPRLOCK_SCRIPT
+    [[ "$wait_timeout" =~ ^[0-9]+$ && "$wait_timeout" -le 60 ]] || fail 'SYSTEM_LOCK_WAIT_TIMEOUT must be an integer from 0 to 60'
+    validate_number "$poll_interval" SYSTEM_LOCK_POLL_INTERVAL
+    require_absolute_executable "$hyprlock_script"
+
+    selected_mode="$(mode || printf 'unknown')"
+    run_lock "$selected_mode"
+}
+
+main "$@"

@@ -70,6 +70,10 @@ for _, binding in ipairs(bindings) do
     hl.bind(binding[1], hl.dsp.exec_cmd(ipc .. binding[3]), { description = binding[2] })
 end
 
+local lock_binding = "SUPER + SHIFT + L"
+hl.unbind(lock_binding)
+hl.bind(lock_binding, hl.dsp.global("caelestia:lock"), { description = "Caelestia Lock Screen" })
+
 local volume_bindings = {
     { "XF86AudioRaiseVolume", "/usr/bin/wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 1%+" },
     { "XF86AudioLowerVolume", "/usr/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 1%-" },

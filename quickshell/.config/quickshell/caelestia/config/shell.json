@@ -440,7 +440,8 @@
                 "/home/dxle/bin/system-toggle-nightlight"
             ],
             "logout": [
-                "/home/dxle/.config/hyprlock/scripts/launch-lock-screen.sh"
+                "loginctl",
+                "lock-session"
             ]
         },
         "icons": {

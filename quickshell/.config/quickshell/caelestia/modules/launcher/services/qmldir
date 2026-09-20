@@ -1,0 +1,11 @@
+module qs.modules.launcher.services
+singleton Actions 1.0 Actions.qml
+singleton Apps 1.0 Apps.qml
+singleton DesktopMenus 1.0 DesktopMenus.qml
+singleton Fonts 1.0 Fonts.qml
+singleton Install 1.0 Install.qml
+singleton Learn 1.0 Learn.qml
+singleton M3Variants 1.0 M3Variants.qml
+singleton Schemes 1.0 Schemes.qml
+singleton TerminalPrompts 1.0 TerminalPrompts.qml
+singleton Themes 1.0 Themes.qml

@@ -8,7 +8,6 @@ import Caelestia.I18n
 import Caelestia.Services
 import qs.components
 import qs.components.effects
-import qs.components.widgets
 import qs.services
 import qs.utils
 
@@ -144,7 +143,7 @@ StyledRect {
             }
 
             sourceComponent: Item {
-                WavyTopRect {
+                LockWavyTopRect {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom

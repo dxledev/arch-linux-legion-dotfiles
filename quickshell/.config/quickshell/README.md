@@ -31,7 +31,7 @@ The default shell is Caelestia, adapted from [caelestia-dots/shell](https://gith
 - `caelestia/integration/WindowRounding.qml`: follows `border.rounding` in `shell.json` (default 25), using circular corners (`power: 2`). Reapplies after Hyprland reloads while Quickshell mode is selected. Waybar restores the normal Hyprland configuration.
 - `caelestia/integration/hyprland.lua`: loaded through `active` at the end of the Hyprland config and applied only in Quickshell mode.
 
-The wallpaper selector previews highlighted images live through `awww`, using a horizontal wipe with a soft fade (0.65 seconds, 144 FPS, color step 3). Closing the selector restores the saved wallpaper; confirming saves the current theme's wallpaper link. Rapid navigation coalesces pending previews so the latest selection wins. Set `AWWW_TRANSITION`, `AWWW_TRANSITION_DURATION`, `AWWW_TRANSITION_ANGLE`, `AWWW_TRANSITION_STEP`, or `AWWW_TRANSITION_FPS` in the shell environment to customize the effect. Preview the command with `integration/system-action --dry-run wallpaper-preview /absolute/image/path`. The existing `awww` slideshow continues to work. Hyprlock/hypridle, SwayOSD, OBS recording tools, and the system theme scripts remain the configured providers; Caelestia's parallel wallpaper, lock, idle and recording workflows are disabled or routed to them.
+The wallpaper selector previews highlighted images live through `awww`, using a horizontal wipe with a soft fade (0.65 seconds, 144 FPS, color step 3). Closing the selector restores the saved wallpaper; confirming saves the current theme's wallpaper link. Rapid navigation coalesces pending previews so the latest selection wins. Set `AWWW_TRANSITION`, `AWWW_TRANSITION_DURATION`, `AWWW_TRANSITION_ANGLE`, `AWWW_TRANSITION_STEP`, or `AWWW_TRANSITION_FPS` in the shell environment to customize the effect. Preview the command with `integration/system-action --dry-run wallpaper-preview /absolute/image/path`. The existing `awww` slideshow continues to work. Hypridle remains the idle scheduler, while `~/bin/system-lock` routes idle, pre-sleep, menu, and manual locking to Caelestia in Quickshell mode or the existing Hyprlock configuration in Waybar mode. SwayOSD, OBS recording tools, and the system theme scripts remain the configured providers.
 
 The original right-edge Caelestia OSD is enabled alongside SwayOSD. It includes volume plus Primary (HDMI-A-1) and Secondary (DP-1) brightness sliders; hover the right edge to open it and hover a brightness slider to see its label. Configure the monitor list and labels in `caelestia/config/integration.json` under `brightnessMonitors`. Brightness uses DDC and shares the lock/cache used by `~/bin/system-brightness-{hdmi,dp}`; readings synchronize through file-change notifications, with no recurring hardware polling. Use `qs ipc call brightness refresh` after changes made with a monitor’s physical buttons. `brightnessWriteDelay` in `integration.json` controls the minimum interval between queued writes (default 100 ms). Preview an absolute adjustment with `/usr/bin/bash integration/monitor-brightness --dry-run HDMI-A-1 BUS set 50` (substitute the detected I2C bus number).
 
@@ -61,6 +61,10 @@ Aether's local and bundled library is `~/files/pictures/Aether`; its generated t
 
 Optional environment overrides: `QUICKSHELL_ROOT`, `QUICKSHELL_RUNTIME`, `SHELL_THEME_FILE`, `SHELL_THEMES_DIR`, `SHELL_WALLPAPER`, `SHELL_DYNAMIC_WALLPAPER`, `CAELESTIA_DYNAMIC_WALLPAPERS_DIR`, `AETHER_BIN`, `AETHER_LIBRARY_DIR`, `AETHER_THEME_FILE`, `AETHER_WALLPAPERS_DIR`, `AETHER_QUICKSHELL_WRAPPER`, `SHELL_PROFILE_PICTURE`, `DESKTOP_SCRIPTS_DIR`, and `QS_ICON_THEME` (default Papirus). Machine-specific application commands and directories are in `shell.json`. The launcher wrapper supplies the runtime paths and exports the icon theme before Qt initializes; a QML environment pragma is too late for icon lookup. For a direct launch, use `QS_ICON_THEME=Papirus qs`; the two default runtime paths in `caelestia/shell.qml` support this.
 
+`~/bin/system-lock [--dry-run] [--wait]` selects the active shell's lock owner. `--wait` retries the Caelestia IPC during startup for up to 10 seconds before falling back to Hyprlock; `--dry-run` prints the selected command without locking. Override its paths or timing with `SYSTEM_LOCK_MODE_SCRIPT`, `SYSTEM_LOCK_QUICKSHELL_BIN`, `SYSTEM_LOCK_QUICKSHELL_CONFIG`, `SYSTEM_LOCK_HYPRLOCK_SCRIPT`, `SYSTEM_LOCK_WAIT_TIMEOUT`, and `SYSTEM_LOCK_POLL_INTERVAL`.
+
+`CAELESTIA_START_LOCKED=1` constructs the native lock first, loads its saved palette and wallpaper synchronously, and defers the rest of the shell until the compositor confirms the session is secure. The startup wallpaper daemon also waits for that confirmation. A missing or stale palette is regenerated before launch. Do not set the variable for ordinary Caelestia launches or shell restarts.
+
 ## Controls
 
 | Key | Action |
@@ -71,6 +75,7 @@ Optional environment overrides: `QUICKSHELL_ROOT`, `QUICKSHELL_RUNTIME`, `SHELL_
 | Super+D | Utilities |
 | Super+Shift+B | Session menu |
 | Super+Shift+C | Chromack |
+| Super+Shift+L | Mode-aware lock screen |
 | Super+Ctrl+Alt+Q | Existing Waybar/Quickshell mode toggle |
 
 ```bash
@@ -107,7 +112,7 @@ Run clone commands only for missing directories. Set `SHELL_SOURCES`, `SHELL_BUI
 
 ## Validation
 
-The native plugins built successfully on this machine. Live checks verified a single root shell instance, notification ownership, shared theme/font/wallpaper values, the launcher binding, panel loading, and a Waybar/Caelestia mode round trip. Hyprland reported no configuration errors. Bash, JSON, and Lua checks passed. Use `/usr/lib/qt6/bin/qmlformat` for QML checks; `/usr/bin/qmlformat` belongs to Qt 5. Notification formatting passed 12 Qt 6 regression checks and a live styled-popup check. Suspend, shutdown, locking, and hardware-changing actions were not invoked as tests.
+The native plugins built successfully on this machine. Live checks verified a single root shell instance, notification ownership, shared theme/font/wallpaper values, the launcher binding, panel loading, and a Waybar/Caelestia mode round trip. Hyprland reported no configuration errors. Bash, JSON, and Lua checks passed. Use `/usr/lib/qt6/bin/qmlformat` for QML checks; `/usr/bin/qmlformat` belongs to Qt 5. Notification formatting passed 12 Qt 6 regression checks and a live styled-popup check. Native Caelestia locking and the mode-aware router were also verified; suspend, shutdown, and hardware-changing actions were not invoked as tests.
 
 ## Chromack
 

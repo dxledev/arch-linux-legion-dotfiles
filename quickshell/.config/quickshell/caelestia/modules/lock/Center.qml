@@ -10,15 +10,18 @@ ColumnLayout {
 
     required property var lock
     readonly property real centerScale: Math.min(1, (lock.screen?.height ?? 1440) / 1440)
-    readonly property int centerWidth: Tokens.sizes.lock.centerWidth * centerScale
+    readonly property int centerWidth: Math.max(Tokens.sizes.lock.centerWidth * centerScale, clock.implicitWidth)
 
     Layout.preferredWidth: centerWidth
+    Layout.minimumWidth: centerWidth
     Layout.fillWidth: false
     Layout.fillHeight: true
 
     spacing: Tokens.spacing.largeIncreased
 
     Clock {
+        id: clock
+
         Layout.alignment: Qt.AlignHCenter
         Layout.topMargin: Tokens.padding.large
         centerScale: root.centerScale

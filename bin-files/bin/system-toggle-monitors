@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
-LOCK_SCRIPT="${SCRIPT_DIR}/launch-lock-screen"
+LOCK_SCRIPT="${SYSTEM_LOCK_SCRIPT:-$HOME/bin/system-lock}"
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/system-toggle-monitors"
 PID_FILE="${STATE_DIR}/hypridle.pid"
 CONFIG_FILE="${STATE_DIR}/hypridle.conf"

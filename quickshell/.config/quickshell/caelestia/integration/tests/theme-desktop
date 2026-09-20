@@ -113,6 +113,7 @@ test_palette_cache() {
     elapsed_ms=$(( $(/usr/bin/date +%s%3N) - start_ms ))
     (( elapsed_ms < 700 )) || fail "Palette prewarming blocked refresh for ${elapsed_ms}ms."
     [[ "$(/usr/bin/jq -r '.variant' "$controller_state/caelestia/shell-theme-palette.json")" == tonalspot ]] || fail 'Current variant was not applied first.'
+    /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" cache-ready || fail 'Current Dynamic palette was not accepted as cached.'
 
     deadline=$((SECONDS + 8))
     while :; do
@@ -133,6 +134,13 @@ test_palette_cache() {
     after_calls="$(/usr/bin/grep -c '^wallpaper ' "$cli_log")"
     [[ "$after_calls" == "$before_calls" ]] || fail 'A cached Light mode invoked the palette engine again.'
     [[ "$(/usr/bin/jq -r '.mode' "$controller_state/caelestia/shell-theme-palette.json")" == light ]] || fail 'Cached Light mode was not applied.'
+    /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" cache-ready || fail 'Updated Dynamic palette was not accepted as cached.'
+
+    /usr/bin/jq '.mode = "dark"' "$controller_state/caelestia/shell-theme-palette.json" > "$controller_root/stale-palette.json"
+    /usr/bin/mv -- "$controller_root/stale-palette.json" "$controller_state/caelestia/shell-theme-palette.json"
+    if /usr/bin/env "${controller_env[@]}" "$integration_dir/shell-theme" cache-ready; then
+        fail 'A stale Dynamic palette was accepted as cached.'
+    fi
 }
 
 trap cleanup EXIT

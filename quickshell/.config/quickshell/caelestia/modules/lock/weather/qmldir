@@ -1,0 +1,3 @@
+module qs.modules.lock.weather
+BriefInfo 1.0 BriefInfo.qml
+Forecast 1.0 Forecast.qml

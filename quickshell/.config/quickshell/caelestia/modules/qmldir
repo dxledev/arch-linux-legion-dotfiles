@@ -1,0 +1,6 @@
+module qs.modules
+BatteryMonitor 1.0 BatteryMonitor.qml
+GSFLoader 1.0 GSFLoader.qml
+IdleMonitors 1.0 IdleMonitors.qml
+ServiceLoader 1.0 ServiceLoader.qml
+Shortcuts 1.0 Shortcuts.qml
