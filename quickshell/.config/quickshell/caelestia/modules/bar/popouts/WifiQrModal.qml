@@ -7,6 +7,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Caelestia.Config
 import qs.components
+import qs.services
 import "WifiQrModel.js" as WifiQrModel
 
 Item {
@@ -31,9 +32,9 @@ Item {
     property bool passwordExpectedStop: false
 
     readonly property bool showingQr: qrSize > 0 && !loading && error === ""
-    readonly property color onScrim: "white"
-    readonly property color onScrimDim: Qt.rgba(1, 1, 1, 0.55)
-    readonly property color onScrimUrgent: "#ff6b6b"
+    readonly property color onScrim: Colours.palette.m3onBackground
+    readonly property color onScrimDim: Qt.alpha(Colours.palette.m3onBackground, 0.55)
+    readonly property color onScrimUrgent: Colours.palette.m3error
     readonly property string qrScript: Quickshell.shellPath("integration/wifi-qr")
     readonly property string passwordScript: Quickshell.shellPath("integration/wifi-password")
 
@@ -236,7 +237,7 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                color: Qt.rgba(0, 0, 0, 0.78)
+                color: Qt.alpha(Colours.palette.m3background, 0.78)
 
                 MouseArea {
                     anchors.fill: parent

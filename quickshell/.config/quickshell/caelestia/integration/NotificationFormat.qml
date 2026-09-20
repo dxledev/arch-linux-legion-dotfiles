@@ -7,7 +7,7 @@ import Shell.Integration
 Singleton {
     id: root
 
-    readonly property string styleFile: Quickshell.env("SHELL_NOTIFICATION_STYLE") || System.configHome + "/themes/current/ward.css"
+    readonly property string styleFile: Quickshell.env("SHELL_NOTIFICATION_STYLE") || System.configHome + "/themes/.caelestia-use/ward.css"
     property var styleVariables: ({})
     readonly property var variables: {
         const result = Object.assign({}, styleVariables);

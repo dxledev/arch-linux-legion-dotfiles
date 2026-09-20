@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
-import qs.integration
+import qs.services
 
 PanelWindow {
   id: root
@@ -52,9 +52,9 @@ PanelWindow {
     NumberAnimation { duration: 400; easing.type: Easing.OutCubic }
   }
 
-  readonly property color onScrim: "white"
-  readonly property color onScrimDim: Qt.rgba(1, 1, 1, 0.55)
-  readonly property color onScrimUrgent: "#ff6b6b"
+  readonly property color onScrim: Colours.palette.m3onBackground
+  readonly property color onScrimDim: Qt.alpha(Colours.palette.m3onBackground, 0.55)
+  readonly property color onScrimUrgent: Colours.palette.m3error
 
   visible: open
   onOpenChanged: {
@@ -74,7 +74,7 @@ PanelWindow {
 
   Rectangle {
     anchors.fill: parent
-    color: Qt.rgba(0, 0, 0, 0.78)
+    color: Qt.alpha(Colours.palette.m3background, 0.78)
 
     MouseArea {
       anchors.fill: parent
@@ -247,7 +247,7 @@ PanelWindow {
 
       ShapePath {
         strokeWidth: dial.arcWidth * 3
-        strokeColor: dial.arcVisible ? Qt.rgba(Colors.primary.r, Colors.primary.g, Colors.primary.b, 0.18) : "transparent"
+        strokeColor: dial.arcVisible ? Qt.alpha(Colours.palette.m3primary, 0.18) : "transparent"
         fillColor: "transparent"
         capStyle: ShapePath.RoundCap
 
@@ -263,7 +263,7 @@ PanelWindow {
 
       ShapePath {
         strokeWidth: dial.arcWidth
-        strokeColor: dial.arcVisible ? Colors.primary : "transparent"
+        strokeColor: dial.arcVisible ? Colours.palette.m3primary : "transparent"
         fillColor: "transparent"
         capStyle: ShapePath.RoundCap
 
@@ -311,8 +311,8 @@ PanelWindow {
         radius: width / 2
 
         gradient: Gradient {
-          GradientStop { position: 0.0; color: Colors.primary }
-          GradientStop { position: 0.55; color: Colors.primary }
+          GradientStop { position: 0.0; color: Colours.palette.m3primary }
+          GradientStop { position: 0.55; color: Colours.palette.m3primary }
           GradientStop { position: 1.0; color: "transparent" }
         }
       }
