@@ -26,9 +26,7 @@ Item {
     property bool sourceMuted
     property var pendingValueDisplays: ({})
 
-    function show(control: string): void {
-        if (screenState !== ShellState.forActive())
-            return;
+    function showLocal(control: string): void {
         if (!content.item) {
             const pending = Object.assign({}, pendingValueDisplays);
             pending[control] = true;
@@ -38,9 +36,18 @@ Item {
         timer.restart();
     }
 
+    function showValue(control: string): void {
+        if (screenState !== ShellState.forActive())
+            return;
+
+        const targetScreen = ShellState.osdTargetFor(screen);
+        const target = ShellState.componentsFor(targetScreen)?.panels?.osd;
+        target?.showLocal(control);
+    }
+
     function showAudio(control: string): void {
         if (!audioPopoutVisible)
-            show(control);
+            showValue(control);
     }
 
     Component.onCompleted: {
@@ -93,7 +100,7 @@ Item {
             target: modelData.monitor
             function onBrightnessChanged(): void {
                 if (modelData.monitor.initialized)
-                    root.show(modelData.monitor.modelData.name);
+                    root.showValue(modelData.monitor.modelData.name);
             }
         }
     }

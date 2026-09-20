@@ -28,6 +28,25 @@ Singleton {
         return null;
     }
 
+    function hasFullscreen(screen: ShellScreen): bool {
+        const monitor = Hypr.monitorFor(screen);
+        const specialName = monitor?.lastIpcObject.specialWorkspace?.name;
+
+        if (specialName) {
+            const specialWs = Hypr.workspaces.values.find(ws => ws.name === specialName);
+            return specialWs?.toplevels.values.some(t => t.lastIpcObject.fullscreen > 1) ?? false;
+        }
+
+        return monitor?.activeWorkspace?.toplevels.values.some(t => t.lastIpcObject.fullscreen > 1) ?? false;
+    }
+
+    function osdTargetFor(preferredScreen: ShellScreen): ShellScreen {
+        if (preferredScreen && Screens.screens.includes(preferredScreen) && !hasFullscreen(preferredScreen))
+            return preferredScreen;
+
+        return Screens.screens.find(screen => !hasFullscreen(screen)) ?? null;
+    }
+
     function componentsFor(screen: ShellScreen): Components {
         for (const c of components.instances)
             if (c.modelData === screen)
