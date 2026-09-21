@@ -352,6 +352,7 @@ verify_waybar_stopped() {
     for name in "${waybar_processes[@]}"; do
         is_running "$name" && return 1
     done
+    return 0
 }
 
 verify_mode() {
@@ -372,8 +373,6 @@ apply_profile() {
     if [[ "$target" == noctalia ]]; then
         stop_external_wallpaper
         start_noctalia_profile full "$lock_flag"
-        [[ -x "$noctalia_theme_sync" ]] || fail "Noctalia theme synchronizer not found: $noctalia_theme_sync"
-        THEME_APPLY_WAIT_FOR_RELOADS=1 "$noctalia_theme_sync"
     else
         restore_desktop_theme
         restore_external_wallpaper
@@ -469,6 +468,11 @@ transition() {
         "$hyprctl_bin" reload >/dev/null || return 1
     fi
     /usr/bin/sleep "$shell_health_delay"
+    if [[ "$target" == noctalia ]]; then
+        [[ -x "$noctalia_theme_sync" ]] || fail "Noctalia theme synchronizer not found: $noctalia_theme_sync"
+        THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" || return 1
+        stop_waybar_owned || return 1
+    fi
     verify_mode "$target"
 }
 

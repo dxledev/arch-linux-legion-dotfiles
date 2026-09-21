@@ -1,3 +1,3 @@
 hl.on("hyprland.start", function()
-  hl.exec_cmd("hyprctl setcursor Simp1e-Dark 24")
+  hl.exec_cmd("hyprctl setcursor Notwaita-everforest 24")
 end)
