@@ -99,7 +99,7 @@ ensure_palette_links() {
 }
 
 sync_current_theme() {
-    local selected current_link current_name dynamic_noctalia dynamic_caelestia handoff_dynamic
+    local selected current_link current_name dynamic_noctalia dynamic_caelestia handoff_dynamic scheme_source
     handoff_dynamic="${NOCTALIA_DYNAMIC_HANDOFF:-0}"
     [[ "$handoff_dynamic" == 0 || "$handoff_dynamic" == 1 ]] || fail 'NOCTALIA_DYNAMIC_HANDOFF must be 0 or 1.'
     selected="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
@@ -112,15 +112,16 @@ sync_current_theme() {
         return 0
     fi
 
+    if [[ "$handoff_dynamic" == 1 ]]; then
+        read -r scheme_source _ < <("$runtime_bin" msg color-scheme-get 2>/dev/null || true)
+        [[ "$scheme_source" == custom ]] &&
+            "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
+        return 0
+    fi
+
     current_link="$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)"
     current_name="$(/usr/bin/basename -- "$current_link")"
     [[ "$current_name" =~ ^[a-z0-9][a-z0-9._-]*$ && -f "$current_link/noctalia.json" && -f "$current_link/wallpaper.png" ]] || return 0
-    if [[ "$handoff_dynamic" == 1 ]]; then
-        "$runtime_bin" msg theme-mode-set "$([[ "$current_name" == akaito ]] && printf light || printf dark)" >/dev/null 2>&1 || true
-        "$runtime_bin" msg wallpaper-set "$current_link/wallpaper.png" >/dev/null 2>&1 || true
-        "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
-        return 0
-    fi
     "$runtime_bin" msg wallpaper-set "$current_link/wallpaper.png" >/dev/null 2>&1 || true
     "$runtime_bin" msg color-scheme-set custom "$current_name" >/dev/null 2>&1 || true
     "$runtime_bin" msg theme-mode-set "$([[ "$current_name" == akaito ]] && printf light || printf dark)" >/dev/null 2>&1 || true
