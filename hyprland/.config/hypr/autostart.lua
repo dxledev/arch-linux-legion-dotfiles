@@ -1,6 +1,5 @@
 local startup_commands = {
   "~/bin/toggle-shell-mode --apply",
-  "hyprpm reload",
   "~/bin/launch-hypridle",
   "~/bin/launch-hyprsunset",
   "~/bin/launch-cliphist",

@@ -1,6 +1,8 @@
 local hyprctl_bin = "/usr/bin/hyprctl"
 local hyprpm_bin = "/usr/bin/hyprpm"
 local grep_bin = "/usr/bin/grep"
+local flock_bin = "/usr/bin/flock"
+local plugin_reload_lock = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hyprpm-dxle-reload.lock"
 local startup_reload_delay = 1
 
 local fallback_plugins = {
@@ -92,15 +94,24 @@ local function plugin_reload_commands()
   return commands
 end
 
-local function apply_plugins()
-  hl.exec_cmd(table.concat(plugin_reload_commands(), " ; "))
+local function guarded_plugin_command(commands)
+  if #commands == 0 then
+    return nil
+  end
+
+  return flock_bin
+    .. " -n "
+    .. shell_quote(plugin_reload_lock)
+    .. " -c "
+    .. shell_quote(table.concat(commands, " ; "))
 end
 
 hl.on("hyprland.start", function()
   local commands = plugin_reload_commands()
 
   table.insert(commands, hyprctl_bin .. " dismissnotify")
-  hl.exec_cmd("sleep " .. startup_reload_delay .. " ; " .. table.concat(commands, " ; "))
+  local command = guarded_plugin_command(commands)
+  if command then
+    hl.exec_cmd("sleep " .. startup_reload_delay .. " ; " .. command)
+  end
 end)
-
-hl.on("config.reloaded", apply_plugins)

@@ -1,0 +1,111 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -1553,7 +1553,9 @@
+         "source": {
+           "built-in": "Built-In",
+           "community": "Community",
+           "custom": "Custom",
++          "dynamic": "Dynamic",
++          "static": "Static",
+           "wallpaper": "Wallpaper"
+         }
+       },
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.h b/src/shell/wallpaper/panel/wallpaper_panel.h
+--- a/src/shell/wallpaper/panel/wallpaper_panel.h
++++ b/src/shell/wallpaper/panel/wallpaper_panel.h
+@@ -77,6 +77,7 @@ private:
+   void applyFilter();
+   void syncBrowseChrome();
+   void syncBackButton();
++  void resetBrowseDirectory();
+   void navigateInto(const std::filesystem::path& dir);
+   void navigateUp();
+   void applyWallpaperFromEntry(const WallpaperEntry& entry);
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+--- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
++++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+@@ -184,6 +184,16 @@
+     return !relText.starts_with("..");
+   }
+ 
++  [[nodiscard]] bool isSafeStaticThemeName(std::string_view name) {
++    if (name.empty() || !std::isalnum(static_cast<unsigned char>(name.front()))) {
++      return false;
++    }
++    return std::all_of(name.begin(), name.end(), [](char value) {
++      const auto ch = static_cast<unsigned char>(value);
++      return std::isalnum(ch) || value == '.' || value == '-' || value == '_';
++    });
++  }
++
+   [[nodiscard]] int caseInsensitiveNameOrder(std::string_view a, std::string_view b) {
+     return StringUtils::naturalCaseInsensitiveCompare(a, b);
+   }
+@@ -607,12 +617,12 @@ void WallpaperPanel::create() {
+     paletteSourceOptions.push_back({.label = i18n::tr(labelKey)});
+   };
+   addPaletteSource(PaletteSource::Builtin, "settings.options.theme.source.built-in");
+-  addPaletteSource(PaletteSource::Wallpaper, "settings.options.theme.source.wallpaper");
++  addPaletteSource(PaletteSource::Wallpaper, "settings.options.theme.source.dynamic");
++  if (!noctalia::theme::availableCustomPalettes().empty()) {
++    addPaletteSource(PaletteSource::Custom, "settings.options.theme.source.static");
++  }
+   if (!noctalia::theme::availableCommunityPalettes().empty()) {
+     addPaletteSource(PaletteSource::Community, "settings.options.theme.source.community");
+   }
+-  if (!noctalia::theme::availableCustomPalettes().empty()) {
+-    addPaletteSource(PaletteSource::Custom, "settings.options.theme.source.custom");
+-  }
+ 
+   favoritesOptions->addChild(
+@@ -641,5 +651,6 @@ void WallpaperPanel::create() {
+             m_syncingFavoriteControls = false;
+ 
+             applyThemeFromControls();
++            resetBrowseDirectory();
+             m_dirty = true;
+             PanelManager::instance().refresh();
+@@ -662,5 +673,10 @@ void WallpaperPanel::create() {
+                   return;
+                 }
+                 applyThemeFromControls();
++                if (m_favoritePaletteSourceSegmented != nullptr
++                    && paletteSourceForSegment(m_favoritePaletteSourceSegmented->selectedIndex())
++                        == PaletteSource::Custom) {
++                  resetBrowseDirectory();
++                }
+                 m_dirty = true;
+                 PanelManager::instance().refresh();
+@@ -894,6 +911,7 @@ void WallpaperPanel::onOpen(std::string_view /*context*/) {
+   m_navStack.clear();
+   populateMonitorChoices();
+   syncSortButtonGlyph();
+   reseedRandomSort();
++  syncThemeControls();
+   refreshVisibleEntries();
+   resetSelection();
+@@ -1016,9 +1034,23 @@ void WallpaperPanel::populateMonitorChoices() {
+   }
+ }
+ 
++void WallpaperPanel::resetBrowseDirectory() {
++  m_navStack.clear();
++  refreshVisibleEntries();
++  resetSelection();
++  rebindGrid(true);
++  syncBackButton();
++  syncBrowseChrome();
++}
++
+ std::filesystem::path WallpaperPanel::rootDirectoryForSelection() const {
+   if (m_config == nullptr || m_selectedMonitorIndex >= m_monitorChoices.size()) {
+     return {};
+   }
+   const auto& wp = m_config->config().wallpaper;
++  const WallpaperFavorite theme = activeThemeSettings();
++  if (theme.paletteSource.value_or(PaletteSource::Builtin) == PaletteSource::Custom
++      && isSafeStaticThemeName(theme.customPalette)) {
++    return FileUtils::expandUserPath("~/files/pictures/wallpapers/" + theme.customPalette);
++  }
+   const ThemeMode configured = shellThemeMode(m_config->config().theme);

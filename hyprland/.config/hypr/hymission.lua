@@ -10,7 +10,7 @@ hl.config({
             niri_window_gaps = -1,
             niri_mode_show_empty_workspaces_btwn = 1,
             niri_mode_wallpaper_zoom = 1,
-            niri_mode_wallpaper_zoom_layer_namespaces = "awww-daemon, noctalia-wallpaper",
+            niri_mode_wallpaper_zoom_layer_namespaces = "awww-daemon, noctalia-wallpaper, noctalia-desktop-widget-.*",
             niri_mode_wallpaper_zoom_layer_refresh_ms = 10,
             debug_logs = 1,
             only_active_workspace = 1,

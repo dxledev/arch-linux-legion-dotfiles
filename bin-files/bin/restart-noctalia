@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly noctalia_wrapper="/home/dxle/bin/noctalia-shell"
+readonly process_user="${UID}"
+readonly wait_attempts=100
+dry_run=0
+
+usage() {
+    printf '%s\n' \
+        'Usage:' \
+        '  restart-noctalia [--dry-run]' \
+        '  restart-noctalia --help'
+}
+
+fail() {
+    printf 'restart-noctalia: %s\n' "$*" >&2
+    exit 1
+}
+
+process_ids() {
+    /usr/bin/pgrep -u "$process_user" -x noctalia 2>/dev/null || true
+}
+
+require_running_instance() {
+    [[ -n "$(process_ids)" ]] || fail 'No running Noctalia instance was found; refusing to start one.'
+}
+
+stop_instance() {
+    local attempt
+    /usr/bin/pkill -TERM -u "$process_user" -x noctalia 2>/dev/null || true
+    for (( attempt = 0; attempt < wait_attempts; attempt++ )); do
+        [[ -z "$(process_ids)" ]] && return 0
+        /usr/bin/sleep 0.1
+    done
+    fail 'Noctalia did not stop within 10 seconds; refusing to start another instance.'
+}
+
+main() {
+    while (( $# )); do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; return 2 ;;
+        esac
+        shift
+    done
+
+    [[ -x "$noctalia_wrapper" ]] || fail "Executable not found: $noctalia_wrapper"
+    require_running_instance
+    if (( dry_run )); then
+        printf '%s\n' \
+            'A running Noctalia instance was found.' \
+            "Would run: $noctalia_wrapper stop" \
+            "Would run: $noctalia_wrapper start --profile full"
+        return 0
+    fi
+
+    stop_instance
+    "$noctalia_wrapper" start --profile full
+}
+
+main "$@"
