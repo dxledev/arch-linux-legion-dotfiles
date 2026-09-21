@@ -3,12 +3,15 @@ local home = os.getenv("HOME")
 local noctalia = os.getenv("NOCTALIA_BIN") or (config_home .. "/noctalia/.runtime/bin/noctalia")
 local lock_script = home .. "/bin/system-lock"
 
-local caelestia_bindings = {
+local shell_bindings = {
   "SUPER + SHIFT + ALT + S",
   "SUPER + ALT + S",
   "SUPER + ALT + E",
   "SUPER + ALT + U",
   "SUPER + ALT + L",
+  "SUPER + ALT + SHIFT + SPACE",
+  "SUPER + ALT + SHIFT + C",
+  "SUPER + SHIFT + ALT + T",
   "SUPER + SPACE",
   "SUPER + ALT + SPACE",
   "SUPER + ALT + T",
@@ -23,6 +26,10 @@ local caelestia_bindings = {
   "SUPER + D",
   "SUPER + SHIFT + B",
   "SUPER + SHIFT + C",
+  "SUPER + SHIFT + ALT + W",
+  "SUPER + ALT + B",
+  "SUPER + ALT + D",
+  "SUPER + SHIFT + CTRL + W",
   "SUPER + SHIFT + L",
   "XF86AudioRaiseVolume",
   "XF86AudioLowerVolume",
@@ -37,7 +44,7 @@ local caelestia_bindings = {
   "SUPER + F4",
 }
 
-for _, key in ipairs(caelestia_bindings) do
+for _, key in ipairs(shell_bindings) do
   hl.unbind(key)
 end
 

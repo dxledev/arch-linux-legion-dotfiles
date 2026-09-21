@@ -239,12 +239,16 @@ stop_noctalia() {
 }
 
 start_noctalia_profile() {
-    local profile lock_flag args
+    local profile lock_flag="${2:-0}" dynamic_handoff="${3:-0}" args
     profile="$1"
-    lock_flag="${2:-0}"
+    [[ "$dynamic_handoff" == 0 || "$dynamic_handoff" == 1 ]] || return 1
     args=(start --profile "$profile")
     (( lock_flag )) && args+=(--start-locked)
-    "$noctalia_shell" "${args[@]}" 9>&-
+    if (( dynamic_handoff )); then
+        NOCTALIA_DYNAMIC_HANDOFF=1 "$noctalia_shell" "${args[@]}" 9>&-
+    else
+        "$noctalia_shell" "${args[@]}" 9>&-
+    fi
 }
 
 verify_noctalia_profile() {
@@ -366,14 +370,14 @@ verify_mode() {
 }
 
 apply_profile() {
-    local target="$1" lock_flag="${2:-0}"
+    local target="$1" lock_flag="${2:-0}" dynamic_handoff="${3:-0}"
     stop_process hyprlock || return 1
     stop_quickshell || return 1
     stop_waybar_owned || return 1
     stop_noctalia || return 1
     if [[ "$target" == noctalia ]]; then
         stop_external_wallpaper
-        start_noctalia_profile full "$lock_flag"
+        start_noctalia_profile full "$lock_flag" "$dynamic_handoff"
     else
         restore_desktop_theme "$target"
         restore_external_wallpaper
@@ -463,8 +467,9 @@ restore_previous() {
 }
 
 transition() {
-    local target="$1"
-    apply_profile "$target" "$startup_locked" || return 1
+    local target="$1" previous="$2" dynamic_handoff=0
+    [[ "$target" != noctalia || "$previous" == noctalia ]] || dynamic_handoff=1
+    apply_profile "$target" "$startup_locked" "$dynamic_handoff" || return 1
     verify_mode "$target" || return 1
     if [[ "$action" != apply ]]; then
         write_markers "$target"
@@ -473,7 +478,11 @@ transition() {
     /usr/bin/sleep "$shell_health_delay"
     if [[ "$target" == noctalia ]]; then
         [[ -x "$noctalia_theme_sync" ]] || fail "Noctalia theme synchronizer not found: $noctalia_theme_sync"
-        THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" || return 1
+        if (( dynamic_handoff )); then
+            NOCTALIA_DYNAMIC_HANDOFF=1 THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" || return 1
+        else
+            THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" || return 1
+        fi
         stop_waybar_owned || return 1
     fi
     verify_mode "$target"
@@ -502,7 +511,7 @@ main() {
     /usr/bin/flock -n 9 || fail 'A shell mode transition is already running.'
     [[ "$(current_mode)" == "$current" ]] || fail 'Mode changed; run the command again.'
     "$hyprctl_bin" version >/dev/null || fail 'Cannot reach Hyprland.'
-    if ! transition "$target"; then
+    if ! transition "$target" "$current"; then
         restore_previous "$current" || true
         fail "Could not sustain $target mode; attempted to restore $current."
     fi
