@@ -69,6 +69,9 @@ local function bind_message(key, description, message, options)
 end
 
 bind_panel("SUPER + SPACE", "App Launcher", "launcher")
+bind_panel("SUPER + SHIFT + D", "Dashboard", "control-center")
+bind_panel("SUPER + ALT + A", "Audio Menu", "control-center audio")
+bind_panel("SUPER + ALT + C", "Clipboard Menu", "clipboard")
 bind_panel("SUPER + CTRL + ALT + SPACE", "Wallpaper Panel", "wallpaper")
 bind_message("SUPER + ALT + T", "Theme Settings", "settings-toggle theme")
 bind_panel("SUPER + ALT + P", "Session", "session")

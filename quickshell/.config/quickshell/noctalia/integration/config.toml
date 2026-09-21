@@ -20,6 +20,17 @@ community_ids = []
 [lockscreen]
 enabled = true
 
+[brightness]
+enable_ddcutil = true
+
+[brightness.monitor.DP-1]
+backend = "ddcutil"
+ddc_bus = 2
+
+[brightness.monitor.HDMI-A-1]
+backend = "ddcutil"
+ddc_bus = 4
+
 [hooks]
 wallpaper_changed = ["$HOME/bin/noctalia-theme-sync"]
 colors_changed = ["$HOME/bin/noctalia-theme-sync"]
