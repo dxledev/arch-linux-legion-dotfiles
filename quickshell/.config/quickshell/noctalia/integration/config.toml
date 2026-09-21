@@ -1,0 +1,26 @@
+[wallpaper]
+enabled = true
+directory = "~/files/pictures/wallpapers/dynamic"
+directory_light = "~/files/pictures/wallpapers/dynamic"
+directory_dark = "~/files/pictures/wallpapers/dynamic"
+
+[theme]
+source = "wallpaper"
+wallpaper_scheme = "m3-tonal-spot"
+mode = "dark"
+shell_mode = "follow"
+
+[theme.templates]
+enable_builtin_templates = true
+builtin_ids = ["emacs", "foot", "helix", "kcolorscheme", "labwc", "mango", "niri", "qt", "scroll", "starship", "sway", "umbriel", "wezterm"]
+excluded_ids = ["alacritty", "btop", "cava", "ghostty", "gtk3", "gtk4", "hyprland", "kitty"]
+enable_community_templates = false
+community_ids = []
+
+[lockscreen]
+enabled = true
+
+[hooks]
+wallpaper_changed = ["$HOME/bin/noctalia-theme-sync"]
+colors_changed = ["$HOME/bin/noctalia-theme-sync"]
+theme_mode_changed = ["$HOME/bin/noctalia-theme-sync"]

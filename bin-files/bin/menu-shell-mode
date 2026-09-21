@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+mode_script="${SHELL_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+menu_id="menu-shell-mode"
+pid_file="/tmp/menu-rofi.pid"
+
+usage() {
+    printf 'Usage: menu-shell-mode\n'
+}
+
+[[ $# -eq 0 ]] || { usage >&2; exit 2; }
+[[ -x "$mode_script" ]] || { printf 'menu-shell-mode: missing %s\n' "$mode_script" >&2; exit 1; }
+
+if "$script_dir/rofi-toggle-pidfile" begin "$menu_id"; then
+    exit 0
+fi
+
+current="$("$mode_script" --status)"
+case "$current" in
+    waybar) active_waybar='<b>● Waybar</b>' ;;
+    caelestia) active_waybar='Waybar'; active_caelestia='<b>● Caelestia</b>' ;;
+    noctalia) active_waybar='Waybar'; active_noctalia='<b>● Noctalia</b>' ;;
+    *) printf 'menu-shell-mode: unknown shell mode: %s\n' "$current" >&2; exit 1 ;;
+esac
+: "${active_waybar:=<b>● Waybar</b>}"
+: "${active_caelestia:=Caelestia}"
+: "${active_noctalia:=Noctalia}"
+
+chosen="$({
+    printf '%s\n' "$active_waybar"
+    printf '%s\n' "$active_caelestia"
+    printf '%s\n' "$active_noctalia"
+} | "$script_dir/rofi-nerd-markup" | /usr/bin/rofi -dmenu -i -markup-rows \
+    -pid "$pid_file" -p '' \
+    -theme-str '
+        window { width: 300px; }
+        entry { placeholder: "Shell mode…"; }
+        element {
+            orientation: horizontal;
+            children: [ element-text ];
+            spacing: 0px;
+            padding: 8px 10px;
+        }
+        element-text {
+            horizontal-align: 0.0;
+            padding-left: 0px;
+        }
+    ' || true)"
+
+"$script_dir/rofi-toggle-pidfile" clear "$menu_id"
+
+case "$chosen" in
+    *Waybar) "$mode_script" --waybar ;;
+    *Caelestia) "$mode_script" --caelestia ;;
+    *Noctalia) "$mode_script" --noctalia ;;
+esac

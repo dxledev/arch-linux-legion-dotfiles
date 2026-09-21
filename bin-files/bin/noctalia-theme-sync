@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+noctalia_bin="${NOCTALIA_BIN:-$config_home/noctalia/.runtime/bin/noctalia}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
+renderer="${THEME_RENDER_SCRIPT:-$config_home/quickshell/caelestia/integration/theme-render}"
+theme_apply="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
+theme_script="${THEME_SCRIPT:-$HOME/bin/theme}"
+cache_dir="${NOCTALIA_THEME_CACHE_DIR:-$cache_home/noctalia-shell/palettes}"
+generation_file="${NOCTALIA_THEME_GENERATION_FILE:-$state_home/toggle-shell-mode/noctalia-theme-generation}"
+lock_file="${NOCTALIA_THEME_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/noctalia-theme-sync-$UID.lock}"
+dry_run=0
+
+schemes=(m3-tonal-spot m3-content m3-fruit-salad m3-rainbow m3-monochrome vibrant faithful soft dysfunctional muted)
+
+usage() {
+    printf 'Usage: noctalia-theme-sync [--dry-run]\n'
+}
+
+fail() {
+    printf 'noctalia-theme-sync: %s\n' "$*" >&2
+    exit 1
+}
+
+require_absolute_executable() {
+    [[ "$1" == /* && -x "$1" ]] || fail "Executable not found: $1"
+}
+
+next_generation() {
+    local generation=0
+    [[ -r "$generation_file" ]] && IFS= read -r generation < "$generation_file"
+    [[ "$generation" =~ ^[0-9]+$ ]] || generation=0
+    generation=$((generation + 1))
+    if (( ! dry_run )); then
+        /usr/bin/mkdir -p -- "${generation_file%/*}"
+        printf '%s\n' "$generation" > "$generation_file"
+    fi
+    printf '%s\n' "$generation"
+}
+
+wallpaper_path() {
+    local path
+    path="$($noctalia_bin msg wallpaper-get 2>/dev/null || true)"
+    path="${path//$'\n'/}"
+    [[ -f "$path" ]] || path="$(/usr/bin/readlink -f -- "$themes_dir/current/wallpaper.png" 2>/dev/null || true)"
+    [[ -f "$path" ]] || fail 'No active wallpaper path was returned by Noctalia.'
+    printf '%s\n' "$path"
+}
+
+scheme_name() {
+    local source scheme
+    read -r source scheme < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
+    if [[ "$source" == wallpaper && " ${schemes[*]} " == *" $scheme "* ]]; then
+        printf '%s\n' "$scheme"
+    else
+        printf '%s\n' m3-tonal-spot
+    fi
+}
+
+resolved_mode() {
+    local mode
+    mode="$($noctalia_bin msg theme-mode-get 2>/dev/null || true)"
+    case "$mode" in
+        light|dark) printf '%s\n' "$mode" ;;
+        *) printf '%s\n' dark ;;
+    esac
+}
+
+convert_palette() {
+    local native_palette="$1" mode="$2" output="$3"
+    /usr/bin/jq -e --arg mode "$mode" '
+        def colour($name; $fallback):
+            (.[$name] // .[$fallback] // "#000000") as $value |
+            if ($value | type) == "string" and ($value | test("^#[0-9a-fA-F]{6}$")) then $value
+            else error("invalid native palette colour") end;
+        .[$mode] as $palette |
+        if ($palette | type) != "object" then error("native palette has no mode") else . end |
+        {
+          mode: $mode,
+          colours: {
+            base: ($palette | colour("background"; "surface")),
+            mantle: ($palette | colour("surface_container_low"; "surface")),
+            crust: ($palette | colour("surface_container_lowest"; "surface")),
+            surface0: ($palette | colour("surface_container"; "surface_variant")),
+            surface1: ($palette | colour("surface_container_high"; "surface_variant")),
+            surface2: ($palette | colour("surface_container_highest"; "outline_variant")),
+            overlay0: ($palette | colour("outline_variant"; "outline")),
+            overlay1: ($palette | colour("outline"; "outline_variant")),
+            overlay2: ($palette | colour("outline"; "surface_variant")),
+            text: ($palette | colour("on_background"; "on_surface")),
+            subtext1: ($palette | colour("on_surface_variant"; "on_surface")),
+            subtext0: ($palette | colour("outline"; "on_surface_variant")),
+            primary: ($palette | colour("primary"; "source_color")),
+            secondary: ($palette | colour("secondary"; "primary")),
+            tertiary: ($palette | colour("tertiary"; "secondary")),
+            red: ($palette | colour("terminal_normal_red"; "error")),
+            green: ($palette | colour("terminal_normal_green"; "primary")),
+            yellow: ($palette | colour("terminal_normal_yellow"; "tertiary")),
+            peach: ($palette | colour("terminal_bright_yellow"; "tertiary")),
+            pink: ($palette | colour("terminal_bright_magenta"; "secondary")),
+            mauve: ($palette | colour("tertiary"; "primary")),
+            blue: ($palette | colour("terminal_normal_blue"; "primary")),
+            sapphire: ($palette | colour("terminal_bright_blue"; "primary")),
+            sky: ($palette | colour("terminal_normal_cyan"; "secondary")),
+            teal: ($palette | colour("terminal_bright_cyan"; "secondary")),
+            lavender: ($palette | colour("primary_fixed"; "primary")),
+            rosewater: ($palette | colour("on_primary_container"; "on_surface")),
+            flamingo: ($palette | colour("terminal_bright_red"; "error")),
+            term0: ($palette | colour("terminal_normal_black"; "surface_variant")),
+            term1: ($palette | colour("terminal_normal_red"; "error")),
+            term2: ($palette | colour("terminal_normal_green"; "primary")),
+            term3: ($palette | colour("terminal_normal_yellow"; "tertiary")),
+            term4: ($palette | colour("terminal_normal_blue"; "primary")),
+            term5: ($palette | colour("terminal_normal_magenta"; "secondary")),
+            term6: ($palette | colour("terminal_normal_cyan"; "secondary")),
+            term7: ($palette | colour("terminal_normal_white"; "on_surface")),
+            term8: ($palette | colour("terminal_bright_black"; "outline")),
+            term9: ($palette | colour("terminal_bright_red"; "error")),
+            term10: ($palette | colour("terminal_bright_green"; "primary")),
+            term11: ($palette | colour("terminal_bright_yellow"; "tertiary")),
+            term12: ($palette | colour("terminal_bright_blue"; "primary")),
+            term13: ($palette | colour("terminal_bright_magenta"; "secondary")),
+            term14: ($palette | colour("terminal_bright_cyan"; "secondary")),
+            term15: ($palette | colour("terminal_bright_white"; "on_surface"))
+          }
+        }
+    ' "$native_palette" > "$output"
+}
+
+cache_key() {
+    local wallpaper="$1" scheme="$2" mode="$3" wallpaper_hash binary_hash integration_hash
+    wallpaper_hash="$(/usr/bin/sha256sum "$wallpaper" | /usr/bin/cut -d' ' -f1)"
+    binary_hash="$(/usr/bin/sha256sum "$noctalia_bin" | /usr/bin/cut -d' ' -f1)"
+    integration_hash="$(/usr/bin/sha256sum "$renderer" "$0" | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)"
+    printf '%s\n' "$wallpaper_hash:$binary_hash:$integration_hash:$scheme:$mode" |
+        /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1
+}
+
+native_for_selected_state() {
+    local wallpaper="$1" scheme="$2" output="$3"
+    local response
+    response="$($noctalia_bin msg theme-palette 2>/dev/null || true)"
+    if [[ "$response" == \{* ]] && /usr/bin/jq -e . >/dev/null 2>&1 <<<"$response"; then
+        printf '%s\n' "$response" > "$output"
+        return 0
+    fi
+    "$noctalia_bin" theme "$wallpaper" --scheme "$scheme" --both -o "$output"
+}
+
+prewarm() {
+    local generation="$1" wallpaper="$2" key scheme mode directory temporary
+    for scheme in "${schemes[@]}"; do
+        [[ "$(<"$generation_file")" == "$generation" ]] || return 0
+        for mode in dark light; do
+            key="$(cache_key "$wallpaper" "$scheme" "$mode")"
+            directory="$cache_dir/$key/$mode"
+            /usr/bin/mkdir -p -- "$directory"
+            [[ -r "$directory/$scheme.json" ]] && continue
+            temporary="$(/usr/bin/mktemp "$directory/.palette.XXXXXX")"
+            if "$noctalia_bin" theme "$wallpaper" --scheme "$scheme" --both -o "$temporary" >/dev/null 2>&1; then
+                /usr/bin/mv -f -- "$temporary" "$directory/$scheme.json"
+            else
+                /usr/bin/rm -f -- "$temporary"
+            fi
+        done
+    done
+}
+
+sync_static_theme() {
+    local source name current theme_root
+    read -r source name < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
+    [[ "$source" == custom ]] || return 1
+    [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || return 0
+    theme_root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
+    current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
+    [[ -d "$theme_root/$name" && "$current" != "$name" ]] || return 0
+    if (( dry_run )); then
+        printf 'Static theme: %s\n' "$name"
+        return 0
+    fi
+    NOCTALIA_THEME_SYNC=1 "$theme_script" "$name"
+    return 0
+}
+
+cleanup_sync_files() {
+    local converted_file="$1" native_temporary="$2"
+    [[ -z "$converted_file" ]] || /usr/bin/rm -f -- "$converted_file"
+    [[ -z "$native_temporary" ]] || /usr/bin/rm -f -- "$native_temporary"
+}
+
+run_sync() {
+    local generation="$1" wallpaper scheme mode key native_file converted_file native_temporary=""
+    wallpaper="$(wallpaper_path)"
+    scheme="$(scheme_name)"
+    mode="$(resolved_mode)"
+    key="$(cache_key "$wallpaper" "$scheme" "$mode")"
+    native_file="$cache_dir/$key/$mode/$scheme.json"
+    converted_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/noctalia-palette.XXXXXX")"
+    trap 'cleanup_sync_files "$converted_file" "$native_temporary"; trap - RETURN' RETURN
+    if (( dry_run )); then
+        if [[ ! -r "$native_file" ]]; then
+            native_temporary="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/noctalia-native-palette.XXXXXX")"
+            native_file="$native_temporary"
+            native_for_selected_state "$wallpaper" "$scheme" "$native_file"
+        fi
+    else
+        /usr/bin/mkdir -p -- "${native_file%/*}"
+    fi
+    if [[ ! -r "$native_file" ]]; then
+        native_for_selected_state "$wallpaper" "$scheme" "$native_file"
+    fi
+    convert_palette "$native_file" "$mode" "$converted_file"
+    if (( dry_run )); then
+        printf 'Provider: noctalia\nWallpaper: %s\nScheme: %s\nMode: %s\nCache: %s\n' "$wallpaper" "$scheme" "$mode" "$native_file"
+        return 0
+    fi
+    "$renderer" --provider noctalia "$converted_file" "$wallpaper" >/dev/null
+    "$theme_apply" dynamic noctalia >/dev/null
+    (
+        prewarm "$generation" "$wallpaper"
+    ) >/dev/null 2>&1 9>&- &
+}
+
+main() {
+    local generation
+    while (( $# )); do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; return 2 ;;
+        esac
+        shift
+    done
+    require_absolute_executable "$noctalia_bin"
+    require_absolute_executable "$renderer"
+    require_absolute_executable "$theme_apply"
+    require_absolute_executable "$theme_script"
+    if sync_static_theme; then
+        return 0
+    fi
+    if (( ! dry_run )); then
+        /usr/bin/mkdir -p -- "$cache_dir" "${lock_file%/*}"
+        exec 8>"$lock_file"
+        /usr/bin/flock 8
+    fi
+    generation="$(next_generation)"
+    run_sync "$generation"
+}
+
+main "$@"

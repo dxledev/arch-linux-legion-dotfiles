@@ -51,7 +51,7 @@ validate_config() {
 wait_for_startup_lock() {
     local started lock_state
     (( wait_for_lock )) || return 0
-    [[ -x "$MODE_SCRIPT" && "$("$MODE_SCRIPT" --status 2>/dev/null)" == quickshell ]] || return 0
+    [[ -x "$MODE_SCRIPT" && "$("$MODE_SCRIPT" --status 2>/dev/null)" == caelestia ]] || return 0
     [[ -x "$QUICKSHELL_BIN" && -f "$QUICKSHELL_CONFIG" ]] || return 1
 
     started="$SECONDS"
@@ -76,7 +76,7 @@ refresh_wallpaper() {
     fi
 
     if ! /usr/bin/pgrep -x awww-daemon >/dev/null 2>&1; then
-        /usr/bin/nohup /usr/bin/awww-daemon >/dev/null 2>&1 &
+        /usr/bin/nohup /usr/bin/awww-daemon >/dev/null 2>&1 9>&- &
     fi
 
     for _ in {1..8}; do

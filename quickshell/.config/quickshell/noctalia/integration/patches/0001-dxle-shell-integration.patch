@@ -1,0 +1,1435 @@
+diff --git a/example.toml b/example.toml
+index f0627db26..230942d2d 100644
+--- a/example.toml
++++ b/example.toml
+@@ -152,6 +152,7 @@ pure_black_dark = false             # anchor dark surfaces to true black (OLED);
+ [theme.templates]
+ enable_builtin_templates            = true
+ builtin_ids                = []     # opt-in; list ids with: noctalia theme --list-templates
++excluded_ids               = []     # never allow these ids to write application configuration
+ enable_community_templates = true
+ community_ids              = []     # fetched from api.noctalia.dev/templates, cached locally
+ 
+diff --git a/meson.build b/meson.build
+index b15ab529a..ca51c255e 100644
+--- a/meson.build
++++ b/meson.build
+@@ -426,6 +426,7 @@ _noctalia_sources = files(
+   'src/app/application_poll_sources.cpp',
+   'src/app/application_services.cpp',
+   'src/app/application_ui.cpp',
++  'src/app/runtime_profile.cpp',
+   'src/app/main_loop.cpp',
+   'src/app/single_instance_lock.cpp',
+   'src/auth/fingerprint_authenticator.cpp',
+@@ -506,6 +507,7 @@ _noctalia_sources = files(
+   'src/ipc/ipc_client.cpp',
+   'src/ipc/ipc_service.cpp',
+   'src/launcher/app_provider.cpp',
++  'src/launcher/catalog_provider.cpp',
+   'src/launcher/dmenu_cli.cpp',
+   'src/launcher/dmenu_ipc.cpp',
+   'src/launcher/dmenu_provider.cpp',
+diff --git a/src/app/application.cpp b/src/app/application.cpp
+index a631ed0ff..0507b39ac 100644
+--- a/src/app/application.cpp
++++ b/src/app/application.cpp
+@@ -1,6 +1,7 @@
+ #include "application.h"
+ 
+ #include "app/main_loop.h"
++#include "app/runtime_profile.h"
+ #include "compositors/compositor_detect.h"
+ #include "config/config_types.h"
+ #include "core/build_info.h"
+@@ -203,6 +204,9 @@ void Application::run(std::function<void()> startupReadyCallback) {
+   kLog.info("noctalia {}", noctalia::build_info::displayVersion());
+   runStartupPhase("initServices", [this]() { initServices(); });
+   runStartupPhase("initPlugins", [this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     // Configure the plugin registry from [plugins] before any UI consumes it, and
+     // re-apply on reload. Registered first so the registry updates ahead of bar /
+     // control-center rebuilds when a plugin is enabled or disabled.
+@@ -215,6 +219,9 @@ void Application::run(std::function<void()> startupReadyCallback) {
+   });
+   runStartupPhase("initUi", [this]() { initUi(); });
+   runStartupPhase("initPluginServices", [this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     // Outputs are enumerated by now (wallpaper created its surfaces in initUi); refresh
+     // the script-visible output snapshot before any service/panel reads noctalia.outputs().
+     if (m_syncScriptApiOutputs) {
+@@ -276,8 +283,10 @@ void Application::run(std::function<void()> startupReadyCallback) {
+   });
+ #endif
+ 
+-  m_trayInitTimer.start(std::chrono::milliseconds(500), [this]() { startTrayService(); });
+-  m_polkitInitTimer.start(std::chrono::milliseconds(1000), [this]() { syncPolkitAgent(); });
++  if (!noctalia::runtime::isLockProvider()) {
++    m_trayInitTimer.start(std::chrono::milliseconds(500), [this]() { startTrayService(); });
++    m_polkitInitTimer.start(std::chrono::milliseconds(1000), [this]() { syncPolkitAgent(); });
++  }
+ 
+   m_mainLoop = std::make_unique<MainLoop>(m_wayland, m_bar, [this]() { return currentPollSources(); });
+   if (startupReadyCallback) {
+diff --git a/src/app/application_ipc.cpp b/src/app/application_ipc.cpp
+index f73710e3c..f14c72b76 100644
+--- a/src/app/application_ipc.cpp
++++ b/src/app/application_ipc.cpp
+@@ -1,4 +1,5 @@
+ #include "app/main_loop.h"
++#include "app/runtime_profile.h"
+ #include "application.h"
+ #include "application_internal.h"
+ #include "cli/schema_msg.h"
+@@ -117,23 +118,28 @@ void Application::initIpc() {
+     kLog.warn("IPC disabled: could not bind socket");
+   }
+ 
+-  m_dmenuIpc.setLauncherPanel(m_launcherPanel);
+-  m_dmenuIpc.setPanelManager(&m_panelManager);
+-  m_dmenuIpc.start();
++  if (!noctalia::runtime::isLockProvider()) {
++    m_dmenuIpc.setLauncherPanel(m_launcherPanel);
++    m_dmenuIpc.setPanelManager(&m_panelManager);
++    m_dmenuIpc.start();
++  }
+ 
+   m_ipcService.bind(
+       noctalia::cli::msg::status,
+       [this](const std::string&) -> std::string {
+-        const bool panelOpen = m_panelManager.isOpen();
++        const bool panelOpen = !noctalia::runtime::isLockProvider() && m_panelManager.isOpen();
+         std::string json = "{\n";
+         json += "  \"barVisible\": ";
+-        json += m_bar.isVisible() ? "true" : "false";
++        json += (!noctalia::runtime::isLockProvider() && m_bar.isVisible()) ? "true" : "false";
+         json += ",\n  \"panelOpen\": ";
+         json += panelOpen ? "true" : "false";
+         json += ",\n  \"activePanelId\": ";
+         json += panelOpen ? ("\"" + m_panelManager.activePanelId() + "\"") : "null";
+         json += ",\n  \"locked\": ";
+         json += m_lockScreen.isActive() ? "true" : "false";
++        json += ",\n  \"profile\": \"";
++        json += noctalia::runtime::profileName();
++        json += "\"";
+         json += "\n}\n";
+         return json;
+       },
+@@ -166,6 +172,14 @@ void Application::initIpc() {
+       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+   );
+ 
++  if (noctalia::runtime::isLockProvider()) {
++    registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
++    m_configService.registerIpc(m_ipcService);
++    m_themeService.registerIpc(m_ipcService);
++    m_templateApplyService.registerIpc(m_ipcService);
++    return;
++  }
++
+   auto applyNotificationDnd = [this](bool enabled) {
+     m_notificationManager.setDoNotDisturb(enabled);
+     m_bar.refresh();
+diff --git a/src/app/application_poll_sources.cpp b/src/app/application_poll_sources.cpp
+index 59a0abea3..b59d19b4d 100644
+--- a/src/app/application_poll_sources.cpp
++++ b/src/app/application_poll_sources.cpp
+@@ -1,3 +1,4 @@
++#include "app/runtime_profile.h"
+ #include "application.h"
+ #include "application_internal.h"
+ #include "dbus/idle/screensaver_poll_source.h"
+@@ -23,48 +24,58 @@ std::vector<PollSource*> Application::currentPollSources() {
+   if (m_systemBusPollSource != nullptr) {
+     sources.push_back(m_systemBusPollSource.get());
+   }
+-  sources.push_back(&m_notificationPollSource);
++  if (!noctalia::runtime::isLockProvider()) {
++    sources.push_back(&m_notificationPollSource);
++  }
+   sources.push_back(&m_secretStore);
+   sources.push_back(&m_deferredCallPollSource);
+   sources.push_back(&m_timePollSource);
+   sources.push_back(&m_configPollSource);
+-  sources.push_back(&m_desktopEntryPollSource);
+-  sources.push_back(&m_iconThemePollSource);
+-  sources.push_back(&m_clipboardPollSource);
++  if (!noctalia::runtime::isLockProvider()) {
++    sources.push_back(&m_desktopEntryPollSource);
++    sources.push_back(&m_iconThemePollSource);
++    sources.push_back(&m_clipboardPollSource);
++  }
+   sources.push_back(&m_timerPollSource);
+   sources.push_back(&m_keyRepeatPollSource);
+-  sources.push_back(&m_workspacePollSource);
++  if (!noctalia::runtime::isLockProvider()) {
++    sources.push_back(&m_workspacePollSource);
++  }
+   sources.push_back(&m_keyboardLayoutPollSource);
+   if constexpr (kLockKeysEnabled) {
+     if (lockKeysConsumersEnabled(m_configService.config())) {
+       sources.push_back(&m_lockKeysPollSource);
+     }
+   }
+-  if (m_pipewirePollSource != nullptr) {
++  if (!noctalia::runtime::isLockProvider() && m_pipewirePollSource != nullptr) {
+     sources.push_back(m_pipewirePollSource.get());
+   }
+-  if (m_pipewireSpectrumPollSource != nullptr) {
++  if (!noctalia::runtime::isLockProvider() && m_pipewireSpectrumPollSource != nullptr) {
+     sources.push_back(m_pipewireSpectrumPollSource.get());
+   }
+-  if (m_wirePlumberMixer != nullptr) {
++  if (!noctalia::runtime::isLockProvider() && m_wirePlumberMixer != nullptr) {
+     sources.push_back(m_wirePlumberMixer.get());
+   }
+   if (m_polkitPollSource != nullptr) {
+     sources.push_back(m_polkitPollSource.get());
+   }
+-  if (m_brightnessPollSource != nullptr) {
++  if (!noctalia::runtime::isLockProvider() && m_brightnessPollSource != nullptr) {
+     sources.push_back(m_brightnessPollSource.get());
+   }
+   sources.push_back(&m_fileWatchPollSource);
+   sources.push_back(&m_ipcPollSource);
+-  sources.push_back(&m_dmenuIpc);
++  if (!noctalia::runtime::isLockProvider()) {
++    sources.push_back(&m_dmenuIpc);
++  }
+   sources.push_back(&m_httpClientPollSource);
+-  sources.push_back(&m_locationPollSource);
+-  sources.push_back(&m_weatherPollSource);
+-  sources.push_back(&m_calendarPollSource);
+-  sources.push_back(&m_thumbnailService);
+-  sources.push_back(&m_wallpaperScanner);
+-  sources.push_back(&m_asyncTextureCache);
++  if (!noctalia::runtime::isLockProvider()) {
++    sources.push_back(&m_locationPollSource);
++    sources.push_back(&m_weatherPollSource);
++    sources.push_back(&m_calendarPollSource);
++    sources.push_back(&m_thumbnailService);
++    sources.push_back(&m_wallpaperScanner);
++    sources.push_back(&m_asyncTextureCache);
++  }
+   return sources;
+ }
+ 
+diff --git a/src/app/application_services.cpp b/src/app/application_services.cpp
+index e7f1b07d1..255e8dae8 100644
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -1,4 +1,5 @@
+ #include "app/main_loop.h"
++#include "app/runtime_profile.h"
+ #include "application.h"
+ #include "application_internal.h"
+ #include "compositors/compositor_detect.h"
+@@ -145,6 +146,9 @@ namespace {
+ } // namespace
+ 
+ void Application::scheduleNotificationShellRefresh() {
++  if (noctalia::runtime::isLockProvider()) {
++    return;
++  }
+   if (m_notificationShellRefreshScheduled) {
+     return;
+   }
+@@ -159,6 +163,12 @@ void Application::scheduleNotificationShellRefresh() {
+ }
+ 
+ void Application::syncNotificationDaemon() {
++  if (noctalia::runtime::isLockProvider()) {
++    m_notificationPollSource.setDbusService(nullptr);
++    m_notificationDbus.reset();
++    m_notificationDaemonEnabled.reset();
++    return;
++  }
+   if (m_bus == nullptr) {
+     m_notificationPollSource.setDbusService(nullptr);
+     m_notificationDbus.reset();
+@@ -392,6 +402,11 @@ bool Application::likelySupportsInSessionPolkit() const noexcept {
+ 
+ void Application::syncPolkitAgent() {
+   m_polkitIdleCloseTimer.stop();
++  if (noctalia::runtime::isLockProvider()) {
++    m_polkitPollSource.reset();
++    m_polkitAgent.reset();
++    return;
++  }
+   if (m_systemBus == nullptr) {
+     m_polkitPollSource.reset();
+     m_polkitAgent.reset();
+@@ -482,6 +497,10 @@ void Application::syncScreenTimeService() {
+ }
+ 
+ void Application::syncClipboardService() {
++  if (noctalia::runtime::isLockProvider()) {
++    m_wayland.setClipboardService(nullptr);
++    return;
++  }
+   const bool enabled = m_configService.config().shell.clipboardEnabled;
+   const auto shouldRefreshControlCenter = [this]() { return m_panelManager.isOpenPanel("control-center"); };
+ 
+@@ -776,6 +795,9 @@ void Application::initStyleThemeAndWayland() {
+   m_screenTimeService.initialize(&m_wayland);
+   syncScreenTimeService();
+   m_screenTimeService.setChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     if (m_panelManager.isOpenPanel("control-center") && m_panelManager.isActivePanelContext("screen-time")) {
+       m_panelManager.refresh();
+     }
+@@ -819,6 +841,10 @@ void Application::reconcileOutputSurfaces() {
+   // stacking (e.g. screen corners above the dock) is identical in both cases.
+   // Each owner's onOutputChange() reconciles idempotently against the current
+   // output set, so re-running it is safe. initialize() only wires dependencies.
++  if (noctalia::runtime::isLockProvider()) {
++    m_lockScreen.onOutputChange();
++    return;
++  }
+   m_backdrop.onOutputChange();
+   m_wallpaper.onOutputChange();
+   m_bar.onOutputChange();
+@@ -838,20 +864,27 @@ void Application::reconcileOutputSurfaces() {
+ }
+ 
+ void Application::initWaylandCallbacks() {
+-  auto shouldRefreshControlCenter = [this]() { return m_panelManager.isOpenPanel("control-center"); };
++  auto shouldRefreshControlCenter = [this]() {
++    return !noctalia::runtime::isLockProvider() && m_panelManager.isOpenPanel("control-center");
++  };
+ 
+   m_wayland.setOutputChangeCallback([this]() {
+     if (m_syncScriptApiOutputs) {
+       m_syncScriptApiOutputs();
+     }
+-    if (m_brightnessService != nullptr) {
++    if (!noctalia::runtime::isLockProvider() && m_brightnessService != nullptr) {
+       m_brightnessService->onOutputsChanged();
+     }
+     m_gammaService.onOutputsChanged();
+-    m_pluginServiceHost.onOutputChange();
++    if (!noctalia::runtime::isLockProvider()) {
++      m_pluginServiceHost.onOutputChange();
++    }
+     reconcileOutputSurfaces();
+   });
+   m_clipboardService.setChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     m_scriptApi.setClipboardText(m_clipboardService.clipboardText());
+     if (m_panelManager.isOpenPanel("clipboard")) {
+       m_panelManager.refresh();
+@@ -860,6 +893,9 @@ void Application::initWaylandCallbacks() {
+   m_scriptApi.setClipboardText(m_clipboardService.clipboardText());
+   m_compositorPlatform.setWorkspaceAlertService(&m_workspaceAlertService);
+   m_compositorPlatform.setWorkspaceChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     // Clear alerts for the workspace the user just switched to. Limit to the
+     // focused output so activity on one monitor doesn't dismiss alerts on
+     // another; fall back to all outputs when no focused output is known.
+@@ -874,6 +910,12 @@ void Application::initWaylandCallbacks() {
+     m_windowSwitcher.onToplevelChange();
+   });
+   m_compositorPlatform.setKeyboardLayoutChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      if (m_lockScreen.isActive()) {
++        m_lockScreen.onKeyboardLayoutChanged();
++      }
++      return;
++    }
+     m_bar.refresh();
+     if (m_configService.config().osd.kinds.keyboardLayout) {
+       m_keyboardLayoutOsd.onLayoutChanged(m_compositorPlatform, m_configService.config());
+@@ -883,6 +925,9 @@ void Application::initWaylandCallbacks() {
+     }
+   });
+   m_compositorPlatform.setToplevelChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     m_screenTimeService.onFocusChange();
+     m_bar.scheduleSmartAutoHideReevaluation();
+     m_dock.scheduleSmartAutoHideReevaluation();
+@@ -896,6 +941,9 @@ void Application::initWaylandCallbacks() {
+     }
+     m_lockKeysService.setChangeCallback(
+         [this](const WaylandSeat::LockKeysState& previous, const WaylandSeat::LockKeysState& current) {
++          if (noctalia::runtime::isLockProvider()) {
++            return;
++          }
+           const Config& config = m_configService.config();
+           if (config.osd.kinds.lockKeys) {
+             m_lockKeysOsd.onLockKeysChanged(previous, current);
+@@ -908,6 +956,9 @@ void Application::initWaylandCallbacks() {
+   }
+   m_idleInhibitor.initialize(m_wayland);
+   m_idleInhibitor.setChangeCallback([this, shouldRefreshControlCenter]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     if (m_configService.config().osd.kinds.caffeine) {
+       m_osdOverlay.show(caffeineOsdContent(m_idleInhibitor.enabled()));
+     }
+@@ -919,7 +970,9 @@ void Application::initWaylandCallbacks() {
+ }
+ 
+ void Application::initAuxServicesAndHooks() {
+-  auto shouldRefreshControlCenter = [this]() { return m_panelManager.isOpenPanel("control-center"); };
++  auto shouldRefreshControlCenter = [this]() {
++    return !noctalia::runtime::isLockProvider() && m_panelManager.isOpenPanel("control-center");
++  };
+ 
+   m_hookManager.setCommandRunner([this](const std::string& command) { return runShellCommand(command); });
+   m_hookManager.setBlockingCommandRunner([this](const std::string& command) {
+@@ -937,12 +990,18 @@ void Application::initAuxServicesAndHooks() {
+   m_gammaService.setLocationResolving(m_locationService.resolving());
+   m_gammaService.reload(m_configService.config().nightlight, m_configService.config().location);
+   m_gammaService.setChangeCallback([this, shouldRefreshControlCenter]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     m_bar.refresh();
+     if (shouldRefreshControlCenter()) {
+       m_panelManager.refresh();
+     }
+   });
+   m_gammaService.setStateFeedbackCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     if (m_configService.config().osd.kinds.nightlight) {
+       m_osdOverlay.show(nightLightOsdContent(m_gammaService));
+     }
+@@ -953,6 +1012,11 @@ void Application::initAuxServicesAndHooks() {
+ 
+   // Register all wallpaper consumers in the single-callback slot.
+   m_configService.setWallpaperChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      m_lockScreen.onWallpaperChanged();
++      m_themeService.onWallpaperChange();
++      return;
++    }
+     const auto wallpaperChanges = m_wallpaper.onStateChange();
+     if (m_syncScriptApiOutputs) {
+       m_syncScriptApiOutputs();
+@@ -999,6 +1063,10 @@ void Application::initAuxServicesAndHooks() {
+   });
+ 
+   m_themeService.setChangeCallback([this]() {
++    if (noctalia::runtime::isLockProvider()) {
++      m_lockScreen.onThemeChanged();
++      return;
++    }
+     requestAllSurfacesRedraw();
+     m_lockScreen.onThemeChanged();
+     m_trayMenu.onThemeChanged();
+@@ -1040,6 +1108,9 @@ void Application::initAuxServicesAndHooks() {
+       if (wasRunning != m_systemMonitor->isRunning()) {
+         kLog.info("system monitor service {}", m_systemMonitor->isRunning() ? "active" : "disabled by config");
+       }
++      if (noctalia::runtime::isLockProvider()) {
++        return;
++      }
+       m_bar.refresh();
+       m_desktopWidgetsController.requestLayout();
+       if (shouldRefreshControlCenter()) {
+@@ -1064,7 +1135,9 @@ void Application::releaseSleepDelayInhibitIfPending() {
+ }
+ 
+ void Application::initSystemBusServices() {
+-  auto shouldRefreshControlCenter = [this]() { return m_panelManager.isOpenPanel("control-center"); };
++  auto shouldRefreshControlCenter = [this]() {
++    return !noctalia::runtime::isLockProvider() && m_panelManager.isOpenPanel("control-center");
++  };
+ 
+   try {
+     m_systemBus = std::make_unique<SystemBus>();
+@@ -1164,7 +1237,9 @@ void Application::initSystemBusServices() {
+               }
+             });
+           }
+-          requestAllSurfacesRedraw();
++          if (!noctalia::runtime::isLockProvider()) {
++            requestAllSurfacesRedraw();
++          }
+         });
+         kLog.info("logind sleep monitor active");
+         m_idleInhibitor.setLogindService(m_logindService.get());
+@@ -1179,6 +1254,9 @@ void Application::initSystemBusServices() {
+     try {
+       m_accountsService = std::make_unique<AccountsService>(*m_systemBus);
+       m_accountsService->setChangeCallback([this]() {
++        if (noctalia::runtime::isLockProvider()) {
++          return;
++        }
+         m_panelManager.refresh();
+         m_settingsWindow.onExternalOptionsChanged();
+       });
+@@ -1192,6 +1270,10 @@ void Application::initSystemBusServices() {
+       m_powerProfilesService = std::make_unique<PowerProfilesService>(*m_systemBus);
+       m_powerProfilesService->setChangeCallback(
+           [this, shouldRefreshControlCenter](const PowerProfilesState& state, PowerProfilesChangeOrigin origin) {
++            if (noctalia::runtime::isLockProvider()) {
++              onPowerProfileChangedForEvents(state, origin);
++              return;
++            }
+             m_bar.refresh();
+             if (shouldRefreshControlCenter()) {
+               m_panelManager.refresh();
+@@ -1222,6 +1304,9 @@ void Application::initSystemBusServices() {
+       m_batteryHookState.reset(m_upowerService->state());
+       m_batteryWarningMonitor.evaluate(m_configService.config().battery, *m_upowerService, m_notificationManager);
+       m_upowerService->setChangeCallback([this, shouldRefreshControlCenter](const UPowerChange& change) {
++        if (noctalia::runtime::isLockProvider()) {
++          return;
++        }
+         if (change.origin != UPowerService::ChangeOrigin::DeviceState) {
+           if (shouldRefreshControlCenter()) {
+             m_panelManager.refresh();
+@@ -1247,6 +1332,9 @@ void Application::initSystemBusServices() {
+               m_batteryWarningMonitor.evaluate(
+                   m_configService.config().battery, *m_upowerService, m_notificationManager
+               );
++              if (noctalia::runtime::isLockProvider()) {
++                return;
++              }
+               m_bar.refresh();
+             }
+           },
+@@ -1260,6 +1348,9 @@ void Application::initSystemBusServices() {
+     try {
+       m_keyboardBacklightService = std::make_unique<KeyboardBacklightService>(*m_systemBus);
+       m_keyboardBacklightService->setChangeCallback([this]() {
++        if (noctalia::runtime::isLockProvider()) {
++          return;
++        }
+         m_keyboardBacklightOsd.onBrightnessChanged(*m_keyboardBacklightService);
+       });
+     } catch (const std::exception& e) {
+@@ -1273,6 +1364,9 @@ void Application::initSystemBusServices() {
+           [this, shouldRefreshControlCenter](const NetworkState& state, NetworkChangeOrigin origin) {
+             onNetworkStateChangedForEvents(state, origin);
+             m_externalIpService.onNetworkChanged();
++            if (noctalia::runtime::isLockProvider()) {
++              return;
++            }
+             m_bar.refresh();
+             if (shouldRefreshControlCenter()) {
+               m_panelManager.refresh();
+@@ -1291,6 +1385,9 @@ void Application::initSystemBusServices() {
+             [this, shouldRefreshControlCenter](const NetworkState& state, NetworkChangeOrigin origin) {
+               onNetworkStateChangedForEvents(state, origin);
+               m_externalIpService.onNetworkChanged();
++              if (noctalia::runtime::isLockProvider()) {
++                return;
++              }
+               m_bar.refresh();
+               if (shouldRefreshControlCenter()) {
+                 m_panelManager.refresh();
+@@ -1309,6 +1406,9 @@ void Application::initSystemBusServices() {
+               [this, shouldRefreshControlCenter](const NetworkState& state, NetworkChangeOrigin origin) {
+                 onNetworkStateChangedForEvents(state, origin);
+                 m_externalIpService.onNetworkChanged();
++                if (noctalia::runtime::isLockProvider()) {
++                  return;
++                }
+                 m_bar.refresh();
+                 if (shouldRefreshControlCenter()) {
+                   m_panelManager.refresh();
+@@ -1329,6 +1429,9 @@ void Application::initSystemBusServices() {
+     if (m_networkService != nullptr) {
+       m_externalIpService.setNetworkService(m_networkService.get());
+       m_externalIpService.setChangeCallback([this, shouldRefreshControlCenter]() {
++        if (noctalia::runtime::isLockProvider()) {
++          return;
++        }
+         m_bar.refresh();
+         if (shouldRefreshControlCenter()) {
+           m_panelManager.refresh();
+@@ -1361,6 +1464,9 @@ void Application::initSystemBusServices() {
+     try {
+       m_bluetoothService = std::make_unique<BluetoothService>(*m_systemBus, m_upowerService.get());
+       auto refreshBluetoothUi = [this, shouldRefreshControlCenter]() {
++        if (noctalia::runtime::isLockProvider()) {
++          return;
++        }
+         m_bar.refresh();
+         if (shouldRefreshControlCenter()) {
+           m_panelManager.refresh();
+@@ -1402,6 +1508,9 @@ void Application::initSystemBusServices() {
+     try {
+       m_modemManagerService = std::make_unique<ModemManagerService>(*m_systemBus);
+       m_modemManagerService->setChangeCallback([this, shouldRefreshControlCenter]() {
++        if (noctalia::runtime::isLockProvider()) {
++          return;
++        }
+         m_bar.refresh();
+         if (shouldRefreshControlCenter()) {
+           m_panelManager.refresh();
+@@ -1418,13 +1527,18 @@ void Application::initSystemBusServices() {
+ }
+ 
+ void Application::initBrightnessAndPipewire() {
+-  auto shouldRefreshControlCenter = [this]() { return m_panelManager.isOpenPanel("control-center"); };
++  auto shouldRefreshControlCenter = [this]() {
++    return !noctalia::runtime::isLockProvider() && m_panelManager.isOpenPanel("control-center");
++  };
+ 
+   try {
+     m_brightnessService = std::make_unique<BrightnessService>(
+         m_systemBus.get(), m_compositorPlatform, m_configService.config().brightness
+     );
+     m_brightnessService->setChangeCallback([this, shouldRefreshControlCenter]() {
++      if (noctalia::runtime::isLockProvider()) {
++        return;
++      }
+       m_brightnessOsd.onBrightnessChanged(*m_brightnessService);
+       m_bar.refresh();
+       if (shouldRefreshControlCenter()) {
+@@ -1437,6 +1551,9 @@ void Application::initBrightnessAndPipewire() {
+             return;
+           }
+           m_brightnessService->reload(m_configService.config().brightness);
++          if (noctalia::runtime::isLockProvider()) {
++            return;
++          }
+           m_bar.refresh();
+           if (shouldRefreshControlCenter()) {
+             m_panelManager.refresh();
+@@ -1557,12 +1674,14 @@ void Application::initSessionBusServices() {
+   }
+ 
+   if (m_bus != nullptr) {
+-    try {
+-      m_debugService = std::make_unique<DebugService>(*m_bus, m_notificationManager);
+-      kLog.info("debug service active on dev.noctalia.Debug");
+-    } catch (const std::exception& e) {
+-      kLog.warn("debug service disabled: {}", e.what());
+-      m_debugService.reset();
++    if (!noctalia::runtime::isLockProvider()) {
++      try {
++        m_debugService = std::make_unique<DebugService>(*m_bus, m_notificationManager);
++        kLog.info("debug service active on dev.noctalia.Debug");
++      } catch (const std::exception& e) {
++        kLog.warn("debug service disabled: {}", e.what());
++        m_debugService.reset();
++      }
+     }
+ 
+     try {
+@@ -1576,6 +1695,12 @@ void Application::initSessionBusServices() {
+       applyMprisConfig();
+       m_configService.addReloadCallback(applyMprisConfig);
+       m_mprisService->setChangeCallback([this, shouldRefreshControlCenter]() {
++        if (noctalia::runtime::isLockProvider()) {
++          if (m_lockScreen.isActive()) {
++            m_lockScreen.requestUpdate();
++          }
++          return;
++        }
+         m_bar.refresh();
+         m_desktopWidgetsController.requestUpdate();
+         m_mediaOsd.onMprisChanged(*m_mprisService);
+@@ -1597,25 +1722,27 @@ void Application::initSessionBusServices() {
+       );
+     }
+ 
+-    installNotificationBusNameWatch();
+-    syncNotificationDaemon();
+-    m_configService.addReloadCallback([this]() { syncNotificationDaemon(); });
+-    installSecretServiceNameWatch();
+-    installSecretServiceCollectionWatch();
++    if (!noctalia::runtime::isLockProvider()) {
++      installNotificationBusNameWatch();
++      syncNotificationDaemon();
++      m_configService.addReloadCallback([this]() { syncNotificationDaemon(); });
++      installSecretServiceNameWatch();
++      installSecretServiceCollectionWatch();
+ 
+-    m_compositorPlatform.startKdeActiveWindow(*m_bus);
++      m_compositorPlatform.startKdeActiveWindow(*m_bus);
+ 
+-    m_trayService = std::make_unique<TrayService>(*m_bus);
+-    m_trayService->setChangeCallback([this]() {
+-      m_bar.refresh();
+-      m_trayMenu.onTrayChanged();
+-      m_keyboardLayoutOsd.onTrayChanged(
+-          *m_trayService, m_configService.config(), m_configService.config().osd.kinds.keyboardLayout
+-      );
+-    });
+-    m_trayService->setMenuToggleCallback([this](const std::string& itemId, float contentScale) {
+-      m_trayMenu.toggleForItem(itemId, contentScale);
+-    });
++      m_trayService = std::make_unique<TrayService>(*m_bus);
++      m_trayService->setChangeCallback([this]() {
++        m_bar.refresh();
++        m_trayMenu.onTrayChanged();
++        m_keyboardLayoutOsd.onTrayChanged(
++            *m_trayService, m_configService.config(), m_configService.config().osd.kinds.keyboardLayout
++        );
++      });
++      m_trayService->setMenuToggleCallback([this](const std::string& itemId, float contentScale) {
++        m_trayMenu.toggleForItem(itemId, contentScale);
++      });
++    }
+   }
+ 
+   m_locationService.initialize();
+@@ -1644,6 +1771,9 @@ void Application::initSessionBusServices() {
+   pushLocation();
+   m_locationService.addChangeCallback([this, pushLocation, shouldRefreshControlCenter]() {
+     pushLocation();
++    if (noctalia::runtime::isLockProvider()) {
++      return;
++    }
+     m_bar.refresh();
+     m_desktopWidgetsController.requestLayout();
+     if (shouldRefreshControlCenter()) {
+@@ -1651,6 +1781,12 @@ void Application::initSessionBusServices() {
+     }
+   });
+   m_weatherService.addChangeCallback([this, shouldRefreshControlCenter]() {
++    if (noctalia::runtime::isLockProvider()) {
++      if (m_lockScreen.isActive()) {
++        m_lockScreen.requestUpdate();
++      }
++      return;
++    }
+     m_bar.refresh();
+     m_desktopWidgetsController.requestLayout();
+     if (m_lockScreen.isActive()) {
+diff --git a/src/app/application_ui.cpp b/src/app/application_ui.cpp
+index 074c66942..049e0d935 100644
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -1,4 +1,5 @@
+ #include "app/main_loop.h"
++#include "app/runtime_profile.h"
+ #include "application.h"
+ #include "application_internal.h"
+ #include "compositors/compositor_detect.h"
+@@ -38,7 +39,7 @@
+ #include "i18n/i18n.h"
+ #include "i18n/i18n_service.h"
+ #include "ipc/ipc_arg_parse.h"
+-#include "launcher/app_provider.h"
++#include "launcher/catalog_provider.h"
+ #include "launcher/dmenu_provider.h"
+ #include "launcher/emoji_provider.h"
+ #include "launcher/math_provider.h"
+@@ -122,6 +123,13 @@ void Application::initUi() {
+   initUiRenderSurfacesAndSettings();
+   initLockScreenAndSession();
+   initInputDispatch();
++  if (noctalia::runtime::startLocked()) {
++    (void)m_lockScreen.lock();
++  }
++  if (noctalia::runtime::isLockProvider()) {
++    reconcileOutputSurfaces();
++    return;
++  }
+   initPanelManagerAndPanels();
+   initNotificationAndOsd();
+   initBarDockAndLayout();
+@@ -329,19 +337,25 @@ void Application::initLockScreenAndSession() {
+       m_wayland, &m_renderContext, &m_configService, &m_sharedTextureCache, m_systemBus.get(), &m_compositorPlatform
+   );
+   m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, m_mprisService.get(), &m_weatherService, &m_httpClient);
+-  m_wallpaper.setAutomationGate([this]() { return !m_lockScreen.isActive(); });
++  if (!noctalia::runtime::isLockProvider()) {
++    m_wallpaper.setAutomationGate([this]() { return !m_lockScreen.isActive(); });
++  }
+   m_configService.addReloadCallback([this]() {
+     if (m_logindService != nullptr) {
+       m_logindService->setSessionLockIntegrationEnabled(m_configService.isLockScreenEnabled());
+       m_logindService->setLockBeforeSuspendEnabled(m_configService.shouldLockBeforeSuspend());
+     }
+     m_lockScreen.onConfigChanged();
+-    m_lockscreenWidgetsController.onLockStateChanged();
++    if (!noctalia::runtime::isLockProvider()) {
++      m_lockscreenWidgetsController.onLockStateChanged();
++    }
+   });
+   m_lockScreen.setSessionHooks(
+       [this]() {
+         m_idleGraceOverlay.hide();
+-        m_lockscreenWidgetsController.onLockStateChanged();
++        if (!noctalia::runtime::isLockProvider()) {
++          m_lockscreenWidgetsController.onLockStateChanged();
++        }
+         m_idleManager.setSessionLocked(true);
+         m_screenTimeService.setSessionLocked(true);
+         m_hookManager.fire(HookKind::SessionLocked);
+@@ -352,21 +366,29 @@ void Application::initLockScreenAndSession() {
+       },
+       [this]() {
+         m_idleGraceOverlay.hide();
+-        m_lockscreenWidgetsController.onLockStateChanged();
++        if (!noctalia::runtime::isLockProvider()) {
++          m_lockscreenWidgetsController.onLockStateChanged();
++        }
+         m_idleManager.setSessionLocked(false);
+         m_screenTimeService.setSessionLocked(false);
+         m_hookManager.fire(HookKind::SessionUnlocked);
+         releaseSleepDelayInhibitIfPending();
+-        requestAllSurfacesRedraw();
++        if (!noctalia::runtime::isLockProvider()) {
++          requestAllSurfacesRedraw();
++        }
+         if (m_logindService != nullptr) {
+           m_logindService->setSessionLockedHint(false);
+         }
+       },
+       [this]() {
+         m_idleGraceOverlay.hide();
+-        m_lockscreenWidgetsController.onLockStateChanged();
++        if (!noctalia::runtime::isLockProvider()) {
++          m_lockscreenWidgetsController.onLockStateChanged();
++        }
+         releaseSleepDelayInhibitIfPending();
+-        requestAllSurfacesRedraw();
++        if (!noctalia::runtime::isLockProvider()) {
++          requestAllSurfacesRedraw();
++        }
+       }
+   );
+   if (m_logindService != nullptr) {
+@@ -401,6 +423,19 @@ void Application::initLockScreenAndSession() {
+ }
+ 
+ void Application::initInputDispatch() {
++  if (noctalia::runtime::isLockProvider()) {
++    m_wayland.setPointerEventCallback([this](const PointerEvent& event) {
++      if (m_lockScreen.isActive()) {
++        m_lockScreen.onPointerEvent(event);
++      }
++    });
++    m_wayland.setKeyboardEventCallback([this](const KeyboardEvent& event) {
++      if (m_lockScreen.isActive()) {
++        m_lockScreen.onKeyboardEvent(event);
++      }
++    });
++    return;
++  }
+   m_wayland.setPointerEventCallback([this](const PointerEvent& event) {
+     if (m_lockScreen.isActive()) {
+       m_lockScreen.onPointerEvent(event);
+@@ -617,19 +652,10 @@ void Application::initPanelManagerAndPanels() {
+       .thumbnails = &m_thumbnailService,
+       .asyncTextures = &m_asyncTextureCache,
+   });
+-  ControlCenterPanel* controlCenterPanelPtr = controlCenterPanel.get();
+   m_panelManager.registerPanel("control-center", std::move(controlCenterPanel));
+   {
+     auto launcherPanel = std::make_unique<LauncherPanel>(&m_configService, &m_asyncTextureCache);
+-    launcherPanel->addProvider(std::make_unique<AppProvider>(&m_configService, &m_compositorPlatform));
+-    launcherPanel->addProvider(std::make_unique<WallpaperProvider>(&m_configService, &m_wayland, &m_themeService));
+-    launcherPanel->addProvider(std::make_unique<WindowProvider>(&m_compositorPlatform));
+-    launcherPanel->addProvider(
+-        std::make_unique<PanelProvider>(&m_panelManager, controlCenterPanelPtr, &m_configService)
+-    );
+-    launcherPanel->addProvider(std::make_unique<SessionProvider>(&m_configService, &m_sessionActionRunner));
+-    launcherPanel->addProvider(std::make_unique<MathProvider>(&m_clipboardService, &m_configService, &m_httpClient));
+-    launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService));
++    launcherPanel->addProvider(std::make_unique<CatalogProvider>());
+     launcherPanel->setCopiedActivationCallback([this]() {
+       const ClipboardAutoPasteMode mode = m_configService.config().shell.launcher.autoPaste;
+       if (mode == ClipboardAutoPasteMode::Off) {
+diff --git a/src/app/main_loop.cpp b/src/app/main_loop.cpp
+index 59ac38a36..1565266a9 100644
+--- a/src/app/main_loop.cpp
++++ b/src/app/main_loop.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "app/application.h"
+ #include "app/poll_source.h"
++#include "app/runtime_profile.h"
+ #include "core/deferred_call.h"
+ #include "core/log.h"
+ #include "shell/bar/bar.h"
+@@ -677,7 +678,9 @@ void MainLoop::run() {
+ 
+   // Close all UI surfaces immediately and flush Wayland to make them disappear
+   kLog.debug("closing bar surfaces for clean shutdown");
+-  m_bar.closeAllInstances();
++  if (!noctalia::runtime::isLockProvider()) {
++    m_bar.closeAllInstances();
++  }
+ 
+   if (dispatchPendingGuarded(m_wayland.display()) < 0) {
+     const int dispatchErrno = errno;
+diff --git a/src/app/runtime_profile.cpp b/src/app/runtime_profile.cpp
+new file mode 100644
+index 000000000..aff75c9fd
+--- /dev/null
++++ b/src/app/runtime_profile.cpp
+@@ -0,0 +1,25 @@
++#include "app/runtime_profile.h"
++
++#include <cstdlib>
++#include <string_view>
++
++namespace noctalia::runtime {
++
++  Profile profile() noexcept {
++    const char* value = std::getenv("NOCTALIA_PROFILE");
++    return value != nullptr && std::string_view(value) == "lock-provider" ? Profile::LockProvider : Profile::Full;
++  }
++
++  bool isLockProvider() noexcept { return profile() == Profile::LockProvider; }
++
++  bool startLocked() noexcept {
++    const char* value = std::getenv("NOCTALIA_START_LOCKED");
++    return value != nullptr
++        && std::string_view(value) != ""
++        && std::string_view(value) != "0"
++        && std::string_view(value) != "false";
++  }
++
++  std::string_view profileName() noexcept { return isLockProvider() ? "lock-provider" : "full"; }
++
++} // namespace noctalia::runtime
+diff --git a/src/app/runtime_profile.h b/src/app/runtime_profile.h
+new file mode 100644
+index 000000000..4908095ce
+--- /dev/null
++++ b/src/app/runtime_profile.h
+@@ -0,0 +1,17 @@
++#pragma once
++
++#include <string_view>
++
++namespace noctalia::runtime {
++
++  enum class Profile {
++    Full,
++    LockProvider,
++  };
++
++  [[nodiscard]] Profile profile() noexcept;
++  [[nodiscard]] bool isLockProvider() noexcept;
++  [[nodiscard]] bool startLocked() noexcept;
++  [[nodiscard]] std::string_view profileName() noexcept;
++
++} // namespace noctalia::runtime
+diff --git a/src/cli/schema_msg.h b/src/cli/schema_msg.h
+index 0ea64c5fe..ca2706279 100644
+--- a/src/cli/schema_msg.h
++++ b/src/cli/schema_msg.h
+@@ -701,6 +701,9 @@ namespace noctalia::cli {
+     inline constexpr Command templatesApply{
+         "templates-apply", "Apply configured theme templates for the current palette", {}, {}, {}, {}, {}, false
+     };
++    inline constexpr Command themePalette{
++        "theme-palette", "Print the resolved native palette as JSON", {}, {}, {}, {}, {}, false
++    };
+     inline constexpr Command themeModeGet{
+         "theme-mode-get", "Print the current resolved theme mode", {}, {}, {}, {}, {}, false
+     };
+@@ -919,6 +922,7 @@ namespace noctalia::cli {
+       msg::status,
+       msg::taskbarCycle,
+       msg::templatesApply,
++      msg::themePalette,
+       msg::themeModeGet,
+       msg::themeModeSet,
+       msg::themeModeToggle,
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+index 59efdbcd1..25feb59fe 100644
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -1545,6 +1545,7 @@ struct ThemeConfig {
+   struct TemplatesConfig {
+     bool enableBuiltinTemplates = true;
+     std::vector<std::string> builtinIds;
++    std::vector<std::string> excludedIds;
+     bool enableCommunityTemplates = true;
+     std::vector<std::string> communityIds;
+     std::vector<TemplateColorConfig> customColors;
+diff --git a/src/config/schema/config_schema.cpp b/src/config/schema/config_schema.cpp
+index 36e0f4b82..b6dbb38bb 100644
+--- a/src/config/schema/config_schema.cpp
++++ b/src/config/schema/config_schema.cpp
+@@ -1181,6 +1181,7 @@ namespace noctalia::config::schema {
+       static const Schema<ThemeConfig::TemplatesConfig> s = {
+           field(&ThemeConfig::TemplatesConfig::enableBuiltinTemplates, "enable_builtin_templates"),
+           field(&ThemeConfig::TemplatesConfig::builtinIds, "builtin_ids"),
++          field(&ThemeConfig::TemplatesConfig::excludedIds, "excluded_ids"),
+           field(&ThemeConfig::TemplatesConfig::enableCommunityTemplates, "enable_community_templates"),
+           field(&ThemeConfig::TemplatesConfig::communityIds, "community_ids"),
+           customColorsField(),
+diff --git a/src/launcher/catalog_provider.cpp b/src/launcher/catalog_provider.cpp
+new file mode 100644
+index 000000000..0539a04f1
+--- /dev/null
++++ b/src/launcher/catalog_provider.cpp
+@@ -0,0 +1,156 @@
++#include "launcher/catalog_provider.h"
++
++#include "core/log.h"
++#include "core/process/process.h"
++#include "util/fuzzy_match.h"
++#include "util/string_utils.h"
++
++#include <algorithm>
++#include <cstdlib>
++#include <filesystem>
++#include <nlohmann/json.hpp>
++#include <ranges>
++
++namespace {
++
++  constexpr Logger kLog("catalog-provider");
++  constexpr std::size_t kMaxResults = 50;
++
++  std::string homePath(std::string_view suffix) {
++    const char* home = std::getenv("HOME");
++    return std::string(home != nullptr && home[0] != '\0' ? home : ".") + std::string(suffix);
++  }
++
++  std::filesystem::file_time_type appListMtime(const std::filesystem::path& path) {
++    std::error_code error;
++    const auto mtime = std::filesystem::last_write_time(path, error);
++    return error ? std::filesystem::file_time_type{} : mtime;
++  }
++
++  double entryScore(std::string_view pattern, const CatalogProvider::Entry& entry) {
++    if (pattern.empty()) {
++      return 0.0;
++    }
++    double score = FuzzyMatch::score(pattern, entry.nameLower) * 5.0;
++    score = std::max(score, FuzzyMatch::score(pattern, entry.launcherLower) * 1.5);
++    if (FuzzyMatch::isMatch(score) && entry.nameLower.starts_with(pattern)) {
++      score += 500.0;
++    }
++    return score;
++  }
++
++} // namespace
++
++CatalogProvider::CatalogProvider() : m_command(homePath("/bin/app-list")), m_appList(homePath("/.config/apps.list")) {}
++
++void CatalogProvider::initialize() { refreshIfNeeded(); }
++
++void CatalogProvider::refreshIfNeeded() const {
++  const auto mtime = appListMtime(m_appList);
++  if (m_loaded && mtime == m_appListMtime) {
++    return;
++  }
++
++  m_loaded = true;
++  m_appListMtime = mtime;
++  m_entries.clear();
++
++  const auto result = process::runSync({m_command, "--list"});
++  if (!result) {
++    kLog.warn("app-list adapter failed: {}", result.err);
++    return;
++  }
++
++  try {
++    const auto json = nlohmann::json::parse(result.out);
++    if (!json.is_array()) {
++      kLog.warn("app-list adapter returned a non-array catalog");
++      return;
++    }
++    for (const auto& value : json) {
++      if (!value.is_object()) {
++        continue;
++      }
++      Entry entry{
++          .launcher = value.value("launcher", ""),
++          .name = value.value("name", ""),
++          .icon = value.value("icon", ""),
++      };
++      if (entry.launcher.empty() || entry.name.empty()) {
++        continue;
++      }
++      entry.nameLower = StringUtils::toLower(entry.name);
++      entry.launcherLower = StringUtils::toLower(entry.launcher);
++      m_entries.push_back(std::move(entry));
++    }
++  } catch (const std::exception& error) {
++    kLog.warn("failed to parse app-list catalog: {}", error.what());
++    m_entries.clear();
++  }
++}
++
++std::vector<LauncherResult> CatalogProvider::query(std::string_view text) const {
++  refreshIfNeeded();
++  const std::string pattern = StringUtils::toLower(text);
++
++  if (pattern.empty()) {
++    std::vector<LauncherResult> results;
++    results.reserve(m_entries.size());
++    for (const auto& entry : m_entries) {
++      LauncherResult result;
++      result.id = entry.launcher;
++      result.title = entry.name;
++      if (entry.icon.starts_with('/')) {
++        result.iconPath = entry.icon;
++      } else {
++        result.iconName = entry.icon;
++      }
++      result.score = 0.0;
++      results.push_back(std::move(result));
++    }
++    return results;
++  }
++
++  struct Scored {
++    double score;
++    const Entry* entry;
++  };
++  std::vector<Scored> scored;
++  for (const auto& entry : m_entries) {
++    const double score = entryScore(pattern, entry);
++    if (FuzzyMatch::isMatch(score)) {
++      scored.push_back({score, &entry});
++    }
++  }
++  const std::size_t limit = std::min(scored.size(), kMaxResults);
++  std::partial_sort(
++      scored.begin(), scored.begin() + static_cast<std::ptrdiff_t>(limit), scored.end(),
++      [](const Scored& lhs, const Scored& rhs) { return lhs.score > rhs.score; }
++  );
++
++  std::vector<LauncherResult> results;
++  results.reserve(limit);
++  for (std::size_t i = 0; i < limit; ++i) {
++    const Entry& entry = *scored[i].entry;
++    LauncherResult result;
++    result.id = entry.launcher;
++    result.title = entry.name;
++    if (entry.icon.starts_with('/')) {
++      result.iconPath = entry.icon;
++    } else {
++      result.iconName = entry.icon;
++    }
++    result.score = scored[i].score;
++    results.push_back(std::move(result));
++  }
++  return results;
++}
++
++bool CatalogProvider::activate(const LauncherResult& result) {
++  refreshIfNeeded();
++  const auto found = std::ranges::find_if(m_entries, [&](const Entry& entry) { return entry.launcher == result.id; });
++  if (found == m_entries.end()) {
++    return false;
++  }
++  return process::runAsync({m_command, "--launch", found->launcher});
++}
+diff --git a/src/launcher/catalog_provider.h b/src/launcher/catalog_provider.h
+new file mode 100644
+index 000000000..102d0be49
+--- /dev/null
++++ b/src/launcher/catalog_provider.h
+@@ -0,0 +1,41 @@
++#pragma once
++
++#include "launcher/launcher_provider.h"
++
++#include <filesystem>
++#include <string>
++#include <vector>
++
++class CatalogProvider final : public LauncherProvider {
++public:
++  CatalogProvider();
++
++  [[nodiscard]] std::string_view defaultPrefix() const override { return ""; }
++  [[nodiscard]] bool allowCustomPrefix() const override { return false; }
++  [[nodiscard]] std::string_view id() const override { return "Applications"; }
++  [[nodiscard]] std::string displayName() const override { return "Applications"; }
++  [[nodiscard]] std::string_view defaultGlyphName() const override { return "app-window"; }
++  [[nodiscard]] bool trackUsage() const override { return false; }
++
++  void initialize() override;
++  [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
++  bool activate(const LauncherResult& result) override;
++
++public:
++  struct Entry {
++    std::string launcher;
++    std::string name;
++    std::string icon;
++    std::string nameLower;
++    std::string launcherLower;
++  };
++
++private:
++  void refreshIfNeeded() const;
++
++  std::string m_command;
++  std::filesystem::path m_appList;
++  mutable std::filesystem::file_time_type m_appListMtime{};
++  mutable bool m_loaded = false;
++  mutable std::vector<Entry> m_entries;
++};
+diff --git a/src/main.cpp b/src/main.cpp
+index de8560b20..8d7ace32f 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -24,6 +24,7 @@
+ #include <fcntl.h>
+ #include <print>
+ #include <string>
++#include <string_view>
+ #include <unistd.h>
+ 
+ #ifdef __GLIBC__
+@@ -274,6 +275,71 @@ int main(int argc, char* argv[]) {
+     }
+   }
+ 
++  bool lockProviderFlag = false;
++  bool startLockedFlag = false;
++  bool profileSpecified = false;
++  std::string profileFlag;
++  for (int i = 1; i < argc;) {
++    const std::string_view argument = argv[i];
++    if (argument == "--lock-provider") {
++      lockProviderFlag = true;
++      for (int j = i; j < argc - 1; ++j) {
++        argv[j] = argv[j + 1];
++      }
++      --argc;
++      argv[argc] = nullptr;
++      continue;
++    }
++    if (argument == "--start-locked") {
++      startLockedFlag = true;
++      for (int j = i; j < argc - 1; ++j) {
++        argv[j] = argv[j + 1];
++      }
++      --argc;
++      argv[argc] = nullptr;
++      continue;
++    }
++    if (argument.starts_with("--profile=")) {
++      profileSpecified = true;
++      profileFlag = std::string(argument.substr(std::string_view("--profile=").size()));
++      for (int j = i; j < argc - 1; ++j) {
++        argv[j] = argv[j + 1];
++      }
++      --argc;
++      argv[argc] = nullptr;
++      continue;
++    }
++    if (argument == "--profile") {
++      profileSpecified = true;
++      if (i + 1 >= argc) {
++        std::println(stderr, "error: --profile requires full or lock-provider");
++        return 2;
++      }
++      profileFlag = argv[i + 1];
++      for (int j = i; j < argc - 2; ++j) {
++        argv[j] = argv[j + 2];
++      }
++      argc -= 2;
++      argv[argc] = nullptr;
++      continue;
++    }
++    ++i;
++  }
++
++  if (profileSpecified && (profileFlag.empty() || (profileFlag != "full" && profileFlag != "lock-provider"))) {
++    std::println(stderr, "error: --profile must be full or lock-provider");
++    return 2;
++  }
++  if (lockProviderFlag) {
++    profileFlag = "lock-provider";
++  }
++  if (!profileFlag.empty()) {
++    (void)::setenv("NOCTALIA_PROFILE", profileFlag.c_str(), 1);
++  }
++  if (startLockedFlag) {
++    (void)::setenv("NOCTALIA_START_LOCKED", "1", 1);
++  }
++
+   if (argc >= 2) {
+     if (noctalia::theme::isFirefoxNativeMessagingLaunch(argc, argv))
+       return noctalia::theme::runFirefoxNativeMessagingHost();
+diff --git a/src/theme/cli.cpp b/src/theme/cli.cpp
+index 94b0b75d9..08425262e 100644
+--- a/src/theme/cli.cpp
++++ b/src/theme/cli.cpp
+@@ -487,6 +487,9 @@ namespace noctalia::theme {
+       options.verbose = true;
+       ConfigService config;
+       options.configTable = std::make_shared<toml::table>(config_export::serialize(config.config()));
++      for (const auto& id : config.config().theme.templates.excludedIds) {
++        options.excludedTemplates.insert(id);
++      }
+       TemplateEngine engine(TemplateEngine::makeThemeData(palette), std::move(options));
+ 
+       // Custom colors from -c must be in the theme data before -r templates render.
+diff --git a/src/theme/template_apply_service.cpp b/src/theme/template_apply_service.cpp
+index 8bb153e3e..3b07085cf 100644
+--- a/src/theme/template_apply_service.cpp
++++ b/src/theme/template_apply_service.cpp
+@@ -94,7 +94,8 @@ namespace noctalia::theme {
+ 
+       toml::table userTemplates;
+       for (const auto& userTemplate : templatesConfig.userTemplates) {
+-        if (!userTemplate.enabled) {
++        if (!userTemplate.enabled
++            || std::ranges::find(templatesConfig.excludedIds, userTemplate.id) != templatesConfig.excludedIds.end()) {
+           continue;
+         }
+ 
+@@ -156,7 +157,13 @@ namespace noctalia::theme {
+       if (!templates.enableBuiltinTemplates) {
+         return {};
+       }
+-      return {templates.builtinIds.begin(), templates.builtinIds.end()};
++      std::set<std::string> enabled;
++      for (const auto& id : templates.builtinIds) {
++        if (std::ranges::find(templates.excludedIds, id) == templates.excludedIds.end()) {
++          enabled.insert(id);
++        }
++      }
++      return enabled;
+     }
+ 
+   } // namespace
+@@ -300,6 +307,9 @@ namespace noctalia::theme {
+     options.configTable = request.configTable;
+     options.hookRunner = &hookRunner;
+     options.generation = request.generation;
++    for (const auto& id : request.templates.excludedIds) {
++      options.excludedTemplates.insert(id);
++    }
+ 
+     TemplateEngine engine(TemplateEngine::makeThemeData(request.palette), options);
+ 
+@@ -313,7 +323,11 @@ namespace noctalia::theme {
+         && !request.templates.builtinIds.empty()
+         && !requestSuperseded(request.generation)) {
+       TemplateEngine::Options builtinOptions = options;
+-      builtinOptions.enabledTemplates.insert(request.templates.builtinIds.begin(), request.templates.builtinIds.end());
++      for (const auto& id : request.templates.builtinIds) {
++        if (std::ranges::find(request.templates.excludedIds, id) == request.templates.excludedIds.end()) {
++          builtinOptions.enabledTemplates.insert(id);
++        }
++      }
+       TemplateEngine builtinEngine(TemplateEngine::makeThemeData(request.palette), std::move(builtinOptions));
+       const std::filesystem::path builtinConfig = builtinTemplateConfigPath();
+       if (!builtinEngine.processConfigFile(builtinConfig)) {
+@@ -327,6 +341,9 @@ namespace noctalia::theme {
+       for (const auto& id : request.templates.communityIds) {
+         if (requestSuperseded(request.generation))
+           return;
++        if (std::ranges::find(request.templates.excludedIds, id) != request.templates.excludedIds.end()) {
++          continue;
++        }
+         if (!isSafeCommunityTemplateId(id)) {
+           kLog.warn("skipping unsafe community template id '{}'", id);
+           continue;
+diff --git a/src/theme/template_engine.cpp b/src/theme/template_engine.cpp
+index 30da5bd60..8fdfa0df0 100644
+--- a/src/theme/template_engine.cpp
++++ b/src/theme/template_engine.cpp
+@@ -1588,6 +1588,9 @@ namespace noctalia::theme {
+     std::vector<ParsedTemplateEntry> entries;
+     entries.reserve(templates->size());
+     for (const auto& [templateName, templateNode] : *templates) {
++      if (m_options.excludedTemplates.contains(std::string(templateName.str()))) {
++        continue;
++      }
+       if (!m_options.enabledTemplates.empty()
+           && !m_options.enabledTemplates.contains(std::string(templateName.str()))) {
+         continue;
+diff --git a/src/theme/template_engine.h b/src/theme/template_engine.h
+index 0a3e2aca9..5fd3e5065 100644
+--- a/src/theme/template_engine.h
++++ b/src/theme/template_engine.h
+@@ -38,6 +38,7 @@ namespace noctalia::theme {
+       std::string configDir;
+       std::string configFile;
+       std::unordered_set<std::string> enabledTemplates;
++      std::unordered_set<std::string> excludedTemplates;
+       std::function<bool()> cancelRequested;
+       std::string schemeType = "content";
+       bool verbose = true;
+diff --git a/src/theme/theme_service.cpp b/src/theme/theme_service.cpp
+index 9572e5c31..72e664247 100644
+--- a/src/theme/theme_service.cpp
++++ b/src/theme/theme_service.cpp
+@@ -12,6 +12,7 @@
+ #include "theme/custom_palettes.h"
+ #include "theme/fixed_palette.h"
+ #include "theme/image_loader.h"
++#include "theme/json_output.h"
+ #include "theme/palette_generator.h"
+ #include "theme/palette_transform.h"
+ #include "theme/scheme.h"
+@@ -330,6 +331,13 @@ namespace noctalia::theme {
+ 
+   std::string_view ThemeService::resolvedMode() const noexcept { return m_isLightMode ? "light" : "dark"; }
+ 
++  std::string ThemeService::resolvedPaletteJson() const {
++    if (!m_resolvedGenerated.has_value()) {
++      return "{}";
++    }
++    return toJson(*m_resolvedGenerated, Scheme::TonalSpot, Variant::Both);
++  }
++
+   void ThemeService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
+ 
+   void ThemeService::setResolvedCallback(ResolvedCallback callback) { m_resolvedCallback = std::move(callback); }
+@@ -532,6 +540,7 @@ namespace noctalia::theme {
+       }
+     }
+ 
++    m_resolvedGenerated = resolved->generated;
+     queueResolvedCallback(resolved->generated, resolved->mode);
+     m_isLightMode = resolved->mode == "light";
+     m_isShellLightMode = resolved->shellMode == "light";
+@@ -715,6 +724,16 @@ namespace noctalia::theme {
+       }
+       return "ok\n";
+     });
++    ipc.bind(
++        noctalia::cli::msg::themePalette,
++        [this](const std::string& args) -> std::string {
++          if (!StringUtils::trim(args).empty()) {
++            return "error: theme-palette takes no arguments\n";
++          }
++          return resolvedPaletteJson() + "\n";
++        },
++        IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
++    );
+   }
+ 
+ } // namespace noctalia::theme
+diff --git a/src/theme/theme_service.h b/src/theme/theme_service.h
+index f5c1a240d..66f2e3bd8 100644
+--- a/src/theme/theme_service.h
++++ b/src/theme/theme_service.h
+@@ -43,6 +43,7 @@ namespace noctalia::theme {
+     [[nodiscard]] std::string_view resolvedShellMode() const noexcept;
+     // The resolved [theme].mode, which drives apps.
+     [[nodiscard]] std::string_view resolvedMode() const noexcept;
++    [[nodiscard]] std::string resolvedPaletteJson() const;
+ 
+     void setChangeCallback(ChangeCallback callback);
+     void setResolvedCallback(ResolvedCallback callback);
+@@ -94,6 +95,7 @@ namespace noctalia::theme {
+     bool m_transitionResolvedCallbackFlushed = false;
+     bool m_isShellLightMode = false;
+     bool m_isLightMode = false;
++    std::optional<GeneratedPalette> m_resolvedGenerated;
+     std::optional<double> m_autoLatitude;
+     std::optional<double> m_autoLongitude;
+     Timer m_autoTimer;

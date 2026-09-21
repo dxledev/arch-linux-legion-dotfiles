@@ -1,11 +1,10 @@
 local uv = vim.uv or vim.loop
 local theme_loader = require("config.theme_loader")
 
-local theme_file = theme_loader.theme_file
-local theme_dir = vim.fn.fnamemodify(theme_file, ":h")
-local theme_name = vim.fn.fnamemodify(theme_file, ":t")
+local selector_dir = vim.fn.fnamemodify(theme_loader.theme_file, ":h")
 
 local last_sig
+local last_file
 
 local function apply()
   theme_loader.apply(false)
@@ -24,9 +23,11 @@ local function signature(stat)
 end
 
 local function check(force)
+  local theme_file = theme_loader.selected_theme_file()
   local stat = uv.fs_stat(theme_file)
   local sig = signature(stat)
-  if sig and (force or sig ~= last_sig) then
+  if sig and (force or theme_file ~= last_file or sig ~= last_sig) then
+    last_file = theme_file
     last_sig = sig
     apply()
   end
@@ -34,14 +35,15 @@ end
 
 local function apply_initial_theme()
   if theme_loader.was_applied() then
-    last_sig = signature(uv.fs_stat(theme_file))
+    last_file = theme_loader.selected_theme_file()
+    last_sig = signature(uv.fs_stat(last_file))
     return
   end
 
   check(true)
 end
 
-local function on_fs_event(err, filename)
+local function on_fs_event(err)
   if err then
     vim.schedule(function()
       vim.notify("Theme watcher error: " .. err, vim.log.levels.WARN)
@@ -49,16 +51,16 @@ local function on_fs_event(err, filename)
     return
   end
 
-  if filename == nil or filename == theme_name then
-    vim.schedule(function()
-      check(false)
-    end)
-  end
+  vim.schedule(function()
+    check(false)
+  end)
 end
 
 local fs_event = uv.new_fs_event()
 if fs_event then
-  fs_event:start(theme_dir, {}, on_fs_event)
+  pcall(function()
+    fs_event:start(selector_dir, {}, on_fs_event)
+  end)
 end
 
 -- poll every 300ms

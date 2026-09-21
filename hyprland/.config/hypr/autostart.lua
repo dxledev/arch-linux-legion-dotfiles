@@ -1,7 +1,6 @@
 local startup_commands = {
-  "~/bin/bg-refresh-current",
-  "if [ \"$(~/bin/toggle-shell-mode --status)\" = quickshell ]; then CAELESTIA_START_LOCKED=1 ~/bin/toggle-shell-mode --apply; else ~/bin/system-lock --wait & lock_pid=$!; ~/bin/toggle-shell-mode --apply; wait \"$lock_pid\"; fi",
-  "hyprpm reload && hyprctl reload",
+  "~/bin/toggle-shell-mode --apply",
+  "hyprpm reload",
   "~/bin/launch-hypridle",
   "~/bin/launch-hyprsunset",
   "~/bin/launch-cliphist",

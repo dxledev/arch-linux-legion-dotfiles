@@ -1,6 +1,6 @@
 # Quickshell shells
 
-The default shell is Caelestia, adapted from [caelestia-dots/shell](https://github.com/caelestia-dots/shell). The source clones live in `~/builds/shells`; the editable shell lives here in the dotfiles repository. Native libraries and the isolated CLI environment are in `.runtime/`, which Git ignores.
+The default shell is Caelestia, adapted from [caelestia-dots/shell](https://github.com/caelestia-dots/shell). Waybar, Caelestia, and the pinned native Noctalia build are explicit shell modes. The source clones live in `~/builds/shells`; the editable shell lives here in the dotfiles repository. Native libraries and the isolated CLI environment are in `.runtime/`, which Git ignores.
 
 ```text
 ~/.config/quickshell -> ~/dotfiles/quickshell/.config/quickshell
@@ -30,12 +30,13 @@ The default shell is Caelestia, adapted from [caelestia-dots/shell](https://gith
 - `caelestia/integration/NotificationReplacements.qml`: uses `/usr/bin/dbus-monitor` to detect replacement requests, including identical content. Each replacement restarts the popup timeout and can show an expired popup again, respecting DND and hover pauses.
 - `caelestia/integration/WindowRounding.qml`: follows `border.rounding` in `shell.json` (default 25), using circular corners (`power: 2`). Reapplies after Hyprland reloads while Quickshell mode is selected. Waybar restores the normal Hyprland configuration.
 - `caelestia/integration/hyprland.lua`: loaded through `active` at the end of the Hyprland config and applied only in Quickshell mode.
+- `noctalia/integration`: records the pinned native source, patch series, managed configuration, static palette links, and dynamic theme bridge. `~/bin/noctalia-shell` owns the `full` and `lock-provider` profiles; `~/bin/app-list` is the shared catalog adapter for Caelestia and Noctalia.
 
-The wallpaper selector previews highlighted images live through `awww`, using a horizontal wipe with a soft fade (0.65 seconds, 144 FPS, color step 3). Closing the selector restores the saved wallpaper; confirming saves the current theme's wallpaper link. Rapid navigation coalesces pending previews so the latest selection wins. Set `AWWW_TRANSITION`, `AWWW_TRANSITION_DURATION`, `AWWW_TRANSITION_ANGLE`, `AWWW_TRANSITION_STEP`, or `AWWW_TRANSITION_FPS` in the shell environment to customize the effect. Preview the command with `integration/system-action --dry-run wallpaper-preview /absolute/image/path`. The existing `awww` slideshow continues to work. Hypridle remains the idle scheduler, while `~/bin/system-lock` routes idle, pre-sleep, menu, and manual locking to Caelestia in Quickshell mode or the existing Hyprlock configuration in Waybar mode. SwayOSD, OBS recording tools, and the system theme scripts remain the configured providers.
+The wallpaper selector previews highlighted images live through `awww`, using a horizontal wipe with a soft fade (0.65 seconds, 144 FPS, color step 3). Closing the selector restores the saved wallpaper; confirming saves the current theme's wallpaper link. Rapid navigation coalesces pending previews so the latest selection wins. Set `AWWW_TRANSITION`, `AWWW_TRANSITION_DURATION`, `AWWW_TRANSITION_ANGLE`, `AWWW_TRANSITION_STEP`, or `AWWW_TRANSITION_FPS` in the shell environment to customize the effect. Preview the command with `integration/system-action --dry-run wallpaper-preview /absolute/image/path`. The existing `awww` slideshow continues to work for Waybar and Caelestia; full Noctalia owns its native wallpaper surface. Hypridle remains the idle scheduler, while `~/bin/system-lock` routes idle, pre-suspend, menu, login-session, and manual locking to Hyprlock in Waybar mode, Caelestia's native lock in Caelestia mode, and Noctalia's native lock in Noctalia mode. SwayOSD, OBS recording tools, and the system theme scripts remain the configured providers.
 
 The original right-edge Caelestia OSD is enabled alongside SwayOSD. It includes volume plus Primary (HDMI-A-1) and Secondary (DP-1) brightness sliders; hover the right edge to open it and hover a brightness slider to see its label. Configure the monitor list and labels in `caelestia/config/integration.json` under `brightnessMonitors`. Brightness uses DDC and shares the lock/cache used by `~/bin/system-brightness-{hdmi,dp}`; readings synchronize through file-change notifications, with no recurring hardware polling. Use `qs ipc call brightness refresh` after changes made with a monitor’s physical buttons. `brightnessWriteDelay` in `integration.json` controls the minimum interval between queued writes (default 100 ms). Preview an absolute adjustment with `/usr/bin/bash integration/monitor-brightness --dry-run HDMI-A-1 BUS set 50` (substitute the detected I2C bus number).
 
-Ward remains available in both shell modes and continues using the named theme. `~/bin/toggle-shell-mode` stops the Waybar-only panel processes before starting Caelestia, while leaving Ward running. The missing profile photo uses a placeholder; choose a photo in the dashboard to create `~/.face`.
+Ward remains available in Waybar foreground mode and continues using the named theme. `~/bin/toggle-shell-mode` stops the Waybar-owned notification and panel processes before starting Caelestia; Caelestia owns notifications in that mode. Full Noctalia owns its foreground surfaces and does not start Ward. The missing profile photo uses a placeholder; choose a photo in the dashboard to create `~/.face`.
 
 Theme refreshes resolve the wallpaper directory's symlink target and rebuild the selector against that directory, including thumbnail paths and categories. The three-second wallpaper poll also detects changes made outside the theme command. Switching themes clears previews from the previous theme. Wallpapers sort by their leading number; labels follow `~/bin/bg-set`: no number prefix or extension, spaces instead of dashes/underscores, capitalized words, and a `(Live)` suffix for GIFs.
 
@@ -61,9 +62,9 @@ Aether's local and bundled library is `~/files/pictures/Aether`; its generated t
 
 Optional environment overrides: `QUICKSHELL_ROOT`, `QUICKSHELL_RUNTIME`, `SHELL_THEME_FILE`, `SHELL_THEMES_DIR`, `SHELL_WALLPAPER`, `SHELL_DYNAMIC_WALLPAPER`, `CAELESTIA_DYNAMIC_WALLPAPERS_DIR`, `AETHER_BIN`, `AETHER_LIBRARY_DIR`, `AETHER_THEME_FILE`, `AETHER_WALLPAPERS_DIR`, `AETHER_QUICKSHELL_WRAPPER`, `SHELL_PROFILE_PICTURE`, `DESKTOP_SCRIPTS_DIR`, and `QS_ICON_THEME` (default Papirus). Machine-specific application commands and directories are in `shell.json`. The launcher wrapper supplies the runtime paths and exports the icon theme before Qt initializes; a QML environment pragma is too late for icon lookup. For a direct launch, use `QS_ICON_THEME=Papirus qs`; the two default runtime paths in `caelestia/shell.qml` support this.
 
-`~/bin/system-lock [--dry-run] [--wait]` selects the active shell's lock owner. `--wait` retries the Caelestia IPC during startup for up to 10 seconds before falling back to Hyprlock; `--dry-run` prints the selected command without locking. Override its paths or timing with `SYSTEM_LOCK_MODE_SCRIPT`, `SYSTEM_LOCK_QUICKSHELL_BIN`, `SYSTEM_LOCK_QUICKSHELL_CONFIG`, `SYSTEM_LOCK_HYPRLOCK_SCRIPT`, `SYSTEM_LOCK_WAIT_TIMEOUT`, and `SYSTEM_LOCK_POLL_INTERVAL`.
+`~/bin/system-lock [--dry-run] [--wait]` selects the active mode's lock provider: it launches the Hyprlock wrapper in Waybar mode, calls Caelestia's `lock` IPC in Caelestia mode, or ensures Noctalia's `full` profile and sends `noctalia msg session lock` in Noctalia mode. `--wait` is retained for shortcut compatibility; `--dry-run` prints the selected provider without locking. Override its paths or timing with `SYSTEM_LOCK_MODE_SCRIPT`, `SYSTEM_LOCK_NOCTALIA_SHELL`, `SYSTEM_LOCK_NOCTALIA_BIN`, `SYSTEM_LOCK_QUICKSHELL_BIN`, `SYSTEM_LOCK_QUICKSHELL_CONFIG`, `SYSTEM_LOCK_HYPRLOCK_LAUNCHER`, `SYSTEM_LOCK_JQ_BIN`, `SYSTEM_LOCK_PGREP_BIN`, `SYSTEM_LOCK_NOHUP_BIN`, `SYSTEM_LOCK_WAIT_TIMEOUT`, and `SYSTEM_LOCK_POLL_INTERVAL`.
 
-`CAELESTIA_START_LOCKED=1` constructs the native lock first, loads its saved palette and wallpaper synchronously, and defers the rest of the shell until the compositor confirms the session is secure. Hyprland starts the wallpaper daemon from the same pinned cache immediately, while the startup lock skips the normal entrance animation and opens at its settled size. A missing or stale palette is regenerated before launch. Do not set the variable for ordinary Caelestia launches or shell restarts.
+Fresh login is handled by `~/bin/toggle-shell-mode --apply`: it starts the selected mode's provider locked before foreground surfaces appear. Noctalia uses `--start-locked`, Caelestia uses `CAELESTIA_START_LOCKED`, and Waybar starts the Hyprlock wrapper. Ordinary shell restarts do not use the startup lock.
 
 ## Controls
 
@@ -76,19 +77,18 @@ Optional environment overrides: `QUICKSHELL_ROOT`, `QUICKSHELL_RUNTIME`, `SHELL_
 | Super+Shift+B | Session menu |
 | Super+Shift+C | Chromack |
 | Super+Shift+L | Mode-aware lock screen |
-| Super+Ctrl+Alt+Q | Existing Waybar/Quickshell mode toggle |
+| Super+Ctrl+Alt+Q | Explicit Waybar/Caelestia/Noctalia mode menu |
 
 ```bash
-~/.config/quickshell/scripts/select-shell --list
-~/.config/quickshell/scripts/select-shell --status
-~/.config/quickshell/scripts/select-shell --dry-run caelestia
-~/.config/quickshell/scripts/select-shell caelestia
+~/bin/toggle-shell-mode --status
+~/bin/toggle-shell-mode --dry-run --noctalia
+~/bin/toggle-shell-mode --noctalia
 ~/bin/toggle-shell-mode --quickshell --dry-run
 qs ipc call integration status
 qs ipc call theme reloadColors
 ```
 
-The selector restarts the default shell if it is running, then reloads Hyprland. Use it after editing QML; JSON settings and shared palette/font changes reload live. Start through `~/bin/toggle-shell-mode --quickshell` so notification and panel ownership is coordinated. Avoid separately launching `caelestia/shell.qml` alongside the default shell.
+`~/bin/toggle-shell-mode` owns shell process and marker transitions. Use `~/.config/quickshell/scripts/restart-shell` after editing Caelestia QML; JSON settings and shared palette/font changes reload live. Avoid separately launching `caelestia/shell.qml` or Noctalia alongside the selected mode.
 
 To add another shell, create a sibling directory containing `shell.qml` and an `exports` file listing each top-level QML file or module directory that should appear under the root. See `caelestia/exports`. Run `select-shell --dry-run NAME`, then `select-shell NAME`. Root helper directory `scripts`, dotfiles, and `active` are reserved. Existing unmanaged root files are never overwritten by the selector. A shell may provide `integration/hyprland.lua` for its own mode-specific bindings.
 
@@ -104,6 +104,8 @@ git clone https://github.com/caelestia-dots/cli.git ~/builds/shells/caelestia-cl
 git clone --branch v4.29.8 https://github.com/omacom/aether.git ~/builds/shells/aether
 ~/.config/quickshell/scripts/build-runtime --dry-run
 ~/.config/quickshell/scripts/build-runtime
+~/.config/quickshell/noctalia/integration/build-noctalia --dry-run
+~/.config/quickshell/noctalia/integration/build-noctalia
 ~/.config/quickshell/scripts/build-aether --dry-run
 ~/.config/quickshell/scripts/build-aether
 ```
@@ -112,7 +114,7 @@ Run clone commands only for missing directories. Set `SHELL_SOURCES`, `SHELL_BUI
 
 ## Validation
 
-The native plugins built successfully on this machine. Live checks verified a single root shell instance, notification ownership, shared theme/font/wallpaper values, the launcher binding, panel loading, and a Waybar/Caelestia mode round trip. Hyprland reported no configuration errors. Bash, JSON, and Lua checks passed. Use `/usr/lib/qt6/bin/qmlformat` for QML checks; `/usr/bin/qmlformat` belongs to Qt 5. Notification formatting passed 12 Qt 6 regression checks and a live styled-popup check. Native Caelestia locking and the mode-aware router were also verified; suspend, shutdown, and hardware-changing actions were not invoked as tests.
+The existing native plugins built successfully on this machine. The pinned Noctalia patch applies cleanly and its scripts, palettes, metadata, and dry-run mode/lock paths pass static checks; a release build still requires the missing `libical` development dependency, so Noctalia IPC and visible-surface checks remain pending. Live checks verified a single root shell instance, notification ownership, shared theme/font/wallpaper values, the launcher binding, panel loading, and a Waybar/Caelestia mode round trip. Hyprland reported no configuration errors. Bash, JSON, Lua, and targeted C++ checks passed. Use `/usr/lib/qt6/bin/qmlformat` for QML checks; `/usr/bin/qmlformat` belongs to Qt 5. Notification formatting passed 12 Qt 6 regression checks and a live styled-popup check. Native Caelestia locking and the mode-aware router were also verified; suspend, shutdown, and hardware-changing actions were not invoked as tests.
 
 ## Chromack
 

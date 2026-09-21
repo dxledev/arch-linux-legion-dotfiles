@@ -138,3 +138,4 @@ vimcmd_symbol = "[](bold fg:green)"
 vimcmd_replace_one_symbol = "[](bold fg:magenta)"
 vimcmd_replace_symbol = "[](bold fg:magenta)"
 vimcmd_visual_symbol = "[](bold fg:yellow)"
+

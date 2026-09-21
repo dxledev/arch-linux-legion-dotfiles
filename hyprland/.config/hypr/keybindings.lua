@@ -100,7 +100,6 @@ local function bind_exec(mods, key, description, command)
 end
 
 local simple_binds = {
-  { mainMod, "SPACE", "App Launcher", "~/bin/menu-apps" },
   { mainMod .. " ALT", "F", "File Menu", "~/bin/menu-files" },
   { mainMod .. " ALT", "C", "Clipboard Menu", "~/bin/menu-clipboard" },
   { mainMod .. " SHIFT CTRL", "C", "Config", "~/bin/menu-config" },
@@ -250,7 +249,7 @@ bind("bind", mainMod .. " SHIFT CTRL", "EQUAL", "", "togglespecialworkspace", "f
 
 local environment_binds = {
   { mainMod .. " SHIFT CTRL", "R", "Reload Hyprland", "~/bin/reload-hyprland" },
-  { mainMod .. " CTRL ALT", "Q", "Toggle Shell Mode", "~/bin/toggle-shell-mode" },
+  { mainMod .. " CTRL ALT", "Q", "Shell Mode Menu", "~/bin/menu-shell-mode" },
   { mainMod .. " SHIFT", "P", "Display Manager", "~/bin/launch-window-floating 1200 800 nwg-displays" },
   { mainMod .. " SHIFT", "Z", "Toggle Zen Mode", "~/bin/toggle-zen-mode" },
   { mainMod, "I", "Toggle Idle Lock", "~/bin/system-toggle-idle-lock" },

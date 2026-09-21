@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+runtime_dir="${NOCTALIA_RUNTIME_DIR:-$config_home/noctalia/.runtime}"
+runtime_bin="${NOCTALIA_BIN:-$runtime_dir/bin/noctalia}"
+assets_dir="${NOCTALIA_ASSETS_DIR:-$runtime_dir/share/noctalia/assets}"
+config_file="${NOCTALIA_CONFIG_FILE:-$config_home/noctalia/config.toml}"
+integration_dir="${NOCTALIA_INTEGRATION_DIR:-$config_home/noctalia/integration}"
+source_integration_dir="${NOCTALIA_SOURCE_INTEGRATION_DIR:-$config_home/quickshell/noctalia/integration}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
+application_selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
+palette_dir="${NOCTALIA_PALETTE_DIR:-$config_home/noctalia/palettes}"
+log_dir="${NOCTALIA_LOG_DIR:-$state_home/toggle-shell-mode}"
+log_file="$log_dir/noctalia.log"
+pid_user="$UID"
+start_timeout="${NOCTALIA_START_TIMEOUT:-15}"
+dry_run=0
+
+usage() {
+    printf '%s\n' \
+        'Usage:' \
+        '  noctalia-shell start --profile full|lock-provider [--start-locked] [--dry-run]' \
+        '  noctalia-shell stop [--dry-run]' \
+        '  noctalia-shell status [--dry-run]'
+}
+
+fail() {
+    printf 'noctalia-shell: %s\n' "$*" >&2
+    exit 1
+}
+
+require_absolute_executable() {
+    [[ "$1" == /* && -x "$1" ]] || fail "Executable not found: $1"
+}
+
+require_absolute_path() {
+    [[ "$1" == /* ]] || fail "Path must be absolute: $1"
+}
+
+validate_number() {
+    [[ "$1" =~ ^[1-9][0-9]*$ ]] || fail "$2 must be a positive integer"
+}
+
+integration_source() {
+    [[ -d "$source_integration_dir" ]] || fail "Integration source not found: $source_integration_dir"
+    printf '%s\n' "$source_integration_dir"
+}
+
+ensure_integration_files() {
+    local file
+    /usr/bin/mkdir -p -- "$integration_dir"
+    for file in pin.json config.toml; do
+        [[ -r "$source_integration_dir/$file" ]] || fail "Missing integration metadata: $source_integration_dir/$file"
+        if [[ -e "$integration_dir/$file" && ! -L "$integration_dir/$file" ]]; then
+            /usr/bin/cmp -s -- "$source_integration_dir/$file" "$integration_dir/$file" ||
+                fail "Managed integration metadata differs: $integration_dir/$file"
+        else
+            /usr/bin/install -m 0644 -- "$source_integration_dir/$file" "$integration_dir/$file"
+        fi
+    done
+}
+
+ensure_config() {
+    [[ -e "$config_file" ]] && { [[ -f "$config_file" ]] || fail "Config path is not a file: $config_file"; return; }
+    /usr/bin/mkdir -p -- "${config_file%/*}"
+    /usr/bin/install -m 0644 -- "$source_integration_dir/config.toml" "$config_file"
+}
+
+managed_link() {
+    local source="$1" target="$2" temporary resolved_source resolved_target
+    if [[ -e "$target" || -L "$target" ]]; then
+        [[ -L "$target" ]] || fail "Refusing to replace unmanaged palette: $target"
+        resolved_source="$(/usr/bin/readlink -f -- "$source")"
+        resolved_target="$(/usr/bin/readlink -f -- "$target" 2>/dev/null || true)"
+        [[ "$resolved_source" == "$resolved_target" ]] || fail "Refusing to replace unmanaged palette link: $target"
+        return
+    fi
+    temporary="$(/usr/bin/mktemp -d "${target%/*}/.palette.XXXXXX")"
+    /usr/bin/ln -s -- "$source" "$temporary/link"
+    /usr/bin/mv -T -- "$temporary/link" "$target"
+    /usr/bin/rmdir -- "$temporary"
+}
+
+ensure_palette_links() {
+    local theme_dir name source target
+    /usr/bin/mkdir -p -- "$palette_dir"
+    while IFS= read -r -d '' theme_dir; do
+        name="$(/usr/bin/basename -- "$theme_dir")"
+        [[ "$name" == current || "$name" == .dynamic || "$name" == .* ]] && continue
+        source="$theme_dir/noctalia.json"
+        [[ -r "$source" ]] || fail "Static theme is missing noctalia.json: $source"
+        target="$palette_dir/$name.json"
+        managed_link "$source" "$target"
+    done < <(/usr/bin/find -L "$themes_dir" -mindepth 1 -maxdepth 1 -type d -print0 | /usr/bin/sort -z)
+}
+
+sync_current_theme() {
+    local selected current_link current_name dynamic_noctalia dynamic_caelestia
+    selected="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
+    dynamic_noctalia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
+    dynamic_caelestia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/caelestia" 2>/dev/null || true)"
+    if [[ -n "$selected" && ( "$selected" == "$dynamic_noctalia" || "$selected" == "$dynamic_caelestia" ) &&
+          -f "$selected/wallpaper.png" ]]; then
+        "$runtime_bin" msg wallpaper-set "$selected/wallpaper.png" >/dev/null 2>&1 || true
+        "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    current_link="$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)"
+    current_name="$(/usr/bin/basename -- "$current_link")"
+    [[ "$current_name" =~ ^[a-z0-9][a-z0-9._-]*$ && -f "$current_link/noctalia.json" && -f "$current_link/wallpaper.png" ]] || return 0
+    "$runtime_bin" msg wallpaper-set "$current_link/wallpaper.png" >/dev/null 2>&1 || true
+    "$runtime_bin" msg color-scheme-set custom "$current_name" >/dev/null 2>&1 || true
+    "$runtime_bin" msg theme-mode-set "$([[ "$current_name" == akaito ]] && printf light || printf dark)" >/dev/null 2>&1 || true
+}
+
+process_ids() {
+    local pid exe
+    while IFS= read -r pid; do
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        exe="$(/usr/bin/readlink -f -- "/proc/$pid/exe" 2>/dev/null || true)"
+        [[ "$exe" == "$runtime_bin" ]] && printf '%s\n' "$pid"
+    done < <(/usr/bin/pgrep -u "$pid_user" -f -- "$runtime_bin" || true)
+}
+
+running() {
+    [[ -n "$(process_ids)" ]]
+}
+
+status_json() {
+    local status
+    status="$($runtime_bin msg status 2>/dev/null || true)"
+    [[ "$status" == \{* ]] || return 1
+    /usr/bin/jq '. + {running: true}' <<<"$status"
+}
+
+show_status() {
+    if ! running; then
+        printf '%s\n' '{"running":false}'
+        return 0
+    fi
+    status_json || fail 'Noctalia process exists but its IPC status is unavailable.'
+}
+
+stop_processes() {
+    local pid attempt
+    for pid in $(process_ids); do
+        /usr/bin/kill -TERM -- "$pid" 2>/dev/null || true
+    done
+    for (( attempt = 0; attempt < 100; attempt++ )); do
+        running || return 0
+        /usr/bin/sleep 0.1
+    done
+    fail 'Noctalia did not stop within 10 seconds.'
+}
+
+wait_healthy() {
+    local profile="$1" start_locked="$2" attempt status actual_profile locked
+    for (( attempt = 0; attempt < start_timeout * 10; attempt++ )); do
+        status="$(status_json || true)"
+        if [[ -n "$status" ]]; then
+            actual_profile="$(/usr/bin/jq -r '.profile // empty' <<<"$status")"
+            locked="$(/usr/bin/jq -r '.locked // false' <<<"$status")"
+            if [[ "$actual_profile" == "$profile" && ( "$start_locked" == 0 || "$locked" == true ) ]]; then
+                return 0
+            fi
+        fi
+        /usr/bin/sleep 0.1
+    done
+    return 1
+}
+
+start_process() {
+    local profile="$1" start_locked="$2" command=()
+    validate_number "$start_timeout" NOCTALIA_START_TIMEOUT
+    require_absolute_path "$runtime_bin"
+    require_absolute_path "$assets_dir"
+    require_absolute_path "$log_file"
+    require_absolute_path "$themes_dir"
+    require_absolute_path "$application_selector"
+    require_absolute_path "$palette_dir"
+    [[ "$application_selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $application_selector"
+    if (( dry_run )); then
+        printf 'Profile: %s\nStart locked: %s\nBinary: %s\nAssets: %s\nLog: %s\n' \
+            "$profile" "$start_locked" "$runtime_bin" "$assets_dir" "$log_file"
+        return 0
+    fi
+    require_absolute_executable "$runtime_bin"
+    ensure_integration_files
+    ensure_config
+    ensure_palette_links
+    if running; then
+        wait_healthy "$profile" "$start_locked" || fail "Running Noctalia profile does not match $profile."
+        sync_current_theme
+        return 0
+    fi
+    /usr/bin/mkdir -p -- "$log_dir"
+    /usr/bin/truncate -s 0 -- "$log_file"
+    command=("$runtime_bin" --profile "$profile" --daemonize)
+    (( start_locked )) && command+=(--start-locked)
+    NOCTALIA_PROFILE="$profile" NOCTALIA_START_LOCKED="$start_locked" NOCTALIA_ASSETS_DIR="$assets_dir" \
+        /usr/bin/nohup "${command[@]}" >>"$log_file" 2>&1 9>&- &
+    wait_healthy "$profile" "$start_locked" || fail "Noctalia failed to become healthy; see $log_file"
+    sync_current_theme
+}
+
+main() {
+    local action profile=full start_locked=0
+    [[ $# -gt 0 ]] || { usage >&2; return 2; }
+    action="$1"
+    shift
+    while (( $# )); do
+        case "$1" in
+            --profile)
+                shift
+                (( $# )) || { usage >&2; return 2; }
+                profile="$1"
+                ;;
+            --start-locked) start_locked=1 ;;
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; return 2 ;;
+        esac
+        shift
+    done
+    case "$action" in
+        start)
+            [[ "$profile" == full || "$profile" == lock-provider ]] || fail 'Profile must be full or lock-provider.'
+            start_process "$profile" "$start_locked"
+            ;;
+        stop)
+            if (( dry_run )); then
+                printf 'Stop Noctalia processes matching %s\n' "$runtime_bin"
+            else
+                stop_processes
+            fi
+            ;;
+        status)
+            show_status
+            ;;
+        *) usage >&2; return 2 ;;
+    esac
+}
+
+main "$@"

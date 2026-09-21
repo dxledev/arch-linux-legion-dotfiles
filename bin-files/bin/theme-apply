@@ -7,6 +7,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 themes_dir="${THEMES_DIR:-$config_home/themes}"
 selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
+dynamic_provider="caelestia"
 dynamic_theme="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
 spicetify_link="${SPICETIFY_DYNAMIC_LINK:-$config_home/spicetify/Themes/CaelestiaDynamic}"
 shell_mode_script="${SHELL_MODE_SCRIPT:-$script_dir/toggle-shell-mode}"
@@ -19,7 +20,7 @@ reload_labels=()
 wait_for_reloads="${THEME_APPLY_WAIT_FOR_RELOADS:-0}"
 
 usage() {
-    printf 'Usage: theme-apply [--dry-run] system|dynamic\n'
+    printf 'Usage: theme-apply [--dry-run] system|dynamic [caelestia|noctalia]\n'
 }
 
 fail() {
@@ -39,6 +40,14 @@ validate_named_current() {
         fail "current must resolve to an immediate named theme: $themes_dir/current"
 }
 
+configure_dynamic_provider() {
+    case "$dynamic_provider" in
+        caelestia) dynamic_theme="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}" ;;
+        noctalia) dynamic_theme="${NOCTALIA_DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/noctalia}" ;;
+        *) fail "Unknown dynamic provider: $dynamic_provider" ;;
+    esac
+}
+
 validate_paths() {
     local mode="$1" selector_target="" dynamic_resolved=""
     require_absolute THEMES_DIR "$themes_dir"
@@ -47,11 +56,13 @@ validate_paths() {
     require_absolute SPICETIFY_DYNAMIC_LINK "$spicetify_link"
     require_absolute THEME_APPLY_SPICETIFY_LOCK "$spicetify_lock"
     [[ "$selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $selector"
-    [[ "$dynamic_theme" == "$themes_dir/.dynamic/caelestia" ]] || fail "Unexpected Dynamic theme directory: $dynamic_theme"
+    [[ "$dynamic_provider" == caelestia && "$dynamic_theme" == "$themes_dir/.dynamic/caelestia" ||
+       "$dynamic_provider" == noctalia && "$dynamic_theme" == "$themes_dir/.dynamic/noctalia" ]] ||
+        fail "Unexpected Dynamic theme directory: $dynamic_theme"
     [[ -d "$themes_dir" ]] || fail "Themes directory not found: $themes_dir"
     [[ "$wait_for_reloads" == 0 || "$wait_for_reloads" == 1 ]] || fail 'THEME_APPLY_WAIT_FOR_RELOADS must be 0 or 1.'
     validate_named_current
-    if [[ -d "$dynamic_theme" && -f "$dynamic_theme/.caelestia-generated" ]]; then
+    if [[ -d "$dynamic_theme" && -f "$dynamic_theme/.$dynamic_provider-generated" ]]; then
         dynamic_resolved="$(/usr/bin/readlink -f -- "$dynamic_theme")"
     fi
     if [[ "$mode" == dynamic ]]; then
@@ -64,13 +75,13 @@ validate_paths() {
     if [[ -e "$selector" || -L "$selector" ]]; then
         [[ -L "$selector" ]] || fail "Refusing to replace non-symlink selector: $selector"
         selector_target="$(/usr/bin/readlink -- "$selector")"
-        [[ "$selector_target" == current || "$selector_target" == .dynamic/caelestia ]] ||
+        [[ "$selector_target" == current || "$selector_target" == .dynamic/caelestia || "$selector_target" == .dynamic/noctalia ]] ||
             fail "Refusing to replace unmanaged selector: $selector"
     fi
 }
 
 ensure_spicetify_link() {
-    local target="$dynamic_theme/spicetify" resolved="" temporary_dir
+    local target="$dynamic_theme/spicetify" resolved="" temporary_dir managed_target
     [[ -e "$spicetify_link" || -L "$spicetify_link" ]] || {
         /usr/bin/mkdir -p -- "${spicetify_link%/*}"
         temporary_dir="$(/usr/bin/mktemp -d "${spicetify_link%/*}/.caelestia-dynamic.XXXXXX")"
@@ -81,12 +92,21 @@ ensure_spicetify_link() {
     }
     [[ -L "$spicetify_link" ]] || fail "Refusing to replace unmanaged Spicetify path: $spicetify_link"
     resolved="$(/usr/bin/readlink -f -- "$spicetify_link" 2>/dev/null || true)"
-    [[ "$resolved" == "$(/usr/bin/readlink -f -- "$target")" ]] || fail "Refusing to replace unmanaged Spicetify link: $spicetify_link"
+    [[ "$resolved" == "$(/usr/bin/readlink -f -- "$target")" ]] && return 0
+    for managed_target in "$themes_dir/.dynamic/caelestia/spicetify" "$themes_dir/.dynamic/noctalia/spicetify"; do
+        [[ "$resolved" == "$(/usr/bin/readlink -f -- "$managed_target" 2>/dev/null || true)" ]] && break
+    done
+    [[ "$resolved" == "$(/usr/bin/readlink -f -- "$managed_target" 2>/dev/null || true)" ]] ||
+        fail "Refusing to replace unmanaged Spicetify link: $spicetify_link"
+    temporary_dir="$(/usr/bin/mktemp -d "${spicetify_link%/*}/.caelestia-dynamic.XXXXXX")"
+    /usr/bin/ln -s -- "$target" "$temporary_dir/link"
+    /usr/bin/mv -Tf -- "$temporary_dir/link" "$spicetify_link"
+    /usr/bin/rmdir -- "$temporary_dir"
 }
 
 activate_selector() {
     local mode="$1" target temporary_dir
-    if [[ "$mode" == dynamic ]]; then target='.dynamic/caelestia'; else target='current'; fi
+    if [[ "$mode" == dynamic ]]; then target=".dynamic/$dynamic_provider"; else target='current'; fi
     temporary_dir="$(/usr/bin/mktemp -d "$themes_dir/.caelestia-use.XXXXXX")"
     /usr/bin/ln -s -- "$target" "$temporary_dir/link"
     /usr/bin/mv -Tf -- "$temporary_dir/link" "$selector"
@@ -104,7 +124,7 @@ queue_reload() {
         record_failure "$label"
         return
     fi
-    "$@" >/dev/null 2>&1 &
+    "$@" >/dev/null 2>&1 9>&- &
     reload_pids+=("$!")
     reload_labels+=("$label")
 }
@@ -152,6 +172,16 @@ queue_spicetify_reload() {
     reload_labels+=(spotify)
 }
 
+external_wallpaper_enabled() {
+    local mode="$1"
+    [[ "${THEME_APPLY_FORCE_EXTERNAL_WALLPAPER:-0}" == 1 ]] && return 0
+    if [[ "$mode" == system ]]; then
+        [[ ! -x "$shell_mode_script" || "$("$shell_mode_script" --status 2>/dev/null || true)" != noctalia ]]
+        return
+    fi
+    [[ "$dynamic_provider" == caelestia ]]
+}
+
 wait_for_queued_reloads() {
     local index
     for index in "${!reload_pids[@]}"; do
@@ -163,6 +193,7 @@ wait_for_queued_reloads() {
 
 reload_waybar_apps() {
     local mode
+    [[ "${THEME_APPLY_SKIP_WAYBAR:-0}" == 1 ]] && return 0
     [[ -x "$shell_mode_script" ]] || { record_failure shell-mode; return; }
     mode="$("$shell_mode_script" --status 2>/dev/null || true)"
     [[ "$mode" == waybar ]] || return 0
@@ -185,8 +216,9 @@ reload_applications() {
     if [[ "$mode" == dynamic ]]; then spotify_mode=dynamic; else spotify_mode="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current")")"; fi
     queue_reload nemo "$script_dir/reload-nemo"
     queue_reload pavucontrol "$script_dir/reload-pavucontrol"
-    queue_reload hyprlock-wallpaper "$config_home/hyprlock/scripts/random-wallpaper.sh" --dir "$selector/wallpapers" --link /tmp/hyprlock-random-wallpaper
-    queue_reload wallpaper "$script_dir/bg-refresh-current"
+    if external_wallpaper_enabled "$mode"; then
+        queue_reload wallpaper "$script_dir/bg-refresh-current"
+    fi
     queue_reload cursor "$script_dir/cursor-set" "$(active_cursor_theme)"
     queue_reload browsers "$script_dir/reload-browsers"
     queue_reload borders "$script_dir/reload-borders"
@@ -199,8 +231,10 @@ reload_applications() {
     queue_if_running celluloid celluloid "$script_dir/reload-celluloid"
     if [[ "$mode" == system ]]; then
         queue_reload mako "$script_dir/reload-mako"
-        queue_reload ward "$script_dir/reload-ward"
-        reload_waybar_apps
+        if [[ "${THEME_APPLY_SKIP_WAYBAR:-0}" != 1 ]]; then
+            queue_reload ward "$script_dir/reload-ward"
+            reload_waybar_apps
+        fi
     fi
     reload_portals
     wait_for_queued_reloads
@@ -226,6 +260,7 @@ dispatch_reloads() {
 notify_failures() {
     local joined
     (( ${#failures[@]} )) || return 0
+    [[ "${THEME_APPLY_SUPPRESS_NOTIFY:-0}" == 1 ]] && return 0
     joined="$(IFS=', '; printf '%s' "${failures[*]}")"
     if [[ -x "$notify_send_bin" ]]; then
         "$notify_send_bin" -t 5000 'Theme' "Some applications could not reload: $joined" >/dev/null 2>&1 || true
@@ -235,17 +270,27 @@ notify_failures() {
 
 show_plan() {
     local mode="$1" target
-    if [[ "$mode" == dynamic ]]; then target='.dynamic/caelestia'; else target=current; fi
+    if [[ "$mode" == dynamic ]]; then target=".dynamic/$dynamic_provider"; else target=current; fi
     printf 'Selector: %s -> %s\n' "$selector" "$target"
-    [[ "$mode" != dynamic ]] || printf 'Spicetify: %s -> %s/spicetify\n' "$spicetify_link" "$dynamic_theme"
+    [[ "$mode" != dynamic ]] || printf 'Dynamic provider: %s\nSpicetify: %s -> %s/spicetify\n' "$dynamic_provider" "$spicetify_link" "$dynamic_theme"
     printf 'Reload desktop applications for %s\n' "$mode"
 }
 
 main() {
     local mode
     [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
-    [[ $# == 1 && ( "$1" == system || "$1" == dynamic ) ]] || { usage >&2; exit 2; }
-    mode="$1"
+    if [[ $# == 1 && "$1" == system ]]; then
+        mode=system
+    elif [[ $# == 1 && "$1" == dynamic ]]; then
+        mode=dynamic
+    elif [[ $# == 2 && "$1" == dynamic && ( "$2" == caelestia || "$2" == noctalia ) ]]; then
+        mode=dynamic
+        dynamic_provider="$2"
+    else
+        usage >&2
+        exit 2
+    fi
+    configure_dynamic_provider
     validate_paths "$mode"
     if (( dry_run )); then show_plan "$mode"; return; fi
     [[ "$mode" != dynamic ]] || ensure_spicetify_link

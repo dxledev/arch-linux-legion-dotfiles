@@ -1,13 +1,11 @@
 local config_home = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
 local root = config_home .. "/quickshell"
-local mode = io.open(config_home .. "/hypr/hyprland.lua", "r")
-local quickshell = false
-if mode then
-    quickshell = mode:read("*a"):match('%-%-%s*require%("waybar%-mode%-keybindings"%)') ~= nil
-    mode:close()
-end
+local mode_script = os.getenv("SHELL_MODE_SCRIPT") or (os.getenv("HOME") .. "/bin/toggle-shell-mode")
+local mode_pipe = io.popen(mode_script .. " --status 2>/dev/null", "r")
+local mode = mode_pipe and mode_pipe:read("*l") or nil
+if mode_pipe then mode_pipe:close() end
 
-if not quickshell then return end
+if mode ~= "caelestia" then return end
 
 hl.window_rule({
     name = "caelestia-aether-workspace",

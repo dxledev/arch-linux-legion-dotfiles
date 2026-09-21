@@ -159,6 +159,7 @@ write_text() {
 
 notify_theme() {
     local summary="$1" body="$2"
+    [[ "${SHELL_THEME_SUPPRESS_NOTIFY:-0}" == 1 ]] && return 0
     [[ -x "$notify_send_bin" ]] || return 0
     "$notify_send_bin" -t 5000 "$summary" "$body" >/dev/null 2>&1 || true
 }

@@ -17,9 +17,9 @@ border_menu_require_waybar() {
     }
 
     [[ "$mode" == waybar ]] && return 0
-    [[ "$mode" == quickshell ]] || exit 1
+    [[ "$mode" == caelestia || "$mode" == noctalia ]] || exit 1
 
-    local message="Border menu locked while Quickshell is active. Rounding follows Quickshell's inner radius."
+    local message="Border menu locked while a graphical shell is active."
     if (( BORDER_MENU_DRY_RUN )); then
         printf '%s\n' "$message"
     else

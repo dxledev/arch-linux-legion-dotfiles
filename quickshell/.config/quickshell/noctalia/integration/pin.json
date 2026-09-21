@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/noctalia-dev/noctalia.git",
+  "commit": "53626fc910e88c8791b17ee6b1fe6851ef117e39",
+  "patches": [
+    "0001-dxle-shell-integration.patch"
+  ],
+  "schemes": [
+    "m3-tonal-spot",
+    "m3-content",
+    "m3-fruit-salad",
+    "m3-rainbow",
+    "m3-monochrome",
+    "vibrant",
+    "faithful",
+    "soft",
+    "dysfunctional",
+    "muted"
+  ]
+}

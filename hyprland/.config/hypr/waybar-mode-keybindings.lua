@@ -1,5 +1,6 @@
 local bindings = {
-  { "SUPER + SHIFT + L", "Lock Screen", "$HOME/.config/hyprlock/scripts/launch-lock-screen.sh" },
+  { "SUPER + SPACE", "App Launcher", "~/bin/menu-apps" },
+  { "SUPER + SHIFT + L", "Lock Screen", "$HOME/bin/system-lock --wait" },
   { "SUPER + ALT + SHIFT + SPACE", "Live Background", "~/bin/bg-live" },
   { "SUPER + CTRL + ALT + SPACE", "Set Background", "~/bin/bg-set" },
   { "SUPER + ALT + L", "Layout Menu", "~/bin/menu-layout" },
@@ -32,6 +33,8 @@ local bindings = {
   { "SUPER + F3", "Decrease Acer Brightness", "~/bin/system-brightness-hdmi down" },
   { "SUPER + F4", "Increase Acer Brightness", "~/bin/system-brightness-hdmi up" },
 }
+
+hl.unbind("SUPER + SPACE")
 
 for _, binding in ipairs(bindings) do
   hl.bind(binding[1], hl.dsp.exec_cmd(binding[3]), { description = binding[2] })

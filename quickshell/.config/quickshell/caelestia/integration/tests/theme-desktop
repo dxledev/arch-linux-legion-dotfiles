@@ -50,10 +50,11 @@ assert_files() {
 
 validate_formats() {
     /usr/bin/jq -e . "$dynamic_dir/brave.json" "$dynamic_dir/palette.json" >/dev/null
-    /usr/bin/luac -p "$dynamic_dir/borders.lua" "$dynamic_dir/hymission-background.lua"
+    /usr/bin/luac -p "$dynamic_dir/borders.lua" "$dynamic_dir/hymission-background.lua" "$dynamic_dir/neovim.lua"
     /usr/bin/grep -q '^\[colors.primary\]$' "$dynamic_dir/alacritty.toml"
     /usr/bin/grep -q '^\[Dynamic\]$' "$dynamic_dir/spicetify/color.ini"
     /usr/bin/grep -q '^@define-color base ' "$dynamic_dir/gtk.css"
+    /usr/bin/grep -q 'desktop-dynamic' "$dynamic_dir/neovim.lua"
     /usr/bin/grep -q '^pragma Singleton$' "$dynamic_dir/Colors.qml"
     /usr/bin/grep -q '^gradient_color_8 = ' "$dynamic_dir/cava"
     /usr/bin/grep -q '^\[Settings\]$' "$dynamic_dir/hellpaper.conf"

@@ -16,6 +16,7 @@ ShellRoot {
     id: root
 
     readonly property bool startupLocked: Quickshell.env("CAELESTIA_START_LOCKED") === "1"
+    readonly property bool nativeLockProvider: Quickshell.env("CAELESTIA_NATIVE_LOCK_PROVIDER") === "1"
     property bool shellContentRequested
 
     function loadShellContent(): void {
@@ -34,7 +35,8 @@ ShellRoot {
     Lock {
         id: lockController
 
-        startLocked: root.startupLocked
+        nativeLockProvider: root.nativeLockProvider
+        startLocked: root.startupLocked && !root.nativeLockProvider
         onSecureChanged: {
             if (secure)
                 root.loadShellContent();

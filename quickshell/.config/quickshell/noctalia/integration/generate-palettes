@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+themes_dir="${THEMES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/themes}"
+write_mode=0
+
+usage() {
+    printf 'Usage: generate-palettes [--write|--dry-run]\n'
+}
+
+fail() {
+    printf 'generate-palettes: %s\n' "$*" >&2
+    exit 1
+}
+
+color_property() {
+    local file="$1" property="$2" line
+    line="$(/usr/bin/grep -m1 -E "property color ${property}:" "$file" || true)"
+    if [[ "$line" =~ (#[0-9A-Fa-f]{6}) ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}" | /usr/bin/tr '[:upper:]' '[:lower:]'
+        return
+    fi
+    if [[ "$line" =~ Qt\.rgba\(([0-9]+)[[:space:]]*/[[:space:]]*255,[[:space:]]*([0-9]+)[[:space:]]*/[[:space:]]*255,[[:space:]]*([0-9]+)[[:space:]]*/[[:space:]]*255 ]]; then
+        printf '#%02x%02x%02x\n' "$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[2]}))" "$((10#${BASH_REMATCH[3]}))"
+        return
+    fi
+    fail "Missing Colors.qml role $property in $file"
+}
+
+terminal_color() {
+    local file="$1" section="$2" name="$3" line
+    line="$(/usr/bin/awk -F= -v section="$section" -v name="$name" '
+        /^\[colors\./ { current=$0; gsub(/\[|\]/, "", current); sub(/^colors\./, "", current) }
+        current == section && $1 ~ "^[[:space:]]*" name "[[:space:]]*$" {
+            value=$2; sub(/[[:space:]]+#.*/, "", value); gsub(/[[:space:]]/, "", value); gsub(/\047/, "", value); gsub(/"/, "", value); print value; exit
+        }
+    ' "$file")"
+    [[ "$line" =~ ^#?[0-9A-Fa-f]{6}$ ]] || fail "Missing terminal color $section.$name in $file"
+    [[ "$line" == \#* ]] || line="#$line"
+    printf '%s\n' "$line" | /usr/bin/tr '[:upper:]' '[:lower:]'
+}
+
+build_palette() {
+    local theme_dir="$1" colors="$1/Colors.qml" terminal="$1/alacritty.toml"
+    local background background_alt foreground foreground_inactive primary muted border secondary success warning danger
+    local -a normal=() bright=()
+    local name index
+    background="$(color_property "$colors" background)"
+    background_alt="$(color_property "$colors" backgroundAlt)"
+    foreground="$(color_property "$colors" foreground)"
+    foreground_inactive="$(color_property "$colors" foregroundInactive)"
+    primary="$(color_property "$colors" primary)"
+    muted="$(color_property "$colors" muted)"
+    border="$(color_property "$colors" border)"
+    secondary="$(color_property "$colors" secondary)"
+    success="$(color_property "$colors" success)"
+    warning="$(color_property "$colors" warning)"
+    danger="$(color_property "$colors" danger)"
+    for name in black red green yellow blue magenta cyan white; do
+        normal+=("$(terminal_color "$terminal" normal "$name")")
+        bright+=("$(terminal_color "$terminal" bright "$name")")
+    done
+
+    /usr/bin/jq -n \
+        --arg primary "$primary" --arg on_primary "$background" \
+        --arg secondary "$secondary" --arg on_secondary "$background" \
+        --arg tertiary "$warning" --arg on_tertiary "$background" \
+        --arg error "$danger" --arg on_error "$background" \
+        --arg surface "$background" --arg on_surface "$foreground" \
+        --arg surface_variant "$background_alt" --arg on_surface_variant "$foreground_inactive" \
+        --arg outline "$border" --arg shadow "$background" --arg hover "$secondary" --arg on_hover "$background" \
+        --arg terminal_foreground "$foreground" --arg terminal_background "$background" \
+        --arg terminal_cursor "$foreground" --arg terminal_cursor_text "$background" \
+        --arg selection_fg "$foreground" --arg selection_bg "$background_alt" \
+        --argjson normal "$(printf '%s\n' "${normal[@]}" | /usr/bin/jq -Rsc 'split("\n")[:-1] | {black: .[0], red: .[1], green: .[2], yellow: .[3], blue: .[4], magenta: .[5], cyan: .[6], white: .[7]}')" \
+        --argjson bright "$(printf '%s\n' "${bright[@]}" | /usr/bin/jq -Rsc 'split("\n")[:-1] | {black: .[0], red: .[1], green: .[2], yellow: .[3], blue: .[4], magenta: .[5], cyan: .[6], white: .[7]}')" \
+        'def palette:
+          {mPrimary:$primary,mOnPrimary:$on_primary,mSecondary:$secondary,mOnSecondary:$on_secondary,
+           mTertiary:$tertiary,mOnTertiary:$on_tertiary,mError:$error,mOnError:$on_error,mSurface:$surface,
+           mOnSurface:$on_surface,mSurfaceVariant:$surface_variant,mOnSurfaceVariant:$on_surface_variant,
+           mOutline:$outline,mShadow:$shadow,mHover:$hover,mOnHover:$on_hover,
+           terminal:{normal:$normal,bright:$bright,foreground:$terminal_foreground,background:$terminal_background,
+                     cursor:$terminal_cursor,cursorText:$terminal_cursor_text,selectionFg:$selection_fg,selectionBg:$selection_bg}};
+         {dark:palette,light:palette}'
+}
+
+main() {
+    local theme_dir name output
+    while (( $# )); do
+        case "$1" in
+            --write) write_mode=1 ;;
+            --dry-run) write_mode=0 ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; return 2 ;;
+        esac
+        shift
+    done
+    [[ -d "$themes_dir" ]] || fail "Themes directory not found: $themes_dir"
+    while IFS= read -r -d '' theme_dir; do
+        name="$(/usr/bin/basename -- "$theme_dir")"
+        [[ "$name" == current || "$name" == .dynamic || "$name" == .* ]] && continue
+        output="$theme_dir/noctalia.json"
+        if (( write_mode )); then
+            build_palette "$theme_dir" > "$output"
+        else
+            printf '%s\n' "$output"
+        fi
+    done < <(/usr/bin/find -L "$themes_dir" -mindepth 1 -maxdepth 1 -type d -print0 | /usr/bin/sort -z)
+}
+
+main "$@"

@@ -58,7 +58,7 @@ Scope {
             onStreamFinished: root.currentMode = text.trim()
         }
         onExited: exitCode => {
-            if (exitCode === 0 && root.currentMode === "quickshell") {
+            if (exitCode === 0 && root.currentMode === "caelestia") {
                 const config = "hl.config({ decoration = { rounding = " + root.innerRadius
                     + ", rounding_power = " + root.roundingPower + " } })"
                 radiusUpdate.exec([root.hyprctlPath, "eval", config])

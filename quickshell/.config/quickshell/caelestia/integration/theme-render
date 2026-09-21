@@ -3,7 +3,8 @@ set -euo pipefail
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 themes_dir="${THEMES_DIR:-$config_home/themes}"
-output_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
+provider="caelestia"
+output_dir=""
 template_dir="${THEME_TEMPLATE_DIR:-$themes_dir/current}"
 spicetify_template="${SPICETIFY_TEMPLATE_DIR:-$config_home/spicetify/Themes/text}"
 dry_run=0
@@ -13,7 +14,7 @@ backup_dir=""
 temporary_palette=""
 
 usage() {
-    printf 'Usage: theme-render [--dry-run] [--force] PALETTE_JSON ABSOLUTE_WALLPAPER\n'
+    printf 'Usage: theme-render [--dry-run] [--force] [--provider caelestia|noctalia] PALETTE_JSON ABSOLUTE_WALLPAPER\n'
 }
 
 fail() {
@@ -31,6 +32,14 @@ require_absolute() {
     [[ "$2" == /* ]] || fail "$1 must be an absolute path: $2"
 }
 
+configure_provider() {
+    case "$provider" in
+        caelestia) output_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}" ;;
+        noctalia) output_dir="${NOCTALIA_DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/noctalia}" ;;
+        *) fail "Unknown provider: $provider" ;;
+    esac
+}
+
 validate_paths() {
     local palette_file="$1" wallpaper="$2" themes_resolved template_resolved
     require_absolute THEMES_DIR "$themes_dir"
@@ -39,8 +48,9 @@ validate_paths() {
     require_absolute SPICETIFY_TEMPLATE_DIR "$spicetify_template"
     require_absolute PALETTE_JSON "$palette_file"
     require_absolute WALLPAPER "$wallpaper"
-    [[ "$output_dir" == "$themes_dir/.dynamic/caelestia" ]] ||
-        fail "DYNAMIC_THEME_DIR is not the managed output: $output_dir"
+    [[ "$provider" == caelestia && "$output_dir" == "$themes_dir/.dynamic/caelestia" ||
+       "$provider" == noctalia && "$output_dir" == "$themes_dir/.dynamic/noctalia" ]] ||
+        fail "Dynamic output is not managed: $output_dir"
     [[ -r "$palette_file" && -f "$palette_file" ]] || fail "Palette not found: $palette_file"
     [[ -f "$wallpaper" ]] || fail "Wallpaper not found: $wallpaper"
     themes_resolved="$(/usr/bin/readlink -f -- "$themes_dir")"
@@ -52,7 +62,8 @@ validate_paths() {
         [[ -r "$template_dir/$required_file" ]] || fail "Template is missing $required_file: $template_dir"
     done
     if [[ -e "$output_dir" || -L "$output_dir" ]]; then
-        [[ -d "$output_dir" && ! -L "$output_dir" && -f "$output_dir/.caelestia-generated" ]] ||
+        [[ -d "$output_dir" && ! -L "$output_dir" &&
+           ( -f "$output_dir/.caelestia-generated" || -f "$output_dir/.noctalia-generated" ) ]] ||
             fail "Refusing to replace unmanaged output: $output_dir"
     fi
 }
@@ -216,6 +227,84 @@ write_application_css() {
     printf '\n.theme-dark, .theme-light {\n  --background-primary: #%s; --background-primary-alt: #%s; --background-secondary: #%s; --background-secondary-alt: #%s;\n  --text-normal: #%s; --text-selection: #%s; --background-modifier-border: #%s;\n  --text-title-h1: #%s; --text-title-h2: #%s; --text-title-h3: #%s; --text-title-h4: #%s; --text-title-h5: #%s; --text-title-h6: #%s;\n  --text-link: #%s; --text-accent: #%s; --text-accent-hover: #%s; --interactive-accent: #%s; --interactive-accent-hover: #%s;\n  --text-muted: #%s; --text-faint: #%s; --code-normal: #%s; --text-error: #%s; --text-error-hover: #%s; --text-success: #%s;\n  --tag-color: #%s; --tag-background: #%s; --graph-line: #%s; --graph-node: #%s; --graph-node-focused: #%s; --graph-node-tag: #%s; --graph-node-attachment: #%s;\n}\n' "$base" "$base" "$mantle" "$mantle" "$text_colour" "$surface1" "$surface1" "$red" "$green" "$yellow" "$blue" "$primary" "$secondary" "$blue" "$primary" "$primary" "$primary" "$secondary" "$subtext1" "$surface2" "$primary" "$red" "$red" "$green" "$primary" "$surface1" "$surface1" "$primary" "$blue" "$primary" "$green" >> "$directory/obsidian.css"
 }
 
+write_neovim() {
+    local directory="$1"
+    if [[ -e "$directory/neovim.lua" || -L "$directory/neovim.lua" ]]; then
+        /usr/bin/rm -f -- "$directory/neovim.lua"
+    fi
+    {
+        printf 'local palette = {\n'
+        printf '  base = "#%s", mantle = "#%s", surface0 = "#%s", surface1 = "#%s", surface2 = "#%s",\n' "$base" "$mantle" "$surface0" "$surface1" "$surface2"
+        printf '  overlay0 = "#%s", overlay1 = "#%s", text = "#%s", subtext0 = "#%s", subtext1 = "#%s",\n' "$overlay0" "$overlay1" "$text_colour" "$subtext0" "$subtext1"
+        printf '  primary = "#%s", secondary = "#%s", peach = "#%s", red = "#%s", green = "#%s", yellow = "#%s",\n' "$primary" "$secondary" "$peach" "$red" "$green" "$yellow"
+        printf '  blue = "#%s", mauve = "#%s", pink = "#%s", teal = "#%s", sky = "#%s", lavender = "#%s"\n' "$blue" "$mauve" "$pink" "$teal" "$sky" "$lavender"
+        printf '}\n\n'
+        printf 'vim.cmd("highlight clear")\n'
+        printf 'if vim.fn.exists("syntax_on") == 1 then vim.cmd("syntax reset") end\n'
+        printf 'vim.o.background = "%s"\n' "$mode"
+        printf 'vim.o.termguicolors = true\n'
+        printf 'vim.g.colors_name = "desktop-dynamic"\n\n'
+        printf 'local function set(names, value)\n'
+        printf '  for _, name in ipairs(names) do vim.api.nvim_set_hl(0, name, value) end\n'
+        printf 'end\n\n'
+        printf 'set({ "Normal", "NormalNC" }, { fg = palette.text, bg = "NONE" })\n'
+        printf 'set({ "EndOfBuffer", "SignColumn", "FoldColumn" }, { fg = palette.surface1, bg = "NONE" })\n'
+        printf 'set({ "CursorLine", "CursorColumn", "ColorColumn" }, { bg = palette.surface0 })\n'
+        printf 'set({ "LineNr" }, { fg = palette.overlay1, bg = "NONE" })\n'
+        printf 'set({ "CursorLineNr" }, { fg = palette.primary, bold = true, bg = "NONE" })\n'
+        printf 'set({ "StatusLine", "WinBar" }, { fg = palette.text, bg = palette.surface0 })\n'
+        printf 'set({ "StatusLineNC", "WinBarNC" }, { fg = palette.subtext0, bg = palette.mantle })\n'
+        printf 'set({ "VertSplit", "WinSeparator" }, { fg = palette.overlay1, bg = "NONE" })\n'
+        printf 'set({ "TabLine" }, { fg = palette.subtext0, bg = palette.mantle })\n'
+        printf 'set({ "TabLineSel" }, { fg = palette.base, bg = palette.primary, bold = true })\n'
+        printf 'set({ "TabLineFill" }, { fg = palette.subtext0, bg = palette.mantle })\n'
+        printf 'set({ "Title", "Directory" }, { fg = palette.primary, bold = true })\n'
+        printf 'set({ "Visual" }, { bg = palette.surface1 })\n'
+        printf 'set({ "Search", "IncSearch" }, { fg = palette.base, bg = palette.yellow, bold = true })\n'
+        printf 'set({ "CurSearch" }, { fg = palette.base, bg = palette.primary, bold = true })\n'
+        printf 'set({ "MatchParen" }, { fg = palette.primary, bold = true, underline = true })\n'
+        printf 'set({ "Pmenu", "PmenuExtra", "PmenuKind" }, { fg = palette.text, bg = palette.surface0 })\n'
+        printf 'set({ "PmenuSel" }, { fg = palette.base, bg = palette.primary, bold = true })\n'
+        printf 'set({ "PmenuSbar" }, { bg = palette.surface1 })\n'
+        printf 'set({ "PmenuThumb" }, { bg = palette.primary })\n'
+        printf 'set({ "NormalFloat" }, { fg = palette.text, bg = "NONE" })\n'
+        printf 'set({ "FloatBorder", "FloatTitle" }, { fg = palette.primary, bg = "NONE", bold = true })\n'
+        printf 'set({ "ErrorMsg", "DiagnosticError" }, { fg = palette.red, bold = true })\n'
+        printf 'set({ "WarningMsg", "DiagnosticWarn" }, { fg = palette.yellow, bold = true })\n'
+        printf 'set({ "DiagnosticInfo" }, { fg = palette.blue })\n'
+        printf 'set({ "DiagnosticHint" }, { fg = palette.teal })\n'
+        printf 'set({ "DiffAdd", "GitSignsAdd" }, { fg = palette.green })\n'
+        printf 'set({ "DiffChange", "GitSignsChange" }, { fg = palette.yellow })\n'
+        printf 'set({ "DiffDelete", "GitSignsDelete" }, { fg = palette.red })\n'
+        printf 'set({ "DiffText" }, { fg = palette.base, bg = palette.primary })\n'
+        printf 'set({ "Comment", "@comment", "@comment.documentation" }, { fg = palette.subtext0, italic = true })\n'
+        printf 'set({ "Constant", "@constant", "@constant.builtin", "Number", "Boolean" }, { fg = palette.peach })\n'
+        printf 'set({ "String", "Character", "@string", "@string.escape" }, { fg = palette.green })\n'
+        printf 'set({ "Identifier", "@variable", "@variable.builtin", "@parameter" }, { fg = palette.text })\n'
+        printf 'set({ "Function", "@function", "@function.call", "@function.builtin", "@method", "@method.call" }, { fg = palette.blue })\n'
+        printf 'set({ "Statement", "Keyword", "Conditional", "Repeat", "Label", "Operator", "Exception", "@keyword", "@keyword.function", "@keyword.return", "@operator" }, { fg = palette.mauve })\n'
+        printf 'set({ "PreProc", "Include", "Define", "Macro", "PreCondit", "@keyword.directive", "@keyword.import" }, { fg = palette.pink })\n'
+        printf 'set({ "Type", "StorageClass", "Structure", "Typedef", "@type", "@type.builtin", "@type.definition", "@constructor" }, { fg = palette.teal })\n'
+        printf 'set({ "Special", "@tag", "@tag.attribute", "@markup.link", "@markup.link.url" }, { fg = palette.sky })\n'
+        printf 'set({ "Delimiter", "@punctuation.delimiter", "@punctuation.bracket" }, { fg = palette.subtext1 })\n'
+        printf 'set({ "Underlined" }, { fg = palette.blue, underline = true })\n'
+        printf 'set({ "Todo" }, { fg = palette.base, bg = palette.yellow, bold = true })\n'
+        printf 'set({ "WhichKey", "TelescopePromptTitle", "TelescopeResultsTitle", "LazyH1" }, { fg = palette.base, bg = palette.primary, bold = true })\n'
+        printf 'set({ "WhichKeyNormal", "TelescopeNormal", "TelescopePromptNormal", "TelescopeResultsNormal", "SnacksNormal" }, { fg = palette.text, bg = "NONE" })\n'
+        printf 'set({ "WhichKeyBorder", "TelescopeBorder", "SnacksWin" }, { fg = palette.primary, bg = "NONE" })\n'
+        printf 'set({ "CmpItemAbbrMatch", "CmpItemAbbrMatchFuzzy" }, { fg = palette.primary, bold = true })\n'
+        printf 'set({ "CmpItemKindFunction", "CmpItemKindMethod" }, { fg = palette.blue })\n'
+        printf 'set({ "CmpItemKindKeyword", "CmpItemKindProperty" }, { fg = palette.mauve })\n'
+        printf 'set({ "CmpItemKindVariable", "CmpItemKindText" }, { fg = palette.text })\n'
+        printf 'set({ "LualineNormal" }, { fg = palette.base, bg = palette.primary, bold = true })\n'
+        printf 'set({ "LualineInsert" }, { fg = palette.base, bg = palette.green, bold = true })\n'
+        printf 'set({ "LualineVisual" }, { fg = palette.base, bg = palette.mauve, bold = true })\n'
+        printf 'set({ "LualineReplace" }, { fg = palette.base, bg = palette.red, bold = true })\n'
+        printf 'set({ "LualineCommand" }, { fg = palette.base, bg = palette.yellow, bold = true })\n'
+        printf 'set({ "LualineInactive" }, { fg = palette.subtext0, bg = palette.mantle })\n'
+    } > "$directory/neovim.lua"
+}
+
 write_hyprlock() {
     local directory="$1" index colour role
     local -a first=("$mantle" "$surface0" "$surface1" "$surface2" "$overlay0" "$overlay1" "$overlay2" "$subtext1" "$text_colour")
@@ -260,6 +349,7 @@ build_output() {
     write_terminals "$staging_dir"
     write_shared_formats "$staging_dir"
     write_shell_formats "$staging_dir"
+    write_neovim "$staging_dir"
     write_btop "$staging_dir"
     write_template_preserving_formats "$staging_dir"
     write_application_css "$staging_dir"
@@ -267,14 +357,17 @@ build_output() {
     write_spicetify "$staging_dir"
     /usr/bin/ln -sfnT -- "$wallpaper_resolved" "$staging_dir/wallpaper.png"
     /usr/bin/ln -sfnT -- "$wallpaper_directory" "$staging_dir/wallpapers"
-    printf '%s\n' "$fingerprint" > "$staging_dir/.caelestia-generated"
+    printf '%s\n' "$fingerprint" > "$staging_dir/.${provider}-generated"
+    if [[ "$provider" == caelestia ]]; then
+        printf '%s\n' "$fingerprint" > "$staging_dir/.caelestia-generated"
+    fi
     /usr/bin/cp -- "$normalised" "$staging_dir/palette.json"
 }
 
 install_output() {
     /usr/bin/mkdir -p -- "${output_dir%/*}"
     if [[ -e "$output_dir" ]]; then
-        backup_dir="${output_dir%/*}/.caelestia.previous.$$"
+        backup_dir="${output_dir%/*}/.${provider}.previous.$$"
         /usr/bin/mv -- "$output_dir" "$backup_dir"
     fi
     if ! /usr/bin/mv -- "$staging_dir" "$output_dir"; then
@@ -292,6 +385,11 @@ main() {
         case "$1" in
             --dry-run) dry_run=1 ;;
             --force) force=1 ;;
+            --provider)
+                shift
+                (( $# )) || { usage >&2; exit 2; }
+                provider="$1"
+                ;;
             --help|-h) usage; return ;;
             --*) usage >&2; exit 2 ;;
             *) break ;;
@@ -300,6 +398,7 @@ main() {
     done
     (( $# == 2 )) || { usage >&2; exit 2; }
     palette_file="$1" wallpaper="$2"
+    configure_provider
     validate_paths "$palette_file" "$wallpaper"
     temporary_palette="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/caelestia-palette.XXXXXX")"
     trap 'status=$?; cleanup; exit "$status"' EXIT
@@ -307,14 +406,14 @@ main() {
     load_palette "$temporary_palette"
     template_fingerprint="$(/usr/bin/find -L "$template_dir" -maxdepth 1 -type f ! -name wallpaper.png -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 -r /usr/bin/sha256sum | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)"
     renderer_fingerprint="$(/usr/bin/sha256sum "${BASH_SOURCE[0]}" | /usr/bin/cut -d' ' -f1)"
-    fingerprint="$( { /usr/bin/sha256sum "$temporary_palette" | /usr/bin/cut -d' ' -f1; /usr/bin/readlink -f -- "$wallpaper"; /usr/bin/readlink -f -- "$template_dir"; printf '%s\n%s\n' "$template_fingerprint" "$renderer_fingerprint"; } | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1 )"
-    [[ ! -r "$output_dir/.caelestia-generated" ]] || current_fingerprint="$(<"$output_dir/.caelestia-generated")"
+    fingerprint="$( { printf '%s\n' "$provider"; /usr/bin/sha256sum "$temporary_palette" | /usr/bin/cut -d' ' -f1; /usr/bin/readlink -f -- "$wallpaper"; /usr/bin/readlink -f -- "$template_dir"; printf '%s\n%s\n' "$template_fingerprint" "$renderer_fingerprint"; } | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1 )"
+    [[ ! -r "$output_dir/.$provider-generated" ]] || current_fingerprint="$(<"$output_dir/.$provider-generated")"
     if (( ! force )) && [[ "$fingerprint" == "$current_fingerprint" ]]; then
         printf 'unchanged\n'
         return
     fi
     if (( dry_run )); then
-        printf 'Render: %s\nTemplate: %s\nWallpaper: %s\nFingerprint: %s\n' "$output_dir" "$(/usr/bin/readlink -f -- "$template_dir")" "$(/usr/bin/readlink -f -- "$wallpaper")" "$fingerprint"
+        printf 'Provider: %s\nRender: %s\nTemplate: %s\nWallpaper: %s\nFingerprint: %s\n' "$provider" "$output_dir" "$(/usr/bin/readlink -f -- "$template_dir")" "$(/usr/bin/readlink -f -- "$wallpaper")" "$fingerprint"
         return
     fi
     /usr/bin/mkdir -p -- "$themes_dir/.dynamic"

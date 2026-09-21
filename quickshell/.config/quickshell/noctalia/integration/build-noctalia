@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source_repo="${NOCTALIA_SOURCE_REPO:-$HOME/builds/shells/noctalia}"
+pin_file="${NOCTALIA_PIN_FILE:-$script_dir/pin.json}"
+patch_dir="${NOCTALIA_PATCH_DIR:-$script_dir/patches}"
+managed_dir="${NOCTALIA_INTEGRATION_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/integration}"
+runtime_dir="${NOCTALIA_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/.runtime}"
+work_parent="${NOCTALIA_BUILD_TMPDIR:-/tmp}"
+dry_run=0
+active_work_dir=""
+active_worktree=""
+
+usage() {
+    printf 'Usage: build-noctalia [--dry-run]\n'
+}
+
+fail() {
+    printf 'build-noctalia: %s\n' "$*" >&2
+    exit 1
+}
+
+require_absolute() {
+    [[ "$1" == /* ]] || fail "$2 must be an absolute path: $1"
+}
+
+read_pin() {
+    local key="$1"
+    /usr/bin/jq -er --arg key "$key" '.[$key]' "$pin_file"
+}
+
+validate_paths() {
+    local path
+    for path in "$source_repo" "$pin_file" "$patch_dir" "$managed_dir" "$runtime_dir" "$work_parent"; do
+        require_absolute "$path" NOCTALIA_PATH
+    done
+    [[ -r "$pin_file" ]] || fail "Pin metadata not found: $pin_file"
+    [[ -d "$patch_dir" ]] || fail "Patch directory not found: $patch_dir"
+}
+
+validate_source() {
+    local expected="$1" actual
+    [[ -d "$source_repo/.git" ]] || return 1
+    actual="$(/usr/bin/git -C "$source_repo" rev-parse HEAD 2>/dev/null || true)"
+    [[ "$actual" == "$expected" ]] || fail "Source HEAD is $actual, expected $expected."
+    [[ -z "$(/usr/bin/git -C "$source_repo" status --porcelain)" ]] ||
+        fail "Pinned source checkout is dirty: $source_repo"
+}
+
+clone_source() {
+    local repository="$1" commit="$2"
+    if (( dry_run )); then
+        printf 'Clone: /usr/bin/git clone --filter=blob:none %s %s\n' "$repository" "$source_repo"
+        printf 'Checkout: /usr/bin/git -C %s checkout --detach %s\n' "$source_repo" "$commit"
+        return 0
+    fi
+    [[ ! -e "$source_repo" ]] || fail "Source path exists but is not a clean checkout: $source_repo"
+    /usr/bin/mkdir -p -- "${source_repo%/*}"
+    /usr/bin/git clone --filter=blob:none -- "$repository" "$source_repo"
+    /usr/bin/git -C "$source_repo" checkout --detach "$commit"
+}
+
+patch_names() {
+    /usr/bin/jq -er '.patches[] | strings' "$pin_file"
+}
+
+copy_integration_metadata() {
+    local name
+    /usr/bin/mkdir -p -- "$managed_dir"
+    /usr/bin/install -m 0644 -- "$pin_file" "$managed_dir/pin.json"
+    /usr/bin/install -m 0644 -- "$script_dir/config.toml" "$managed_dir/config.toml"
+    /usr/bin/mkdir -p -- "$managed_dir/patches"
+    while IFS= read -r name; do
+        [[ "$name" =~ ^[A-Za-z0-9._-]+[.]patch$ ]] || fail "Unsafe patch name: $name"
+        [[ -r "$patch_dir/$name" ]] || fail "Missing patch: $patch_dir/$name"
+        /usr/bin/install -m 0644 -- "$patch_dir/$name" "$managed_dir/patches/$name"
+    done < <(patch_names)
+}
+
+build_runtime() {
+    local commit="$1" build_dir stage_dir patch_name
+    active_work_dir="$(/usr/bin/mktemp -d "$work_parent/noctalia-build.XXXXXX")"
+    active_worktree="$active_work_dir/source"
+    build_dir="$active_work_dir/build"
+    stage_dir="$active_work_dir/stage"
+    cleanup() {
+        /usr/bin/git -C "$source_repo" worktree remove --force "$active_worktree" >/dev/null 2>&1 || true
+        /usr/bin/rm -rf -- "$active_work_dir"
+        active_worktree=""
+        active_work_dir=""
+    }
+    trap cleanup EXIT
+
+    /usr/bin/git -C "$source_repo" worktree add --detach "$active_worktree" "$commit"
+    while IFS= read -r patch_name; do
+        [[ -r "$patch_dir/$patch_name" ]] || fail "Missing patch: $patch_dir/$patch_name"
+        /usr/bin/git -C "$active_worktree" apply --check "$patch_dir/$patch_name"
+        /usr/bin/git -C "$active_worktree" apply "$patch_dir/$patch_name"
+    done < <(patch_names)
+    /usr/bin/git -C "$active_worktree" diff --check
+    /usr/bin/meson setup "$build_dir" "$active_worktree" --buildtype=release --prefix="$stage_dir"
+    /usr/bin/meson compile -C "$build_dir"
+    /usr/bin/meson install -C "$build_dir"
+    [[ -x "$stage_dir/bin/noctalia" ]] || fail "Build did not install bin/noctalia."
+    [[ -d "$stage_dir/share/noctalia/assets" ]] || fail "Build did not install Noctalia assets."
+
+    /usr/bin/mkdir -p -- "${runtime_dir%/*}"
+    if [[ -e "$runtime_dir" || -L "$runtime_dir" ]]; then
+        /usr/bin/mv -- "$runtime_dir" "$runtime_dir.previous.$(/usr/bin/date +%Y%m%d%H%M%S)"
+    fi
+    /usr/bin/mv -- "$stage_dir" "$runtime_dir"
+    trap - EXIT
+    cleanup
+}
+
+main() {
+    local repository commit
+    while (( $# )); do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; return 2 ;;
+        esac
+        shift
+    done
+    validate_paths
+    repository="$(read_pin repository)"
+    commit="$(read_pin commit)"
+    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "Pin commit is not a full Git object id: $commit"
+    if ! validate_source "$commit"; then
+        clone_source "$repository" "$commit"
+        (( dry_run )) || validate_source "$commit"
+    fi
+    if (( dry_run )); then
+        printf 'Apply patches from %s in a disposable worktree.\n' "$patch_dir"
+        printf 'Build release with Meson and atomically install to %s.\n' "$runtime_dir"
+        return 0
+    fi
+    copy_integration_metadata
+    build_runtime "$commit"
+    printf 'Installed Noctalia %s at %s\n' "$commit" "$runtime_dir"
+}
+
+main "$@"

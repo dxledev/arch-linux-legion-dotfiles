@@ -44,10 +44,10 @@ main() {
         shift
     done
     mode="$("$SHELL_MODE_SCRIPT" --status)"
-    case "$mode" in waybar|quickshell) ;; *) return 1 ;; esac
-    if [[ "$mode" == quickshell ]] || is_running quickshell; then
+    case "$mode" in waybar|caelestia|noctalia) ;; *) return 1 ;; esac
+    if [[ "$mode" != waybar ]]; then
         if (( dry_run )); then
-            printf 'Stop SwayOSD; Quickshell mode is selected or active.\n'
+            printf 'Stop SwayOSD; %s mode is selected.\n' "$mode"
         else
             stop_swayosd
         fi

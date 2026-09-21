@@ -1,145 +1,137 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HYPR_CONFIG="${HYPR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua}"
-QUICKSHELL_CONFIG="${QUICKSHELL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/shell.qml}"
-QUICKSHELL_BIN="${QUICKSHELL_BIN:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/scripts/quickshell}"
-HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
-PGREP_BIN="${PGREP_BIN:-/usr/bin/pgrep}"
-PKILL_BIN="${PKILL_BIN:-/usr/bin/pkill}"
-KILL_BIN="${KILL_BIN:-/usr/bin/kill}"
-JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
-SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-/usr/bin/systemctl}"
-NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/usr/bin/notify-send}"
-SWAYOSD_SERVER_BIN="${SWAYOSD_SERVER_BIN:-$HOME/bin/swayosd-server}"
-WAYBAR_BIN="${WAYBAR_BIN:-/usr/bin/waybar}"
-WARD_BIN="${WARD_BIN:-$HOME/.local/bin/ward}"
-WARD_SERVICE="${WARD_SERVICE:-ward.service}"
-WARDNC_BIN="${WARDNC_BIN:-$HOME/builds/wardnc/build/wardnc}"
-CHROMACK_LAUNCHER="${CHROMACK_LAUNCHER:-$HOME/bin/launch-chromack}"
-DASHBOARD_BIN="${DASHBOARD_BIN:-$HOME/builds/dashboard/build/topdash}"
-THEME_APPLY_SCRIPT="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
-SHELL_THEME_SCRIPT="${SHELL_THEME_SCRIPT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/active/integration/shell-theme}"
-LOCK_FILE="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$UID.lock}"
-PROCESS_LOG_DIR="${SHELL_MODE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/toggle-shell-mode}"
-QUICKSHELL_STOP_TIMEOUT="${QUICKSHELL_STOP_TIMEOUT:-5}"
-WAYBAR_START_DELAY="${WAYBAR_START_DELAY:-0.5}"
-SHELL_HEALTH_DELAY="${SHELL_HEALTH_DELAY:-1}"
-REQUIRE_LINE='require("waybar-mode-keybindings")'
-WAYBAR_PROCESSES=(ward waybar wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
-WAYBAR_REQUIRED_PROCESSES=(waybar ward wardnc chromack topdash swayosd-server)
-action=toggle
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+hypr_config="${HYPR_CONFIG:-$config_home/hypr/hyprland.lua}"
+quickshell_config="${QUICKSHELL_CONFIG:-$config_home/quickshell/shell.qml}"
+quickshell_bin="${QUICKSHELL_BIN:-$config_home/quickshell/scripts/quickshell}"
+noctalia_shell="${NOCTALIA_SHELL_SCRIPT:-$HOME/bin/noctalia-shell}"
+noctalia_theme_sync="${NOCTALIA_THEME_SYNC_SCRIPT:-$HOME/bin/noctalia-theme-sync}"
+theme_apply="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
+shell_theme="${SHELL_THEME_SCRIPT:-$config_home/quickshell/active/integration/shell-theme}"
+wallpaper_refresh="${WALLPAPER_REFRESH_SCRIPT:-$HOME/bin/bg-refresh-current}"
+hyprlock_launcher="${HYPRLOCK_LAUNCHER:-$config_home/hyprlock/scripts/launch-lock-screen.sh}"
+hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+pgrep_bin="${PGREP_BIN:-/usr/bin/pgrep}"
+pkill_bin="${PKILL_BIN:-/usr/bin/pkill}"
+kill_bin="${KILL_BIN:-/usr/bin/kill}"
+jq_bin="${JQ_BIN:-/usr/bin/jq}"
+systemctl_bin="${SYSTEMCTL_BIN:-/usr/bin/systemctl}"
+notify_send_bin="${NOTIFY_SEND_BIN:-/usr/bin/notify-send}"
+waybar_bin="${WAYBAR_BIN:-/usr/bin/waybar}"
+ward_bin="${WARD_BIN:-$HOME/.local/bin/ward}"
+ward_service="${WARD_SERVICE:-ward.service}"
+wardnc_bin="${WARDNC_BIN:-$HOME/builds/wardnc/build/wardnc}"
+chromack_launcher="${CHROMACK_LAUNCHER:-$HOME/bin/launch-chromack}"
+dashboard_bin="${DASHBOARD_BIN:-$HOME/builds/dashboard/build/topdash}"
+swayosd_server_bin="${SWAYOSD_SERVER_BIN:-$HOME/bin/swayosd-server}"
+lock_file="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$UID.lock}"
+process_log_dir="${SHELL_MODE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/toggle-shell-mode}"
+quickshell_stop_timeout="${QUICKSHELL_STOP_TIMEOUT:-5}"
+shell_health_timeout="${SHELL_HEALTH_TIMEOUT:-15}"
+shell_health_delay="${SHELL_HEALTH_DELAY:-1}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
+application_selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
+require_waybar='require("waybar-mode-keybindings")'
+require_noctalia='require("noctalia-mode-keybindings")'
+action=""
 dry_run=0
+startup_locked=0
+fresh_login_marker=""
+waybar_processes=(ward waybar wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
+waybar_required_processes=(waybar ward wardnc chromack topdash swayosd-server)
 
 usage() {
-    /usr/bin/cat <<'EOF'
-Usage: toggle-shell-mode [--waybar|--quickshell|--status|--apply] [--dry-run]
-
-No mode flag toggles the current mode. --apply starts the saved mode at login.
-The require("waybar-mode-keybindings") line in hyprland.lua stores the mode:
-uncommented = Waybar; commented = Quickshell.
-
-Override HYPR_CONFIG, QUICKSHELL_CONFIG, or the *_BIN paths as needed.
-QUICKSHELL_CONFIG accepts an absolute path to a QML file or config directory.
-WARD_SERVICE sets the systemd user unit used for Waybar notifications.
-QUICKSHELL_STOP_TIMEOUT sets the shutdown timeout in seconds (1-60; default 5).
-WAYBAR_START_DELAY sets the pause after leaving Quickshell (seconds; default 0.5).
-SHELL_HEALTH_DELAY sets the post-transition health-check delay (default 1).
-EOF
+    printf '%s\n' \
+        'Usage: toggle-shell-mode --waybar|--caelestia|--quickshell|--noctalia|--status|--apply' \
+        '       toggle-shell-mode --dry-run <mode flag>'
 }
 
 fail() {
-    printf 'toggle-shell-mode: %s\n' "$1" >&2
+    printf 'toggle-shell-mode: %s\n' "$*" >&2
     exit 1
 }
 
+require_absolute_path() {
+    [[ "$1" == /* ]] || fail "$2 must be an absolute path: $1"
+}
+
+require_executable() {
+    [[ "$1" == /* && -x "$1" ]] || fail "Executable not found: $1"
+}
+
 parse_args() {
-    local mode_selected=0
+    local selected=0
     while (( $# )); do
         case "$1" in
-            --waybar|--quickshell|--status|--apply)
-                (( mode_selected == 0 )) || fail 'Choose only one mode option.'
-                action="${1#--}"
-                mode_selected=1
-                ;;
+            --waybar) (( selected == 0 )) || fail 'Choose only one mode flag.'; action=waybar; selected=1 ;;
+            --caelestia|--quickshell) (( selected == 0 )) || fail 'Choose only one mode flag.'; action=caelestia; selected=1 ;;
+            --noctalia) (( selected == 0 )) || fail 'Choose only one mode flag.'; action=noctalia; selected=1 ;;
+            --status) (( selected == 0 )) || fail 'Choose only one mode flag.'; action=status; selected=1 ;;
+            --apply) (( selected == 0 )) || fail 'Choose only one mode flag.'; action=apply; selected=1 ;;
             --dry-run) dry_run=1 ;;
             --help|-h) usage; exit 0 ;;
             *) usage >&2; exit 2 ;;
         esac
         shift
     done
+    (( selected == 1 )) || { usage >&2; exit 2; }
 }
 
 current_mode() {
-    /usr/bin/awk -v flag="$REQUIRE_LINE" '
-        { line = $0; sub(/^[[:space:]]*/, "", line); sub(/[[:space:]]*$/, "", line) }
-        line == flag { mode = "waybar"; count++ }
-        line ~ /^--/ {
-            sub(/^--[[:space:]]*/, "", line)
-            if (line == flag) { mode = "quickshell"; count++ }
+    /usr/bin/awk -v waybar="$require_waybar" -v noctalia="$require_noctalia" '
+        {
+            line=$0
+            sub(/^[[:space:]]*/, "", line)
+            sub(/[[:space:]]*$/, "", line)
+            if (line == waybar) waybar_active++
+            else if (line == "-- " waybar) waybar_disabled++
+            else if (line == noctalia) noctalia_active++
+            else if (line == "-- " noctalia) noctalia_disabled++
         }
-        END { if (count != 1) exit 1; print mode }
-    ' "$HYPR_CONFIG"
+        END {
+            if (waybar_active + waybar_disabled != 1 || noctalia_active + noctalia_disabled != 1) exit 1
+            if (waybar_active == 1 && noctalia_disabled == 1) print "waybar"
+            else if (waybar_disabled == 1 && noctalia_disabled == 1) print "caelestia"
+            else if (waybar_disabled == 1 && noctalia_active == 1) print "noctalia"
+            else exit 1
+        }
+    ' "$hypr_config"
 }
 
-write_mode() {
-    local mode="$1" contents config_target temporary_config
-    contents="$(/usr/bin/awk -v flag="$REQUIRE_LINE" -v mode="$mode" '
+write_markers() {
+    local mode="$1" target temporary
+    target="$(/usr/bin/readlink -f -- "$hypr_config")"
+    [[ "$mode" == waybar || "$mode" == caelestia || "$mode" == noctalia ]] || fail "Unknown mode: $mode"
+    temporary="$(/usr/bin/mktemp "$target.XXXXXX")"
+    /usr/bin/chmod --reference="$target" "$temporary"
+    /usr/bin/awk -v mode="$mode" -v waybar="$require_waybar" -v noctalia="$require_noctalia" '
         {
-            line = $0
-            sub(/^[[:space:]]*(--[[:space:]]*)?/, "", line)
-            sub(/[[:space:]]*$/, "", line)
-            if (line == flag) print (mode == "waybar" ? "" : "-- ") flag
+            trimmed=$0
+            sub(/^[[:space:]]*/, "", trimmed)
+            sub(/[[:space:]]*$/, "", trimmed)
+            if (trimmed == waybar || trimmed == "-- " waybar)
+                print mode == "waybar" ? waybar : "-- " waybar
+            else if (trimmed == noctalia || trimmed == "-- " noctalia)
+                print mode == "noctalia" ? noctalia : "-- " noctalia
             else print
         }
-    ' "$HYPR_CONFIG")"
-    config_target="$(/usr/bin/readlink -f -- "$HYPR_CONFIG")"
-    temporary_config="$(/usr/bin/mktemp "${config_target}.XXXXXX")"
-    /usr/bin/chmod --reference="$config_target" "$temporary_config"
-    printf '%s\n' "$contents" > "$temporary_config"
-    /usr/bin/mv -- "$temporary_config" "$config_target"
-}
-
-require_executable() {
-    [[ "$1" == /* && -x "$1" ]] || fail "Executable must be an absolute path: $1"
-}
-
-validate_target() {
-    local target="$1" executable
-    for executable in "$HYPRCTL_BIN" "$PGREP_BIN" "$PKILL_BIN" "$QUICKSHELL_BIN" "$KILL_BIN" "$JQ_BIN" "$SYSTEMCTL_BIN"; do
-        require_executable "$executable"
-    done
-    require_executable "$THEME_APPLY_SCRIPT"
-    require_executable "$SHELL_THEME_SCRIPT"
-    [[ "$QUICKSHELL_STOP_TIMEOUT" =~ ^([1-9]|[1-5][0-9]|60)$ ]] ||
-        fail 'QUICKSHELL_STOP_TIMEOUT must be an integer from 1 to 60.'
-    [[ "$WAYBAR_START_DELAY" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
-        fail 'WAYBAR_START_DELAY must be a non-negative number of seconds.'
-    [[ "$SHELL_HEALTH_DELAY" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
-        fail 'SHELL_HEALTH_DELAY must be a non-negative number of seconds.'
-    [[ "$QUICKSHELL_CONFIG" == /* ]] || fail 'QUICKSHELL_CONFIG must be an absolute path.'
-    [[ "$PROCESS_LOG_DIR" == /* ]] || fail 'SHELL_MODE_LOG_DIR must be an absolute path.'
-    if [[ "$target" == quickshell ]]; then
-        [[ -f "$QUICKSHELL_CONFIG" || -f "$QUICKSHELL_CONFIG/shell.qml" ]] ||
-            fail "Quickshell config not found: $QUICKSHELL_CONFIG"
-    else
-        for executable in "$WAYBAR_BIN" "$WARD_BIN" "$WARDNC_BIN" \
-            "$CHROMACK_LAUNCHER" "$DASHBOARD_BIN" "$SWAYOSD_SERVER_BIN"; do
-            require_executable "$executable"
-        done
-    fi
+    ' "$hypr_config" > "$temporary"
+    /usr/bin/mv -- "$temporary" "$target"
 }
 
 is_running() {
-    "$PGREP_BIN" -u "$UID" -x "$1" >/dev/null 2>&1
+    "$pgrep_bin" -u "$UID" -x "$1" >/dev/null 2>&1
 }
 
 stop_process() {
     local name="$1" attempt status=0
     is_running "$name" || return 0
-    "$PKILL_BIN" -TERM -u "$UID" -x "$name" || status=$?
+    "$pkill_bin" -TERM -u "$UID" -x "$name" || status=$?
     (( status <= 1 )) || return "$status"
-    for (( attempt=0; attempt<30; attempt++ )); do
+    for (( attempt = 0; attempt < 100; attempt++ )); do
         is_running "$name" || return 0
         /usr/bin/sleep 0.1
     done
@@ -147,233 +139,369 @@ stop_process() {
     return 1
 }
 
-start_process() {
-    local name="$1" executable="$2" attempt log_file
-    is_running "$name" && return 0
-    /usr/bin/mkdir -p -- "$PROCESS_LOG_DIR"
-    log_file="$PROCESS_LOG_DIR/$name.log"
-    /usr/bin/truncate -s 0 -- "$log_file"
-    /usr/bin/nohup "$executable" >>"$log_file" 2>&1 9>&- &
-    for (( attempt=0; attempt<30; attempt++ )); do
-        is_running "$name" && return 0
+wait_for_service_inactive() {
+    local service="$1" attempt
+    for (( attempt = 0; attempt < shell_health_timeout * 10; attempt++ )); do
+        "$systemctl_bin" --user is-active --quiet "$service" || return 0
         /usr/bin/sleep 0.1
     done
-    printf 'toggle-shell-mode: %s failed to start.\n' "$name" >&2
     return 1
-}
-
-start_waybar() {
-    stop_process hypr-dock || { printf 'toggle-shell-mode: Could not stop hypr-dock.\n' >&2; return 1; }
-    start_process waybar "$WAYBAR_BIN" || return 1
-    "$SYSTEMCTL_BIN" --user reset-failed "$WARD_SERVICE" || { printf 'toggle-shell-mode: Could not reset %s.\n' "$WARD_SERVICE" >&2; return 1; }
-    "$SYSTEMCTL_BIN" --user start "$WARD_SERVICE" || { printf 'toggle-shell-mode: %s failed to start.\n' "$WARD_SERVICE" >&2; return 1; }
-    start_process wardnc "$WARDNC_BIN" || return 1
-    start_process chromack "$CHROMACK_LAUNCHER" || return 1
-    start_process topdash "$DASHBOARD_BIN" || return 1
-    start_process swayosd-server "$SWAYOSD_SERVER_BIN" || return 1
 }
 
 stop_waybar_process() {
     local name="$1"
     if [[ "$name" == ward ]]; then
-        # Stop the unit so systemd cannot restart Ward after its process is killed.
-        "$SYSTEMCTL_BIN" --user stop "$WARD_SERVICE" || {
-            printf 'toggle-shell-mode: %s failed to stop.\n' "$WARD_SERVICE" >&2
-            return 1
-        }
+        "$systemctl_bin" --user stop "$ward_service" >/dev/null 2>&1 || true
+        wait_for_service_inactive "$ward_service" || return 1
     fi
     stop_process "$name"
 }
 
+stop_waybar_owned() {
+    local name
+    for name in "${waybar_processes[@]}"; do
+        stop_waybar_process "$name" || return 1
+    done
+}
+
+start_process() {
+    local name="$1" executable="$2" attempt log_file
+    is_running "$name" && return 0
+    /usr/bin/mkdir -p -- "$process_log_dir"
+    log_file="$process_log_dir/$name.log"
+    /usr/bin/truncate -s 0 -- "$log_file"
+    /usr/bin/nohup "$executable" >> "$log_file" 2>&1 9>&- &
+    for (( attempt = 0; attempt < shell_health_timeout * 10; attempt++ )); do
+        is_running "$name" && return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: %s failed to start. Log: %s\n' "$name" "$log_file" >&2
+    return 1
+}
+
 quickshell_pids() {
-    local instances
-    instances="$("$QUICKSHELL_BIN" list --path "$QUICKSHELL_CONFIG" --json)" || return 1
-    # Quickshell prints this message instead of JSON when no instance remains.
-    [[ "$instances" == 'No running instances for "'*'"'$'\nUse --all to list all instances.' ]] && return 0
-    "$JQ_BIN" -er '
+    local instances pids pid
+    instances="$("$quickshell_bin" list --path "$quickshell_config" --json)" || return 1
+    [[ "$instances" == 'No running instances for "'*'"'$'\n''Use --all to list all instances.' ]] && return 0
+    pids="$("$jq_bin" -er '
         if type == "array" and all(.[]; .pid | type == "number" and . > 1 and . == floor)
         then map(.pid | tostring) | join("\n")
         else error("Invalid Quickshell instance list")
         end
-    ' <<< "$instances"
+    ' <<< "$instances")" || return 1
+    while IFS= read -r pid; do
+        [[ -d "/proc/$pid" ]] && printf '%s\n' "$pid"
+    done <<< "$pids"
 }
 
 stop_quickshell() {
     local pids pid attempt remaining
     pids="$(quickshell_pids)" || return 1
     [[ -n "$pids" ]] || return 0
-
-    # The IPC exit path crashes during teardown and triggers crash recovery.
     while IFS= read -r pid; do
-        if ! "$KILL_BIN" -TERM -- "$pid" 2>/dev/null; then
-            if "$KILL_BIN" -0 -- "$pid" 2>/dev/null; then
-                printf 'toggle-shell-mode: Could not stop Quickshell PID %s.\n' "$pid" >&2
-                return 1
-            fi
-        fi
+        "$kill_bin" -TERM -- "$pid" 2>/dev/null || {
+            "$kill_bin" -0 -- "$pid" 2>/dev/null && return 1
+        }
     done <<< "$pids"
-
-    for (( attempt=0; attempt<QUICKSHELL_STOP_TIMEOUT*10; attempt++ )); do
+    for (( attempt = 0; attempt < 10 * quickshell_stop_timeout; attempt++ )); do
         remaining="$(quickshell_pids)" || return 1
         [[ -z "$remaining" ]] && return 0
         /usr/bin/sleep 0.1
     done
-    printf 'toggle-shell-mode: Quickshell did not stop within %s seconds.\n' "$QUICKSHELL_STOP_TIMEOUT" >&2
+    printf 'toggle-shell-mode: Quickshell did not stop within %s seconds.\n' "$quickshell_stop_timeout" >&2
     return 1
 }
 
 start_quickshell() {
-    local attempt pids
+    local attempt pids lock_flag="${1:-0}"
     pids="$(quickshell_pids)" || return 1
     [[ -n "$pids" ]] && return 0
-    "$QUICKSHELL_BIN" --daemonize --no-duplicate --path "$QUICKSHELL_CONFIG" 9>&- || return 1
-    for (( attempt=0; attempt<50; attempt++ )); do
+    if (( lock_flag )); then
+        /usr/bin/env -u CAELESTIA_NATIVE_LOCK_PROVIDER CAELESTIA_START_LOCKED=1 "$quickshell_bin" --daemonize --no-duplicate --path "$quickshell_config" 9>&- || return 1
+    else
+        /usr/bin/env -u CAELESTIA_NATIVE_LOCK_PROVIDER "$quickshell_bin" --daemonize --no-duplicate --path "$quickshell_config" 9>&- || return 1
+    fi
+    for (( attempt = 0; attempt < shell_health_timeout * 10; attempt++ )); do
         pids="$(quickshell_pids)" || return 1
         [[ -n "$pids" ]] && return 0
         /usr/bin/sleep 0.1
     done
-    printf 'toggle-shell-mode: Quickshell failed to start.\n' >&2
+    printf 'toggle-shell-mode: Caelestia failed to start.\n' >&2
+    return 1
+}
+
+noctalia_status() {
+    "$noctalia_shell" status 2>/dev/null
+}
+
+stop_noctalia() {
+    "$noctalia_shell" stop
+}
+
+start_noctalia_profile() {
+    local profile lock_flag args
+    profile="$1"
+    lock_flag="${2:-0}"
+    args=(start --profile "$profile")
+    (( lock_flag )) && args+=(--start-locked)
+    "$noctalia_shell" "${args[@]}" 9>&-
+}
+
+verify_noctalia_profile() {
+    local expected="$1" expected_locked="${2:-0}" status profile locked
+    status="$(noctalia_status)" || return 1
+    profile="$("$jq_bin" -r '.profile // empty' <<< "$status")"
+    locked="$("$jq_bin" -r '.locked // false' <<< "$status")"
+    [[ "$profile" == "$expected" ]] || return 1
+    (( expected_locked == 0 )) || [[ "$locked" == true ]]
+}
+
+stop_external_wallpaper() {
+    "$pkill_bin" -TERM -u "$UID" -x awww-daemon >/dev/null 2>&1 || true
+}
+
+restore_external_wallpaper() {
+    [[ -x "$wallpaper_refresh" ]] || fail "Wallpaper refresh script not found: $wallpaper_refresh"
+    "$wallpaper_refresh" 9>&-
+}
+
+restore_desktop_theme() {
+    local resolved dynamic_provider
+    [[ -x "$theme_apply" ]] || fail "Theme coordinator not found: $theme_apply"
+    resolved="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
+    if [[ "$resolved" == "$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)" &&
+          -f "$resolved/.noctalia-generated" ]]; then
+        dynamic_provider=noctalia
+    elif [[ "$resolved" == "$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/caelestia" 2>/dev/null || true)" &&
+            -f "$resolved/.caelestia-generated" ]]; then
+        dynamic_provider=caelestia
+    else
+        dynamic_provider=""
+    fi
+    if [[ -n "$dynamic_provider" ]]; then
+        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" dynamic "$dynamic_provider" 9>&-
+    else
+        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" system 9>&-
+    fi
+}
+
+start_waybar() {
+    local lock_flag="${1:-0}"
+    if (( lock_flag )); then
+        start_hyprlock || return 1
+    fi
+    "$systemctl_bin" --user reset-failed "$ward_service" >/dev/null 2>&1 || true
+    "$systemctl_bin" --user start "$ward_service" || return 1
+    start_process waybar "$waybar_bin" || return 1
+    start_process wardnc "$wardnc_bin" || return 1
+    start_process chromack "$chromack_launcher" || return 1
+    start_process topdash "$dashboard_bin" || return 1
+    start_process swayosd-server "$swayosd_server_bin" || return 1
+}
+
+start_hyprlock() {
+    local attempt log_file
+    is_running hyprlock && return 0
+    /usr/bin/mkdir -p -- "$process_log_dir"
+    log_file="$process_log_dir/hyprlock.log"
+    /usr/bin/truncate -s 0 -- "$log_file"
+    /usr/bin/nohup "$hyprlock_launcher" >> "$log_file" 2>&1 9>&- &
+    for (( attempt = 0; attempt < shell_health_timeout * 10; attempt++ )); do
+        is_running hyprlock && return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: hyprlock failed to start. Log: %s\n' "$log_file" >&2
     return 1
 }
 
 verify_waybar() {
     local name missing=()
-    for name in "${WAYBAR_REQUIRED_PROCESSES[@]}"; do
+    for name in "${waybar_required_processes[@]}"; do
         is_running "$name" || missing+=("$name")
     done
-    (( ${#missing[@]} == 0 )) && return 0
-    printf 'toggle-shell-mode: Waybar mode lost required processes: %s. Logs: %s\n' "${missing[*]}" "$PROCESS_LOG_DIR" >&2
-    return 1
+    (( ${#missing[@]} == 0 )) || {
+        printf 'toggle-shell-mode: Waybar mode is missing: %s. Logs: %s\n' "${missing[*]}" "$process_log_dir" >&2
+        return 1
+    }
 }
 
-verify_quickshell() {
+verify_caelestia() {
     local name pids
     pids="$(quickshell_pids)" || return 1
-    [[ -n "$pids" ]] || { printf 'toggle-shell-mode: Quickshell is not running.\n' >&2; return 1; }
-    if "$SYSTEMCTL_BIN" --user is-active --quiet "$WARD_SERVICE"; then
-        printf 'toggle-shell-mode: %s overlaps Quickshell mode.\n' "$WARD_SERVICE" >&2
-        return 1
-    fi
-    for name in "${WAYBAR_PROCESSES[@]}"; do
-        if is_running "$name"; then
-            printf 'toggle-shell-mode: %s overlaps Quickshell mode.\n' "$name" >&2
-            return 1
-        fi
+    [[ -n "$pids" ]] || return 1
+    wait_for_service_inactive "$ward_service" || return 1
+    for name in "${waybar_processes[@]}"; do
+        is_running "$name" && return 1
+    done
+    return 0
+}
+
+verify_noctalia_stopped() {
+    local status running
+    status="$(noctalia_status || true)"
+    running="$("$jq_bin" -r '.running // false' <<< "$status" 2>/dev/null || printf false)"
+    [[ "$running" != true ]]
+}
+
+verify_quickshell_stopped() {
+    [[ -z "$(quickshell_pids)" ]]
+}
+
+verify_waybar_stopped() {
+    local name
+    for name in "${waybar_processes[@]}"; do
+        is_running "$name" && return 1
     done
 }
 
 verify_mode() {
-    if [[ "$1" == waybar ]]; then verify_waybar; else verify_quickshell; fi
+    case "$1" in
+        waybar) verify_waybar && verify_quickshell_stopped && verify_noctalia_stopped ;;
+        caelestia) verify_caelestia && verify_noctalia_stopped && ! is_running hyprlock ;;
+        noctalia) verify_noctalia_profile full && verify_quickshell_stopped && verify_waybar_stopped && ! is_running hyprlock ;;
+        *) return 1 ;;
+    esac
 }
 
-apply_mode() {
-    local target="$1" previous="${2:-$1}" name
-    if [[ "$target" == quickshell ]]; then
-        for name in "${WAYBAR_PROCESSES[@]}"; do
-            stop_waybar_process "$name" || return 1
-        done
-        if [[ "${CAELESTIA_START_LOCKED:-0}" != 1 ]] || ! "$SHELL_THEME_SCRIPT" cache-ready; then
-            "$SHELL_THEME_SCRIPT" refresh || return 1
-        fi
-        start_quickshell
+apply_profile() {
+    local target="$1" lock_flag="${2:-0}"
+    stop_process hyprlock || return 1
+    stop_quickshell || return 1
+    stop_waybar_owned || return 1
+    stop_noctalia || return 1
+    if [[ "$target" == noctalia ]]; then
+        stop_external_wallpaper
+        start_noctalia_profile full "$lock_flag"
+        [[ -x "$noctalia_theme_sync" ]] || fail "Noctalia theme synchronizer not found: $noctalia_theme_sync"
+        THEME_APPLY_WAIT_FOR_RELOADS=1 "$noctalia_theme_sync"
     else
-        stop_quickshell || return 1
-        if [[ "$previous" == quickshell ]]; then
-            /usr/bin/sleep "$WAYBAR_START_DELAY" || return 1
+        restore_desktop_theme
+        restore_external_wallpaper
+        if [[ "$target" == caelestia ]]; then
+            if (( lock_flag == 0 )); then
+                SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" refresh 9>&- || return 1
+            elif ! SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" cache-ready 9>&-; then
+                SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" refresh 9>&- || return 1
+            fi
+            stop_waybar_owned || return 1
+            start_quickshell "$lock_flag"
+        else
+            start_waybar "$lock_flag"
         fi
-        "$THEME_APPLY_SCRIPT" system || return 1
-        start_waybar
     fi
 }
 
-commit_mode() {
-    local target="$1"
-    [[ "$action" == apply ]] && return 0
-    write_mode "$target"
-    "$HYPRCTL_BIN" reload >/dev/null
+fresh_login_start() {
+    local marker session_id
+    [[ "$action" == apply ]] || return 1
+    [[ "${SHELL_MODE_FRESH_LOGIN:-0}" == 1 ]] && return 0
+    session_id="${XDG_SESSION_ID:-default}"
+    marker="${XDG_RUNTIME_DIR:-/tmp}/noctalia-shell-login-$UID-$session_id"
+    [[ -e "$marker" ]] && return 1
+    fresh_login_marker="$marker"
+    return 0
 }
 
-restore_mode() {
-    local previous="$1" failed_target="$2" status=0
-    apply_mode "$previous" "$failed_target" || status=1
+commit_fresh_login_marker() {
+    [[ -n "$fresh_login_marker" ]] || return 0
+    /usr/bin/mkdir -p -- "${fresh_login_marker%/*}"
+    : > "$fresh_login_marker"
+}
+
+validate_paths() {
+    local target="$1" path
+    for path in "$hypr_config" "$quickshell_config" "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$hyprlock_launcher" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin" "$themes_dir" "$application_selector" "$lock_file" "$process_log_dir"; do
+        require_absolute_path "$path" CONFIG
+    done
+    [[ "$application_selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $application_selector"
+    [[ -f "$hypr_config" ]] || fail "Hyprland config not found: $hypr_config"
+    [[ -f "$quickshell_config" ]] || fail "Quickshell config not found: $quickshell_config"
+    [[ "$quickshell_stop_timeout" =~ ^([1-9]|[1-5][0-9]|60)$ ]] || fail 'QUICKSHELL_STOP_TIMEOUT must be 1-60.'
+    [[ "$shell_health_timeout" =~ ^([1-9]|[1-5][0-9]|60)$ ]] || fail 'SHELL_HEALTH_TIMEOUT must be 1-60.'
+    [[ "$shell_health_delay" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'SHELL_HEALTH_DELAY must be a non-negative number.'
+    if (( ! dry_run )); then
+        for path in "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin"; do
+            require_executable "$path"
+        done
+    fi
+    if [[ "$target" == waybar ]] && (( ! dry_run )); then
+        for path in "$waybar_bin" "$ward_bin" "$wardnc_bin" "$chromack_launcher" "$dashboard_bin" "$swayosd_server_bin" "$hyprlock_launcher"; do
+            require_executable "$path"
+        done
+    fi
+}
+
+write_startup_plan() {
+    local current="$1" target="$2" waybar_marker=noctalia_marker
+    [[ "$target" == waybar ]] && waybar_marker=enabled || waybar_marker=disabled
+    [[ "$target" == noctalia ]] && noctalia_marker=enabled || noctalia_marker=disabled
+    printf '%s -> %s\n' "$current" "$target"
+    printf 'Markers: Waybar=%s, Noctalia=%s\n' "$waybar_marker" "$noctalia_marker"
+    if [[ "$target" == noctalia ]]; then
+        printf 'Stop external wallpaper daemon; start Noctalia full profile.\n'
+    elif [[ "$target" == caelestia ]]; then
+        printf 'Restore external wallpaper; start Caelestia with its native lock provider.\n'
+    else
+        printf 'Restore external wallpaper; start %s with Hyprlock as its lock provider.\n' "$target"
+    fi
+    (( startup_locked )) && printf 'Fresh session: start the native profile locked before foreground surfaces.\n'
+    [[ "$action" == apply ]] || printf 'Reload: %s\n' "$hyprctl_bin"
+}
+
+restore_previous() {
+    local previous="$1" status=0
+    apply_profile "$previous" 0 || status=1
     if [[ "$action" != apply ]]; then
-        write_mode "$previous" || status=1
-        "$HYPRCTL_BIN" reload >/dev/null || status=1
+        write_markers "$previous" || status=1
+        "$hyprctl_bin" reload >/dev/null 2>&1 || status=1
     fi
-    /usr/bin/sleep "$SHELL_HEALTH_DELAY"
+    /usr/bin/sleep "$shell_health_delay"
     verify_mode "$previous" || status=1
     return "$status"
 }
 
-transition_mode() {
-    local target="$1" current="$2"
-    apply_mode "$target" "$current" || return 1
-    commit_mode "$target" || return 1
-    /usr/bin/sleep "$SHELL_HEALTH_DELAY"
-    verify_mode "$target"
-}
-
-show_plan() {
-    local current="$1" target="$2"
-    printf '%s -> %s\n' "$current" "$target"
-    if [[ "$target" == quickshell ]]; then
-        printf 'Stop notification daemon: %s --user stop %q\n' "$SYSTEMCTL_BIN" "$WARD_SERVICE"
-        printf 'Stop: %s\n' "${WAYBAR_PROCESSES[*]}"
-        if [[ "${CAELESTIA_START_LOCKED:-0}" == 1 ]]; then
-            printf 'Reuse the saved shell palette when valid; refresh it before launch only when missing or stale\n'
-        else
-            printf 'Refresh saved shell theme: %s refresh\n' "$SHELL_THEME_SCRIPT"
-        fi
-        printf 'Start: %s --daemonize --no-duplicate --path %q\n' "$QUICKSHELL_BIN" "$QUICKSHELL_CONFIG"
-        printf 'Comment: %s\n' "$REQUIRE_LINE"
-    else
-        printf 'Stop Quickshell config with SIGTERM: %s\n' "$QUICKSHELL_CONFIG"
-        printf 'Wait up to %s seconds for Quickshell to stop before starting Waybar\n' "$QUICKSHELL_STOP_TIMEOUT"
-        if [[ "$current" == quickshell ]]; then
-            printf 'Pause %s seconds after Quickshell stops\n' "$WAYBAR_START_DELAY"
-        fi
-        printf 'Restore named desktop theme: %s system\n' "$THEME_APPLY_SCRIPT"
-        printf 'Stop: hypr-dock (SUPER + D starts it on demand)\n'
-        printf 'Reset notification daemon failure state: %s --user reset-failed %q\n' "$SYSTEMCTL_BIN" "$WARD_SERVICE"
-        printf 'Start: waybar ward wardnc chromack topdash swayosd-server\n'
-        printf 'Verify after %s seconds; logs: %s\n' "$SHELL_HEALTH_DELAY" "$PROCESS_LOG_DIR"
-        printf 'Uncomment: %s\n' "$REQUIRE_LINE"
+transition() {
+    local target="$1"
+    apply_profile "$target" "$startup_locked" || return 1
+    verify_mode "$target" || return 1
+    if [[ "$action" != apply ]]; then
+        write_markers "$target"
+        "$hyprctl_bin" reload >/dev/null || return 1
     fi
-    [[ "$action" == apply ]] || printf 'Reload: %s\n' "$HYPRCTL_BIN"
+    /usr/bin/sleep "$shell_health_delay"
+    verify_mode "$target"
 }
 
 main() {
     local current target
     parse_args "$@"
-    [[ "$HYPR_CONFIG" == /* && -f "$HYPR_CONFIG" ]] || fail "Config not found: $HYPR_CONFIG"
-    current="$(current_mode)" || fail "Expected exactly one $REQUIRE_LINE line in $HYPR_CONFIG"
+    [[ "$hypr_config" == /* && -f "$hypr_config" ]] || fail "Config not found: $hypr_config"
+    current="$(current_mode)" || fail "Expected exactly one validated Waybar and Noctalia marker in $hypr_config"
     if [[ "$action" == status ]]; then
         printf '%s\n' "$current"
-        return
+        return 0
     fi
     target="$action"
-    if [[ "$action" == toggle ]]; then
-        if [[ "$current" == waybar ]]; then target=quickshell; else target=waybar; fi
-    elif [[ "$action" == apply ]]; then
-        target="$current"
-    fi
-    validate_target "$target"
+    [[ "$action" != apply ]] || target="$current"
+    validate_paths "$target"
+    startup_locked=0
+    fresh_login_start && startup_locked=1 || true
     if (( dry_run )); then
-        show_plan "$current" "$target"
-        return
+        write_startup_plan "$current" "$target"
+        return 0
     fi
-    [[ -w "$HYPR_CONFIG" ]] || fail "Config is not writable: $HYPR_CONFIG"
-    [[ "$LOCK_FILE" == /* ]] || fail 'SHELL_MODE_LOCK_FILE must be an absolute path.'
-    exec 9>"$LOCK_FILE"
-    /usr/bin/flock -n 9 || fail 'A mode switch is already running.'
+    [[ -w "$hypr_config" ]] || fail "Config is not writable: $hypr_config"
+    exec 9>"$lock_file"
+    /usr/bin/flock -n 9 || fail 'A shell mode transition is already running.'
     [[ "$(current_mode)" == "$current" ]] || fail 'Mode changed; run the command again.'
-    "$HYPRCTL_BIN" version >/dev/null || fail 'Cannot reach Hyprland.'
-    if ! transition_mode "$target" "$current"; then
-        restore_mode "$current" "$target" || true
+    "$hyprctl_bin" version >/dev/null || fail 'Cannot reach Hyprland.'
+    if ! transition "$target"; then
+        restore_previous "$current" || true
         fail "Could not sustain $target mode; attempted to restore $current."
     fi
-    if [[ "$action" != apply ]]; then
-        "$NOTIFY_SEND_BIN" -t 2500 'Desktop' "Shell Mode: <b>${target^}</b>" >/dev/null 2>&1 || true
+    commit_fresh_login_marker
+    if [[ "$action" != apply && -x "$notify_send_bin" ]]; then
+        "$notify_send_bin" -t 2500 'Desktop' "Shell Mode: <b>${target^}</b>" >/dev/null 2>&1 || true
     fi
 }
 

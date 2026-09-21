@@ -10,13 +10,14 @@ Scope {
     id: root
 
     property bool startLocked
+    property bool nativeLockProvider
     property alias lock: lock
     readonly property bool secure: lock.secure
 
     WlSessionLock {
         id: lock
 
-        locked: root.startLocked
+        locked: root.startLocked && !root.nativeLockProvider
 
         signal unlock
 
@@ -57,7 +58,10 @@ Scope {
         // qmllint enable unresolved-type
         name: "lock"
         description: "Lock the current session"
-        onPressed: lock.locked = true
+        onPressed: {
+            if (!root.nativeLockProvider)
+                lock.locked = true;
+        }
     }
 
     // qmllint disable unresolved-type
@@ -70,7 +74,8 @@ Scope {
 
     IpcHandler {
         function lock(): void {
-            lock.locked = true;
+            if (!root.nativeLockProvider)
+                lock.locked = true;
         }
 
         function unlock(): void {
@@ -78,11 +83,11 @@ Scope {
         }
 
         function isLocked(): bool {
-            return lock.locked;
+            return !root.nativeLockProvider && lock.locked;
         }
 
         function state(): string {
-            return `${lock.locked}:${lock.secure}`;
+            return `${!root.nativeLockProvider && lock.locked}:${!root.nativeLockProvider && lock.secure}`;
         }
 
         target: "lock"
