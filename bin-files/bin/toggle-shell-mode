@@ -266,8 +266,9 @@ restore_external_wallpaper() {
 }
 
 restore_desktop_theme() {
-    local resolved dynamic_provider
+    local target="$1" resolved dynamic_provider
     [[ -x "$theme_apply" ]] || fail "Theme coordinator not found: $theme_apply"
+    [[ "$target" == waybar || "$target" == caelestia ]] || fail "Invalid desktop theme target: $target"
     resolved="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
     if [[ "$resolved" == "$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)" &&
           -f "$resolved/.noctalia-generated" ]]; then
@@ -278,7 +279,7 @@ restore_desktop_theme() {
     else
         dynamic_provider=""
     fi
-    if [[ -n "$dynamic_provider" ]]; then
+    if [[ "$target" == caelestia && -n "$dynamic_provider" ]]; then
         THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" dynamic "$dynamic_provider" 9>&-
     else
         THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" system 9>&-
@@ -374,7 +375,7 @@ apply_profile() {
         stop_external_wallpaper
         start_noctalia_profile full "$lock_flag"
     else
-        restore_desktop_theme
+        restore_desktop_theme "$target"
         restore_external_wallpaper
         if [[ "$target" == caelestia ]]; then
             if (( lock_flag == 0 )); then
@@ -440,6 +441,8 @@ write_startup_plan() {
         printf 'Stop external wallpaper daemon; start Noctalia full profile.\n'
     elif [[ "$target" == caelestia ]]; then
         printf 'Restore external wallpaper; start Caelestia with its native lock provider.\n'
+    elif [[ "$target" == waybar ]]; then
+        printf 'Restore the named static theme at %s and its saved wallpaper; start Waybar with Hyprlock as its lock provider.\n' "$themes_dir/current"
     else
         printf 'Restore external wallpaper; start %s with Hyprlock as its lock provider.\n' "$target"
     fi
