@@ -100,16 +100,11 @@ local function bind_exec(mods, key, description, command)
 end
 
 local simple_binds = {
-  { mainMod .. " ALT", "F", "File Menu", "~/bin/menu-files" },
-  { mainMod .. " ALT", "C", "Clipboard Menu", "~/bin/menu-clipboard" },
   { mainMod .. " SHIFT CTRL", "C", "Config", "~/bin/menu-config" },
   { mainMod, "S", "Quick Region Screenshot", "~/bin/launch-screenshot-clipboard" },
   { mainMod .. " SHIFT", "S", "Quick Active Monitor Screenshot", "~/bin/launch-screenshot-active-monitor-clipboard" },
   { mainMod .. " ALT", "V", "Audio Menu", "~/bin/menu-audio" },
-  { mainMod .. " ALT", "I", "Install Menu", "~/bin/menu-install" },
   { mainMod .. " ALT", "N", "Share Menu", "~/bin/menu-share" },
-  { mainMod .. " ALT", "J", "Tools Menu", "~/bin/menu-tools" },
-  { mainMod .. " SHIFT ALT", "B", "Border Menu", "~/bin/menu-border" },
   { mainMod .. " ALT", "W", "Workspace Axis Menu", "~/bin/menu-workspace-axis" },
   { "CTRL ALT", "SPACE", "Next Background", "~/bin/bg-next" },
   { "CTRL ALT SHIFT", "SPACE", "Previous Background", "~/bin/bg-prev" },
@@ -251,7 +246,6 @@ local environment_binds = {
   { mainMod .. " SHIFT CTRL", "R", "Reload Hyprland", "~/bin/reload-hyprland" },
   { mainMod .. " CTRL ALT", "Q", "Shell Mode Menu", "~/bin/menu-shell-mode" },
   { mainMod .. " SHIFT", "P", "Display Manager", "~/bin/launch-window-floating 1200 800 nwg-displays" },
-  { mainMod .. " SHIFT", "Z", "Toggle Zen Mode", "~/bin/toggle-zen-mode" },
   { mainMod, "I", "Toggle Idle Lock", "~/bin/system-toggle-idle-lock" },
   { mainMod .. " CTRL", "S", "Toggle Sleep", "~/bin/system-toggle-sleep" },
 }

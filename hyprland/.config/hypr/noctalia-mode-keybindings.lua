@@ -6,6 +6,12 @@ local lock_script = home .. "/bin/system-lock"
 local shell_bindings = {
   "SUPER + SHIFT + ALT + S",
   "SUPER + ALT + S",
+  "SUPER + ALT + F",
+  "SUPER + ALT + C",
+  "SUPER + SHIFT + Z",
+  "SUPER + ALT + J",
+  "SUPER + SHIFT + ALT + B",
+  "SUPER + ALT + I",
   "SUPER + ALT + E",
   "SUPER + ALT + U",
   "SUPER + ALT + L",
@@ -62,21 +68,21 @@ local function bind_message(key, description, message, options)
   hl.bind(key, hl.dsp.exec_cmd(command(message)), options or { description = description })
 end
 
-bind_panel("SUPER + SPACE", "Noctalia Launcher", "launcher")
-bind_panel("SUPER + CTRL + ALT + SPACE", "Noctalia Wallpaper Panel", "wallpaper")
-bind_message("SUPER + ALT + T", "Noctalia Theme Settings", "settings-toggle theme")
-bind_panel("SUPER + ALT + P", "Noctalia Session", "session")
-bind_panel("SUPER + SHIFT + B", "Noctalia Session", "session")
+bind_panel("SUPER + SPACE", "App Launcher", "launcher")
+bind_panel("SUPER + CTRL + ALT + SPACE", "Wallpaper Panel", "wallpaper")
+bind_message("SUPER + ALT + T", "Theme Settings", "settings-toggle theme")
+bind_panel("SUPER + ALT + P", "Session", "session")
+bind_panel("SUPER + SHIFT + B", "Session", "session")
 
 hl.unbind("SUPER + SHIFT + L")
-hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(lock_script .. " --wait"), { description = "Noctalia Lock Screen" })
+hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(lock_script .. " --wait"), { description = "Lock Screen" })
 
 local volume_bindings = {
-  { "XF86AudioRaiseVolume", "Noctalia Volume Up", "volume-up 1%" },
-  { "XF86AudioLowerVolume", "Noctalia Volume Down", "volume-down 1%" },
-  { "SUPER + XF86AudioRaiseVolume", "Noctalia Volume Up", "volume-up 5%" },
-  { "SUPER + XF86AudioLowerVolume", "Noctalia Volume Down", "volume-down 5%" },
-  { "XF86AudioMute", "Noctalia Mute", "volume-mute" },
+  { "XF86AudioRaiseVolume", "Volume Up", "volume-up 1%" },
+  { "XF86AudioLowerVolume", "Volume Down", "volume-down 1%" },
+  { "SUPER + XF86AudioRaiseVolume", "Volume Up", "volume-up 5%" },
+  { "SUPER + XF86AudioLowerVolume", "Volume Down", "volume-down 5%" },
+  { "XF86AudioMute", "Mute", "volume-mute" },
 }
 
 for _, binding in ipairs(volume_bindings) do

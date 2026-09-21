@@ -41,25 +41,25 @@ hl.workspace_rule({
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
 local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")
 local bindings = {
-    { "SUPER + SHIFT + ALT + S", "Caelestia Capture Menu", "launcher menu capture" },
-    { "SUPER + ALT + S", "Caelestia Screenshot Menu", "launcher menu screenshot" },
-    { "SUPER + ALT + E", "Caelestia Emoji Menu", "launcher menu emojis" },
-    { "SUPER + ALT + U", "Caelestia Unicode Menu", "launcher menu unicode" },
-    { "SUPER + ALT + L", "Caelestia Layout Menu", "launcher menu layout" },
+    { "SUPER + SHIFT + ALT + S", "Capture Menu", "launcher menu capture" },
+    { "SUPER + ALT + S", "Screenshot Menu", "launcher menu screenshot" },
+    { "SUPER + ALT + E", "Emoji Menu", "launcher menu emojis" },
+    { "SUPER + ALT + U", "Unicode Menu", "launcher menu unicode" },
+    { "SUPER + ALT + L", "Layout Menu", "launcher menu layout" },
+    { "SUPER + ALT + I", "Install Menu", "launcher menu install" },
 
-    { "SUPER + SPACE", "Caelestia Launcher", "drawers toggle launcher" },
-    { "SUPER + ALT + SPACE", "Caelestia Command Menu", "launcher commands" },
-    { "SUPER + ALT + T", "Caelestia Theme Menu", "launcher theme" },
-    { "SUPER + CTRL + ALT + SPACE", "Caelestia Wallpaper Menu", "launcher wallpaper" },
-    { "SUPER + SHIFT + ALT + P", "Caelestia Terminal Prompt Menu", "launcher terminalPrompt" },
-    { "SUPER + ALT + P", "Caelestia Session", "drawers toggle session" },
-    { "SUPER + ALT + K", "Caelestia Keybindings", "launcher learn keybindings" },
-    { "SUPER + SHIFT + ALT + K", "Caelestia Neovim Keybindings", "launcher learn neovim" },
-    { "SUPER + SHIFT + ALT + L", "Caelestia Learn Menu", "launcher learn ''" },
-    { "SUPER + SHIFT + D", "Caelestia Dashboard", "drawers toggle dashboard" },
-    { "SUPER + SHIFT + N", "Caelestia Notifications", "drawers toggle sidebar" },
-    { "SUPER + D", "Caelestia Utilities", "drawers toggle utilities" },
-    { "SUPER + SHIFT + B", "Caelestia Session", "drawers toggle session" },
+    { "SUPER + SPACE", "Launcher", "drawers toggle launcher" },
+    { "SUPER + ALT + SPACE", "Command Menu", "launcher commands" },
+    { "SUPER + ALT + T", "Theme Menu", "launcher theme" },
+    { "SUPER + CTRL + ALT + SPACE", "Wallpaper Menu", "launcher wallpaper" },
+    { "SUPER + SHIFT + ALT + P", "Terminal Prompt Menu", "launcher terminalPrompt" },
+    { "SUPER + ALT + P", "Session", "drawers toggle session" },
+    { "SUPER + ALT + K", "Keybindings", "launcher learn keybindings" },
+    { "SUPER + SHIFT + ALT + K", "Neovim Keybindings", "launcher learn neovim" },
+    { "SUPER + SHIFT + ALT + L", "Learn Menu", "launcher learn ''" },
+    { "SUPER + SHIFT + D", "Dashboard", "drawers toggle dashboard" },
+    { "SUPER + D", "Utilities", "drawers toggle utilities" },
+    { "SUPER + SHIFT + B", "Session", "drawers toggle session" },
     { "SUPER + SHIFT + C", "Chromack Color Panel", "chromack toggle" },
 }
 
@@ -70,7 +70,7 @@ end
 
 local lock_binding = "SUPER + SHIFT + L"
 hl.unbind(lock_binding)
-hl.bind(lock_binding, hl.dsp.global("caelestia:lock"), { description = "Caelestia Lock Screen" })
+hl.bind(lock_binding, hl.dsp.global("caelestia:lock"), { description = "Lock Screen" })
 
 local volume_bindings = {
     { "XF86AudioRaiseVolume", "/usr/bin/wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 1%+" },

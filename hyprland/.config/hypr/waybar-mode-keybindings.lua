@@ -1,6 +1,12 @@
 local bindings = {
   { "SUPER + SPACE", "App Launcher", "~/bin/menu-apps" },
   { "SUPER + SHIFT + L", "Lock Screen", "$HOME/bin/system-lock --wait" },
+  { "SUPER + ALT + F", "File Menu", "~/bin/menu-files" },
+  { "SUPER + ALT + C", "Clipboard Menu", "~/bin/menu-clipboard" },
+  { "SUPER + SHIFT + Z", "Toggle Zen Mode", "~/bin/toggle-zen-mode" },
+  { "SUPER + ALT + J", "Tools Menu", "~/bin/menu-tools" },
+  { "SUPER + SHIFT + ALT + B", "Border Menu", "~/bin/menu-border" },
+  { "SUPER + ALT + I", "Install Menu", "~/bin/menu-install" },
   { "SUPER + ALT + SHIFT + SPACE", "Live Background", "~/bin/bg-live" },
   { "SUPER + CTRL + ALT + SPACE", "Set Background", "~/bin/bg-set" },
   { "SUPER + ALT + L", "Layout Menu", "~/bin/menu-layout" },
