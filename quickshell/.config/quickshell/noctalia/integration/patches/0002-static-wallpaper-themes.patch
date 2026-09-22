@@ -37,6 +37,11 @@ diff --git a/src/shell/wallpaper/panel/wallpaper_panel.h b/src/shell/wallpaper/p
    void navigateInto(const std::filesystem::path& dir);
    void navigateUp();
    void applyWallpaperFromEntry(const WallpaperEntry& entry);
+@@ -89,3 +90,4 @@ private:
+   void toggleFavoriteForPath(const std::string& path);
+   void syncThemeControls();
++  void syncThemeModeVisibility();
+   void rebuildFavoritePaletteDetailSelect(const WallpaperFavorite* favorite);
 diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
 --- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
 +++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
@@ -74,10 +79,11 @@ diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper
 -  }
  
    favoritesOptions->addChild(
-@@ -641,5 +651,6 @@ void WallpaperPanel::create() {
+@@ -641,5 +651,7 @@ void WallpaperPanel::create() {
              m_syncingFavoriteControls = false;
- 
+
              applyThemeFromControls();
++            syncThemeModeVisibility();
 +            resetBrowseDirectory();
              m_dirty = true;
              PanelManager::instance().refresh();
@@ -124,3 +130,21 @@ diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper
 +    return FileUtils::expandUserPath("~/files/pictures/wallpapers/" + theme.customPalette);
 +  }
    const ThemeMode configured = shellThemeMode(m_config->config().theme);
+@@ -1284,1 +1316,12 @@ void WallpaperPanel::syncThemeControls() {
++void WallpaperPanel::syncThemeModeVisibility() {
++  if (m_favoriteThemeSegmented == nullptr) {
++    return;
++  }
++
++  const bool isCustomPalette = m_favoritePaletteSourceSegmented != nullptr
++      && paletteSourceForSegment(m_favoritePaletteSourceSegmented->selectedIndex())
++             .value_or(PaletteSource::Builtin) == PaletteSource::Custom;
++  m_favoriteThemeSegmented->setVisible(!isCustomPalette);
++}
++
+ void WallpaperPanel::syncThemeControls() {
+@@ -1301,3 +1344,4 @@ void WallpaperPanel::syncThemeControls() {
+   rebuildFavoritePaletteDetailSelect(&themeSettings);
++  syncThemeModeVisibility();
+   m_syncingFavoriteControls = false;
+ }

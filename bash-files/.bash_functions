@@ -2,6 +2,14 @@ termshark() {
   env -u COLORTERM /usr/bin/termshark "$@"
 }
 
+codex() {
+  if (( $+functions[load-nvm] )); then
+    load-nvm
+  fi
+
+  command codex "$@"
+}
+
 lsn() {
   local dir="."
   local order="newest"
