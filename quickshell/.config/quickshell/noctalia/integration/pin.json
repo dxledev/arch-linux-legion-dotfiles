@@ -3,7 +3,9 @@
   "commit": "53626fc910e88c8791b17ee6b1fe6851ef117e39",
   "patches": [
     "0001-dxle-shell-integration.patch",
-    "0002-static-wallpaper-themes.patch"
+    "0002-static-wallpaper-themes.patch",
+    "0003-notification-markup.patch",
+    "0004-network-tools.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

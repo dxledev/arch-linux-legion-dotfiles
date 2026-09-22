@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${1:-} == --help || ${1:-} == --dry-run ]]; then
+    printf '%s\n' 'Disk speed test: 2 parallel 128MB direct-I/O files.'
+    exit 0
+fi
+
+if [[ -n ${1:-} && ! -d $1 ]]; then
+    printf 'Usage: disk-speedtest [target-dir]\n' >&2
+    exit 2
+fi
+
+target_dir=${1:-${XDG_CACHE_HOME:-$HOME/.cache}/noctalia}
+phase_seconds=5
+parallel=2
+chunk_mb=4
+file_mb=128
+/usr/bin/mkdir -p "$target_dir"
+
+worker_pids=()
+test_files=()
+chunk_file=''
+
+stop_workers() {
+    local pid
+    for pid in "${worker_pids[@]}"; do
+        [[ -n "$pid" ]] || continue
+        /usr/bin/pkill -TERM -P "$pid" 2>/dev/null || true
+        /usr/bin/kill "$pid" 2>/dev/null || true
+    done
+    for pid in "${worker_pids[@]}"; do
+        [[ -n "$pid" ]] || continue
+        wait "$pid" 2>/dev/null || true
+    done
+    worker_pids=()
+}
+
+cleanup() {
+    /usr/bin/rm -f ${chunk_file:+"$chunk_file"} "${test_files[@]}"
+    stop_workers
+    /usr/bin/rm -f ${chunk_file:+"$chunk_file"} "${test_files[@]}"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM INT
+
+chunk_file=$(/usr/bin/mktemp /dev/shm/noctalia-disk-speedtest-XXXXXX.src)
+for ((index = 0; index < parallel; index++)); do
+    file=$(/usr/bin/mktemp "$target_dir/disk-speedtest-XXXXXX.dat")
+    /usr/bin/chattr +C "$file" 2>/dev/null || true
+    test_files+=("$file")
+done
+
+format_rate() {
+    /usr/bin/awk -v value="$1" 'BEGIN { if (value <= 0) print "0.0"; else if (value < 10) printf "%.1f\n", value; else printf "%.0f\n", value }'
+}
+
+source_dev=$(/usr/bin/findmnt -no SOURCE --target "$target_dir" 2>/dev/null || true)
+source_dev=${source_dev%%\[*}
+if [[ "$source_dev" != /dev/* || ! -b "$source_dev" ]]; then
+    printf 'Cannot find a disk behind %s\n' "$target_dir" >&2
+    exit 1
+fi
+source_name=${source_dev##*/}
+source_sysfs=$(/usr/bin/readlink -f "/sys/class/block/$source_name" 2>/dev/null || true)
+if [[ -z "$source_sysfs" ]]; then
+    printf 'Cannot resolve block device %s\n' "$source_dev" >&2
+    exit 1
+fi
+dev=$(/usr/bin/basename -- "$source_sysfs")
+if [[ -z "$dev" ]]; then
+    printf 'Cannot resolve block device %s\n' "$source_dev" >&2
+    exit 1
+fi
+if [[ ! -r "/sys/class/block/$dev/stat" ]]; then
+    printf 'No I/O statistics for %s\n' "$dev" >&2
+    exit 1
+fi
+
+available_mb=$(/usr/bin/df --output=avail -m "$target_dir" | /usr/bin/tail -1 | /usr/bin/tr -d ' ')
+if (( available_mb < parallel * file_mb * 2 )); then
+    printf 'Not enough free space for disk test\n' >&2
+    exit 1
+fi
+
+disk=$dev
+while slave=$(/usr/bin/ls "/sys/class/block/$disk/slaves" 2>/dev/null | /usr/bin/head -1); [[ -n "$slave" ]]; do
+    disk=$slave
+done
+if [[ -f "/sys/class/block/$disk/partition" ]]; then
+    parent=$(/usr/bin/readlink -f "/sys/class/block/$disk")
+    disk=${parent%/*}
+    disk=${disk##*/}
+fi
+model=$(/usr/bin/lsblk -dno MODEL "/dev/$disk" 2>/dev/null | /usr/bin/sed 's/^ *//; s/ *$//')
+printf 'disk %s\n' "${model:-$disk}"
+
+/usr/bin/dd if=/dev/urandom of="$chunk_file" bs="${chunk_mb}M" count=$((file_mb / chunk_mb)) status=none
+for file in "${test_files[@]}"; do
+    /usr/bin/dd if="$chunk_file" of="$file" bs="${chunk_mb}M" oflag=direct conv=notrunc status=none 2>/dev/null &
+    worker_pids+=("$!")
+done
+stage_failed=0
+for pid in "${worker_pids[@]}"; do
+    wait "$pid" || stage_failed=1
+done
+worker_pids=()
+if (( stage_failed )) || [[ ! -s ${test_files[0]} ]]; then
+    printf '%s\n' 'Direct disk I/O is not available' >&2
+    exit 1
+fi
+
+device_sectors() {
+    local -a stats
+    read -r -a stats < "/sys/class/block/$dev/stat"
+    if [[ $1 == read ]]; then
+        printf '%s\n' "${stats[2]}"
+    else
+        printf '%s\n' "${stats[6]}"
+    fi
+}
+
+read_worker() {
+    while /usr/bin/kill -0 $$ 2>/dev/null; do
+        /usr/bin/dd if="$1" of=/dev/null bs="${chunk_mb}M" iflag=direct status=none 2>/dev/null || return
+    done
+}
+
+write_worker() {
+    while /usr/bin/kill -0 $$ 2>/dev/null; do
+        /usr/bin/dd if="$chunk_file" of="$1" bs="${chunk_mb}M" oflag=direct conv=notrunc status=none 2>/dev/null || return
+    done
+}
+
+alive_workers() {
+    local pid count=0
+    for pid in "${worker_pids[@]}"; do
+        /usr/bin/kill -0 "$pid" 2>/dev/null && count=$((count + 1))
+    done
+    printf '%s\n' "$count"
+}
+
+run_phase() {
+    local phase=$1
+    local before after deadline rate alive
+    for file in "${test_files[@]}"; do
+        "${phase}_worker" "$file" &
+        worker_pids+=("$!")
+    done
+    before=$(device_sectors "$phase")
+    deadline=$((SECONDS + phase_seconds))
+    while (( SECONDS < deadline )) && (( $(alive_workers) > 0 )); do
+        /usr/bin/sleep 1
+        after=$(device_sectors "$phase")
+        rate=$(/usr/bin/awk -v before="$before" -v after="$after" 'BEGIN { if (after < before) print 0; else print (after - before) * 512 / 1000000 }')
+        printf '%s %s\n' "$phase" "$(format_rate "$rate")"
+        before=$after
+    done
+    alive=$(alive_workers)
+    stop_workers
+    if (( alive < parallel )); then
+        printf 'Disk %s test failed before finishing\n' "$phase" >&2
+        exit 1
+    fi
+}
+
+run_phase read
+run_phase write

@@ -13,6 +13,7 @@ work_parent="${NOCTALIA_BUILD_TMPDIR:-/tmp}"
 dry_run=0
 active_work_dir=""
 active_worktree=""
+integration_scripts=(disk-speedtest network-speedtest wifi-qr)
 
 usage() {
     printf 'Usage: build-noctalia [--dry-run]\n'
@@ -39,6 +40,10 @@ validate_paths() {
     done
     [[ -r "$pin_file" ]] || fail "Pin metadata not found: $pin_file"
     [[ -d "$patch_dir" ]] || fail "Patch directory not found: $patch_dir"
+    for path in "${integration_scripts[@]}"; do
+        [[ "$path" =~ ^[A-Za-z0-9._-]+$ ]] || fail "Unsafe integration script name: $path"
+        [[ -r "$script_dir/$path" ]] || fail "Missing integration script: $script_dir/$path"
+    done
 }
 
 validate_source() {
@@ -72,6 +77,9 @@ copy_integration_metadata() {
     /usr/bin/mkdir -p -- "$managed_dir"
     /usr/bin/install -m 0644 -- "$pin_file" "$managed_dir/pin.json"
     /usr/bin/install -m 0644 -- "$script_dir/config.toml" "$managed_dir/config.toml"
+    for name in "${integration_scripts[@]}"; do
+        /usr/bin/install -m 0755 -- "$script_dir/$name" "$managed_dir/$name"
+    done
     /usr/bin/mkdir -p -- "$managed_dir/patches"
     while IFS= read -r name; do
         [[ "$name" =~ ^[A-Za-z0-9._-]+[.]patch$ ]] || fail "Unsafe patch name: $name"

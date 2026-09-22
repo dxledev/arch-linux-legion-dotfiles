@@ -11,6 +11,21 @@ diff --git a/assets/translations/en.json b/assets/translations/en.json
            "wallpaper": "Wallpaper"
          }
        },
+
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -1442,6 +1442,6 @@
+ constexpr EnumOption<PaletteSource> kPaletteSources[] = {
+     {PaletteSource::Builtin, "builtin", "settings.options.theme.source.built-in"},
+-    {PaletteSource::Wallpaper, "wallpaper", "settings.options.theme.source.wallpaper"},
+-    {PaletteSource::Community, "community", "settings.options.theme.source.community"},
+-    {PaletteSource::Custom, "custom", "settings.options.theme.source.custom"},
++    {PaletteSource::Wallpaper, "wallpaper", "settings.options.theme.source.dynamic"},
++    {PaletteSource::Custom, "custom", "settings.options.theme.source.static"},
++    {PaletteSource::Community, "community", "settings.options.theme.source.community"},
+ };
+
 diff --git a/src/shell/wallpaper/panel/wallpaper_panel.h b/src/shell/wallpaper/panel/wallpaper_panel.h
 --- a/src/shell/wallpaper/panel/wallpaper_panel.h
 +++ b/src/shell/wallpaper/panel/wallpaper_panel.h

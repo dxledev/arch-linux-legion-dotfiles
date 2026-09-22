@@ -1,0 +1,848 @@
+--- a/src/dbus/notification/notification_service.cpp
++++ b/src/dbus/notification/notification_service.cpp
+@@ -409,7 +409,7 @@
+             .replacesId = replaces_id,
+             .appName = StringUtils::truncateUtf8(app_name, kMaxStringLen),
+             .summary = StringUtils::truncateUtf8(summary, kMaxStringLen),
+-            .body = StringUtils::sanitizeMarkup(StringUtils::truncateUtf8(body, kMaxStringLen)),
++            .body = StringUtils::truncateUtf8(body, kMaxStringLen),
+             .urgency = notifyUrgencyFromHints(hints),
+             .timeout = timeout,
+             .origin = NotificationOrigin::External,
+--- a/src/shell/notification/notification_toast.cpp
++++ b/src/shell/notification/notification_toast.cpp
+@@ -10,6 +10,7 @@
+ #include "net/http_client.h"
+ #include "net/uri.h"
+ #include "notification/notification_display_name.h"
++#include "notification/notification_markup.h"
+ #include "notification/notification_manager.h"
+ #include "render/core/texture_manager.h"
+ #include "render/render_context.h"
+@@ -389,29 +390,33 @@
+         })
+     );
+ 
++    const std::string displaySummary = notification_markup::format(StringUtils::trimLeadingBlankLines(summary));
++    const std::string displayBody = notification_markup::format(StringUtils::trimLeadingBlankLines(body));
+     auto textColumn = ui::column(
+         {
+             .align = FlexAlign::Stretch,
+             .width = textMaxWidth,
+         },
+         ui::label({
+-            .text = StringUtils::trimLeadingBlankLines(summary),
++            .text = displaySummary,
+             .fontSize = summaryFontSize(scale),
+             .fontWeight = FontWeight::Bold,
+             .color = colorSpecFromRole(ColorRole::OnSurface),
+             .maxWidth = topTextMaxWidth,
+             .maxLines = std::max(1, summaryLines),
++            .configure = [](Label& label) { label.setUseMarkup(true); },
+         })
+     );
+ 
+-    if (bodyLines > 0 && !StringUtils::isBlank(body)) {
++    if (bodyLines > 0 && !StringUtils::isBlank(displayBody)) {
+       textColumn->addChild(
+           ui::label({
+-              .text = StringUtils::trimLeadingBlankLines(body),
++              .text = displayBody,
+               .fontSize = bodyFontSize(scale),
+               .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+               .maxWidth = textMaxWidth,
+               .maxLines = std::max(1, bodyLines),
++              .configure = [](Label& label) { label.setUseMarkup(true); },
+           })
+       );
+     }
+@@ -522,6 +527,7 @@
+   m_callbackToken = m_notifications->addEventCallback([this](const Notification& n, NotificationEvent event) {
+     onNotificationEvent(n, event);
+   });
++  m_paletteConn = paletteChanged().connect([this] { onConfigReload(); });
+ }
+ 
+ float NotificationToast::horizontalInnerPad(float scale) const {
+@@ -2445,8 +2451,8 @@
+ 
+   contentRow->addChild(std::move(iconSlot));
+ 
+-  const std::string displaySummary = StringUtils::trimLeadingBlankLines(entry.summary);
+-  const std::string displayBody = StringUtils::trimLeadingBlankLines(entry.body);
++  const std::string displaySummary = notification_markup::format(StringUtils::trimLeadingBlankLines(entry.summary));
++  const std::string displayBody = notification_markup::format(StringUtils::trimLeadingBlankLines(entry.body));
+   auto textColumn = ui::column(
+       {
+           .align = FlexAlign::Stretch,
+@@ -2459,6 +2465,7 @@
+           .color = colorSpecFromRole(ColorRole::OnSurface),
+           .maxWidth = topTextMaxWidth,
+           .maxLines = kMaxSummaryLines,
++          .configure = [](Label& label) { label.setUseMarkup(true); },
+       })
+   );
+   std::unique_ptr<Flex> actionsRow;
+@@ -2609,6 +2616,7 @@
+       .maxLines = std::max(1, entry.toastBodyLines),
+       .visible = entry.toastBodyLines > 0 && !StringUtils::isBlank(displayBody),
+       .participatesInLayout = entry.toastBodyLines > 0 && !StringUtils::isBlank(displayBody),
++      .configure = [](Label& label) { label.setUseMarkup(true); },
+   });
+   textColumn->addChild(std::move(body));
+ 
+--- a/src/shell/notification/notification_toast.h
++++ b/src/shell/notification/notification_toast.h
+@@ -5,6 +5,7 @@
+ #include "render/animation/animation_manager.h"
+ #include "render/scene/input_dispatcher.h"
+ #include "system/icon_resolver.h"
++#include "ui/signal.h"
+ 
+ #include <memory>
+ #include <unordered_map>
+@@ -211,4 +212,5 @@
+   std::string m_lastPosition;
+   std::string m_lastLayer;
+   std::vector<std::string> m_lastMonitorSelectors;
++  Signal<>::ScopedConnection m_paletteConn;
+ };
+--- a/src/shell/control_center/tabs/notifications_tab.cpp
++++ b/src/shell/control_center/tabs/notifications_tab.cpp
+@@ -6,6 +6,7 @@
+ #include "net/uri.h"
+ #include "notification/notification.h"
+ #include "notification/notification_display_name.h"
++#include "notification/notification_markup.h"
+ #include "notification/notification_manager.h"
+ #include "render/animation/animation.h"
+ #include "render/core/renderer.h"
+@@ -190,25 +191,29 @@
+   }
+ 
+   float measuredTextHeight(
+-      Renderer& renderer, std::string_view text, float fontSize, FontWeight fontWeight, float maxWidth, int maxLines
++      Renderer& renderer, std::string_view text, float fontSize, FontWeight fontWeight, float maxWidth, int maxLines,
++      bool useMarkup = false
+   ) {
+     if (text.empty()) {
+       return 0.0F;
+     }
+-    const auto bounds = renderer.measureText(text, fontSize, fontWeight, maxWidth, maxLines);
++    const auto bounds = renderer.measureText(text, fontSize, fontWeight, maxWidth, maxLines, TextAlign::Start, {},
++                                             TextEllipsize::End, useMarkup);
+     return std::max(0.0F, bounds.bottom - bounds.top);
+   }
+ 
+   bool canExpandText(
+       Renderer& renderer, std::string_view text, float fontSize, FontWeight fontWeight, float maxWidth,
+-      int collapsedMaxLines
++      int collapsedMaxLines, bool useMarkup = false
+   ) {
+     if (text.empty()) {
+       return false;
+     }
+ 
+-    const float collapsedHeight = measuredTextHeight(renderer, text, fontSize, fontWeight, maxWidth, collapsedMaxLines);
+-    const float expandedHeight = measuredTextHeight(renderer, text, fontSize, fontWeight, maxWidth, kExpandedMaxLines);
++    const float collapsedHeight =
++        measuredTextHeight(renderer, text, fontSize, fontWeight, maxWidth, collapsedMaxLines, useMarkup);
++    const float expandedHeight =
++        measuredTextHeight(renderer, text, fontSize, fontWeight, maxWidth, kExpandedMaxLines, useMarkup);
+     return expandedHeight > collapsedHeight + 0.5F;
+   }
+ 
+@@ -231,24 +236,23 @@
+     const float cardWidth = std::max(0.0F, width);
+     const float cardHorizontalPadding = Style::spaceMd * scale * 2.0F;
+     metrics.cardTextWidth = std::max(0.0F, cardWidth - cardHorizontalPadding);
+-    const std::string summaryText = StringUtils::trimLeadingBlankLines(
++    const std::string summaryText = notification_markup::format(StringUtils::trimLeadingBlankLines(
+         entry.notification.summary.empty() ? i18n::tr("control-center.notifications.untitled")
+                                            : entry.notification.summary
+-    );
+-    const std::string bodyText = StringUtils::trimLeadingBlankLines(entry.notification.body);
++    ));
++    const std::string bodyText = notification_markup::format(StringUtils::trimLeadingBlankLines(entry.notification.body));
+     metrics.summaryText = summaryText;
+ 
+     const bool summaryExpandable = canExpandText(
+-        renderer, summaryText, Style::fontSizeBody * scale, FontWeight::Bold, metrics.cardTextWidth, kSummaryMaxLines
++        renderer, summaryText, Style::fontSizeBody * scale, FontWeight::Bold, metrics.cardTextWidth, kSummaryMaxLines,
++        true
++    );
++    const bool bodyExpandable = canExpandText(
++        renderer, bodyText, Style::fontSizeBody * scale, FontWeight::Normal, metrics.cardTextWidth, kBodyMaxLines, true
+     );
+-    bool bodyLineTruncated = false;
+-    const std::string collapsedBodyText = StringUtils::truncateByLines(bodyText, kBodyMaxLines, &bodyLineTruncated);
+-    const bool bodyExpandable = bodyLineTruncated
+-        || canExpandText(renderer, bodyText, Style::fontSizeBody * scale, FontWeight::Normal, metrics.cardTextWidth,
+-                         kBodyMaxLines);
+     metrics.canExpand = summaryExpandable || bodyExpandable;
+     metrics.expanded = metrics.canExpand && expandedRequested;
+-    metrics.bodyText = metrics.expanded ? bodyText : collapsedBodyText;
++    metrics.bodyText = bodyText;
+ 
+     const float iconPx = kHistoryIconSize * scale;
+     const float iconColumn = iconPx + Style::spaceSm * scale;
+@@ -267,13 +271,13 @@
+     const float headerHeight = std::max({iconPx, actionButtonSize, metaHeight});
+     const float summaryHeight = measuredTextHeight(
+         renderer, metrics.summaryText, Style::fontSizeBody * scale, FontWeight::Bold, metrics.cardTextWidth,
+-        metrics.expanded ? kExpandedMaxLines : kSummaryMaxLines
++        metrics.expanded ? kExpandedMaxLines : kSummaryMaxLines, true
+     );
+     const float bodyHeight = metrics.bodyText.empty()
+         ? 0.0F
+         : measuredTextHeight(
+               renderer, metrics.bodyText, Style::fontSizeBody * scale, FontWeight::Normal, metrics.cardTextWidth,
+-              metrics.expanded ? kExpandedMaxLines : kBodyMaxLines
++              metrics.expanded ? kExpandedMaxLines : kBodyMaxLines, true
+           );
+ 
+     const float actionsRowHeight = showHistoryActions
+@@ -371,6 +375,7 @@
+           ui::label({
+               .fontSize = Style::fontSizeBody * scale,
+               .fontWeight = FontWeight::Bold,
++              .configure = [](Label& label) { label.setUseMarkup(true); },
+           })
+       ));
+ 
+@@ -379,6 +384,7 @@
+               .fontSize = Style::fontSizeBody * scale,
+               .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+               .visible = false,
++              .configure = [](Label& label) { label.setUseMarkup(true); },
+           })
+       ));
+ 
+@@ -693,6 +699,14 @@
+ 
+   m_adapter = std::make_unique<NotificationHistoryAdapter>(*this, scale, panelCardOpacity());
+ 
++  m_paletteConn = paletteChanged().connect([this] {
++    m_lastSerial = 0;
++    if (m_list != nullptr) {
++      m_list->notifyDataChanged();
++    }
++    PanelManager::instance().requestUpdateOnly();
++  });
++
+   tab->addChild(
+       ui::virtualListView({
+           .out = &m_list,
+--- a/src/shell/control_center/tabs/notifications_tab.h
++++ b/src/shell/control_center/tabs/notifications_tab.h
+@@ -3,6 +3,7 @@
+ #include "render/animation/animation_manager.h"
+ #include "shell/control_center/tab.h"
+ #include "system/icon_resolver.h"
++#include "ui/signal.h"
+ 
+ #include <cstdint>
+ #include <limits>
+@@ -76,4 +77,5 @@
+   float m_filterSlideBaseX = 0.0F;
+   float m_filterSlideBaseY = 0.0F;
+   AnimationManager::Id m_filterSlideAnimId = 0;
++  Signal<>::ScopedConnection m_paletteConn;
+ };
+--- a/meson.build
++++ b/meson.build
+@@ -527,6 +527,7 @@
+   'src/notification/notification_filter.cpp',
+   'src/notification/notification_display_name.cpp',
+   'src/notification/notification_history_store.cpp',
++  'src/notification/notification_markup.cpp',
+   'src/pipewire/pipewire_service.cpp',
+   'src/pipewire/audio_glyphs.cpp',
+   'src/pipewire/audio_route_selection.cpp',
+@@ -1215,6 +1216,7 @@
+     'notification_filter',
+     'notification_history_dismiss',
+     'notification_history_utf8',
++    'notification_markup',
+     'path_browse',
+     'plugin_bindings',
+     'plugin_catalog',
+--- /dev/null
++++ b/src/notification/notification_markup.h
+@@ -0,0 +1,14 @@
++#pragma once
++
++#include <string>
++#include <string_view>
++#include <unordered_map>
++
++namespace notification_markup {
++
++using Variables = std::unordered_map<std::string, std::string>;
++
++[[nodiscard]] std::string format(std::string_view text);
++[[nodiscard]] std::string formatWithVariables(std::string_view text, const Variables& variables);
++
++} // namespace notification_markup
+--- /dev/null
++++ b/src/notification/notification_markup.cpp
+@@ -0,0 +1,502 @@
++#include "notification/notification_markup.h"
++
++#include "render/core/color.h"
++#include "ui/palette.h"
++
++#include <algorithm>
++#include <cctype>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <glib.h>
++#include <map>
++#include <ranges>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++namespace notification_markup {
++
++namespace {
++
++  constexpr int kMaxVariableDepth = 16;
++
++  using Attributes = std::map<std::string, std::string>;
++
++  std::string trim(std::string_view value) {
++    const auto first = value.find_first_not_of(" \t\r\n");
++    if (first == std::string_view::npos) {
++      return {};
++    }
++    const auto last = value.find_last_not_of(" \t\r\n");
++    return std::string(value.substr(first, last - first + 1));
++  }
++
++  std::string lower(std::string_view value) {
++    std::string result(value);
++    std::ranges::transform(result, result.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
++    return result;
++  }
++
++  bool cssNameCharacter(char value) {
++    const auto ch = static_cast<unsigned char>(value);
++    return std::isalnum(ch) || value == '-' || value == '_';
++  }
++
++  void appendEscaped(std::string& output, std::string_view text, bool attribute = false) {
++    for (const char value : text) {
++      switch (value) {
++      case '&':
++        output += "&amp;";
++        break;
++      case '<':
++        output += "&lt;";
++        break;
++      case '>':
++        output += "&gt;";
++        break;
++      case '"':
++        if (attribute) {
++          output += "&quot;";
++        } else {
++          output.push_back(value);
++        }
++        break;
++      default:
++        output.push_back(value);
++        break;
++      }
++    }
++  }
++
++  std::string stripCssComments(std::string_view css) {
++    std::string result;
++    std::size_t cursor = 0;
++    while (cursor < css.size()) {
++      const auto commentStart = css.find("/*", cursor);
++      if (commentStart == std::string_view::npos) {
++        result.append(css.substr(cursor));
++        break;
++      }
++      result.append(css.substr(cursor, commentStart - cursor));
++      const auto commentEnd = css.find("*/", commentStart + 2);
++      if (commentEnd == std::string_view::npos) {
++        break;
++      }
++      cursor = commentEnd + 2;
++    }
++    return result;
++  }
++
++  void loadCssVariables(Variables& variables) {
++    const char* overridePath = std::getenv("SHELL_NOTIFICATION_STYLE");
++    std::filesystem::path path;
++    if (overridePath != nullptr && *overridePath != '\0') {
++      path = overridePath;
++    } else if (const char* configHome = std::getenv("XDG_CONFIG_HOME");
++               configHome != nullptr && *configHome != '\0') {
++      path = std::filesystem::path(configHome) / "themes/.caelestia-use/ward.css";
++    } else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
++      path = std::filesystem::path(home) / ".config/themes/.caelestia-use/ward.css";
++    } else {
++      return;
++    }
++
++    std::ifstream file(path);
++    if (!file) {
++      return;
++    }
++    const std::string css((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++    const std::string source = stripCssComments(css);
++
++    std::size_t cursor = 0;
++    while ((cursor = source.find("--", cursor)) != std::string::npos) {
++      if (cursor > 0 && cssNameCharacter(source[cursor - 1])) {
++        cursor += 2;
++        continue;
++      }
++
++      std::size_t nameEnd = cursor + 2;
++      while (nameEnd < source.size() && cssNameCharacter(source[nameEnd])) {
++        ++nameEnd;
++      }
++      if (nameEnd == cursor + 2) {
++        cursor = nameEnd;
++        continue;
++      }
++
++      const auto colon = source.find(':', nameEnd);
++      const auto declarationEnd = source.find_first_of("{};", nameEnd);
++      if (colon == std::string::npos || (declarationEnd != std::string::npos && declarationEnd < colon)) {
++        cursor = nameEnd;
++        continue;
++      }
++
++      const auto valueEnd = source.find_first_of(";}", colon + 1);
++      const std::string value = trim(source.substr(colon + 1, valueEnd - colon - 1));
++      if (!value.empty()) {
++        variables[source.substr(cursor, nameEnd - cursor)] = value;
++      }
++      cursor = valueEnd == std::string::npos ? source.size() : valueEnd + 1;
++    }
++  }
++
++  void addPaletteVariable(Variables& variables, std::string_view name, ColorRole role) {
++    variables.emplace(std::string(name), formatRgbHex(colorForRole(role)));
++  }
++
++  Variables themeVariables() {
++    Variables variables;
++
++    addPaletteVariable(variables, "--background", ColorRole::Surface);
++    addPaletteVariable(variables, "--background-color", ColorRole::Surface);
++    addPaletteVariable(variables, "--foreground", ColorRole::OnSurface);
++    addPaletteVariable(variables, "--text-color", ColorRole::OnSurface);
++    addPaletteVariable(variables, "--primary", ColorRole::Primary);
++    addPaletteVariable(variables, "--primary-color", ColorRole::Primary);
++    addPaletteVariable(variables, "--secondary", ColorRole::Secondary);
++    addPaletteVariable(variables, "--secondary-color", ColorRole::Secondary);
++    addPaletteVariable(variables, "--tertiary", ColorRole::Tertiary);
++    addPaletteVariable(variables, "--tertiary-color", ColorRole::Tertiary);
++    addPaletteVariable(variables, "--surface", ColorRole::Surface);
++    addPaletteVariable(variables, "--surface-color", ColorRole::Surface);
++    addPaletteVariable(variables, "--muted", ColorRole::OnSurfaceVariant);
++    addPaletteVariable(variables, "--muted-color", ColorRole::OnSurfaceVariant);
++    addPaletteVariable(variables, "--border", ColorRole::Outline);
++    addPaletteVariable(variables, "--border-color", ColorRole::Outline);
++    addPaletteVariable(variables, "--warning", ColorRole::Tertiary);
++    addPaletteVariable(variables, "--warning-color", ColorRole::Tertiary);
++    addPaletteVariable(variables, "--danger", ColorRole::Error);
++    addPaletteVariable(variables, "--danger-color", ColorRole::Error);
++    addPaletteVariable(variables, "--error", ColorRole::Error);
++    addPaletteVariable(variables, "--error-color", ColorRole::Error);
++    addPaletteVariable(variables, "--success", ColorRole::Secondary);
++    addPaletteVariable(variables, "--success-color", ColorRole::Secondary);
++    addPaletteVariable(variables, "--on-primary", ColorRole::OnPrimary);
++    addPaletteVariable(variables, "--on-secondary", ColorRole::OnSecondary);
++    addPaletteVariable(variables, "--on-tertiary", ColorRole::OnTertiary);
++    addPaletteVariable(variables, "--on-error", ColorRole::OnError);
++    addPaletteVariable(variables, "--on-surface", ColorRole::OnSurface);
++    addPaletteVariable(variables, "--on-surface-variant", ColorRole::OnSurfaceVariant);
++
++    loadCssVariables(variables);
++    return variables;
++  }
++
++  std::size_t matchingParen(std::string_view value, std::size_t open) {
++    int depth = 0;
++    for (std::size_t i = open; i < value.size(); ++i) {
++      if (value[i] == '(') {
++        ++depth;
++      } else if (value[i] == ')' && --depth == 0) {
++        return i;
++      }
++    }
++    return std::string_view::npos;
++  }
++
++  std::size_t topLevelComma(std::string_view value) {
++    int depth = 0;
++    for (std::size_t i = 0; i < value.size(); ++i) {
++      if (value[i] == '(') {
++        ++depth;
++      } else if (value[i] == ')') {
++        depth = std::max(0, depth - 1);
++      } else if (value[i] == ',' && depth == 0) {
++        return i;
++      }
++    }
++    return std::string_view::npos;
++  }
++
++  std::string resolveVariables(std::string_view value, const Variables& variables, int depth = 0) {
++    if (depth >= kMaxVariableDepth) {
++      return std::string(value);
++    }
++
++    std::string result;
++    std::size_t cursor = 0;
++    while (cursor < value.size()) {
++      const auto start = value.find("var(", cursor);
++      if (start == std::string_view::npos) {
++        result.append(value.substr(cursor));
++        break;
++      }
++      result.append(value.substr(cursor, start - cursor));
++
++      const auto end = matchingParen(value, start + 3);
++      if (end == std::string_view::npos) {
++        result.append(value.substr(start));
++        break;
++      }
++
++      const std::string_view contents = value.substr(start + 4, end - start - 4);
++      const auto comma = topLevelComma(contents);
++      const std::string name = trim(comma == std::string_view::npos ? contents : contents.substr(0, comma));
++      std::string replacement;
++      if (const auto it = variables.find(name); it != variables.end()) {
++        replacement = it->second;
++      } else if (comma != std::string_view::npos) {
++        replacement = trim(contents.substr(comma + 1));
++      }
++      result += resolveVariables(replacement, variables, depth + 1);
++      cursor = end + 1;
++    }
++    return result;
++  }
++
++  std::string normalizeBreakTags(std::string_view text) {
++    std::string result;
++    std::size_t cursor = 0;
++    while (cursor < text.size()) {
++      const auto start = text.find("<", cursor);
++      if (start == std::string_view::npos) {
++        result.append(text.substr(cursor));
++        break;
++      }
++      result.append(text.substr(cursor, start - cursor));
++      const auto end = text.find('>', start + 1);
++      if (end == std::string_view::npos) {
++        result.append(text.substr(start));
++        break;
++      }
++
++      const std::string tag = lower(trim(text.substr(start + 1, end - start - 1)));
++      if (tag == "br" || tag == "br/") {
++        result += "<br/>";
++      } else {
++        result.append(text.substr(start, end - start + 1));
++      }
++      cursor = end + 1;
++    }
++    return result;
++  }
++
++  void addColorAttribute(Attributes& attributes, std::string_view name, std::string_view value,
++                         const Variables& variables) {
++    const std::string resolved = resolveVariables(value, variables);
++    Color color;
++    if (tryParseCssColorWithNamedColors(resolved, color)) {
++      attributes[std::string(name)] = formatRgbHex(color);
++    }
++  }
++
++  void addAttribute(Attributes& attributes, std::string_view name, std::string_view value, const Variables& variables) {
++    const std::string key = lower(name);
++    if (key == "foreground" || key == "fgcolor" || key == "color") {
++      addColorAttribute(attributes, "foreground", value, variables);
++      return;
++    }
++    if (key == "background" || key == "bgcolor" || key == "background-color" || key == "background_color") {
++      addColorAttribute(attributes, "background", value, variables);
++      return;
++    }
++    if (key == "underline_color" || key == "underline-color") {
++      addColorAttribute(attributes, "underline_color", value, variables);
++      return;
++    }
++    if (key == "strikethrough_color" || key == "strikethrough-color") {
++      addColorAttribute(attributes, "strikethrough_color", value, variables);
++      return;
++    }
++
++    static constexpr std::string_view kAllowed[] = {
++        "font", "font-desc", "font_family", "font-family", "face", "font_size", "font-size", "size", "style",
++        "font_style", "font-style", "weight", "font_weight", "font-weight", "variant", "stretch", "underline",
++        "underline_color", "underline-color", "strikethrough", "strikethrough_color", "strikethrough-color", "rise",
++        "fallback", "lang", "letter_spacing", "letter-spacing", "gravity", "gravity_hint", "gravity-hint",
++    };
++    if (std::ranges::find(kAllowed, key) == std::ranges::end(kAllowed)) {
++      return;
++    }
++
++    std::string normalizedKey = key;
++    if (normalizedKey == "font-family" || normalizedKey == "face") {
++      normalizedKey = "font_family";
++    } else if (normalizedKey == "font-desc" || normalizedKey == "font") {
++      normalizedKey = "font_desc";
++    } else if (normalizedKey == "font_size" || normalizedKey == "font-size") {
++      normalizedKey = "size";
++    } else if (normalizedKey == "font_style" || normalizedKey == "font-style") {
++      normalizedKey = "style";
++    } else if (normalizedKey == "font_weight" || normalizedKey == "font-weight") {
++      normalizedKey = "weight";
++    } else if (normalizedKey == "underline-color") {
++      normalizedKey = "underline_color";
++    } else if (normalizedKey == "strikethrough-color") {
++      normalizedKey = "strikethrough_color";
++    } else if (normalizedKey == "letter-spacing") {
++      normalizedKey = "letter_spacing";
++    } else if (normalizedKey == "gravity-hint") {
++      normalizedKey = "gravity_hint";
++    }
++    attributes[normalizedKey] = resolveVariables(value, variables);
++  }
++
++  void addStyleAttributes(Attributes& attributes, std::string_view style, const Variables& variables) {
++    std::size_t cursor = 0;
++    while (cursor < style.size()) {
++      const auto end = style.find(';', cursor);
++      const std::string_view declaration = style.substr(cursor, end - cursor);
++      const auto colon = declaration.find(':');
++      if (colon != std::string_view::npos) {
++        const std::string key = lower(trim(declaration.substr(0, colon)));
++        const std::string value = trim(declaration.substr(colon + 1));
++        if (key == "color") {
++          addColorAttribute(attributes, "foreground", value, variables);
++        } else if (key == "background" || key == "background-color") {
++          addColorAttribute(attributes, "background", value, variables);
++        } else if (key == "font-family") {
++          addAttribute(attributes, "font_family", value, variables);
++        } else if (key == "font-size") {
++          addAttribute(attributes, "size", value, variables);
++        } else if (key == "font-weight") {
++          addAttribute(attributes, "weight", value, variables);
++        } else if (key == "font-style") {
++          addAttribute(attributes, "style", value, variables);
++        } else if (key == "text-decoration") {
++          const std::string resolved = resolveVariables(value, variables);
++          if (resolved.find("underline") != std::string::npos) {
++            attributes["underline"] = "single";
++          }
++          if (resolved.find("line-through") != std::string::npos || resolved.find("strikethrough") != std::string::npos) {
++            attributes["strikethrough"] = "true";
++          }
++        }
++      }
++      if (end == std::string_view::npos) {
++        break;
++      }
++      cursor = end + 1;
++    }
++  }
++
++  std::string mappedTag(std::string_view element) {
++    const std::string tag = lower(element);
++    if (tag == "code") {
++      return "tt";
++    }
++    if (tag == "strike" || tag == "del" || tag == "strikethrough") {
++      return "s";
++    }
++    if (tag == "b" || tag == "big" || tag == "i" || tag == "small" || tag == "sub" || tag == "sup" || tag == "tt"
++        || tag == "u" || tag == "s" || tag == "span" || tag == "a") {
++      return tag;
++    }
++    return {};
++  }
++
++  struct Parser {
++    const Variables& variables;
++    std::string output;
++    std::vector<std::string> closingTags;
++  };
++
++  void onStartElement(
++      GMarkupParseContext*, const gchar* elementName, const gchar** attributeNames, const gchar** attributeValues,
++      gpointer userData, GError**
++  ) {
++    auto& parser = *static_cast<Parser*>(userData);
++    const std::string element = lower(elementName == nullptr ? std::string_view{} : std::string_view(elementName));
++    if (element == "root") {
++      parser.closingTags.emplace_back();
++      return;
++    }
++    if (element == "br") {
++      parser.output += "<br/>";
++      parser.closingTags.emplace_back();
++      return;
++    }
++
++    const std::string tag = mappedTag(element);
++    if (tag.empty()) {
++      parser.closingTags.emplace_back();
++      return;
++    }
++
++    Attributes attributes;
++    for (std::size_t i = 0; attributeNames != nullptr && attributeNames[i] != nullptr; ++i) {
++      if (attributeNames[i] == nullptr || attributeValues[i] == nullptr) {
++        continue;
++      }
++      if (lower(attributeNames[i]) == "style") {
++        addStyleAttributes(attributes, attributeValues[i], parser.variables);
++      } else if (tag == "span") {
++        addAttribute(attributes, attributeNames[i], attributeValues[i], parser.variables);
++      } else if (tag == "a") {
++        const std::string key = lower(attributeNames[i]);
++        if (key == "href" || key == "title") {
++          attributes[key] = resolveVariables(attributeValues[i], parser.variables);
++        }
++      }
++    }
++
++    parser.output += '<';
++    parser.output += tag;
++    for (const auto& [name, value] : attributes) {
++      parser.output += ' ';
++      parser.output += name;
++      parser.output += "=\"";
++      appendEscaped(parser.output, value, true);
++      parser.output += "\"";
++    }
++    parser.output += '>';
++    parser.closingTags.push_back("</" + tag + ">");
++  }
++
++  void onEndElement(GMarkupParseContext*, const gchar*, gpointer userData, GError**) {
++    auto& parser = *static_cast<Parser*>(userData);
++    if (parser.closingTags.empty()) {
++      return;
++    }
++    parser.output += parser.closingTags.back();
++    parser.closingTags.pop_back();
++  }
++
++  void onText(GMarkupParseContext*, const gchar* text, gsize textLength, gpointer userData, GError**) {
++    auto& parser = *static_cast<Parser*>(userData);
++    appendEscaped(parser.output, std::string_view(text, textLength));
++  }
++
++  std::string parseMarkup(std::string_view text, const Variables& variables) {
++    Parser parser{.variables = variables};
++    const std::string input = normalizeBreakTags(text);
++    const std::string wrapped = "<root>" + input + "</root>";
++    GMarkupParser callbacks{
++        .start_element = onStartElement,
++        .end_element = onEndElement,
++        .text = onText,
++        .passthrough = nullptr,
++        .error = nullptr,
++    };
++    GMarkupParseContext* context = g_markup_parse_context_new(
++        &callbacks, GMarkupParseFlags{G_MARKUP_TREAT_CDATA_AS_TEXT}, &parser, nullptr
++    );
++    GError* error = nullptr;
++    const bool parsed = g_markup_parse_context_parse(context, wrapped.data(), static_cast<gssize>(wrapped.size()), &error)
++        && g_markup_parse_context_end_parse(context, &error);
++    g_markup_parse_context_free(context);
++    if (error != nullptr) {
++      g_error_free(error);
++    }
++    if (!parsed || !parser.closingTags.empty()) {
++      std::string fallback;
++      appendEscaped(fallback, text);
++      return fallback;
++    }
++    return parser.output;
++  }
++
++} // namespace
++
++std::string format(std::string_view text) { return formatWithVariables(text, themeVariables()); }
++
++std::string formatWithVariables(std::string_view text, const Variables& variables) {
++  if (text.empty()) {
++    return {};
++  }
++  return parseMarkup(text, variables);
++}
++
++} // namespace notification_markup
+--- /dev/null
++++ b/tests/notification_markup_test.cpp
+@@ -0,0 +1,52 @@
++#include "notification/notification_markup.h"
++
++#include <iostream>
++#include <string_view>
++
++namespace {
++
++  bool check(std::string_view actual, std::string_view expected, const char* message) {
++    if (actual == expected) {
++      return true;
++    }
++    std::cerr << "notification_markup_test: " << message << "\nexpected: " << expected << "\nactual: " << actual << '\n';
++    return false;
++  }
++
++} // namespace
++
++int main() {
++  const notification_markup::Variables variables{
++      {"--primary-color", "#88c0d0"},
++      {"--fallback", "var(--primary-color)"},
++  };
++  bool ok = true;
++  ok = check(
++           notification_markup::formatWithVariables(
++               "<b><span foreground=\"var(--primary-color)\">Nord</span></b>", variables
++           ),
++           "<b><span foreground=\"#88C0D0\">Nord</span></b>", "resolves Pango color variables"
++       )
++      && ok;
++  ok = check(
++           notification_markup::formatWithVariables("<span style=\"color: var(--fallback)\">accent</span>", variables),
++           "<span foreground=\"#88C0D0\">accent</span>", "resolves CSS style color variables"
++       )
++      && ok;
++  ok = check(
++           notification_markup::formatWithVariables("<b>one &amp; two</b><br>three", variables),
++           "<b>one &amp; two</b><br/>three", "preserves markup and normalizes line breaks"
++       )
++      && ok;
++  ok = check(
++           notification_markup::formatWithVariables("literal < text & value", variables), "literal &lt; text &amp; value",
++           "escapes malformed markup as text"
++       )
++      && ok;
++  ok = check(
++           notification_markup::formatWithVariables("<unknown>kept</unknown>", variables), "kept",
++           "keeps text from unsupported tags"
++       )
++      && ok;
++  return ok ? 0 : 1;
++}
+
+
