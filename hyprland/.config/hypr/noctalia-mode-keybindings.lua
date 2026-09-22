@@ -2,6 +2,8 @@ local config_home = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.con
 local home = os.getenv("HOME")
 local noctalia = os.getenv("NOCTALIA_BIN") or (config_home .. "/noctalia/.runtime/bin/noctalia")
 local lock_script = home .. "/bin/system-lock"
+local knob_press = home .. "/bin/knob-press"
+local knob_release = home .. "/bin/knob-release"
 
 local shell_bindings = {
   "SUPER + SHIFT + ALT + S",
@@ -69,6 +71,12 @@ local function bind_message(key, description, message, options)
 end
 
 bind_panel("SUPER + SPACE", "App Launcher", "launcher")
+hl.unbind("SUPER + ALT + SPACE")
+hl.bind(
+  "SUPER + ALT + SPACE",
+  hl.dsp.exec_cmd(noctalia .. " msg panel-toggle launcher '>'"),
+  { description = "App Launcher (>)" }
+)
 bind_panel("SUPER + SHIFT + D", "Dashboard", "control-center")
 bind_panel("SUPER + ALT + A", "Audio Menu", "control-center audio")
 bind_panel("SUPER + ALT + C", "Clipboard Menu", "clipboard")
@@ -85,12 +93,23 @@ local volume_bindings = {
   { "XF86AudioLowerVolume", "Volume Down", "volume-down 1%" },
   { "SUPER + XF86AudioRaiseVolume", "Volume Up", "volume-up 5%" },
   { "SUPER + XF86AudioLowerVolume", "Volume Down", "volume-down 5%" },
-  { "XF86AudioMute", "Mute", "volume-mute" },
 }
 
 for _, binding in ipairs(volume_bindings) do
   bind_message(binding[1], binding[2], binding[3], { description = binding[2], locked = true })
 end
+
+hl.unbind("XF86AudioMute")
+hl.bind(
+  "XF86AudioMute",
+  hl.dsp.exec_cmd(knob_press .. " -- " .. noctalia .. " msg panel-toggle control-center audio"),
+  { description = "Audio Menu", locked = true }
+)
+hl.bind(
+  "XF86AudioMute",
+  hl.dsp.exec_cmd(knob_release .. " --noctalia"),
+  { description = "Mute", locked = true, release = true }
+)
 
 local brightness_bindings = {
   { "SUPER + SHIFT + F1", "Minimum Laptop Brightness", "brightness-set DP-1 0" },

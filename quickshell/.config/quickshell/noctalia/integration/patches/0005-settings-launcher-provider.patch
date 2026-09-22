@@ -1,0 +1,169 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -779,5 +779,9 @@
+         "title": "Session"
+       },
++      "settings": {
++        "subtitle": "Open Noctalia settings",
++        "title": "Settings"
++      },
+       "wallpaper": {
+         "title": "Wallpaper"
+       },
+@@ -2491,7 +2495,11 @@
+           "description": "Also show calculator results in unprefixed search",
+           "label": "Calculator in Global Search"
+         },
++        "launcher-global-settings": {
++          "description": "Also show Settings in unprefixed search",
++          "label": "Settings in Global Search"
++        },
+         "launcher-global-emoji": {
+           "description": "Also show emoji results in unprefixed search",
+           "label": "Emoji in Global Search"
+         },
+@@ -2522,7 +2530,11 @@
+           "description": "Trigger prefix for calculator calculations",
+           "label": "Calculator Prefix"
+         },
++        "launcher-prefix-settings": {
++          "description": "Trigger prefix for opening Noctalia settings",
++          "label": "Settings Prefix"
++        },
+         "launcher-prefix-character": {
+           "description": "Common prefix character used to trigger all provider prefixes (e.g. /)",
+           "label": "Common Prefix Character"
+         },
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -514,6 +514,7 @@ _noctalia_sources = files(
+   'src/launcher/panel_catalog.cpp',
+   'src/launcher/panel_provider.cpp',
+   'src/launcher/plugin_launcher_provider.cpp',
++  'src/launcher/settings_provider.cpp',
+   'src/launcher/session_provider.cpp',
+   'src/launcher/wallpaper_provider.cpp',
+   'src/launcher/window_provider.cpp',
+diff --git a/src/app/application_ui.cpp b/src/app/application_ui.cpp
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -44,5 +44,6 @@
+ #include "launcher/panel_provider.h"
+ #include "launcher/plugin_launcher_provider.h"
+ #include "launcher/session_provider.h"
++#include "launcher/settings_provider.h"
+ #include "launcher/wallpaper_provider.h"
+ #include "launcher/window_provider.h"
+@@ -627,5 +628,6 @@ void Application::initPanelManagerAndPanels() {
+         std::make_unique<PanelProvider>(&m_panelManager, controlCenterPanelPtr, &m_configService)
+     );
+     launcherPanel->addProvider(std::make_unique<SessionProvider>(&m_configService, &m_sessionActionRunner));
++    launcherPanel->addProvider(std::make_unique<SettingsProvider>(&m_panelManager));
+     launcherPanel->addProvider(std::make_unique<MathProvider>(&m_clipboardService, &m_configService, &m_httpClient));
+     launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService));
+diff --git a/src/launcher/launcher_provider.h b/src/launcher/launcher_provider.h
+--- a/src/launcher/launcher_provider.h
++++ b/src/launcher/launcher_provider.h
+@@ -8,7 +8,8 @@
+ #include <vector>
+ 
+ namespace launcher {
+   inline constexpr std::array kBuiltinProviders = {std::string_view("calculator"), std::string_view("emoji"),
+-                                                   std::string_view("panels"),     std::string_view("session"),
++                                                   std::string_view("panels"),     std::string_view("session"),
++                                                   std::string_view("settings"),
+                                                    std::string_view("wallpaper"),  std::string_view("windows")};
+ } // namespace launcher
+diff --git a/src/shell/settings/settings_registry.cpp b/src/shell/settings/settings_registry.cpp
+--- a/src/shell/settings/settings_registry.cpp
++++ b/src/shell/settings/settings_registry.cpp
+@@ -50,6 +50,7 @@ namespace settings {
+ 
+     constexpr auto kLauncherProviderSettings = std::to_array<LauncherProviderSettingSpec>({
+         {.name = "calculator", .prefixPlaceholder = "calc", .globalByDefault = true},
++        {.name = "settings", .prefixPlaceholder = "settings"},
+         {.name = "emoji", .prefixPlaceholder = "emo"},
+         {.name = "panels", .prefixPlaceholder = "pan"},
+         {.name = "session", .prefixPlaceholder = "session"},
+diff --git a/src/launcher/settings_provider.h b/src/launcher/settings_provider.h
+new file mode 100644
+--- /dev/null
++++ b/src/launcher/settings_provider.h
+@@ -0,0 +1,22 @@
++#pragma once
++
++#include "launcher/launcher_provider.h"
++
++class PanelManager;
++
++class SettingsProvider : public LauncherProvider {
++public:
++  explicit SettingsProvider(PanelManager* panelManager);
++
++  [[nodiscard]] std::string_view defaultPrefix() const override { return "settings"; }
++  [[nodiscard]] std::string_view id() const override { return "Settings"; }
++  [[nodiscard]] std::string displayName() const override;
++  [[nodiscard]] std::string_view defaultGlyphName() const override { return "settings"; }
++
++  [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
++
++  bool activate(const LauncherResult& result) override;
++
++private:
++  PanelManager* m_panelManager = nullptr;
++};
+diff --git a/src/launcher/settings_provider.cpp b/src/launcher/settings_provider.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/launcher/settings_provider.cpp
+@@ -0,0 +1,48 @@
++#include "launcher/settings_provider.h"
++
++#include "i18n/i18n.h"
++#include "shell/panel/panel_manager.h"
++#include "util/fuzzy_match.h"
++#include "util/string_utils.h"
++
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++namespace {
++  constexpr std::string_view kSettingsResultId = "settings";
++  constexpr std::string_view kSettingsSearchText = "settings";
++} // namespace
++
++SettingsProvider::SettingsProvider(PanelManager* panelManager) : m_panelManager(panelManager) {}
++
++std::string SettingsProvider::displayName() const { return i18n::tr("launcher.providers.settings.title"); }
++
++std::vector<LauncherResult> SettingsProvider::query(std::string_view text) const {
++  const std::string query = StringUtils::toLower(StringUtils::trim(text));
++  const double score = query.empty() ? 0.0 : FuzzyMatch::score(query, kSettingsSearchText);
++  if (!query.empty() && !FuzzyMatch::isMatch(score)) {
++    return {};
++  }
++
++  LauncherResult result;
++  result.id = std::string(kSettingsResultId);
++  result.title = i18n::tr("launcher.providers.settings.title");
++  result.subtitle = i18n::tr("launcher.providers.settings.subtitle");
++  result.glyphName = std::string(defaultGlyphName());
++  result.score = score;
++  return {std::move(result)};
++}
++
++bool SettingsProvider::activate(const LauncherResult& result) {
++  if (m_panelManager == nullptr || result.id != kSettingsResultId) {
++    return false;
++  }
++  if (!result.providerId.empty() && result.providerId != id()) {
++    return false;
++  }
++
++  m_panelManager->openSettingsWindow("launcher");
++  return true;
++}

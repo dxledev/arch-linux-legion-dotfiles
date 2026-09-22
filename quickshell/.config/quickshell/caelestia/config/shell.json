@@ -26,27 +26,27 @@
     "background": {
         "desktopClock": {
             "background": {
-                "blur": true,
+                "blur": false,
                 "enabled": false,
-                "opacity": 0.45230382424033144
+                "opacity": 0
             },
             "enabled": true,
             "invertColors": false,
-            "position": "bottom-right",
-            "scale": 0.9971269639157457,
+            "position": "middle-right",
+            "scale": 1.004426903487569,
             "shadow": {
-                "blur": 0.4,
+                "blur": 0.6497626035911602,
                 "enabled": true,
-                "opacity": 0.7464120770027625
+                "opacity": 1
             }
         },
         "enabled": true,
         "visualiser": {
             "autoHide": true,
-            "blur": false,
-            "enabled": false,
-            "rounding": 1,
-            "spacing": 1.0444740590469614
+            "blur": true,
+            "enabled": true,
+            "rounding": 2,
+            "spacing": 0.8001122237569062
         },
         "wallpaperEnabled": true
     },

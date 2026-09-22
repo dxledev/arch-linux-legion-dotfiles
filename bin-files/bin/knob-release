@@ -4,17 +4,18 @@ set -euo pipefail
 PRESSED_FILE="${KNOB_PRESSED_FILE:-/tmp/knob_pressed}"
 WPCTL_BIN="${WPCTL_BIN:-/usr/bin/wpctl}"
 SYSTEM_VOLUME_BIN="${SYSTEM_VOLUME_BIN:-$HOME/bin/system-volume}"
+NOCTALIA_BIN="${NOCTALIA_BIN:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/.runtime/bin/noctalia}"
 VOLUME_MONITOR_DESCRIPTION="${VOLUME_MONITOR_DESCRIPTION:-Acer Technologies KG271U}"
 mode=waybar
 dry_run=0
 
 usage() {
-    printf 'Usage: knob-release [--quickshell] [--dry-run]\n'
+    printf 'Usage: knob-release [--quickshell|--noctalia] [--dry-run]\n'
 }
 
 while (( $# )); do
     case "$1" in
-        --quickshell) mode=quickshell ;;
+        --quickshell|--noctalia) mode=${1#--} ;;
         --dry-run) dry_run=1 ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
@@ -25,6 +26,8 @@ done
 [[ "$PRESSED_FILE" == /* ]] || exit 1
 if [[ "$mode" == quickshell ]]; then
     command=("$WPCTL_BIN" set-mute @DEFAULT_AUDIO_SINK@ toggle)
+elif [[ "$mode" == noctalia ]]; then
+    command=("$NOCTALIA_BIN" msg volume-mute)
 else
     command=("$SYSTEM_VOLUME_BIN" --description "$VOLUME_MONITOR_DESCRIPTION" --output-volume mute-toggle)
 fi
