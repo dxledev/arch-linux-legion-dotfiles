@@ -1,0 +1,346 @@
+--- a/src/system/gamma_service.h
++++ b/src/system/gamma_service.h
+@@ -40,6 +40,8 @@
+   void onOutputsChanged();
+   void reevaluateSchedule();
+ 
++  [[nodiscard]] static bool scriptEnabled();
++
+   [[nodiscard]] bool enabled() const;
+   [[nodiscard]] bool forceEnabled() const;
+   [[nodiscard]] bool active() const;
+@@ -59,6 +61,8 @@
+   void scheduleGeoTimer();
+ 
+   void apply();
++  void syncScriptState(bool notify);
++  [[nodiscard]] bool runScriptToggle();
+ 
+   struct GammaTarget {
+     int kelvin = -1;            // instantaneous clock-anchored target, -1 when no schedule applies
+@@ -115,5 +119,7 @@
+   Timer m_transitionTimer;
+ 
+   Timer m_scheduleTimer;
++  Timer m_scriptStateTimer;
++  std::optional<bool> m_scriptState;
+   bool m_gammaUnavailableLogged = false;
+ };
+--- a/src/system/gamma_service.cpp
++++ b/src/system/gamma_service.cpp
+@@ -1,6 +1,7 @@
+ #include "system/gamma_service.h"
+ 
+ #include "core/log.h"
++#include "core/process/process.h"
+ #include "ipc/ipc_service.h"
+ #include "system/day_night_schedule.h"
+ #include "wayland/wayland_connection.h"
+@@ -11,10 +12,12 @@
+ #include <cmath>
+ #include <cstdlib>
+ #include <cstring>
++#include <fstream>
+ #include <optional>
+ #include <string>
+ #include <sys/mman.h>
+ #include <unistd.h>
++#include <vector>
+ 
+ namespace {
+ 
+@@ -31,6 +34,33 @@
+   // uploads to keep every step at or under it and no more.
+   constexpr int kTargetStepKelvin = 50;
+   constexpr auto kMinTickInterval = std::chrono::seconds(2);
++  constexpr auto kScriptStatePollInterval = std::chrono::milliseconds(250);
++
++  std::string scriptStatePath() {
++    const char* runtimeDir = std::getenv("XDG_RUNTIME_DIR");
++    return std::string(runtimeDir != nullptr && runtimeDir[0] != '\0' ? runtimeDir : "/tmp")
++        + "/system-toggle-nightlight.state";
++  }
++
++  std::string scriptPath() {
++    const char* configured = std::getenv("NOCTALIA_NIGHTLIGHT_SCRIPT");
++    if (configured != nullptr && configured[0] != '\0') {
++      return configured;
++    }
++
++    const char* home = std::getenv("HOME");
++    if (home != nullptr && home[0] != '\0') {
++      return std::string(home) + "/bin/system-toggle-nightlight";
++    }
++    return "/home/dxle/bin/system-toggle-nightlight";
++  }
++
++  bool readScriptState() {
++    std::ifstream stateFile(scriptStatePath());
++    std::string state;
++    stateFile >> state;
++    return state == "on";
++  }
+ 
+   // NOCTALIA_GAMMA_PROFILE=1 times each upload against an empty roundtrip, isolating what set_gamma
+   // costs the compositor. It adds two blocking roundtrips per upload, so it is diagnostics only.
+@@ -60,33 +90,51 @@
+   }
+ }
+ 
+-void GammaService::reload(const NightLightConfig& config, const LocationConfig& location) {
+-  if (config.enabled != m_config.enabled) {
+-    m_enabledOverride.reset();
++bool GammaService::scriptEnabled() { return readScriptState(); }
++
++void GammaService::syncScriptState(bool notify) {
++  const bool enabled = scriptEnabled();
++  const bool changed = !m_scriptState.has_value() || *m_scriptState != enabled;
++  m_scriptState = enabled;
++  if (!notify || !changed) {
++    return;
++  }
++  if (m_changeCallback) {
++    m_changeCallback();
+   }
+-  if (config.force != m_config.force) {
+-    m_forceOverride.reset();
++  notifyStateFeedback();
++}
++
++bool GammaService::runScriptToggle() {
++  const auto result = process::runSync(std::vector<std::string>{scriptPath()});
++  if (!result) {
++    kLog.warn("nightlight script failed: exit_code={} stderr={}", result.exitCode, result.err);
++    return false;
+   }
++  return true;
++}
++
++void GammaService::reload(const NightLightConfig& config, const LocationConfig& location) {
+   m_config = config;
+   m_location = location;
+-  apply();
++  m_scheduleTimer.stop();
++  m_transitionTimer.stop();
++  syncScriptState(false);
++  m_scriptStateTimer.startRepeating(kScriptStatePollInterval, [this]() { syncScriptState(true); });
+ }
+ 
+ void GammaService::setEnabled(bool enabled) {
+-  m_enabledOverride = enabled;
+-  apply();
+-  notifyStateFeedback();
++  if (scriptEnabled() != enabled && runScriptToggle()) {
++    syncScriptState(true);
++    return;
++  }
++  syncScriptState(false);
+ }
+ 
+ void GammaService::toggleEnabled() {
+-  // Toggling out of the forced state lands on scheduled-on rather than off, so the force override
+-  // stays reachable in both directions.
+-  if (effectiveForce()) {
+-    m_forceOverride.reset();
+-    setEnabled(true);
+-    return;
++  if (runScriptToggle()) {
++    syncScriptState(true);
+   }
+-  setEnabled(!enabled());
+ }
+ 
+ void GammaService::setLocationResolving(bool resolving) {
+@@ -94,7 +142,7 @@
+     return;
+   }
+   m_locationResolving = resolving;
+-  apply();
++  syncScriptState(true);
+ }
+ 
+ void GammaService::setResolvedCoordinates(std::optional<double> latitude, std::optional<double> longitude) {
+@@ -109,45 +157,24 @@
+   }
+   m_resolvedLatitude = latitude;
+   m_resolvedLongitude = longitude;
+-  apply();
++  syncScriptState(true);
+ }
+ 
+-void GammaService::setForceEnabled(bool enabled) {
+-  m_forceOverride = enabled;
+-  apply();
+-  notifyStateFeedback();
+-}
++void GammaService::setForceEnabled(bool enabled) { setEnabled(enabled); }
+ 
+-void GammaService::toggleForceEnabled() { setForceEnabled(!forceEnabled()); }
++void GammaService::toggleForceEnabled() { toggleEnabled(); }
+ 
+-void GammaService::clearForceOverride() {
+-  m_forceOverride.reset();
+-  apply();
+-  notifyStateFeedback();
+-}
++void GammaService::clearForceOverride() { syncScriptState(true); }
+ 
+-bool GammaService::enabled() const { return effectiveConfiguredEnabled(); }
++bool GammaService::enabled() const { return scriptEnabled(); }
+ 
+-bool GammaService::forceEnabled() const { return effectiveForce(); }
++bool GammaService::forceEnabled() const { return false; }
+ 
+-bool GammaService::active() const {
+-  if (!effectiveEnabled()) {
+-    return false;
+-  }
+-  if (effectiveForce()) {
+-    return true;
+-  }
+-  return isNightPhase();
+-}
++bool GammaService::active() const { return scriptEnabled(); }
+ 
+-void GammaService::onOutputsChanged() {
+-  if (!effectiveEnabled()) {
+-    return;
+-  }
+-  apply();
+-}
++void GammaService::onOutputsChanged() { syncScriptState(true); }
+ 
+-void GammaService::reevaluateSchedule() { apply(); }
++void GammaService::reevaluateSchedule() { syncScriptState(true); }
+ 
+ bool GammaService::effectiveConfiguredEnabled() const {
+   if (m_enabledOverride.has_value()) {
+--- a/src/shell/control_center/shortcut_registry.cpp
++++ b/src/shell/control_center/shortcut_registry.cpp
+@@ -97,7 +97,7 @@
+     NightlightShortcut(GammaService* svc, CompositorPlatform* platform) : m_svc(svc), m_platform(platform) {}
+     std::string_view id() const override { return "nightlight"; }
+     std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.nightlight"); }
+-    bool enabled() const override { return m_platform != nullptr && m_platform->hasGammaControl(); }
++    bool enabled() const override { return m_svc != nullptr; }
+     std::string displayLabel() const override {
+       if (m_svc == nullptr) {
+         return defaultLabel();
+--- a/src/shell/settings/settings_registry.cpp
++++ b/src/shell/settings/settings_registry.cpp
+@@ -2552,103 +2552,6 @@
+       entries.push_back(std::move(e));
+     }
+ 
+-    if (!env.gammaControlAvailable) {
+-      entries.push_back(makeEntry(
+-          SettingsSection::Location, "night-light", tr("settings.schema.services.night-light.label"),
+-          tr("settings.schema.services.night-light.requires-gamma-control"), {"nightlight", "enabled"},
+-          ToggleSetting{.checked = cfg.nightlight.enabled, .enabled = false}, "nightlight"
+-      ));
+-    } else {
+-      entries.push_back(makeEntry(
+-          SettingsSection::Location, "night-light", tr("settings.schema.services.night-light.label"),
+-          tr("settings.schema.services.night-light.description"), {"nightlight", "enabled"},
+-          ToggleSetting{cfg.nightlight.enabled}, "nightlight"
+-      ));
+-      const SettingVisibility nightLightOn = [](const Config& c) { return c.nightlight.enabled; };
+-      {
+-        auto e = makeEntry(
+-            SettingsSection::Location, "night-light", tr("settings.schema.services.force-night-light.label"),
+-            tr("settings.schema.services.force-night-light.description"), {"nightlight", "force"},
+-            ToggleSetting{cfg.nightlight.force}, "nightlight"
+-        );
+-        e.visibleWhen = nightLightOn;
+-        entries.push_back(std::move(e));
+-      }
+-      // Both sliders span the same range; the day > night invariant is enforced at commit time
+-      // via SliderSetting::linkedCommit, which pushes the other temperature when needed.
+-      const auto tempMin = static_cast<double>(NightLightConfig::kTemperatureMin);
+-      const auto tempMax = static_cast<double>(NightLightConfig::kTemperatureMax);
+-      const auto tempStep = static_cast<double>(NightLightConfig::kTemperatureGap);
+-
+-      SliderSetting daySlider{static_cast<double>(cfg.nightlight.dayTemperature), tempMin, tempMax, tempStep, true};
+-      daySlider.linkedCommit = [curNight = cfg.nightlight.nightTemperature](double v) {
+-        std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> overrides;
+-        const auto newDay = std::clamp(
+-            static_cast<std::int32_t>(std::lround(v)), NightLightConfig::kTemperatureMin,
+-            NightLightConfig::kTemperatureMax
+-        );
+-        if (newDay - NightLightConfig::kTemperatureGap < curNight) {
+-          std::int32_t pushedNight =
+-              std::max(NightLightConfig::kTemperatureMin, newDay - NightLightConfig::kTemperatureGap);
+-          if (pushedNight + NightLightConfig::kTemperatureGap > newDay) {
+-            // Day was below kTemperatureMin + kTemperatureGap; bump day up too. The slider value
+-            // refresh comes through the rebuilt registry on the next config reload.
+-            const std::int32_t bumpedDay =
+-                std::min(NightLightConfig::kTemperatureMax, pushedNight + NightLightConfig::kTemperatureGap);
+-            overrides.emplace_back(
+-                std::vector<std::string>{"nightlight", "temperature_day"}, static_cast<std::int64_t>(bumpedDay)
+-            );
+-          }
+-          overrides.emplace_back(
+-              std::vector<std::string>{"nightlight", "temperature_night"}, static_cast<std::int64_t>(pushedNight)
+-          );
+-        }
+-        return overrides;
+-      };
+-      {
+-        auto e = makeEntry(
+-            SettingsSection::Location, "night-light", tr("settings.schema.services.day-temperature.label"),
+-            tr("settings.schema.services.day-temperature.description"), {"nightlight", "temperature_day"},
+-            std::move(daySlider), "nightlight kelvin"
+-        );
+-        e.visibleWhen = nightLightOn;
+-        entries.push_back(std::move(e));
+-      }
+-
+-      SliderSetting nightSlider{static_cast<double>(cfg.nightlight.nightTemperature), tempMin, tempMax, tempStep, true};
+-      nightSlider.linkedCommit = [curDay = cfg.nightlight.dayTemperature](double v) {
+-        std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> overrides;
+-        const auto newNight = std::clamp(
+-            static_cast<std::int32_t>(std::lround(v)), NightLightConfig::kTemperatureMin,
+-            NightLightConfig::kTemperatureMax
+-        );
+-        if (curDay - NightLightConfig::kTemperatureGap < newNight) {
+-          std::int32_t pushedDay =
+-              std::min(NightLightConfig::kTemperatureMax, newNight + NightLightConfig::kTemperatureGap);
+-          if (pushedDay - NightLightConfig::kTemperatureGap < newNight) {
+-            const std::int32_t bumpedNight =
+-                std::max(NightLightConfig::kTemperatureMin, pushedDay - NightLightConfig::kTemperatureGap);
+-            overrides.emplace_back(
+-                std::vector<std::string>{"nightlight", "temperature_night"}, static_cast<std::int64_t>(bumpedNight)
+-            );
+-          }
+-          overrides.emplace_back(
+-              std::vector<std::string>{"nightlight", "temperature_day"}, static_cast<std::int64_t>(pushedDay)
+-          );
+-        }
+-        return overrides;
+-      };
+-      {
+-        auto e = makeEntry(
+-            SettingsSection::Location, "night-light", tr("settings.schema.services.night-temperature.label"),
+-            tr("settings.schema.services.night-temperature.description"), {"nightlight", "temperature_night"},
+-            std::move(nightSlider), "nightlight kelvin"
+-        );
+-        e.visibleWhen = nightLightOn;
+-        entries.push_back(std::move(e));
+-      }
+-    }
+-
+     const SettingVisibility calendarOn = [](const Config& c) { return c.calendar.enabled; };
+     entries.push_back(makeEntry(
+         SettingsSection::Services, "calendar", tr("settings.schema.services.calendar.label"),
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -991,8 +991,9 @@
+   m_gammaService.setChangeCallback([this, shouldRefreshControlCenter]() {
+     if (noctalia::runtime::isLockProvider()) {
+       return;
+     }
+     m_bar.refresh();
++    m_settingsWindow.onExternalOptionsChanged();
+     if (shouldRefreshControlCenter()) {
+       m_panelManager.refresh();
+     }

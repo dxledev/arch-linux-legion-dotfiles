@@ -6,7 +6,8 @@
     "0002-static-wallpaper-themes.patch",
     "0003-notification-markup.patch",
     "0004-network-tools.patch",
-    "0005-settings-launcher-provider.patch"
+    "0005-settings-launcher-provider.patch",
+    "0006-system-toggle-nightlight.patch"
   ],
   "schemes": [
     "m3-tonal-spot",
