@@ -1,0 +1,325 @@
+diff --git a/src/config/config_overrides.cpp b/src/config/config_overrides.cpp
+index 10d03c11e..8d4330740 100644
+--- a/src/config/config_overrides.cpp
++++ b/src/config/config_overrides.cpp
+@@ -15,6 +15,10 @@
+ #include "util/string_utils.h"
+ 
+ #include <algorithm>
++#include <atomic>
++#include <cctype>
++#include <chrono>
++#include <cstdint>
+ #include <exception>
+ #include <filesystem>
+ #include <fstream>
+@@ -29,6 +33,133 @@
+ namespace {
+   constexpr Logger kLog("config");
+ 
++  [[nodiscard]] bool safeThemeName(std::string_view name) {
++    if (name.empty() || std::isalnum(static_cast<unsigned char>(name.front())) == 0) {
++      return false;
++    }
++    return std::all_of(name.begin(), name.end(), [](char value) {
++      const auto ch = static_cast<unsigned char>(value);
++      return std::isalnum(ch) != 0 || value == '.' || value == '-' || value == '_';
++    });
++  }
++
++  [[nodiscard]] bool replaceableWallpaperLink(const std::filesystem::path& link) {
++    std::error_code ec;
++    const auto status = std::filesystem::symlink_status(link, ec);
++    if (ec == std::errc::no_such_file_or_directory || (!ec && status.type() == std::filesystem::file_type::not_found)) {
++      return true;
++    }
++    if (ec) {
++      kLog.warn("failed to inspect wallpaper link {}: {}", link.string(), ec.message());
++      return false;
++    }
++    if (!std::filesystem::is_symlink(status)) {
++      kLog.warn("preserving non-symlink wallpaper path {}", link.string());
++      return false;
++    }
++    return true;
++  }
++
++  [[nodiscard]] bool updateWallpaperLink(
++      const std::filesystem::path& imagePath, const std::filesystem::path& linkPath, bool createParent
++  ) {
++    const auto parent = linkPath.parent_path();
++    std::error_code ec;
++    if (createParent) {
++      std::filesystem::create_directories(parent, ec);
++      if (ec) {
++        kLog.warn("failed to create wallpaper state directory {}: {}", parent.string(), ec.message());
++        return false;
++      }
++    } else if (!std::filesystem::is_directory(parent, ec) || ec) {
++      kLog.warn("wallpaper theme directory is missing: {}", parent.string());
++      return false;
++    }
++
++    if (!replaceableWallpaperLink(linkPath)) {
++      return false;
++    }
++
++    static std::atomic<std::uint64_t> sequence{0};
++    for (int attempt = 0; attempt < 16; ++attempt) {
++      const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
++      auto temporaryLink = linkPath;
++      temporaryLink += ".tmp." + std::to_string(stamp) + "." + std::to_string(sequence.fetch_add(1));
++      std::filesystem::create_symlink(imagePath, temporaryLink, ec);
++      if (ec == std::errc::file_exists) {
++        ec.clear();
++        continue;
++      }
++      if (ec) {
++        kLog.warn("failed to stage wallpaper link {}: {}", temporaryLink.string(), ec.message());
++        return false;
++      }
++
++      if (!replaceableWallpaperLink(linkPath)) {
++        std::filesystem::remove(temporaryLink, ec);
++        return false;
++      }
++      std::filesystem::rename(temporaryLink, linkPath, ec);
++      if (ec) {
++        kLog.warn("failed to update wallpaper link {}: {}", linkPath.string(), ec.message());
++        std::filesystem::remove(temporaryLink, ec);
++        return false;
++      }
++      return true;
++    }
++
++    kLog.warn("could not allocate a temporary wallpaper link for {}", linkPath.string());
++    return false;
++  }
++
++  void rememberWallpaperForTheme(
++      std::string_view path, PaletteSource source, std::string_view customPalette
++  ) {
++    if (path.empty() || path.starts_with("color:")
++        || (source != PaletteSource::Custom && source != PaletteSource::Wallpaper)) {
++      return;
++    }
++
++    std::error_code ec;
++    const auto imagePath = std::filesystem::canonical(FileUtils::expandUserPath(std::string(path)), ec);
++    if (ec || !std::filesystem::is_regular_file(imagePath, ec) || ec) {
++      return;
++    }
++
++    std::filesystem::path linkPath;
++    bool createParent = false;
++    if (source == PaletteSource::Custom) {
++      if (!safeThemeName(customPalette)) {
++        return;
++      }
++      linkPath = FileUtils::expandXdgBaseDir(
++          "$XDG_CONFIG_HOME/themes/" + std::string(customPalette) + "/wallpaper.png"
++      );
++    } else {
++      const std::string stateDir = FileUtils::stateDir();
++      if (stateDir.empty()) {
++        return;
++      }
++      linkPath = std::filesystem::path(stateDir) / "dynamic-wallpaper";
++      createParent = true;
++    }
++    (void)updateWallpaperLink(imagePath, linkPath, createParent);
++  }
++
++  void rememberWallpaperForThemeSelection(
++      std::string_view path, const ThemeConfig& currentTheme, const WallpaperFavorite* selectedTheme
++  ) {
++    PaletteSource source = currentTheme.source;
++    std::string customPalette = currentTheme.customPalette;
++    if (selectedTheme != nullptr && selectedTheme->paletteSource.has_value()) {
++      source = *selectedTheme->paletteSource;
++      if (!selectedTheme->customPalette.empty()) {
++        customPalette = selectedTheme->customPalette;
++      }
++    }
++    rememberWallpaperForTheme(path, source, customPalette);
++  }
++
+   std::string overrideCacheKey(const std::vector<std::string>& path) {
+     std::string key;
+     for (const auto& part : path) {
+@@ -2234,6 +2365,7 @@ void ConfigService::setWallpaperPath(const std::optional<std::string>& connector
+   }
+ 
+   if (!changed) {
++    rememberWallpaperForTheme(path, m_config.theme.source, m_config.theme.customPalette);
+     return;
+   }
+ 
+@@ -2258,6 +2390,7 @@ void ConfigService::setWallpaperPath(const std::optional<std::string>& connector
+   }
+ 
+   m_ownOverridesWritePending = true;
++  rememberWallpaperForTheme(path, m_config.theme.source, m_config.theme.customPalette);
+   if (m_wallpaperBatchDepth > 0) {
+     m_wallpaperBatchDirty = true;
+     return;
+@@ -2675,6 +2808,7 @@ void ConfigService::applyWallpaperSelection(
+   }
+ 
+   if (!changed) {
++    rememberWallpaperForThemeSelection(path, m_config.theme, applyTheme);
+     return;
+   }
+ 
+@@ -2683,6 +2817,7 @@ void ConfigService::applyWallpaperSelection(
+     return;
+   }
+ 
++  rememberWallpaperForThemeSelection(path, m_config.theme, applyTheme);
+   m_ownOverridesWritePending = true;
+   loadAll();
+   fireReloadCallbacks();
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+index a2d93a8a3..84314efe8 100644
+--- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
++++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+@@ -199,6 +199,48 @@ namespace {
+     });
+   }
+ 
++  [[nodiscard]] std::optional<std::string> resolveWallpaperLink(const std::filesystem::path& linkPath) {
++    std::error_code ec;
++    const auto imagePath = std::filesystem::canonical(linkPath, ec);
++    if (ec || !std::filesystem::is_regular_file(imagePath, ec) || ec) {
++      kLog.warn("saved wallpaper path is missing or invalid: {}", linkPath.string());
++      return std::nullopt;
++    }
++    return imagePath.string();
++  }
++
++  [[nodiscard]] std::optional<std::string> wallpaperForTheme(const WallpaperFavorite& theme) {
++    const PaletteSource source = theme.paletteSource.value_or(PaletteSource::Builtin);
++    if (source == PaletteSource::Custom) {
++      if (!isSafeStaticThemeName(theme.customPalette)) {
++        kLog.warn("cannot restore wallpaper for invalid Static theme name '{}'", theme.customPalette);
++        return std::nullopt;
++      }
++      const std::filesystem::path linkPath =
++          FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/themes/" + theme.customPalette + "/wallpaper.png");
++      return resolveWallpaperLink(linkPath);
++    }
++    if (source != PaletteSource::Wallpaper) {
++      return std::nullopt;
++    }
++
++    const std::string stateDir = FileUtils::stateDir();
++    const std::filesystem::path savedLink = stateDir.empty()
++        ? std::filesystem::path{}
++        : std::filesystem::path(stateDir) / "dynamic-wallpaper";
++    std::error_code ec;
++    const auto savedStatus = savedLink.empty() ? std::filesystem::file_status{}
++                                               : std::filesystem::symlink_status(savedLink, ec);
++    const bool noSavedLink = savedLink.empty() || ec == std::errc::no_such_file_or_directory
++        || (!ec && savedStatus.type() == std::filesystem::file_type::not_found);
++    if (!noSavedLink) {
++      return resolveWallpaperLink(savedLink);
++    }
++
++    const std::filesystem::path generatedLink =
++        FileUtils::expandXdgBaseDir("$XDG_STATE_HOME/caelestia/dynamic-wallpaper");
++    return resolveWallpaperLink(generatedLink);
++  }
+   [[nodiscard]] int caseInsensitiveNameOrder(std::string_view a, std::string_view b) {
+     return StringUtils::naturalCaseInsensitiveCompare(a, b);
+   }
+@@ -651,7 +693,7 @@ void WallpaperPanel::create() {
+             rebuildFavoritePaletteDetailSelect(&seed);
+             m_syncingFavoriteControls = false;
+ 
+-            applyThemeFromControls();
++            applyThemeFromControls(true);
+             syncThemeModeVisibility();
+             resetBrowseDirectory();
+             m_dirty = true;
+@@ -674,7 +716,7 @@ void WallpaperPanel::create() {
+                 if (m_syncingFavoriteControls || m_config == nullptr || index >= m_favoritePaletteDetailValues.size()) {
+                   return;
+                 }
+-                applyThemeFromControls();
++                applyThemeFromControls(true);
+                 if (m_favoritePaletteSourceSegmented != nullptr
+                     && paletteSourceForSegment(m_favoritePaletteSourceSegmented->selectedIndex())
+                         == PaletteSource::Custom) {
+@@ -721,7 +763,7 @@ void WallpaperPanel::create() {
+             if (m_syncingFavoriteControls || m_config == nullptr) {
+               return;
+             }
+-            applyThemeFromControls();
++            applyThemeFromControls(false);
+             rebindGrid();
+             m_dirty = true;
+             PanelManager::instance().refresh();
+@@ -1290,23 +1332,44 @@ WallpaperFavorite WallpaperPanel::activeThemeSettings() const {
+   return theme;
+ }
+ 
+-void WallpaperPanel::applyThemeFromControls() {
++void WallpaperPanel::applyThemeFromControls(bool restoreThemeWallpaper) {
+   if (m_config == nullptr) {
+     return;
+   }
+   const WallpaperFavorite theme = themeFromControls();
+   const std::string path = selectedWallpaperPath();
++  const ThemeConfig& currentTheme = m_config->config().theme;
++  const PaletteSource targetSource = theme.paletteSource.value_or(currentTheme.source);
++  const bool shouldRestoreWallpaper = restoreThemeWallpaper
++      && ((targetSource == PaletteSource::Wallpaper && currentTheme.source != PaletteSource::Wallpaper)
++          || (targetSource == PaletteSource::Custom
++              && (currentTheme.source != PaletteSource::Custom || theme.customPalette != currentTheme.customPalette)));
++  const bool selectedFavorite = !path.empty() && m_config->isWallpaperFavorite(path);
++
++  if (shouldRestoreWallpaper) {
++    const auto restoredPath = wallpaperForTheme(theme);
++    if (!restoredPath.has_value()) {
++      syncThemeControls();
++      return;
++    }
++    if (selectedFavorite) {
++      m_config->setWallpaperFavoriteThemeMode(path, theme.themeMode);
++      m_config->setWallpaperFavoritePaletteSource(path, theme.paletteSource);
++      m_config->setWallpaperFavoritePaletteSelection(path, paletteSelectionValue(theme));
++    }
++    m_config->applyWallpaperSelection(std::nullopt, *restoredPath, &theme, allMonitorConnectors());
++    syncThemeControls();
++    rebindGrid();
++    syncBrowseChrome();
++    return;
++  }
+ 
+-  if (!path.empty() && m_config->isWallpaperFavorite(path)) {
+-    // Edit the selected wallpaper's favorite preset and apply it live (also re-asserts the wallpaper).
++  if (selectedFavorite) {
+     m_config->setWallpaperFavoriteThemeMode(path, theme.themeMode);
+     m_config->setWallpaperFavoritePaletteSource(path, theme.paletteSource);
+     m_config->setWallpaperFavoritePaletteSelection(path, paletteSelectionValue(theme));
+-    applyWallpaperPath(path, &theme);
+-    return;
+   }
+ 
+-  // No favorite target, so behave like the Settings window and change the global theme only.
+   m_config->setThemeMode(theme.themeMode);
+   if (theme.paletteSource.has_value()) {
+     (void)m_config->setThemeColorScheme(*theme.paletteSource, paletteSelectionValue(theme));
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.h b/src/shell/wallpaper/panel/wallpaper_panel.h
+index 4a347e29f..c9d58b639 100644
+--- a/src/shell/wallpaper/panel/wallpaper_panel.h
++++ b/src/shell/wallpaper/panel/wallpaper_panel.h
+@@ -86,7 +86,7 @@ private:
+   [[nodiscard]] const WallpaperFavorite* favoriteThemeToApply(std::string_view path) const;
+   [[nodiscard]] WallpaperFavorite themeFromControls() const;
+   [[nodiscard]] WallpaperFavorite activeThemeSettings() const;
+-  void applyThemeFromControls();
++  void applyThemeFromControls(bool restoreThemeWallpaper);
+   void toggleFavoriteForPath(const std::string& path);
+   void syncThemeControls();
+   void syncThemeModeVisibility();

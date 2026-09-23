@@ -48,7 +48,12 @@ fi
 
 if [[ "$NOCTALIA_BIN" == /* && -x "$NOCTALIA_BIN" ]]; then
     "$NOCTALIA_BIN" msg theme-mode-set "$(static_theme_mode "$THEME_NAME")" >/dev/null 2>&1 || true
-    "$NOCTALIA_BIN" msg wallpaper-set "$CURRENT_LINK/wallpaper.png" >/dev/null 2>&1 || true
+    STATIC_WALLPAPER="$(/usr/bin/readlink -e -- "$NEW_THEME/wallpaper.png" 2>/dev/null || true)"
+    if [[ -n "$STATIC_WALLPAPER" && -f "$STATIC_WALLPAPER" ]]; then
+        "$NOCTALIA_BIN" msg wallpaper-set "$STATIC_WALLPAPER" >/dev/null 2>&1 || true
+    else
+        printf "theme: Saved wallpaper for '%s' is missing or invalid: %s/wallpaper.png\n" "$THEME_NAME" "$NEW_THEME" >&2
+    fi
 fi
 
 if [[ "${THEME_SUPPRESS_NOTIFY:-0}" != "1" ]]; then

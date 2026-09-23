@@ -171,6 +171,31 @@ prewarm() {
     done
 }
 
+application_theme_is_dynamic() {
+    local theme_root="$1" selector_target
+    selector_target="$(/usr/bin/readlink -f -- "$themes_dir/.caelestia-use" 2>/dev/null || true)"
+    [[ -n "$selector_target" && "$selector_target" == "$theme_root/.dynamic/"* && -d "$selector_target" ]]
+}
+
+reassert_static_wallpaper() {
+    local theme_root="$1" name="$2" saved_link saved_wallpaper current_wallpaper
+    saved_link="$theme_root/$name/wallpaper.png"
+    saved_wallpaper="$(/usr/bin/readlink -e -- "$saved_link" 2>/dev/null || true)"
+    [[ -n "$saved_wallpaper" && -f "$saved_wallpaper" ]] ||
+        fail "Saved wallpaper for static theme '$name' is missing or invalid: $saved_link"
+    current_wallpaper="$("$noctalia_bin" msg wallpaper-get 2>/dev/null || true)"
+    if [[ "$current_wallpaper" == "$saved_wallpaper" ]]; then
+        (( dry_run )) && printf 'Static theme wallpaper already current: %s\n' "$saved_wallpaper"
+        return 0
+    fi
+    if (( dry_run )); then
+        printf 'Static theme wallpaper: %s\n' "$saved_wallpaper"
+        return 0
+    fi
+    "$noctalia_bin" msg wallpaper-set "$saved_wallpaper" >/dev/null 2>&1 ||
+        fail "Noctalia could not restore saved wallpaper for static theme '$name'."
+}
+
 sync_static_theme() {
     local source name current theme_root
     read -r source name < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
@@ -178,12 +203,16 @@ sync_static_theme() {
     [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || return 0
     theme_root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
     current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
-    [[ -d "$theme_root/$name" && "$current" != "$name" ]] || return 0
-    if (( dry_run )); then
-        printf 'Static theme: %s\n' "$name"
+    [[ -d "$theme_root/$name" ]] || return 0
+    if [[ "$current" != "$name" ]] || application_theme_is_dynamic "$theme_root"; then
+        if (( dry_run )); then
+            printf 'Static theme: %s\n' "$name"
+            return 0
+        fi
+        NOCTALIA_THEME_SYNC=1 "$theme_script" "$name"
         return 0
     fi
-    NOCTALIA_THEME_SYNC=1 "$theme_script" "$name"
+    reassert_static_wallpaper "$theme_root" "$name"
     return 0
 }
 
