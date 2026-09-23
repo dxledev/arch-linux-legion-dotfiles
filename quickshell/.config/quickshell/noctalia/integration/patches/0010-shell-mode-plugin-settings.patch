@@ -1,0 +1,80 @@
+diff --git a/src/app/application_plugins.cpp b/src/app/application_plugins.cpp
+--- a/src/app/application_plugins.cpp
++++ b/src/app/application_plugins.cpp
+@@ -8,6 +8,9 @@
+ #include "scripting/plugin_runtime_context.h"
+ #include "shell/launcher/launcher_panel.h"
+ #include "shell/panel/plugin_panel.h"
++
++#include <string>
++#include <variant>
+ 
+ namespace {
+   constexpr Logger kLog("dmenu");
+@@ -29,5 +32,29 @@ void Application::reloadPluginLauncherProviders() {
+     scripting::mergePluginSettings(
+         *resolved.manifest, psIt != pluginSettings.end() ? psIt->second : kNoOverrides, seeded
+     );
++
++    bool providerEnabled = true;
++    if (const auto it = seeded.find("provider_enabled"); it != seeded.end()) {
++      if (const auto* value = std::get_if<bool>(&it->second); value != nullptr) {
++        providerEnabled = *value;
++      }
++    }
++    if (!providerEnabled) {
++      continue;
++    }
++
++    std::string providerPrefix = resolved.entry->launcherPrefix;
++    if (const auto it = seeded.find("provider_prefix"); it != seeded.end()) {
++      if (const auto* value = std::get_if<std::string>(&it->second); value != nullptr) {
++        providerPrefix = *value;
++      }
++    }
++
++    bool includeInGlobalSearch = resolved.entry->launcherGlobalSearch;
++    if (const auto it = seeded.find("provider_global"); it != seeded.end()) {
++      if (const auto* value = std::get_if<bool>(&it->second); value != nullptr) {
++        includeInGlobalSearch = *value;
++      }
++    }
+ 
+     std::vector<LauncherCategory> categories;
+@@ -58,9 +85,9 @@ void Application::reloadPluginLauncherProviders() {
+             },
+             PluginLauncherProviderOptions{
+                 .displayName = resolved.manifest->name,
+-                .prefix = resolved.entry->launcherPrefix,
++                .prefix = std::move(providerPrefix),
+                 .glyph = resolved.entry->launcherGlyph,
+-                .globalSearch = resolved.entry->launcherGlobalSearch,
++                .globalSearch = includeInGlobalSearch,
+                 .debounceMs = resolved.entry->launcherDebounceMs,
+                 .categories = std::move(categories),
+             }
+diff --git a/src/shell/settings/settings_content_plugins.cpp b/src/shell/settings/settings_content_plugins.cpp
+--- a/src/shell/settings/settings_content_plugins.cpp
++++ b/src/shell/settings/settings_content_plugins.cpp
+@@ -123,5 +123,8 @@
+       if (source == "community") {
+         return "Community";
+       }
++      if (source == "local") {
++        return "Local";
++      }
+       return std::string(source);
+     }
+ 
+diff --git a/src/shell/settings/plugin_store_content.cpp b/src/shell/settings/plugin_store_content.cpp
+--- a/src/shell/settings/plugin_store_content.cpp
++++ b/src/shell/settings/plugin_store_content.cpp
+@@ -45,5 +45,8 @@
+       if (source == "community") {
+         return i18n::tr("settings.badges.community");
+       }
++      if (source == "local") {
++        return "Local";
++      }
+       return source;
+     }

@@ -1,0 +1,74 @@
+id = "dxle/shell-mode-switcher"
+name = "Shell Mode"
+version = "1.0.0"
+plugin_api = 26
+author = "dxle"
+license = "MIT"
+icon = "arrows-left-right"
+description = "Switch between available pre-configured shell modes."
+tags = ["shell", "switcher"]
+
+[[setting]]
+key = "provider_enabled"
+type = "bool"
+label_key = "settings.provider.enabled"
+description_key = "settings.provider.enabled.description"
+default = true
+
+[[setting]]
+key = "provider_prefix"
+type = "string"
+label_key = "settings.provider.prefix"
+description_key = "settings.provider.prefix.description"
+default = "shell"
+
+[[setting]]
+key = "provider_global"
+type = "bool"
+label_key = "settings.provider.global"
+description_key = "settings.provider.global.description"
+default = false
+
+[[widget]]
+id = "switcher"
+entry = "switcher.luau"
+
+  [widget.actions]
+  left = "panel-toggle dxle/shell-mode-switcher:menu"
+
+  [[widget.setting]]
+  key = "label"
+  type = "string"
+  label_key = "settings.widget.label"
+  default = "Shell"
+
+  [[widget.setting]]
+  key = "glyph"
+  type = "glyph"
+  label_key = "settings.widget.glyph"
+  default = "arrows-left-right"
+
+[[panel]]
+id = "menu"
+entry = "menu.luau"
+width = 700
+height = 230
+placement = "attached"
+position = "auto"
+open_near_click = false
+
+  [[panel.setting]]
+  key = "menu_width"
+  type = "int"
+  label_key = "settings.panel.width"
+  description_key = "settings.panel.width.description"
+  default = 700
+  min = 600
+  max = 1200
+  step = 10
+
+[[launcher_provider]]
+id = "shell"
+entry = "providers.luau"
+prefix = "shell"
+glyph = "arrows-left-right"

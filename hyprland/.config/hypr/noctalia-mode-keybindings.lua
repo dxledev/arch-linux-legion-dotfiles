@@ -2,6 +2,7 @@ local config_home = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.con
 local home = os.getenv("HOME")
 local noctalia = os.getenv("NOCTALIA_BIN") or (config_home .. "/noctalia/.runtime/bin/noctalia")
 local lock_script = home .. "/bin/system-lock"
+local shell_mode_switcher = home .. "/bin/noctalia-shell-switcher"
 local knob_press = home .. "/bin/knob-press"
 local knob_release = home .. "/bin/knob-release"
 
@@ -34,6 +35,7 @@ local shell_bindings = {
   "SUPER + ALT + SPACE",
   "SUPER + ALT + T",
   "SUPER + CTRL + ALT + SPACE",
+  "SUPER + CTRL + ALT + Q",
   "SUPER + SHIFT + ALT + P",
   "SUPER + ALT + P",
   "SUPER + ALT + K",
@@ -106,6 +108,9 @@ bind_panel("SUPER + SHIFT + B", "Session", "session")
 
 hl.unbind("SUPER + SHIFT + L")
 hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(lock_script .. " --wait"), { description = "Lock Screen" })
+
+hl.unbind("SUPER + CTRL + ALT + Q")
+hl.bind("SUPER + CTRL + ALT + Q", hl.dsp.exec_cmd(shell_mode_switcher), { description = "Shell Mode Menu" })
 
 local volume_bindings = {
   { "XF86AudioRaiseVolume", "Volume Up", "volume-up 1%" },

@@ -1,25 +1,28 @@
 diff --git a/meson.build b/meson.build
-index b15ab529a..bd8e25efd 100644
+index b15ab529a..e6cda48c4 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -646,6 +646,7 @@ _noctalia_sources = files(
+@@ -646,6 +646,8 @@ _noctalia_sources = files(
    'src/shell/control_center/tabs/monitor_tab.cpp',
    'src/shell/control_center/tabs/media_tab.cpp',
    'src/shell/control_center/tabs/network_tab.cpp',
 +  'src/shell/control_center/tabs/network_tools_popup.cpp',
++  'src/shell/control_center/tabs/speed_dial.cpp',
    'src/shell/control_center/tabs/notifications_tab.cpp',
    'src/shell/control_center/tabs/power_tab.cpp',
    'src/shell/control_center/tabs/screen_time_tab.cpp',
 diff --git a/src/shell/control_center/tabs/network_tab.cpp b/src/shell/control_center/tabs/network_tab.cpp
-index 91516f7e7..8e65a61cc 100644
+index 91516f7e7..b615e9f41 100644
 --- a/src/shell/control_center/tabs/network_tab.cpp
 +++ b/src/shell/control_center/tabs/network_tab.cpp
-@@ -1,4 +1,5 @@
- #include "shell/control_center/tabs/network_tab.h"
+@@ -8,6 +8,7 @@
+ #include "i18n/i18n.h"
+ #include "render/core/renderer.h"
+ #include "render/scene/input_area.h"
 +#include "shell/control_center/tabs/network_tools_popup.h"
- 
- #include "core/ui_phase.h"
- #include "dbus/modem/modem_manager_service.h"
+ #include "shell/panel/panel_manager.h"
+ #include "ui/builders.h"
+ #include "ui/palette.h"
 @@ -602,7 +603,8 @@ private:
  NetworkTab::NetworkTab(
      INetworkService* network, NetworkSecretAgent* secrets, ExternalIpService* externalIp, ModemManagerService* modem
@@ -40,7 +43,7 @@ index 91516f7e7..8e65a61cc 100644
    if (m_secrets != nullptr) {
      m_secrets->setRequestCallback(nullptr);
      m_secrets->cancelSecret();
-@@ -627,11 +632,86 @@ std::unique_ptr<Flex> NetworkTab::create() {
+@@ -627,11 +632,99 @@ std::unique_ptr<Flex> NetworkTab::create() {
        .gap = Style::spaceMd * scale,
    });
  
@@ -73,54 +76,67 @@ index 91516f7e7..8e65a61cc 100644
 +      .justify = FlexJustify::End,
 +      .gap = Style::spaceXs * scale,
 +  });
-+  toolsRow->addChild(ui::button({
-+      .out = &m_networkSpeedButton,
-+      .glyph = "gauge",
-+      .glyphSize = Style::baseGlyphSize * scale,
-+      .variant = ButtonVariant::Ghost,
-+      .tooltip = "Test internet speed",
-+      .minWidth = Style::controlHeightSm * scale,
-+      .minHeight = Style::controlHeightSm * scale,
-+      .padding = Style::spaceXs * scale,
-+      .radius = Style::scaledRadiusSm(scale),
-+      .onClick = [this]() {
-+        if (m_toolsPopup != nullptr) {
-+          m_toolsPopup->open(NetworkToolsPopup::Kind::NetworkSpeed);
-+        }
-+      },
-+  }));
-+  toolsRow->addChild(ui::button({
-+      .out = &m_diskSpeedButton,
-+      .glyph = "device-sd-card",
-+      .glyphSize = Style::baseGlyphSize * scale,
-+      .variant = ButtonVariant::Ghost,
-+      .tooltip = "Test disk speed",
-+      .minWidth = Style::controlHeightSm * scale,
-+      .minHeight = Style::controlHeightSm * scale,
-+      .padding = Style::spaceXs * scale,
-+      .radius = Style::scaledRadiusSm(scale),
-+      .onClick = [this]() {
-+        if (m_toolsPopup != nullptr) {
-+          m_toolsPopup->open(NetworkToolsPopup::Kind::DiskSpeed);
-+        }
-+      },
-+  }));
-+  toolsRow->addChild(ui::button({
-+      .out = &m_wifiQrButton,
-+      .glyph = "qrcode",
-+      .glyphSize = Style::baseGlyphSize * scale,
-+      .variant = ButtonVariant::Ghost,
-+      .tooltip = "Show Wi-Fi QR code",
-+      .minWidth = Style::controlHeightSm * scale,
-+      .minHeight = Style::controlHeightSm * scale,
-+      .padding = Style::spaceXs * scale,
-+      .radius = Style::scaledRadiusSm(scale),
-+      .onClick = [this]() {
-+        if (m_toolsPopup != nullptr) {
-+          m_toolsPopup->open(NetworkToolsPopup::Kind::WifiQr);
-+        }
-+      },
-+  }));
++  toolsRow->addChild(
++      ui::button({
++          .out = &m_networkSpeedButton,
++          .glyph = "gauge",
++          .glyphSize = Style::baseGlyphSize * scale,
++          .variant = ButtonVariant::Ghost,
++          .tooltip = "Test internet speed",
++          .minWidth = Style::controlHeightSm * scale,
++          .minHeight = Style::controlHeightSm * scale,
++          .padding = Style::spaceXs * scale,
++          .radius = Style::scaledRadiusSm(scale),
++          .onClick = [this]() {
++            if (m_toolsPopup != nullptr) {
++              std::string context;
++              if (m_network != nullptr) {
++                const auto& state = m_network->state();
++                if (state.connected) {
++                  context = state.kind == NetworkConnectivity::Wireless ? state.ssid : state.interfaceName;
++                }
++              }
++              m_toolsPopup->open(NetworkToolsPopup::Kind::NetworkSpeed, std::move(context));
++            }
++          },
++      })
++  );
++  toolsRow->addChild(
++      ui::button({
++          .out = &m_diskSpeedButton,
++          .glyph = "device-sd-card",
++          .glyphSize = Style::baseGlyphSize * scale,
++          .variant = ButtonVariant::Ghost,
++          .tooltip = "Test disk speed",
++          .minWidth = Style::controlHeightSm * scale,
++          .minHeight = Style::controlHeightSm * scale,
++          .padding = Style::spaceXs * scale,
++          .radius = Style::scaledRadiusSm(scale),
++          .onClick = [this]() {
++            if (m_toolsPopup != nullptr) {
++              m_toolsPopup->open(NetworkToolsPopup::Kind::DiskSpeed);
++            }
++          },
++      })
++  );
++  toolsRow->addChild(
++      ui::button({
++          .out = &m_wifiQrButton,
++          .glyph = "qrcode",
++          .glyphSize = Style::baseGlyphSize * scale,
++          .variant = ButtonVariant::Ghost,
++          .tooltip = "Show Wi-Fi QR code",
++          .minWidth = Style::controlHeightSm * scale,
++          .minHeight = Style::controlHeightSm * scale,
++          .padding = Style::spaceXs * scale,
++          .radius = Style::scaledRadiusSm(scale),
++          .onClick = [this]() {
++            if (m_toolsPopup != nullptr) {
++              m_toolsPopup->open(NetworkToolsPopup::Kind::WifiQr);
++            }
++          },
++      })
++  );
 +
 +  auto currentHeader = makeCardHeaderRow(i18n::tr("control-center.network.current-connection"), scale);
 +  currentHeader->addChild(std::move(toolsRow));
@@ -128,7 +144,7 @@ index 91516f7e7..8e65a61cc 100644
  
    auto connRow = ui::row(
        {.out = &m_currentRow, .align = FlexAlign::Center, .gap = Style::spaceSm * scale},
-@@ -671,7 +751,8 @@ std::unique_ptr<Flex> NetworkTab::create() {
+@@ -671,7 +764,8 @@ std::unique_ptr<Flex> NetworkTab::create() {
    );
    currentCard->addChild(std::move(connRow));
  
@@ -138,7 +154,7 @@ index 91516f7e7..8e65a61cc 100644
  
    auto passwordCard = ui::column({
        .out = &m_passwordCard,
-@@ -836,7 +917,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
+@@ -836,7 +930,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
    );
  
    passwordCard->addChild(std::move(inputRow));
@@ -147,7 +163,7 @@ index 91516f7e7..8e65a61cc 100644
  
    auto listScroll = ui::scrollView({
        .out = &m_listScroll,
-@@ -844,7 +925,6 @@ std::unique_ptr<Flex> NetworkTab::create() {
+@@ -844,7 +938,6 @@ std::unique_ptr<Flex> NetworkTab::create() {
        .scrollbarVisible = true,
        .viewportPaddingH = 0.0F,
        .viewportPaddingV = 0.0F,
@@ -155,7 +171,7 @@ index 91516f7e7..8e65a61cc 100644
        .configure = [](ScrollView& scrollView) {
          scrollView.clearFill();
          scrollView.clearBorder();
-@@ -855,7 +935,8 @@ std::unique_ptr<Flex> NetworkTab::create() {
+@@ -855,7 +948,8 @@ std::unique_ptr<Flex> NetworkTab::create() {
    m_list->setAlign(FlexAlign::Stretch);
    m_list->setGap(Style::spaceMd * scale);
  
@@ -165,7 +181,7 @@ index 91516f7e7..8e65a61cc 100644
    return tab;
  }
  
-@@ -866,6 +947,9 @@ void NetworkTab::setActive(bool active) {
+@@ -866,6 +960,9 @@ void NetworkTab::setActive(bool active) {
      return;
    }
    m_active = active;
@@ -175,7 +191,7 @@ index 91516f7e7..8e65a61cc 100644
    if (m_active && m_network != nullptr) {
      m_network->requestScan();
    }
-@@ -887,17 +971,29 @@ void NetworkTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeig
+@@ -887,17 +984,29 @@ void NetworkTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeig
  
  void NetworkTab::doUpdate(Renderer& renderer) {
    syncPasswordCard();
@@ -206,7 +222,7 @@ index 91516f7e7..8e65a61cc 100644
    m_rootLayout = nullptr;
    m_currentCard = nullptr;
    m_currentTitle = nullptr;
-@@ -915,6 +1011,7 @@ void NetworkTab::onClose() {
+@@ -915,6 +1024,7 @@ void NetworkTab::onClose() {
    m_caCertInput = nullptr;
    m_domainMatchInput = nullptr;
    m_credentialError = nullptr;
@@ -214,7 +230,7 @@ index 91516f7e7..8e65a61cc 100644
    m_listScroll = nullptr;
    m_list = nullptr;
    m_rescanButton = nullptr;
-@@ -922,6 +1019,10 @@ void NetworkTab::onClose() {
+@@ -922,6 +1032,10 @@ void NetworkTab::onClose() {
    m_scanSpinner = nullptr;
    m_currentRow = nullptr;
    m_disconnectButton = nullptr;
@@ -225,7 +241,7 @@ index 91516f7e7..8e65a61cc 100644
    m_cellularToggle = nullptr;
    m_cellularRows.clear();
    m_cellularTogglePending = false;
-@@ -1108,11 +1209,17 @@ void NetworkTab::syncCurrentCard() {
+@@ -1108,11 +1222,17 @@ void NetworkTab::syncCurrentCard() {
      return;
    }
    if (m_network == nullptr) {
@@ -243,7 +259,7 @@ index 91516f7e7..8e65a61cc 100644
      return;
    }
    const NetworkState& s = m_network->state();
-@@ -1146,6 +1253,19 @@ void NetworkTab::syncCurrentCard() {
+@@ -1146,6 +1266,19 @@ void NetworkTab::syncCurrentCard() {
      m_disconnectButton->setVariant(s.connected ? ButtonVariant::Destructive : ButtonVariant::Default);
      m_disconnectButton->setEnabled(!m_actionPending);
    }
@@ -263,7 +279,7 @@ index 91516f7e7..8e65a61cc 100644
    if (m_wifiToggle != nullptr) {
      m_wifiToggle->setChecked(m_wifiTogglePending ? m_wifiToggleTarget : s.wirelessEnabled);
      m_wifiToggle->setEnabled(!m_wifiTogglePending);
-@@ -1254,14 +1374,14 @@ NetworkTab::structureKey(const std::vector<AccessPointInfo>& aps, const std::vec
+@@ -1254,14 +1387,14 @@ NetworkTab::structureKey(const std::vector<AccessPointInfo>& aps, const std::vec
    return key;
  }
  
@@ -281,7 +297,7 @@ index 91516f7e7..8e65a61cc 100644
    }
  
    std::vector<AccessPointInfo> aps;
-@@ -1271,7 +1391,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
+@@ -1271,7 +1404,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
    const auto& vpns = m_network != nullptr ? m_network->vpnConnections() : std::vector<VpnConnectionInfo>{};
    const std::string nextStructure = structureKey(aps, vpns);
    if (listWidth == m_lastListWidth && nextStructure == m_lastStructureKey) {
@@ -290,7 +306,7 @@ index 91516f7e7..8e65a61cc 100644
    }
    m_lastListWidth = listWidth;
    m_lastStructureKey = nextStructure;
-@@ -1512,6 +1632,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
+@@ -1512,6 +1645,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
      }
    }
    m_list->layout(renderer);
@@ -298,7 +314,7 @@ index 91516f7e7..8e65a61cc 100644
  }
  
  bool NetworkTab::syncApRows() {
-@@ -1607,4 +1728,7 @@ void NetworkTab::onPanelCardOpacityChanged(float opacity) {
+@@ -1607,4 +1741,7 @@ void NetworkTab::onPanelCardOpacityChanged(float opacity) {
    if (m_passwordInput != nullptr) {
      m_passwordInput->setSurfaceOpacity(opacity);
    }
@@ -363,21 +379,21 @@ index cd7383186..73b1ca207 100644
 +};
 diff --git a/src/shell/control_center/tabs/network_tools_popup.cpp b/src/shell/control_center/tabs/network_tools_popup.cpp
 new file mode 100644
-index 000000000..9467a1576
+index 000000000..dcdd9d773
 --- /dev/null
 +++ b/src/shell/control_center/tabs/network_tools_popup.cpp
-@@ -0,0 +1,692 @@
+@@ -0,0 +1,816 @@
 +#include "shell/control_center/tabs/network_tools_popup.h"
 +
 +#include "core/deferred_call.h"
 +#include "core/process/process.h"
 +#include "render/core/renderer.h"
 +#include "shell/control_center/tab.h"
++#include "shell/control_center/tabs/speed_dial.h"
 +#include "shell/panel/panel_manager.h"
 +#include "ui/builders.h"
 +#include "ui/controls/button.h"
 +#include "ui/controls/image.h"
-+#include "ui/controls/progress_bar.h"
 +#include "ui/controls/spinner.h"
 +#include "ui/palette.h"
 +#include "ui/style.h"
@@ -404,10 +420,10 @@ index 000000000..9467a1576
 +  std::filesystem::path integrationScript(std::string_view name) {
 +    const char* xdgConfigHome = std::getenv("XDG_CONFIG_HOME");
 +    const char* home = std::getenv("HOME");
-+    const std::filesystem::path configHome =
-+        xdgConfigHome != nullptr && xdgConfigHome[0] != '\0'
++    const std::filesystem::path configHome = xdgConfigHome != nullptr && xdgConfigHome[0] != '\0'
 +        ? std::filesystem::path(xdgConfigHome)
-+        : home != nullptr && home[0] != '\0' ? std::filesystem::path(home) / ".config" : std::filesystem::path{};
++        : home != nullptr && home[0] != '\0' ? std::filesystem::path(home) / ".config"
++                                             : std::filesystem::path{};
 +    return configHome / "noctalia" / "integration" / name;
 +  }
 +
@@ -435,6 +451,29 @@ index 000000000..9467a1576
 +    return value;
 +  }
 +
++  std::optional<double> numericLine(std::string_view line) {
++    std::istringstream parsed{std::string(line)};
++    double value = 0.0;
++    std::string trailing;
++    if (!(parsed >> value) || (parsed >> trailing) || !std::isfinite(value) || value < 0.0) {
++      return std::nullopt;
++    }
++    return value;
++  }
++
++  template <typename Callback> void consumeLines(std::string& pending, std::string_view chunk, Callback callback) {
++    pending.append(chunk);
++    std::size_t newline = 0;
++    while ((newline = pending.find('\n')) != std::string::npos) {
++      std::string line = pending.substr(0, newline);
++      if (!line.empty() && line.back() == '\r') {
++        line.pop_back();
++      }
++      pending.erase(0, newline + 1);
++      callback(std::move(line));
++    }
++  }
++
 +  std::pair<std::optional<double>, std::optional<double>> diskValues(const std::string& output) {
 +    std::istringstream lines(output);
 +    std::string line;
@@ -456,21 +495,26 @@ index 000000000..9467a1576
 +    return {read, write};
 +  }
 +
-+  std::string formatRate(double value, std::string_view unit) {
-+    if (value < 10.0) {
-+      return std::format("{:.1f} {}", value, unit);
++  double expandScale(NetworkToolsPopup::Kind kind, double current, double value) {
++    constexpr std::array networkStops{100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0};
++    constexpr std::array diskStops{500.0, 1000.0, 2500.0, 5000.0, 10000.0, 15000.0};
++    if (value <= current * 0.92) {
++      return current;
 +    }
-+    return std::format("{:.0f} {}", value, unit);
-+  }
-+
-+  double progressScale(double value) {
-+    constexpr std::array stops{100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 25000.0};
-+    for (const double stop : stops) {
-+      if (value <= stop * 0.92) {
++    if (kind == NetworkToolsPopup::Kind::DiskSpeed) {
++      for (const double stop : diskStops) {
++        if (stop > current && value <= stop * 0.92) {
++          return stop;
++        }
++      }
++      return std::max(current, value / 0.92);
++    }
++    for (const double stop : networkStops) {
++      if (stop > current && value <= stop * 0.92) {
 +        return stop;
 +      }
 +    }
-+    return stops.back();
++    return std::max(current, value / 0.92);
 +  }
 +
 +  std::optional<std::pair<std::string, std::vector<std::string>>> parseQrOutput(const std::string& output) {
@@ -524,13 +568,25 @@ index 000000000..9467a1576
 +    }
 +
 +    // QR modules stay fixed black and white for scanner contrast; surrounding copy uses role colors.
-+    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << size << "\" height=\"" << size
-+        << "\" viewBox=\"0 0 " << size << ' ' << size << "\" shape-rendering=\"crispEdges\">"
++    svg
++        << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\""
++        << size
++        << "\" height=\""
++        << size
++        << "\" viewBox=\"0 0 "
++        << size
++        << ' '
++        << size
++        << "\" shape-rendering=\"crispEdges\">"
 +        << "<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>";
 +    for (std::size_t y = 0; y < rows.size(); ++y) {
 +      for (std::size_t x = 0; x < width; ++x) {
 +        if (rows[y][x] == '1') {
-+          svg << "<rect x=\"" << x + quietZone << "\" y=\"" << y + quietZone
++          svg
++              << "<rect x=\""
++              << x + quietZone
++              << "\" y=\""
++              << y + quietZone
 +              << "\" width=\"1\" height=\"1\" fill=\"#111111\"/>";
 +        }
 +      }
@@ -563,81 +619,44 @@ index 000000000..9467a1576
 +      .align = FlexAlign::Center,
 +      .gap = Style::spaceSm * scale,
 +  });
-+  header->addChild(ui::label({
-+      .out = &m_title,
-+      .fontSize = Style::fontSizeTitle * scale,
-+      .fontWeight = FontWeight::Bold,
-+      .color = colorSpecFromRole(ColorRole::OnSurface),
-+      .textAlign = TextAlign::Center,
-+      .flexGrow = 1.0F,
-+  }));
++  header->addChild(
++      ui::label({
++          .out = &m_title,
++          .fontSize = Style::fontSizeTitle * scale,
++          .fontWeight = FontWeight::Bold,
++          .color = colorSpecFromRole(ColorRole::OnSurface),
++          .textAlign = TextAlign::Center,
++          .flexGrow = 1.0F,
++      })
++  );
 +  root->addChild(std::move(header));
++
++  root->addChild(
++      ui::label({
++          .out = &m_contextLabel,
++          .fontSize = Style::fontSizeCaption * scale,
++          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
++          .maxLines = 1,
++          .textAlign = TextAlign::Center,
++          .visible = false,
++          .participatesInLayout = false,
++      })
++  );
 +
 +  auto readings = ui::row({
 +      .out = &m_readings,
-+      .align = FlexAlign::Stretch,
++      .align = FlexAlign::Center,
++      .justify = FlexJustify::Center,
++      .wrap = true,
 +      .gap = Style::spaceMd * scale,
-+      .minHeight = 150.0F * scale,
 +      .fillWidth = true,
 +  });
-+  auto left = ui::column({
-+      .align = FlexAlign::Stretch,
-+      .gap = Style::spaceSm * scale,
-+      .padding = Style::spaceMd * scale,
-+      .fill = scaleAlpha(colorSpecFromRole(ColorRole::SurfaceVariant), 0.45F),
-+      .radius = Style::scaledRadiusMd(scale),
-+      .flexGrow = 1.0F,
-+  });
-+  auto right = ui::column({
-+      .align = FlexAlign::Stretch,
-+      .gap = Style::spaceSm * scale,
-+      .padding = Style::spaceMd * scale,
-+      .fill = scaleAlpha(colorSpecFromRole(ColorRole::SurfaceVariant), 0.45F),
-+      .radius = Style::scaledRadiusMd(scale),
-+      .flexGrow = 1.0F,
-+  });
-+  left->addChild(ui::label({
-+      .out = &m_leftLabel,
-+      .fontSize = Style::fontSizeCaption * scale,
-+      .fontWeight = FontWeight::Bold,
-+      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
-+      .textAlign = TextAlign::Center,
-+  }));
-+  left->addChild(ui::label({
-+      .out = &m_leftValueLabel,
-+      .fontSize = Style::fontSizeHeader * scale,
-+      .fontWeight = FontWeight::Bold,
-+      .color = colorSpecFromRole(ColorRole::OnSurface),
-+      .textAlign = TextAlign::Center,
-+  }));
-+  left->addChild(ui::progressBar({
-+      .out = &m_leftProgress,
-+      .fill = colorSpecFromRole(ColorRole::Primary),
-+      .track = scaleAlpha(colorSpecFromRole(ColorRole::SurfaceVariant), 0.8F),
-+      .height = Style::spaceSm * scale,
-+  }));
-+  right->addChild(ui::label({
-+      .out = &m_rightLabel,
-+      .fontSize = Style::fontSizeCaption * scale,
-+      .fontWeight = FontWeight::Bold,
-+      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
-+      .textAlign = TextAlign::Center,
-+  }));
-+  right->addChild(ui::label({
-+      .out = &m_rightValueLabel,
-+      .fontSize = Style::fontSizeHeader * scale,
-+      .fontWeight = FontWeight::Bold,
-+      .color = colorSpecFromRole(ColorRole::OnSurface),
-+      .textAlign = TextAlign::Center,
-+  }));
-+  right->addChild(ui::progressBar({
-+      .out = &m_rightProgress,
-+      .fill = colorSpecFromRole(ColorRole::Primary),
-+      .track = scaleAlpha(colorSpecFromRole(ColorRole::SurfaceVariant), 0.8F),
-+      .height = Style::spaceSm * scale,
-+  }));
-+  readings->addChild(std::move(left));
-+  readings->addChild(std::move(right));
++  auto leftDial = std::make_unique<SpeedDial>("DOWNLOAD", "Mbps", scale);
++  m_leftDial = leftDial.get();
++  readings->addChild(std::move(leftDial));
++  auto rightDial = std::make_unique<SpeedDial>("UPLOAD", "Mbps", scale);
++  m_rightDial = rightDial.get();
++  readings->addChild(std::move(rightDial));
 +  root->addChild(std::move(readings));
 +
 +  auto qrContent = ui::column({
@@ -648,27 +667,33 @@ index 000000000..9467a1576
 +      .visible = false,
 +      .participatesInLayout = false,
 +  });
-+  qrContent->addChild(ui::label({
-+      .out = &m_qrSsidLabel,
-+      .fontSize = Style::fontSizeBody * scale,
-+      .fontWeight = FontWeight::Bold,
-+      .color = colorSpecFromRole(ColorRole::OnSurface),
-+      .textAlign = TextAlign::Center,
-+      .visible = false,
-+  }));
-+  qrContent->addChild(ui::image({
-+      .out = &m_qrImage,
-+      .fit = ImageFit::Contain,
-+      .width = 240.0F * scale,
-+      .height = 240.0F * scale,
-+  }));
-+  qrContent->addChild(ui::label({
-+      .out = &m_qrHint,
-+      .text = "Scan to join this network",
-+      .fontSize = Style::fontSizeBody * scale,
-+      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
-+      .textAlign = TextAlign::Center,
-+  }));
++  qrContent->addChild(
++      ui::label({
++          .out = &m_qrSsidLabel,
++          .fontSize = Style::fontSizeBody * scale,
++          .fontWeight = FontWeight::Bold,
++          .color = colorSpecFromRole(ColorRole::OnSurface),
++          .textAlign = TextAlign::Center,
++          .visible = false,
++      })
++  );
++  qrContent->addChild(
++      ui::image({
++          .out = &m_qrImage,
++          .fit = ImageFit::Contain,
++          .width = 240.0F * scale,
++          .height = 240.0F * scale,
++      })
++  );
++  qrContent->addChild(
++      ui::label({
++          .out = &m_qrHint,
++          .text = "Scan to join this network",
++          .fontSize = Style::fontSizeBody * scale,
++          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
++          .textAlign = TextAlign::Center,
++      })
++  );
 +  root->addChild(std::move(qrContent));
 +
 +  auto statusRow = ui::row({
@@ -677,26 +702,32 @@ index 000000000..9467a1576
 +      .gap = Style::spaceSm * scale,
 +      .fillWidth = true,
 +  });
-+  statusRow->addChild(ui::spinner({
-+      .out = &m_spinner,
-+      .color = colorSpecFromRole(ColorRole::Primary),
-+      .spinnerSize = Style::baseGlyphSize * scale,
-+  }));
-+  statusRow->addChild(ui::label({
-+      .out = &m_status,
-+      .fontSize = Style::fontSizeCaption * scale,
-+      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
-+  }));
++  statusRow->addChild(
++      ui::spinner({
++          .out = &m_spinner,
++          .color = colorSpecFromRole(ColorRole::Primary),
++          .spinnerSize = Style::baseGlyphSize * scale,
++      })
++  );
++  statusRow->addChild(
++      ui::label({
++          .out = &m_status,
++          .fontSize = Style::fontSizeCaption * scale,
++          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
++      })
++  );
 +  root->addChild(std::move(statusRow));
 +
-+  root->addChild(ui::label({
-+      .out = &m_errorLabel,
-+      .fontSize = Style::fontSizeCaption * scale,
-+      .color = colorSpecFromRole(ColorRole::Error),
-+      .maxLines = 3,
-+      .textAlign = TextAlign::Center,
-+      .visible = false,
-+  }));
++  root->addChild(
++      ui::label({
++          .out = &m_errorLabel,
++          .fontSize = Style::fontSizeCaption * scale,
++          .color = colorSpecFromRole(ColorRole::Error),
++          .maxLines = 3,
++          .textAlign = TextAlign::Center,
++          .visible = false,
++      })
++  );
 +
 +  auto actions = ui::row({
 +      .align = FlexAlign::Center,
@@ -704,30 +735,35 @@ index 000000000..9467a1576
 +      .gap = Style::spaceSm * scale,
 +      .fillWidth = true,
 +  });
-+  actions->addChild(ui::button({
-+      .out = &m_runAgainButton,
-+      .variant = ButtonVariant::Primary,
-+      .tooltip = "Run this tool again",
-+      .onClick = [this]() { startTest(); },
-+  }));
-+  actions->addChild(ui::button({
-+      .out = &m_closeButton,
-+      .text = "Close",
-+      .variant = ButtonVariant::Ghost,
-+      .onClick = [this]() { close(); },
-+  }));
++  actions->addChild(
++      ui::button({
++          .out = &m_runAgainButton,
++          .variant = ButtonVariant::Primary,
++          .tooltip = "Run this tool again",
++          .onClick = [this]() { startTest(); },
++      })
++  );
++  actions->addChild(
++      ui::button({
++          .out = &m_closeButton,
++          .text = "Close",
++          .variant = ButtonVariant::Ghost,
++          .onClick = [this]() { close(); },
++      })
++  );
 +  root->addChild(std::move(actions));
 +
 +  m_layoutDirty = true;
 +  return root;
 +}
 +
-+void NetworkToolsPopup::open(Kind kind) {
++void NetworkToolsPopup::open(Kind kind, std::string context) {
 +  if (m_root == nullptr) {
 +    return;
 +  }
 +  close();
 +  m_kind = kind;
++  m_context = std::move(context);
 +  m_open = true;
 +  m_root->setVisible(true);
 +  m_root->setParticipatesInLayout(true);
@@ -757,6 +793,14 @@ index 000000000..9467a1576
 +    return;
 +  }
 +  syncContent(&renderer);
++  if (m_kind != Kind::WifiQr) {
++    if (m_leftDial != nullptr) {
++      m_leftDial->update(renderer);
++    }
++    if (m_rightDial != nullptr) {
++      m_rightDial->update(renderer);
++    }
++  }
 +}
 +
 +void NetworkToolsPopup::setPanelCardOpacity(float opacity) {
@@ -772,14 +816,11 @@ index 000000000..9467a1576
 +  m_readings = nullptr;
 +  m_qrContent = nullptr;
 +  m_title = nullptr;
++  m_contextLabel = nullptr;
 +  m_status = nullptr;
 +  m_errorLabel = nullptr;
-+  m_leftLabel = nullptr;
-+  m_rightLabel = nullptr;
-+  m_leftValueLabel = nullptr;
-+  m_rightValueLabel = nullptr;
-+  m_leftProgress = nullptr;
-+  m_rightProgress = nullptr;
++  m_leftDial = nullptr;
++  m_rightDial = nullptr;
 +  m_spinner = nullptr;
 +  m_runAgainButton = nullptr;
 +  m_closeButton = nullptr;
@@ -803,6 +844,12 @@ index 000000000..9467a1576
 +  m_qrSsid.clear();
 +  m_leftValue = 0.0;
 +  m_rightValue = 0.0;
++  m_fullScale = m_kind == Kind::DiskSpeed ? 500.0 : 100.0;
++  m_leftEngaged = m_kind != Kind::WifiQr;
++  m_rightEngaged = false;
++  if (m_kind == Kind::DiskSpeed) {
++    m_context.clear();
++  }
 +  clearQrFile();
 +  m_layoutDirty = true;
 +  syncContent(nullptr);
@@ -826,12 +873,34 @@ index 000000000..9467a1576
 +  const std::string commandPhase = phase;
 +  const auto weak = std::weak_ptr<std::uint8_t>(m_lifetime);
 +  const auto cancel = m_cancel;
++  auto pending = std::make_shared<std::string>();
 +  const bool started = process::runAsync(
 +      std::vector<std::string>{"/usr/bin/bash", script.string(), commandPhase},
 +      process::RunCallbacks{
-+          .onExit = [this, weak, runId, phase = std::move(phase)](process::RunResult result) mutable {
-+            DeferredCall::callLater(
-+                [this, weak, runId, phase = std::move(phase), result = std::move(result)]() mutable {
++          .stdOut =
++              [this, weak, runId, phase, pending](std::string_view chunk) {
++                consumeLines(*pending, chunk, [this, weak, runId, phase](std::string line) {
++                  const auto value = numericLine(line);
++                  if (!value.has_value()) {
++                    return;
++                  }
++                  const std::string expectedPhase = phase == "down" ? "download" : "upload";
++                  DeferredCall::callLater([this, weak, runId, expectedPhase, phase, value = *value]() {
++                    if (weak.expired() || !m_open || runId != m_runId) {
++                      return;
++                    }
++                    if (m_phase != expectedPhase) {
++                      return;
++                    }
++                    updateReading(phase == "down", value);
++                    PanelManager::instance().refresh();
++                  });
++                });
++              },
++          .onExit =
++              [this, weak, runId, phase = std::move(phase)](process::RunResult result) mutable {
++                DeferredCall::callLater([this, weak, runId, phase = std::move(phase),
++                                         result = std::move(result)]() mutable {
 +                  if (weak.expired() || !m_open || runId != m_runId) {
 +                    return;
 +                  }
@@ -842,21 +911,24 @@ index 000000000..9467a1576
 +                    return;
 +                  }
 +                  if (phase == "down") {
-+                    m_leftValue = *value;
++                    updateReading(true, *value);
 +                    m_phase = "upload";
++                    m_rightEngaged = true;
++                    updateReading(false, m_rightValue);
 +                    m_layoutDirty = true;
 +                    PanelManager::instance().refresh();
 +                    startNetworkPhase("up", runId);
 +                    return;
 +                  }
-+                  m_rightValue = *value;
++                  updateReading(false, *value);
++                  m_leftEngaged = true;
++                  m_rightEngaged = true;
 +                  m_phase.clear();
 +                  m_running = false;
 +                  m_layoutDirty = true;
 +                  PanelManager::instance().refresh();
-+                }
-+            );
-+          },
++                });
++              },
 +      },
 +      process::RunOptions{
 +          .timeout = std::chrono::seconds(15),
@@ -872,12 +944,57 @@ index 000000000..9467a1576
 +  const auto script = integrationScript("disk-speedtest");
 +  const auto weak = std::weak_ptr<std::uint8_t>(m_lifetime);
 +  const auto cancel = m_cancel;
++  auto pending = std::make_shared<std::string>();
 +  const bool started = process::runAsync(
 +      std::vector<std::string>{"/usr/bin/bash", script.string()},
 +      process::RunCallbacks{
-+          .onExit = [this, weak, runId](process::RunResult result) mutable {
-+            DeferredCall::callLater(
-+                [this, weak, runId, result = std::move(result)]() mutable {
++          .stdOut =
++              [this, weak, runId, pending](std::string_view chunk) {
++                consumeLines(*pending, chunk, [this, weak, runId](std::string line) {
++                  std::istringstream parsed(line);
++                  std::string key;
++                  parsed >> key;
++                  if (key == "disk") {
++                    std::string model;
++                    std::getline(parsed >> std::ws, model);
++                    DeferredCall::callLater([this, weak, runId, model = std::move(model)]() mutable {
++                      if (weak.expired() || !m_open || runId != m_runId) {
++                        return;
++                      }
++                      setContext(std::move(model));
++                      PanelManager::instance().refresh();
++                    });
++                    return;
++                  }
++                  double value = 0.0;
++                  std::string trailing;
++                  if ((key != "read" && key != "write")
++                      || !(parsed >> value)
++                      || (parsed >> trailing)
++                      || !std::isfinite(value)
++                      || value < 0.0) {
++                    return;
++                  }
++                  const bool left = key == "read";
++                  DeferredCall::callLater([this, weak, runId, left, value]() {
++                    if (weak.expired() || !m_open || runId != m_runId) {
++                      return;
++                    }
++                    if (m_phase != (left ? "read" : "write")) {
++                      return;
++                    }
++                    if (!left) {
++                      m_phase = "write";
++                      m_rightEngaged = true;
++                    }
++                    updateReading(left, value);
++                    PanelManager::instance().refresh();
++                  });
++                });
++              },
++          .onExit =
++              [this, weak, runId](process::RunResult result) mutable {
++                DeferredCall::callLater([this, weak, runId, result = std::move(result)]() mutable {
 +                  if (weak.expired() || !m_open || runId != m_runId) {
 +                    return;
 +                  }
@@ -886,15 +1003,16 @@ index 000000000..9467a1576
 +                    setFailure(firstErrorLine(result.err, "Disk speed test failed"));
 +                    return;
 +                  }
-+                  m_leftValue = *read;
-+                  m_rightValue = *write;
++                  updateReading(true, *read);
++                  updateReading(false, *write);
++                  m_leftEngaged = true;
++                  m_rightEngaged = true;
 +                  m_phase.clear();
 +                  m_running = false;
 +                  m_layoutDirty = true;
 +                  PanelManager::instance().refresh();
-+                }
-+            );
-+          },
++                });
++              },
 +      },
 +      process::RunOptions{
 +          .timeout = std::chrono::seconds(60),
@@ -913,9 +1031,9 @@ index 000000000..9467a1576
 +  const bool started = process::runAsync(
 +      std::vector<std::string>{"/usr/bin/bash", script.string(), "--meta"},
 +      process::RunCallbacks{
-+          .onExit = [this, weak, runId](process::RunResult result) mutable {
-+            DeferredCall::callLater(
-+                [this, weak, runId, result = std::move(result)]() mutable {
++          .onExit =
++              [this, weak, runId](process::RunResult result) mutable {
++                DeferredCall::callLater([this, weak, runId, result = std::move(result)]() mutable {
 +                  if (weak.expired() || !m_open || runId != m_runId) {
 +                    return;
 +                  }
@@ -931,8 +1049,8 @@ index 000000000..9467a1576
 +                  const auto [ssid, rows] = *parsed;
 +                  m_qrSsid = ssid;
 +                  m_qrSvgPath =
-+                      (std::filesystem::temp_directory_path() / ("noctalia-wifi-qr-" + std::to_string(::getpid())
-+                                                                    + "-" + std::to_string(runId) + ".svg"))
++                      (std::filesystem::temp_directory_path()
++                       / ("noctalia-wifi-qr-" + std::to_string(::getpid()) + "-" + std::to_string(runId) + ".svg"))
 +                          .string();
 +                  if (!writeQrSvg(m_qrSvgPath, rows)) {
 +                    setFailure("Could not render the Wi-Fi QR code");
@@ -942,9 +1060,8 @@ index 000000000..9467a1576
 +                  m_running = false;
 +                  m_layoutDirty = true;
 +                  PanelManager::instance().refresh();
-+                }
-+            );
-+          },
++                });
++              },
 +      },
 +      process::RunOptions{
 +          .timeout = std::chrono::seconds(10),
@@ -964,6 +1081,35 @@ index 000000000..9467a1576
 +  PanelManager::instance().refresh();
 +}
 +
++void NetworkToolsPopup::setContext(std::string context) {
++  if (m_context == context) {
++    return;
++  }
++  m_context = std::move(context);
++  m_layoutDirty = true;
++  if (m_contextLabel != nullptr) {
++    m_contextLabel->setText(m_context);
++    const bool visible = !m_context.empty() && m_kind != Kind::WifiQr;
++    m_contextLabel->setVisible(visible);
++    m_contextLabel->setParticipatesInLayout(visible);
++  }
++}
++
++void NetworkToolsPopup::updateReading(bool left, double value) {
++  m_fullScale = expandScale(m_kind, m_fullScale, value);
++  if (left) {
++    m_leftValue = value;
++  } else {
++    m_rightValue = value;
++  }
++  if (m_leftDial != nullptr) {
++    m_leftDial->setReading(m_leftValue, m_fullScale, m_leftEngaged);
++  }
++  if (m_rightDial != nullptr) {
++    m_rightDial->setReading(m_rightValue, m_fullScale, m_rightEngaged);
++  }
++}
++
 +void NetworkToolsPopup::syncContent(Renderer* renderer) {
 +  if (m_root == nullptr) {
 +    return;
@@ -971,6 +1117,12 @@ index 000000000..9467a1576
 +  const bool qr = m_kind == Kind::WifiQr;
 +  if (m_title != nullptr) {
 +    m_title->setText(qr ? "Wi-Fi QR Code" : m_kind == Kind::NetworkSpeed ? "Network Speed Test" : "Disk Speed Test");
++  }
++  if (m_contextLabel != nullptr) {
++    m_contextLabel->setText(m_context);
++    const bool visible = !qr && !m_context.empty();
++    m_contextLabel->setVisible(visible);
++    m_contextLabel->setParticipatesInLayout(visible);
 +  }
 +  if (m_runAgainButton != nullptr) {
 +    m_runAgainButton->setText(qr ? "Refresh QR" : "Run Again");
@@ -1015,25 +1167,14 @@ index 000000000..9467a1576
 +  }
 +
 +  if (!qr) {
-+    const double scaleMax = progressScale(std::max(m_leftValue, m_rightValue));
 +    const std::string unit = m_kind == Kind::NetworkSpeed ? "Mbps" : "MB/s";
-+    if (m_leftLabel != nullptr) {
-+      m_leftLabel->setText(m_kind == Kind::NetworkSpeed ? "DOWNLOAD" : "READ");
++    if (m_leftDial != nullptr) {
++      m_leftDial->setLabels(m_kind == Kind::NetworkSpeed ? "DOWNLOAD" : "READ", unit);
++      m_leftDial->setReading(m_leftValue, m_fullScale, m_leftEngaged);
 +    }
-+    if (m_rightLabel != nullptr) {
-+      m_rightLabel->setText(m_kind == Kind::NetworkSpeed ? "UPLOAD" : "WRITE");
-+    }
-+    if (m_leftValueLabel != nullptr) {
-+      m_leftValueLabel->setText(formatRate(m_leftValue, unit));
-+    }
-+    if (m_rightValueLabel != nullptr) {
-+      m_rightValueLabel->setText(formatRate(m_rightValue, unit));
-+    }
-+    if (m_leftProgress != nullptr) {
-+      m_leftProgress->setProgress(static_cast<float>(std::clamp(m_leftValue / scaleMax, 0.0, 1.0)));
-+    }
-+    if (m_rightProgress != nullptr) {
-+      m_rightProgress->setProgress(static_cast<float>(std::clamp(m_rightValue / scaleMax, 0.0, 1.0)));
++    if (m_rightDial != nullptr) {
++      m_rightDial->setLabels(m_kind == Kind::NetworkSpeed ? "UPLOAD" : "WRITE", unit);
++      m_rightDial->setReading(m_rightValue, m_fullScale, m_rightEngaged);
 +    }
 +  } else {
 +    if (m_qrSsidLabel != nullptr) {
@@ -1042,8 +1183,7 @@ index 000000000..9467a1576
 +      m_qrSsidLabel->setVisible(hasSsid);
 +      m_qrSsidLabel->setParticipatesInLayout(hasSsid);
 +    }
-+    if (renderer != nullptr && m_qrImage != nullptr && !m_qrSvgPath.empty()
-+        && m_qrImage->sourcePath() != m_qrSvgPath) {
++    if (renderer != nullptr && m_qrImage != nullptr && !m_qrSvgPath.empty() && m_qrImage->sourcePath() != m_qrSvgPath) {
 +      if (!m_qrImage->setSourceFile(*renderer, m_qrSvgPath, static_cast<int>(std::round(240.0F * m_scale)), false)) {
 +        setFailure("Could not load the Wi-Fi QR code");
 +      }
@@ -1061,10 +1201,10 @@ index 000000000..9467a1576
 +}
 diff --git a/src/shell/control_center/tabs/network_tools_popup.h b/src/shell/control_center/tabs/network_tools_popup.h
 new file mode 100644
-index 000000000..67a90eb09
+index 000000000..c327d72e1
 --- /dev/null
 +++ b/src/shell/control_center/tabs/network_tools_popup.h
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,87 @@
 +#pragma once
 +
 +#include <atomic>
@@ -1076,8 +1216,8 @@ index 000000000..67a90eb09
 +class Flex;
 +class Image;
 +class Label;
-+class ProgressBar;
 +class Renderer;
++class SpeedDial;
 +class Spinner;
 +
 +class NetworkToolsPopup final {
@@ -1092,7 +1232,7 @@ index 000000000..67a90eb09
 +  ~NetworkToolsPopup();
 +
 +  [[nodiscard]] std::unique_ptr<Flex> create(float scale, float cardOpacity);
-+  void open(Kind kind);
++  void open(Kind kind, std::string context = {});
 +  void close();
 +  void update(Renderer& renderer);
 +  void setPanelCardOpacity(float opacity);
@@ -1110,6 +1250,8 @@ index 000000000..67a90eb09
 +  void startDiskTest(std::uint64_t runId);
 +  void startWifiQr(std::uint64_t runId);
 +  void setFailure(std::string message);
++  void setContext(std::string context);
++  void updateReading(bool left, double value);
 +  void syncContent(Renderer* renderer);
 +  void clearQrFile();
 +
@@ -1125,27 +1267,296 @@ index 000000000..67a90eb09
 +  float m_cardOpacity = 1.0F;
 +  std::string m_phase;
 +  std::string m_error;
++  std::string m_context;
 +  std::string m_qrSsid;
 +  std::string m_qrSvgPath;
 +  double m_leftValue = 0.0;
 +  double m_rightValue = 0.0;
++  double m_fullScale = 100.0;
++  bool m_leftEngaged = false;
++  bool m_rightEngaged = false;
 +
 +  Flex* m_root = nullptr;
 +  Flex* m_readings = nullptr;
 +  Flex* m_qrContent = nullptr;
 +  Label* m_title = nullptr;
++  Label* m_contextLabel = nullptr;
 +  Label* m_status = nullptr;
 +  Label* m_errorLabel = nullptr;
-+  Label* m_leftLabel = nullptr;
-+  Label* m_rightLabel = nullptr;
-+  Label* m_leftValueLabel = nullptr;
-+  Label* m_rightValueLabel = nullptr;
-+  ProgressBar* m_leftProgress = nullptr;
-+  ProgressBar* m_rightProgress = nullptr;
++  SpeedDial* m_leftDial = nullptr;
++  SpeedDial* m_rightDial = nullptr;
 +  Spinner* m_spinner = nullptr;
 +  Button* m_runAgainButton = nullptr;
 +  Button* m_closeButton = nullptr;
 +  Label* m_qrSsidLabel = nullptr;
 +  Label* m_qrHint = nullptr;
 +  Image* m_qrImage = nullptr;
++};
+diff --git a/src/shell/control_center/tabs/speed_dial.cpp b/src/shell/control_center/tabs/speed_dial.cpp
+new file mode 100644
+index 000000000..e616c779f
+--- /dev/null
++++ b/src/shell/control_center/tabs/speed_dial.cpp
+@@ -0,0 +1,227 @@
++#include "shell/control_center/tabs/speed_dial.h"
++
++#include "render/core/renderer.h"
++#include "render/core/texture_manager.h"
++#include "ui/palette.h"
++
++#include <algorithm>
++#include <bit>
++#include <cairo/cairo.h>
++#include <cmath>
++#include <cstdint>
++#include <format>
++#include <numbers>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++namespace {
++
++  constexpr float kDesignDiameter = 190.0F;
++  constexpr float kArcStart = 135.0F;
++  constexpr float kArcSweep = 270.0F;
++  constexpr int kTickCount = 46;
++
++  void setSource(cairo_t* context, const Color& color, float alpha = 1.0F) {
++    cairo_set_source_rgba(context, color.r, color.g, color.b, color.a * alpha);
++  }
++
++  void drawSpacedText(cairo_t* context, std::string_view text, double centerX, double baseline, double spacing) {
++    double width = 0.0;
++    for (const char character : text) {
++      char value[2] = {character, '\0'};
++      cairo_text_extents_t extents{};
++      cairo_text_extents(context, value, &extents);
++      width += extents.x_advance + spacing;
++    }
++    if (!text.empty()) {
++      width -= spacing;
++    }
++
++    double x = centerX - width * 0.5;
++    for (const char character : text) {
++      char value[2] = {character, '\0'};
++      cairo_move_to(context, x, baseline);
++      cairo_show_text(context, value);
++      cairo_text_extents_t extents{};
++      cairo_text_extents(context, value, &extents);
++      x += extents.x_advance + spacing;
++    }
++  }
++
++  std::string readingText(double value) {
++    return value < 10.0 ? std::format("{:.1f}", value) : std::format("{:.0f}", value);
++  }
++
++  std::uint8_t unpremultiply(std::uint8_t component, std::uint8_t alpha) {
++    if (alpha == 0) {
++      return 0;
++    }
++    return static_cast<std::uint8_t>(
++        std::min(255U, (static_cast<unsigned int>(component) * 255U + alpha / 2U) / alpha)
++    );
++  }
++
++} // namespace
++
++SpeedDial::SpeedDial(std::string label, std::string unit, float scale)
++    : m_label(std::move(label)), m_unit(std::move(unit)), m_diameter(kDesignDiameter * scale) {
++  setFit(ImageFit::Contain);
++  setSize(m_diameter, m_diameter);
++  setHitTestVisible(false);
++  m_paletteConn = paletteChanged().connect([this] { m_dirty = true; });
++}
++
++void SpeedDial::setLabels(std::string label, std::string unit) {
++  if (m_label == label && m_unit == unit) {
++    return;
++  }
++  m_label = std::move(label);
++  m_unit = std::move(unit);
++  m_dirty = true;
++}
++
++void SpeedDial::setReading(double value, double fullScale, bool engaged) {
++  if (m_value == value && m_fullScale == fullScale && m_engaged == engaged) {
++    return;
++  }
++  m_value = std::max(0.0, value);
++  m_fullScale = std::max(1.0, fullScale);
++  m_engaged = engaged;
++  setOpacity(m_engaged ? 1.0F : 0.5F);
++  m_dirty = true;
++}
++
++void SpeedDial::update(Renderer& renderer) {
++  if (m_dirty) {
++    redraw(renderer);
++  }
++}
++
++void SpeedDial::redraw(Renderer& renderer) {
++  const float renderScale = std::max(1.0F, renderer.renderScale());
++  const int rasterSize = std::max(1, static_cast<int>(std::round(m_diameter * renderScale)));
++  cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, rasterSize, rasterSize);
++  cairo_t* context = cairo_create(surface);
++  const double pixelsPerUnit = static_cast<double>(rasterSize) / m_diameter;
++  cairo_scale(context, pixelsPerUnit, pixelsPerUnit);
++  cairo_set_operator(context, CAIRO_OPERATOR_CLEAR);
++  cairo_paint(context);
++  cairo_set_operator(context, CAIRO_OPERATOR_OVER);
++
++  const double diameter = m_diameter;
++  const double scale = diameter / kDesignDiameter;
++  const double centerX = diameter * 0.5;
++  const double centerY = diameter * 0.48;
++  const double radius = diameter * 0.5 - 7.0 * scale;
++  const double start = std::numbers::pi * kArcStart / 180.0;
++  const double sweep = std::numbers::pi * kArcSweep / 180.0;
++  const double fraction = std::clamp(m_value / m_fullScale, 0.0, 1.0);
++  const float dim = m_engaged ? 1.0F : 0.5F;
++  const Color primary = resolveColorSpec(colorSpecFromRole(ColorRole::Primary));
++  const Color onSurface = resolveColorSpec(colorSpecFromRole(ColorRole::OnSurface));
++  const Color onSurfaceVariant = resolveColorSpec(colorSpecFromRole(ColorRole::OnSurfaceVariant));
++
++  cairo_set_line_cap(context, CAIRO_LINE_CAP_ROUND);
++  cairo_set_line_width(context, 4.0 * scale);
++  setSource(context, onSurfaceVariant, 0.24F * dim);
++  cairo_arc(context, centerX, centerY, radius, start, start + sweep);
++  cairo_stroke(context);
++
++  if (fraction > 0.004) {
++    cairo_set_line_width(context, 12.0 * scale);
++    setSource(context, primary, 0.18F * dim);
++    cairo_arc(context, centerX, centerY, radius, start, start + sweep * fraction);
++    cairo_stroke(context);
++
++    cairo_set_line_width(context, 4.0 * scale);
++    setSource(context, primary, dim);
++    cairo_arc(context, centerX, centerY, radius, start, start + sweep * fraction);
++    cairo_stroke(context);
++  }
++
++  for (int index = 0; index < kTickCount; ++index) {
++    const bool major = index % 5 == 0;
++    const double angle = start + sweep * static_cast<double>(index) / (kTickCount - 1);
++    const double outerRadius = radius - 5.0 * scale;
++    const double innerRadius = outerRadius - (major ? 10.0 : 6.0) * scale;
++    cairo_move_to(context, centerX + std::cos(angle) * innerRadius, centerY + std::sin(angle) * innerRadius);
++    cairo_line_to(context, centerX + std::cos(angle) * outerRadius, centerY + std::sin(angle) * outerRadius);
++    cairo_set_line_width(context, (major ? 2.0 : 1.0) * scale);
++    setSource(context, onSurfaceVariant, (major ? 0.4F : 0.2F) * dim);
++    cairo_stroke(context);
++  }
++
++  const double needleAngle = start + sweep * fraction;
++  const double needleLength = diameter * 0.32;
++  const double needleX = centerX + std::cos(needleAngle) * needleLength;
++  const double needleY = centerY + std::sin(needleAngle) * needleLength;
++  cairo_pattern_t* needleGradient = cairo_pattern_create_linear(needleX, needleY, centerX, centerY);
++  cairo_pattern_add_color_stop_rgba(needleGradient, 0.0, primary.r, primary.g, primary.b, primary.a * dim);
++  cairo_pattern_add_color_stop_rgba(needleGradient, 1.0, primary.r, primary.g, primary.b, 0.0);
++  cairo_set_source(context, needleGradient);
++  cairo_set_line_width(context, 3.0 * scale);
++  cairo_move_to(context, centerX, centerY);
++  cairo_line_to(context, needleX, needleY);
++  cairo_stroke(context);
++  cairo_pattern_destroy(needleGradient);
++
++  cairo_select_font_face(context, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
++  cairo_set_font_size(context, 24.0 * scale);
++  setSource(context, onSurface, dim);
++  const std::string value = readingText(m_value);
++  cairo_text_extents_t valueExtents{};
++  cairo_text_extents(context, value.c_str(), &valueExtents);
++  cairo_move_to(context, centerX - valueExtents.width * 0.5 - valueExtents.x_bearing, centerY + 22.0 * scale);
++  cairo_show_text(context, value.c_str());
++
++  cairo_set_font_size(context, 10.0 * scale);
++  setSource(context, onSurfaceVariant, 0.9F * dim);
++  cairo_text_extents_t unitExtents{};
++  cairo_text_extents(context, m_unit.c_str(), &unitExtents);
++  cairo_move_to(context, centerX - unitExtents.width * 0.5 - unitExtents.x_bearing, centerY + 38.0 * scale);
++  cairo_show_text(context, m_unit.c_str());
++
++  cairo_set_font_size(context, 10.0 * scale);
++  cairo_select_font_face(context, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
++  setSource(context, onSurfaceVariant, 0.75F * dim);
++  drawSpacedText(context, m_label, centerX, diameter - 3.0 * scale, 1.5 * scale);
++
++  cairo_destroy(context);
++  cairo_surface_flush(surface);
++  const std::uint8_t* source = cairo_image_surface_get_data(surface);
++  const int stride = cairo_image_surface_get_stride(surface);
++  std::vector<std::uint8_t> rgba(static_cast<std::size_t>(rasterSize) * rasterSize * 4U);
++  for (int y = 0; y < rasterSize; ++y) {
++    for (int x = 0; x < rasterSize; ++x) {
++      const std::uint8_t* pixel = source + static_cast<std::size_t>(y) * stride + static_cast<std::size_t>(x) * 4U;
++      std::uint8_t blue = 0;
++      std::uint8_t green = 0;
++      std::uint8_t red = 0;
++      std::uint8_t alpha = 0;
++      if constexpr (std::endian::native == std::endian::little) {
++        blue = pixel[0];
++        green = pixel[1];
++        red = pixel[2];
++        alpha = pixel[3];
++      } else {
++        alpha = pixel[0];
++        red = pixel[1];
++        green = pixel[2];
++        blue = pixel[3];
++      }
++      const std::size_t offset = (static_cast<std::size_t>(y) * rasterSize + x) * 4U;
++      rgba[offset] = unpremultiply(red, alpha);
++      rgba[offset + 1] = unpremultiply(green, alpha);
++      rgba[offset + 2] = unpremultiply(blue, alpha);
++      rgba[offset + 3] = alpha;
++    }
++  }
++
++  cairo_surface_destroy(surface);
++  if (setSourceRaw(
++          renderer, rgba.data(), rgba.size(), rasterSize, rasterSize, rasterSize * 4, PixmapFormat::RGBA, false
++      )) {
++    m_dirty = false;
++  }
++}
+diff --git a/src/shell/control_center/tabs/speed_dial.h b/src/shell/control_center/tabs/speed_dial.h
+new file mode 100644
+index 000000000..c3ed0bf3b
+--- /dev/null
++++ b/src/shell/control_center/tabs/speed_dial.h
+@@ -0,0 +1,29 @@
++#pragma once
++
++#include "ui/controls/image.h"
++#include "ui/signal.h"
++
++#include <string>
++
++class Renderer;
++
++class SpeedDial final : public Image {
++public:
++  SpeedDial(std::string label, std::string unit, float scale);
++
++  void setLabels(std::string label, std::string unit);
++  void setReading(double value, double fullScale, bool engaged);
++  void update(Renderer& renderer);
++
++private:
++  void redraw(Renderer& renderer);
++
++  std::string m_label;
++  std::string m_unit;
++  float m_diameter = 0.0F;
++  double m_value = 0.0;
++  double m_fullScale = 100.0;
++  bool m_engaged = false;
++  bool m_dirty = true;
++  Signal<>::ScopedConnection m_paletteConn;
 +};

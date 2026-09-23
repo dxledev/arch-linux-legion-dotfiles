@@ -17,14 +17,27 @@ if "$script_dir/rofi-toggle-pidfile" begin "$menu_id"; then
     exit 0
 fi
 
-current="$("$mode_script" --status)"
+menu_active=1
+clear_menu() {
+    if (( menu_active )); then
+        menu_active=0
+        "$script_dir/rofi-toggle-pidfile" clear "$menu_id" || true
+    fi
+}
+trap clear_menu EXIT
+
+if ! current="$("$mode_script" --status)"; then
+    printf 'menu-shell-mode: could not read active shell mode\n' >&2
+    exit 1
+fi
+
 case "$current" in
-    waybar) active_waybar='<b>● Waybar</b>' ;;
-    caelestia) active_waybar='Waybar'; active_caelestia='<b>● Caelestia</b>' ;;
-    noctalia) active_waybar='Waybar'; active_noctalia='<b>● Noctalia</b>' ;;
+    waybar) active_waybar='<i>Waybar</i>' ;;
+    caelestia) active_waybar='Waybar'; active_caelestia='<i>Caelestia</i>' ;;
+    noctalia) active_waybar='Waybar'; active_noctalia='<i>Noctalia</i>' ;;
     *) printf 'menu-shell-mode: unknown shell mode: %s\n' "$current" >&2; exit 1 ;;
 esac
-: "${active_waybar:=<b>● Waybar</b>}"
+: "${active_waybar:=Waybar}"
 : "${active_caelestia:=Caelestia}"
 : "${active_noctalia:=Noctalia}"
 
@@ -49,10 +62,18 @@ chosen="$({
         }
     ' || true)"
 
-"$script_dir/rofi-toggle-pidfile" clear "$menu_id"
+clear_menu
+chosen="${chosen//<i>/}"
+chosen="${chosen//<\/i>/}"
 
 case "$chosen" in
-    *Waybar) "$mode_script" --waybar ;;
-    *Caelestia) "$mode_script" --caelestia ;;
-    *Noctalia) "$mode_script" --noctalia ;;
+    Waybar)
+        [[ "$current" == waybar ]] || "$mode_script" --waybar
+        ;;
+    Caelestia)
+        [[ "$current" == caelestia ]] || "$mode_script" --caelestia
+        ;;
+    Noctalia)
+        [[ "$current" == noctalia ]] || "$mode_script" --noctalia
+        ;;
 esac

@@ -7,8 +7,17 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source_repo="${NOCTALIA_SOURCE_REPO:-$HOME/builds/shells/noctalia}"
 pin_file="${NOCTALIA_PIN_FILE:-$script_dir/pin.json}"
 patch_dir="${NOCTALIA_PATCH_DIR:-$script_dir/patches}"
+plugin_source_dir="${NOCTALIA_SHELL_MODE_PLUGIN_SOURCE:-$script_dir/plugins/shell-mode-switcher}"
 managed_dir="${NOCTALIA_INTEGRATION_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/integration}"
 runtime_dir="${NOCTALIA_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/.runtime}"
+if [[ -n "${NOCTALIA_DATA_HOME:-}" ]]; then
+    plugin_data_root="${NOCTALIA_DATA_HOME%/}/noctalia/plugins"
+elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    plugin_data_root="${XDG_DATA_HOME%/}/noctalia/plugins"
+else
+    plugin_data_root="$HOME/.local/share/noctalia/plugins"
+fi
+plugin_target_dir="${NOCTALIA_SHELL_MODE_PLUGIN_TARGET:-$plugin_data_root/shell-mode-switcher}"
 work_parent="${NOCTALIA_BUILD_TMPDIR:-/tmp}"
 dry_run=0
 active_work_dir=""
@@ -34,12 +43,19 @@ read_pin() {
 }
 
 validate_paths() {
-    local path
-    for path in "$source_repo" "$pin_file" "$patch_dir" "$managed_dir" "$runtime_dir" "$work_parent"; do
+    local path local_plugin_link local_plugin_source
+    for path in "$source_repo" "$pin_file" "$patch_dir" "$plugin_source_dir" "$managed_dir" "$runtime_dir" "$plugin_data_root" "$plugin_target_dir" "$work_parent"; do
         require_absolute "$path" NOCTALIA_PATH
     done
     [[ -r "$pin_file" ]] || fail "Pin metadata not found: $pin_file"
     [[ -d "$patch_dir" ]] || fail "Patch directory not found: $patch_dir"
+    [[ -r "$plugin_source_dir/plugin.toml" ]] || fail "Shell mode plugin manifest not found: $plugin_source_dir/plugin.toml"
+    if [[ -e "$plugin_target_dir" || -L "$plugin_target_dir" ]]; then
+        [[ -L "$plugin_target_dir" ]] || fail "Refusing to replace an existing local plugin: $plugin_target_dir"
+        local_plugin_link="$(/usr/bin/readlink -f -- "$plugin_target_dir" 2>/dev/null || true)"
+        local_plugin_source="$(/usr/bin/readlink -f -- "$plugin_source_dir")"
+        [[ "$local_plugin_link" == "$local_plugin_source" ]] || fail "Local plugin path points elsewhere: $plugin_target_dir"
+    fi
     for path in "${integration_scripts[@]}"; do
         [[ "$path" =~ ^[A-Za-z0-9._-]+$ ]] || fail "Unsafe integration script name: $path"
         [[ -r "$script_dir/$path" ]] || fail "Missing integration script: $script_dir/$path"
@@ -86,6 +102,14 @@ copy_integration_metadata() {
         [[ -r "$patch_dir/$name" ]] || fail "Missing patch: $patch_dir/$name"
         /usr/bin/install -m 0644 -- "$patch_dir/$name" "$managed_dir/patches/$name"
     done < <(patch_names)
+}
+
+link_local_plugin() {
+    if [[ -L "$plugin_target_dir" ]]; then
+        return 0
+    fi
+    /usr/bin/mkdir -p -- "$plugin_data_root"
+    /usr/bin/ln -s -- "$plugin_source_dir" "$plugin_target_dir"
 }
 
 build_runtime() {
@@ -145,10 +169,12 @@ main() {
     if (( dry_run )); then
         printf 'Apply patches from %s in a disposable worktree.\n' "$patch_dir"
         printf 'Build release with Meson and atomically install to %s.\n' "$runtime_dir"
+        printf 'Link local shell mode plugin from %s to %s.\n' "$plugin_source_dir" "$plugin_target_dir"
         return 0
     fi
     copy_integration_metadata
     build_runtime "$commit"
+    link_local_plugin
     printf 'Installed Noctalia %s at %s\n' "$commit" "$runtime_dir"
 }
 

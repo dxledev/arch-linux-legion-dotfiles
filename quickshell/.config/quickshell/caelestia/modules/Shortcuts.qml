@@ -176,6 +176,10 @@ Scope {
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu("wallpaper");
         }
 
+        function shellMode(): void {
+            ShellState.componentsForActive()?.panels?.launcher.openSubmenu("shell-mode");
+        }
+
         function menu(name: string): void {
             if (!root.hasFullscreen && ["capture", "screenshot", "emojis", "unicode", "layout", "workspace-icons", "speed-test", "install"].includes(name))
                 ShellState.componentsForActive()?.panels?.launcher.openSubmenu(name);

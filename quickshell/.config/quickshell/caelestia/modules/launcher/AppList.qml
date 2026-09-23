@@ -38,7 +38,7 @@ StyledListView {
     function stateForText(text: string): string {
         const prefix = GlobalConfig.launcher.actionPrefix;
         if (text.startsWith(prefix)) {
-            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install", "fonts", "terminal-prompt", ...DesktopMenus.menus])
+            for (const action of ["calc", "theme", "scheme", "variant", "learn", "install", "fonts", "terminal-prompt", "shell-mode", ...DesktopMenus.menus])
                 if (text.startsWith(`${prefix}${action} `))
                     return action;
 
@@ -64,6 +64,8 @@ StyledListView {
             return Fonts.query(text);
         case "terminal-prompt":
             return TerminalPrompts.query(text);
+        case "shell-mode":
+            return ShellMode.query(text);
         case "install":
             return Install.query(text);
         case "scheme":
@@ -113,6 +115,8 @@ StyledListView {
             Fonts.reload();
         if (state === "terminal-prompt")
             TerminalPrompts.reload();
+        if (state === "shell-mode")
+            ShellMode.reload();
         if (state === "theme")
             Themes.reload();
         if (state === "scheme" || state === "variant")
@@ -152,6 +156,13 @@ StyledListView {
         },
         State {
             name: "terminal-prompt"
+
+            PropertyChanges {
+                root.delegate: actionItem
+            }
+        },
+        State {
+            name: "shell-mode"
 
             PropertyChanges {
                 root.delegate: actionItem

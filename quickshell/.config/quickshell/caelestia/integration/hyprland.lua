@@ -58,6 +58,7 @@ local bindings = {
 
     { "SUPER + SPACE", "Launcher", "drawers toggle launcher" },
     { "SUPER + ALT + SPACE", "Command Menu", "launcher commands" },
+    { "SUPER + CTRL + ALT + Q", "Shell Mode Menu", "launcher shellMode" },
     { "SUPER + ALT + T", "Theme Menu", "launcher theme" },
     { "SUPER + CTRL + ALT + SPACE", "Wallpaper Menu", "launcher wallpaper" },
     { "CTRL + ALT + SPACE", "Next Wallpaper", "wallpaper next" },

@@ -9,7 +9,9 @@
     "0005-settings-launcher-provider.patch",
     "0006-system-toggle-nightlight.patch",
     "0007-restore-theme-wallpapers.patch",
-    "0008-wallpaper-shortcuts-automation.patch"
+    "0008-wallpaper-shortcuts-automation.patch",
+    "0009-shell-mode-plugin-width.patch",
+    "0010-shell-mode-plugin-settings.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

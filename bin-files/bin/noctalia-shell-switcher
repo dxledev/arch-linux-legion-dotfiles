@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode_script="${SHELL_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+noctalia_bin="${NOCTALIA_BIN:-$config_home/noctalia/.runtime/bin/noctalia}"
+dry_run=0
+
+usage() {
+    printf 'Usage: noctalia-shell-switcher [--dry-run]\n'
+}
+
+case "$#" in
+    0) ;;
+    1)
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --help) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+[[ -x "$mode_script" ]] || { printf 'noctalia-shell-switcher: missing %s\n' "$mode_script" >&2; exit 1; }
+if ! current="$("$mode_script" --status)"; then
+    printf 'noctalia-shell-switcher: could not read active shell mode\n' >&2
+    exit 1
+fi
+
+waybar_choice='Waybar'
+caelestia_choice='Caelestia'
+noctalia_choice='Noctalia'
+case "$current" in
+    waybar) waybar_choice+=$'\tActive shell' ;;
+    caelestia) caelestia_choice+=$'\tActive shell' ;;
+    noctalia) noctalia_choice+=$'\tActive shell' ;;
+    *) printf 'noctalia-shell-switcher: unknown shell mode: %s\n' "$current" >&2; exit 1 ;;
+esac
+
+if (( dry_run )); then
+    printf '%s\n' "$waybar_choice" "$caelestia_choice" "$noctalia_choice"
+    exit 0
+fi
+
+[[ -x "$noctalia_bin" ]] || { printf 'noctalia-shell-switcher: missing %s\n' "$noctalia_bin" >&2; exit 1; }
+
+chosen=''
+if chosen="$(printf '%s\n' "$waybar_choice" "$caelestia_choice" "$noctalia_choice" | "$noctalia_bin" dmenu --prompt 'Shell mode')"; then
+    :
+else
+    dmenu_status=$?
+    [[ -n "$chosen" ]] || exit 0
+    exit "$dmenu_status"
+fi
+[[ -n "$chosen" ]] || exit 0
+
+case "$chosen" in
+    "$waybar_choice") target='waybar' ;;
+    "$caelestia_choice") target='caelestia' ;;
+    "$noctalia_choice") target='noctalia' ;;
+    *) printf 'noctalia-shell-switcher: ignored unlisted selection\n' >&2; exit 2 ;;
+esac
+
+[[ "$target" != "$current" ]] || exit 0
+"$mode_script" "--$target"

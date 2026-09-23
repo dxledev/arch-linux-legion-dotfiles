@@ -84,7 +84,6 @@ alias mv='mv -i'
 alias rm='trash -v'
 alias trash-empty='trash-empty --trash-dir ~/.local/share/Trash'
 alias mkdir='mkdir -p'
-alias ping='ping -c 10'
 alias less='less -R'
 alias ps='ps auxf'
 

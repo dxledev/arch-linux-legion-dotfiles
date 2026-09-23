@@ -7,5 +7,6 @@ singleton Install 1.0 Install.qml
 singleton Learn 1.0 Learn.qml
 singleton M3Variants 1.0 M3Variants.qml
 singleton Schemes 1.0 Schemes.qml
+singleton ShellMode 1.0 ShellMode.qml
 singleton TerminalPrompts 1.0 TerminalPrompts.qml
 singleton Themes 1.0 Themes.qml

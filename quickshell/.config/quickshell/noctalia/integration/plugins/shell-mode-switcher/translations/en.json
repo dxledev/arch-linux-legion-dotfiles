@@ -1,0 +1,12 @@
+{
+  "settings.widget.label": "Label",
+  "settings.widget.glyph": "Icon",
+  "settings.panel.width": "Panel width",
+  "settings.panel.width.description": "Width in logical pixels, from 600 to 1200.",
+  "settings.provider.enabled": "Enable launcher provider",
+  "settings.provider.enabled.description": "Show the shell-mode choices in the launcher.",
+  "settings.provider.prefix": "Launcher provider prefix",
+  "settings.provider.prefix.description": "Trigger word after the common launcher prefix.",
+  "settings.provider.global": "Shell Mode in Global Search",
+  "settings.provider.global.description": "Also show shell-mode choices in unprefixed launcher searches."
+}

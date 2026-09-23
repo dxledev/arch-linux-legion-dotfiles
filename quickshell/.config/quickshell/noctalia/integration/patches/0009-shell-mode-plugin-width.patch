@@ -1,0 +1,132 @@
+diff --git a/src/app/application_plugins.cpp b/src/app/application_plugins.cpp
+index bcac6ba94..8109b4b87 100644
+--- a/src/app/application_plugins.cpp
++++ b/src/app/application_plugins.cpp
+@@ -121,7 +121,7 @@ void Application::reloadPluginPanels() {
+                 .clipboard = &m_clipboardService,
+             },
+             PluginPanelOptions{
+-                .width = resolved.entry->panelWidth,
++                .width = shellConfig.width,
+                 .height = resolved.entry->panelHeight,
+                 .widthFill = resolved.entry->panelWidthFill,
+                 .heightFill = resolved.entry->panelHeightFill,
+diff --git a/src/scripting/plugin_panel_shell.cpp b/src/scripting/plugin_panel_shell.cpp
+index 08a4f6741..318431a4b 100644
+--- a/src/scripting/plugin_panel_shell.cpp
++++ b/src/scripting/plugin_panel_shell.cpp
+@@ -74,6 +74,22 @@ namespace scripting {
+       return fallback;
+     }
+ 
++    [[nodiscard]] double settingNumber(
++        const std::unordered_map<std::string, WidgetSettingValue>& settings, std::string_view key, double fallback
++    ) {
++      const auto it = settings.find(std::string(key));
++      if (it == settings.end()) {
++        return fallback;
++      }
++      if (const auto* value = std::get_if<std::int64_t>(&it->second)) {
++        return static_cast<double>(*value);
++      }
++      if (const auto* value = std::get_if<double>(&it->second)) {
++        return *value;
++      }
++      return fallback;
++    }
++
+   } // namespace
+ 
+   std::string panelShellSettingKey(std::string_view entryId, std::string_view suffix) {
+@@ -131,7 +147,8 @@ namespace scripting {
+     return key == panelShellSettingKey(entryId, "placement")
+         || key == panelShellSettingKey(entryId, "position")
+         || key == panelShellSettingKey(entryId, "open_near_click")
+-        || key == panelShellSettingKey(entryId, "layer");
++        || key == panelShellSettingKey(entryId, "layer")
++        || key == panelShellSettingKey(entryId, "width");
+   }
+ 
+   PluginPanelShellConfig resolvePluginPanelShellConfig(
+@@ -142,6 +159,8 @@ namespace scripting {
+     const std::string positionKey = panelShellSettingKey(entry.id, "position");
+     const std::string openNearClickKey = panelShellSettingKey(entry.id, "open_near_click");
+     const std::string layerKey = panelShellSettingKey(entry.id, "layer");
++    const std::string widthKey = panelShellSettingKey(entry.id, "width");
++    config.width = settingNumber(settings, widthKey, entry.panelWidth);
+     config.placement = panelPlacementFromString(
+         settingString(settings, placementKey, entry.panelPlacementDefault), PanelPlacement::Floating
+     );
+diff --git a/src/scripting/plugin_panel_shell.h b/src/scripting/plugin_panel_shell.h
+index 05455fe35..46c6cd030 100644
+--- a/src/scripting/plugin_panel_shell.h
++++ b/src/scripting/plugin_panel_shell.h
+@@ -20,6 +20,7 @@ namespace scripting {
+   inline constexpr std::array<std::string_view, 2> kPanelLayers = {"top", "overlay"};
+ 
+   struct PluginPanelShellConfig {
++    double width = 0.0;
+     PanelPlacement placement = PanelPlacement::Floating;
+     std::string position = "auto";
+     bool openNearClick = false;
+diff --git a/src/shell/settings/widget_settings_registry.cpp b/src/shell/settings/widget_settings_registry.cpp
+index 8831a700f..5a9eb30f4 100644
+--- a/src/shell/settings/widget_settings_registry.cpp
++++ b/src/shell/settings/widget_settings_registry.cpp
+@@ -852,6 +852,7 @@ namespace settings {
+     const std::string positionKey = scripting::panelShellSettingKey(entry.id, "position");
+     const std::string openNearClickKey = scripting::panelShellSettingKey(entry.id, "open_near_click");
+     const std::string layerKey = scripting::panelShellSettingKey(entry.id, "layer");
++    const std::string widthKey = scripting::panelShellSettingKey(entry.id, "width");
+     const std::string entryTitle = entry.id;
+     const auto entryPrefix = [&](std::string_view suffix) {
+       std::string label = entryTitle;
+@@ -950,10 +951,25 @@ namespace settings {
+       return spec;
+     };
+ 
++    auto widthSpec = [&](const scripting::ManifestField* field) {
++      WidgetSettingSpec spec;
++      spec.schema.key = widthKey;
++      spec.literalLabel = entryPrefix(tr("settings.schema.panels.control-center-width.label"));
++      spec.literalDescription = entryPrefix(tr("settings.schema.panels.control-center-width.description"));
++      spec.control = WidgetControlKind::Int;
++      spec.schema.type = schema::WidgetSettingType::Int;
++      spec.schema.defaultValue = field->defaultValue();
++      spec.schema.minValue = field->minValue;
++      spec.schema.maxValue = field->maxValue;
++      spec.schema.step = field->step;
++      return spec;
++    };
++
+     const scripting::ManifestField* placementField = nullptr;
+     const scripting::ManifestField* positionField = nullptr;
+     const scripting::ManifestField* openNearClickField = nullptr;
+     const scripting::ManifestField* layerField = nullptr;
++    const scripting::ManifestField* widthField = nullptr;
+     for (const auto& field : entry.settings) {
+       if (field.key == placementKey) {
+         placementField = &field;
+@@ -963,15 +979,21 @@ namespace settings {
+         openNearClickField = &field;
+       } else if (field.key == layerKey) {
+         layerField = &field;
++      } else if (field.key == widthKey) {
++        widthField = &field;
+       }
+     }
+ 
+-    return {
++    std::vector<WidgetSettingSpec> specs{
+         placementSpec(placementField),
+         positionSpec(positionField),
+         layerSpec(layerField),
+         openNearClickSpec(openNearClickField),
+     };
++    if (widthField != nullptr) {
++      specs.push_back(widthSpec(widthField));
++    }
++    return specs;
+   }
+ 
+   bool widgetSettingIsVisible(

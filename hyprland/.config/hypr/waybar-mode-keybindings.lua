@@ -7,6 +7,7 @@ local bindings = {
   { "CTRL + ALT + SHIFT + SPACE", "Previous Background", "~/bin/bg-prev" },
   { "SUPER + CTRL + SPACE", "Toggle Background Slideshow", "~/bin/bg-toggle-slideshow" },
   { "SUPER + SPACE", "App Launcher", "~/bin/menu-apps" },
+  { "SUPER + CTRL + ALT + Q", "Shell Mode Menu", "~/bin/menu-shell-mode" },
   { "SUPER + SHIFT + L", "Lock Screen", "$HOME/bin/system-lock --wait" },
   { "SUPER + ALT + F", "File Menu", "~/bin/menu-files" },
   { "SUPER + ALT + C", "Clipboard Menu", "~/bin/menu-clipboard" },
@@ -59,6 +60,7 @@ local mode_owned_keys = {
   "CTRL + ALT + SPACE",
   "CTRL + ALT + SHIFT + SPACE",
   "SUPER + CTRL + SPACE",
+  "SUPER + CTRL + ALT + Q",
 }
 
 for _, key in ipairs(mode_owned_keys) do
