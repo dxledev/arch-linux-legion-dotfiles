@@ -4,6 +4,10 @@ directory = "~/files/pictures/wallpapers/dynamic"
 directory_light = "~/files/pictures/wallpapers/dynamic"
 directory_dark = "~/files/pictures/wallpapers/dynamic"
 
+[wallpaper.automation]
+interval_seconds = 300
+order = "alphabetical"
+
 [theme]
 source = "wallpaper"
 wallpaper_scheme = "m3-tonal-spot"
@@ -30,6 +34,9 @@ ddc_bus = 2
 [brightness.monitor.HDMI-A-1]
 backend = "ddcutil"
 ddc_bus = 4
+
+[shell.screenshot]
+annotate = true
 
 [hooks]
 wallpaper_changed = ["$HOME/bin/noctalia-theme-sync"]

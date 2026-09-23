@@ -30,6 +30,8 @@ Searcher {
     property string themePath
     property bool refreshPending: false
     property bool applyPersists: false
+    property bool slideshowEnabled: false
+    property bool slideshowStateLoaded: false
 
     function displayName(path: string): string {
         return WallpaperNames.displayName(path);
@@ -98,6 +100,25 @@ Searcher {
         System.run("next-wallpaper", []);
     }
 
+    function cycleWallpaper(direction: int): void {
+        const entries = root.list;
+        if (!entries.length)
+            return;
+
+        const currentIndex = entries.findIndex(entry => entry.path === root.actualCurrent);
+        const baseIndex = currentIndex >= 0 ? currentIndex : direction > 0 ? -1 : 0;
+        const targetIndex = (baseIndex + direction + entries.length) % entries.length;
+        root.setWallpaper(entries[targetIndex].path);
+    }
+
+    function toggleSlideshow(): bool {
+        slideshowEnabled = !slideshowEnabled;
+        slideshowStorage.setText(JSON.stringify({ enabled: slideshowEnabled }));
+        if (slideshowEnabled)
+            cycleWallpaper(1);
+        return slideshowEnabled;
+    }
+
     function setWallpaper(path: string): void {
         actualCurrent = path;
         if (showPreview)
@@ -164,11 +185,58 @@ Searcher {
             root.stopPreview();
         }
 
+        function next(): void {
+            root.cycleWallpaper(1);
+        }
+
+        function previous(): void {
+            root.cycleWallpaper(-1);
+        }
+
+        function toggleSlideshow(): bool {
+            return root.toggleSlideshow();
+        }
+
         function list(): string {
             return root.list.map(w => w.path).join("\n");
         }
 
         target: "wallpaper"
+    }
+
+    Timer {
+        interval: System.wallpaperSlideshowIntervalSeconds * 1000
+        running: root.slideshowStateLoaded && root.slideshowEnabled
+        repeat: true
+        onTriggered: root.cycleWallpaper(1)
+    }
+
+    FileView {
+        id: slideshowStorage
+
+        path: `${Paths.state}/wallpaper-slideshow.json`
+        printErrors: false
+
+        onLoaded: {
+            try {
+                const state = JSON.parse(text());
+                root.slideshowEnabled = state.enabled === true;
+            } catch (error) {
+                console.warn("Unable to load wallpaper slideshow state:", error);
+                root.slideshowEnabled = false;
+            }
+
+            const shouldAdvance = !root.slideshowStateLoaded && root.slideshowEnabled;
+            root.slideshowStateLoaded = true;
+            if (shouldAdvance)
+                Qt.callLater(() => root.cycleWallpaper(1));
+        }
+
+        onLoadFailed: error => {
+            if (error !== FileViewError.FileNotFound)
+                console.warn("Unable to load wallpaper slideshow state:", error);
+            root.slideshowStateLoaded = true;
+        }
     }
 
     Process {

@@ -4,11 +4,12 @@ set -euo pipefail
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 shell_root="$(/usr/bin/readlink -f -- "$script_dir/../..")"
 cli_bin="${CAELESTIA_BIN:-$shell_root/.runtime/cli/bin/caelestia}"
-theme_file="${SHELL_THEME_FILE:-$config_home/themes/current/Colors.qml}"
-wallpaper_file="${SHELL_WALLPAPER:-$config_home/themes/current/wallpaper.png}"
+theme_file="${SHELL_THEME_FILE:-$themes_dir/current/Colors.qml}"
+wallpaper_file="${SHELL_WALLPAPER:-$themes_dir/current/wallpaper.png}"
 aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
 state_dir="$state_home/caelestia"
 settings_file="$state_dir/shell-theme.json"
@@ -21,20 +22,53 @@ prewarm_marker="$cache_dir/prewarm-current"
 theme_renderer="${THEME_RENDERER:-$script_dir/theme-render}"
 theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
 notify_send_bin="${NOTIFY_SEND_BIN:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/notify-send}"
-application_selector="${APPLICATION_THEME_LINK:-$config_home/themes/.caelestia-use}"
-dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$config_home/themes/.dynamic/caelestia}"
+application_selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
+dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
 dynamic_generation_notification_marker="$state_dir/dynamic-theme-generation-notified"
 dry_run=0
+static_theme_name=""
 palette_cache_version=1
 variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral rainbow content)
 
 usage() {
-    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
+    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
 }
 
 fail() {
     printf 'shell-theme: %s\n' "$*" >&2
     exit 1
+}
+
+valid_theme_name() {
+    [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]]
+}
+
+named_theme_path() {
+    local name="$1" root resolved
+    valid_theme_name "$name" || return 1
+    root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
+    resolved="$(/usr/bin/readlink -f -- "$themes_dir/$name" 2>/dev/null || true)"
+    [[ -n "$root" && -n "$resolved" && "${resolved%/*}" == "$root" && "${resolved##*/}" == "$name" && -f "$resolved/Colors.qml" ]]
+}
+
+current_theme_name() {
+    local root resolved name
+    root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
+    resolved="$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)"
+    [[ -n "$root" && -n "$resolved" && "${resolved%/*}" == "$root" ]] || return 1
+    name="${resolved##*/}"
+    valid_theme_name "$name" || return 1
+    printf '%s\n' "$name"
+}
+
+set_current_theme() {
+    local name="$1" resolved temporary
+    named_theme_path "$name" || fail "Saved static theme is missing or invalid: $name"
+    resolved="$(/usr/bin/readlink -f -- "$themes_dir/$name")"
+    temporary="$(/usr/bin/mktemp -d "$themes_dir/.current.XXXXXX")"
+    /usr/bin/ln -s -- "$resolved" "$temporary/link"
+    /usr/bin/mv -Tf -- "$temporary/link" "$themes_dir/current"
+    /usr/bin/rmdir -- "$temporary"
 }
 
 is_variant() {
@@ -70,10 +104,31 @@ default_mode() {
 }
 
 load_settings() {
+    local candidate legacy_theme
     source_name=system
     mode_name="$(default_mode)"
     variant_name=tonalspot
     provider_name=theme
+    static_theme_name=""
+
+    if [[ -r "$settings_file" ]]; then
+        static_theme_name="$(/usr/bin/jq -r '.staticTheme // empty' "$settings_file" 2>/dev/null || true)"
+    fi
+    if ! valid_theme_name "$static_theme_name"; then
+        static_theme_name=""
+        if [[ -r "$palette_file" ]]; then
+            legacy_theme="$(/usr/bin/jq -r 'if .source == "system" then .name // empty else empty end' "$palette_file" 2>/dev/null || true)"
+            if named_theme_path "$legacy_theme"; then
+                static_theme_name="$legacy_theme"
+            fi
+        fi
+        if [[ -z "$static_theme_name" ]]; then
+            candidate="$(current_theme_name 2>/dev/null || true)"
+            if valid_theme_name "$candidate"; then
+                static_theme_name="$candidate"
+            fi
+        fi
+    fi
 
     [[ -r "$settings_file" ]] || return 0
     /usr/bin/jq -e '
@@ -137,8 +192,8 @@ aether_palette() {
 }
 
 settings_json() {
-    /usr/bin/jq -cn --arg source "$1" --arg mode "$2" --arg variant "$3" --arg provider "$4" \
-        '{source: $source, mode: $mode, variant: $variant, provider: $provider}'
+    /usr/bin/jq -cn --arg source "$1" --arg mode "$2" --arg variant "$3" --arg provider "$4" --arg static_theme "$5" \
+        '{source: $source, mode: $mode, variant: $variant, provider: $provider, staticTheme: $static_theme}'
 }
 
 write_json() {
@@ -467,9 +522,45 @@ apply_settings() {
     fi
     apply_desktop "$source" "$changed" "$force_apply"
     write_json "$palette_file" "$palette"
-    write_json "$settings_file" "$(settings_json "$source" "$mode" "$variant" "$provider")"
+    write_json "$settings_file" "$(settings_json "$source" "$mode" "$variant" "$provider" "$static_theme_name")"
     if [[ "$source" == dynamic && "$provider" == caelestia ]]; then
         prewarm_palettes_async "$mode" "$variant" "$requested"
+    fi
+}
+
+restore_theme() {
+    local cached=0
+    if [[ "${1:-}" == --cached ]]; then
+        cached=1
+        shift
+    fi
+    (( $# == 0 )) || { usage >&2; exit 2; }
+    named_theme_path "$static_theme_name" || fail "Saved Caelestia static theme is missing or invalid: $static_theme_name"
+
+    if (( dry_run )); then
+        printf 'Remembered static theme: %s\n' "$static_theme_name"
+        if [[ "$source_name" == system ]]; then
+            theme_file="$themes_dir/$static_theme_name/Colors.qml"
+            show_dry_run system "$mode_name" "$variant_name" theme
+        elif (( cached )); then
+            printf 'Dynamic palette: reuse the cached Caelestia palette\n'
+            apply_desktop dynamic unchanged 1
+        else
+            show_dry_run dynamic "$mode_name" "$variant_name" "$provider_name"
+        fi
+        return
+    fi
+
+    set_current_theme "$static_theme_name"
+    if [[ "$source_name" == system ]]; then
+        apply_settings system "$mode_name" "$variant_name" theme "" 1
+    elif (( cached )); then
+        cached_palette_is_current || fail 'The cached Caelestia palette is no longer current.'
+        [[ -f "$dynamic_theme_dir/.caelestia-generated" ]] || fail "Cached Caelestia theme is missing: $dynamic_theme_dir"
+        apply_desktop dynamic unchanged 1
+        write_json "$settings_file" "$(settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name" "$static_theme_name")"
+    else
+        apply_settings dynamic "$mode_name" "$variant_name" "$provider_name" "" 1
     fi
 }
 
@@ -496,7 +587,7 @@ case "$command_name" in
         ;;
     status)
         (( $# == 0 )) || { usage >&2; exit 2; }
-        settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name"
+        settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name" "$static_theme_name"
         ;;
     cache-ready)
         (( $# == 0 )) || { usage >&2; exit 2; }
@@ -505,6 +596,22 @@ case "$command_name" in
     refresh)
         (( $# == 0 )) || { usage >&2; exit 2; }
         apply_settings "$source_name" "$mode_name" "$variant_name" "$provider_name"
+        ;;
+    restore)
+        restore_theme "$@"
+        ;;
+    set-static-theme)
+        [[ $# == 1 ]] || { usage >&2; exit 2; }
+        named_theme_path "$1" || fail "Static theme is missing or invalid: $1"
+        static_theme_name="$1"
+        if (( dry_run )); then
+            printf 'Static theme: %s\n' "$static_theme_name"
+            theme_file="$themes_dir/$static_theme_name/Colors.qml"
+            show_dry_run system "$mode_name" "$variant_name" theme
+        else
+            set_current_theme "$static_theme_name"
+            apply_settings system "$mode_name" "$variant_name" theme "" 1
+        fi
         ;;
     refresh-wallpaper)
         (( $# == 0 )) || { usage >&2; exit 2; }

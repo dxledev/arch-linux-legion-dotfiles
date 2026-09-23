@@ -4,14 +4,20 @@ set -euo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-THEME_DIR="$HOME/.config/themes"
+THEME_DIR="${THEMES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/themes}"
 CURRENT_LINK="$THEME_DIR/current"
 NOTIFY_SEND_BIN="/home/dxle/bin/notify-send"
 THEME_APPLY_SCRIPT="${THEME_APPLY_SCRIPT:-$SCRIPT_DIR/theme-apply}"
-SHELL_THEME_SCRIPT="${SHELL_THEME_SCRIPT:-$HOME/.config/quickshell/active/integration/shell-theme}"
-NOCTALIA_BIN="${NOCTALIA_BIN:-$HOME/.config/noctalia/.runtime/bin/noctalia}"
+SHELL_THEME_SCRIPT="${SHELL_THEME_SCRIPT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/active/integration/shell-theme}"
+SHELL_MODE_SCRIPT="${SHELL_MODE_SCRIPT:-$SCRIPT_DIR/toggle-shell-mode}"
+NOCTALIA_BIN="${NOCTALIA_BIN:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/.runtime/bin/noctalia}"
+current_only=0
 
-[[ $# == 1 ]] || { printf 'Usage: theme <theme-name>\n' >&2; exit 2; }
+if [[ "${1:-}" == --current-only ]]; then
+    current_only=1
+    shift
+fi
+[[ $# == 1 ]] || { printf 'Usage: theme [--current-only] <theme-name>\n' >&2; exit 2; }
 THEME_NAME="$1"
 [[ -n "$THEME_NAME" && "$THEME_NAME" != current && "$THEME_NAME" != .* && "$THEME_NAME" != */* && "$THEME_NAME" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
     printf 'theme: Invalid named theme: %s\n' "$THEME_NAME" >&2
@@ -33,10 +39,12 @@ TEMPORARY_DIR="$(/usr/bin/mktemp -d "$THEME_DIR/.current.XXXXXX")"
 /usr/bin/ln -s -- "$NEW_THEME" "$TEMPORARY_DIR/link"
 /usr/bin/mv -Tf -- "$TEMPORARY_DIR/link" "$CURRENT_LINK"
 /usr/bin/rmdir -- "$TEMPORARY_DIR"
+(( current_only == 0 )) || exit 0
 
-if [[ "${THEME_SET_SHELL_SOURCE:-0}" == 1 ]]; then
+shell_mode="$("$SHELL_MODE_SCRIPT" --status 2>/dev/null || true)"
+if [[ "${NOCTALIA_THEME_SYNC:-0}" != 1 && ( "${THEME_SET_SHELL_SOURCE:-0}" == 1 || "$shell_mode" == caelestia ) ]]; then
     [[ "$SHELL_THEME_SCRIPT" == /* && -x "$SHELL_THEME_SCRIPT" ]] || { printf 'theme: Invalid shell theme controller.\n' >&2; exit 1; }
-    "$SHELL_THEME_SCRIPT" set-source system
+    "$SHELL_THEME_SCRIPT" set-static-theme "$THEME_NAME"
 else
     "$THEME_APPLY_SCRIPT" system
 fi

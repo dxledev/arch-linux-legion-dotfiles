@@ -100,15 +100,6 @@ local function bind_exec(mods, key, description, command)
 end
 
 local simple_binds = {
-  { mainMod .. " SHIFT CTRL", "C", "Config", "~/bin/menu-config" },
-  { mainMod, "S", "Quick Region Screenshot", "~/bin/launch-screenshot-clipboard" },
-  { mainMod .. " SHIFT", "S", "Quick Active Monitor Screenshot", "~/bin/launch-screenshot-active-monitor-clipboard" },
-  { mainMod .. " ALT", "V", "Audio Menu", "~/bin/menu-audio" },
-  { mainMod .. " ALT", "N", "Share Menu", "~/bin/menu-share" },
-  { mainMod .. " ALT", "W", "Workspace Axis Menu", "~/bin/menu-workspace-axis" },
-  { "CTRL ALT", "SPACE", "Next Background", "~/bin/bg-next" },
-  { "CTRL ALT SHIFT", "SPACE", "Previous Background", "~/bin/bg-prev" },
-  { mainMod .. " CTRL", "Space", "Toggle Background Slideshow", "~/bin/bg-toggle-slideshow" },
   { mainMod, "RETURN", "Terminal", "~/bin/launch-terminal" },
   { mainMod .. " SHIFT", "RETURN", "Main Tmux", "~/bin/launch-tmux-main" },
   { mainMod .. " CTRL ALT", "C", "Color Picker", "~/bin/launch-colorpicker" },
@@ -127,8 +118,6 @@ bind("bindd", "ALT", "F9", "Start OBS Recording", "sendshortcut", "ALT, F9, clas
 bind("bindd", "ALT SHIFT", "F9", "Stop OBS Recording", "sendshortcut", "ALT SHIFT, F9, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT", "F10", "Pause OBS Recording", "sendshortcut", "ALT, F10, class:^com\\.obsproject\\.Studio$")
 bind("bindd", "ALT SHIFT", "F10", "Resume OBS Recording", "sendshortcut", "ALT SHIFT, F10, class:^com\\.obsproject\\.Studio$")
-
-hl.bind("Print", hl.dsp.exec_cmd("~/bin/launch-screenshot-active-monitor-clipboard"), { description = "Quick Active Monitor Screenshot" })
 
 bind("bindd", "ALT", "F11", "Toggle Discord Mute", "exec", "~/bin/media-controls/discord-toggle-mute")
 

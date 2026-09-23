@@ -1,4 +1,11 @@
 local bindings = {
+  { "SUPER + SHIFT + CTRL + C", "Config", "~/bin/menu-config" },
+  { "SUPER + ALT + V", "Audio Menu", "~/bin/menu-audio" },
+  { "SUPER + ALT + N", "Share Menu", "~/bin/menu-share" },
+  { "SUPER + ALT + W", "Workspace Axis Menu", "~/bin/menu-workspace-axis" },
+  { "CTRL + ALT + SPACE", "Next Background", "~/bin/bg-next" },
+  { "CTRL + ALT + SHIFT + SPACE", "Previous Background", "~/bin/bg-prev" },
+  { "SUPER + CTRL + SPACE", "Toggle Background Slideshow", "~/bin/bg-toggle-slideshow" },
   { "SUPER + SPACE", "App Launcher", "~/bin/menu-apps" },
   { "SUPER + SHIFT + L", "Lock Screen", "$HOME/bin/system-lock --wait" },
   { "SUPER + ALT + F", "File Menu", "~/bin/menu-files" },
@@ -12,6 +19,8 @@ local bindings = {
   { "SUPER + ALT + L", "Layout Menu", "~/bin/menu-layout" },
   { "SUPER + ALT + SHIFT + C", "Color Converter", "~/bin/menu-color-converter" },
   { "SUPER + SHIFT + ALT + T", "Style Menu", "~/bin/menu-style" },
+  { "SUPER + S", "Quick Region Screenshot", "~/bin/launch-screenshot-clipboard" },
+  { "SUPER + SHIFT + S", "Quick Active Monitor Screenshot", "~/bin/launch-screenshot-active-monitor-clipboard" },
   { "SUPER + ALT + S", "Screenshot Menu", "~/bin/menu-screenshot" },
   { "SUPER + SHIFT + ALT + S", "Capture Menu", "~/bin/menu-capture" },
   { "SUPER + ALT + E", "Emoji Menu", "~/bin/menu-emojis" },
@@ -42,9 +51,25 @@ local bindings = {
 
 hl.unbind("SUPER + SPACE")
 
+local mode_owned_keys = {
+  "SUPER + SHIFT + CTRL + C",
+  "SUPER + ALT + V",
+  "SUPER + ALT + N",
+  "SUPER + ALT + W",
+  "CTRL + ALT + SPACE",
+  "CTRL + ALT + SHIFT + SPACE",
+  "SUPER + CTRL + SPACE",
+}
+
+for _, key in ipairs(mode_owned_keys) do
+  hl.unbind(key)
+end
+
 for _, binding in ipairs(bindings) do
   hl.bind(binding[1], hl.dsp.exec_cmd(binding[3]), { description = binding[2] })
 end
+
+hl.bind("Print", hl.dsp.exec_cmd("~/bin/launch-screenshot-active-monitor-clipboard"), { description = "Quick Active Monitor Screenshot" })
 
 local volume_bindings = {
   { "XF86AudioRaiseVolume", "~/bin/system-volume --description \"Acer Technologies KG271U\" --output-volume +1" },

@@ -8,6 +8,7 @@ state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
 noctalia_bin="${NOCTALIA_BIN:-$config_home/noctalia/.runtime/bin/noctalia}"
 themes_dir="${THEMES_DIR:-$config_home/themes}"
+settings_file="${NOCTALIA_SETTINGS_FILE:-$state_home/noctalia/settings.toml}"
 renderer="${THEME_RENDER_SCRIPT:-$config_home/quickshell/caelestia/integration/theme-render}"
 theme_apply="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
 theme_script="${THEME_SCRIPT:-$HOME/bin/theme}"
@@ -15,16 +16,41 @@ cache_dir="${NOCTALIA_THEME_CACHE_DIR:-$cache_home/noctalia-shell/palettes}"
 generation_file="${NOCTALIA_THEME_GENERATION_FILE:-$state_home/toggle-shell-mode/noctalia-theme-generation}"
 lock_file="${NOCTALIA_THEME_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/noctalia-theme-sync-$UID.lock}"
 dry_run=0
+reload_apps=0
+prestart=0
+describe=0
 
 schemes=(m3-tonal-spot m3-content m3-fruit-salad m3-rainbow m3-monochrome vibrant faithful soft dysfunctional muted)
 
 usage() {
-    printf 'Usage: noctalia-theme-sync [--dry-run]\n'
+    printf 'Usage: noctalia-theme-sync [--dry-run] [--reload-apps] [--prestart] | --describe\n'
 }
 
 fail() {
     printf 'noctalia-theme-sync: %s\n' "$*" >&2
     exit 1
+}
+
+noctalia_setting() {
+    local key="$1"
+    [[ -r "$settings_file" ]] || return 1
+    /usr/bin/awk -F= -v key="$key" '
+        /^\[theme\]$/ { in_theme = 1; next }
+        /^\[/ { in_theme = 0 }
+        in_theme && $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+            value = $2
+            sub(/^[[:space:]]*/, "", value)
+            sub(/[[:space:]]*$/, "", value)
+            sub(/^\"/, "", value)
+            sub(/\"$/, "", value)
+            print value
+            exit
+        }
+    ' "$settings_file"
+}
+
+valid_theme_name() {
+    [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]]
 }
 
 require_absolute_executable() {
@@ -58,7 +84,8 @@ scheme_name() {
     if [[ "$source" == wallpaper && " ${schemes[*]} " == *" $scheme "* ]]; then
         printf '%s\n' "$scheme"
     else
-        printf '%s\n' m3-tonal-spot
+        scheme="$(noctalia_setting wallpaper_scheme 2>/dev/null || true)"
+        if [[ " ${schemes[*]} " == *" $scheme "* ]]; then printf '%s\n' "$scheme"; else printf '%s\n' m3-tonal-spot; fi
     fi
 }
 
@@ -67,7 +94,7 @@ resolved_mode() {
     mode="$($noctalia_bin msg theme-mode-get 2>/dev/null || true)"
     case "$mode" in
         light|dark) printf '%s\n' "$mode" ;;
-        *) printf '%s\n' dark ;;
+        *) mode="$(noctalia_setting mode 2>/dev/null || true)"; [[ "$mode" == light || "$mode" == dark ]] && printf '%s\n' "$mode" || printf '%s\n' dark ;;
     esac
 }
 
@@ -199,21 +226,52 @@ reassert_static_wallpaper() {
 sync_static_theme() {
     local source name current theme_root
     read -r source name < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
-    [[ "$source" == custom ]] || return 1
-    [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || return 0
+    if [[ "$source" != custom && "$source" != wallpaper ]]; then
+        source="$(noctalia_setting source 2>/dev/null || true)"
+    fi
     theme_root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
-    current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
-    [[ -d "$theme_root/$name" ]] || return 0
-    if [[ "$current" != "$name" ]] || application_theme_is_dynamic "$theme_root"; then
-        if (( dry_run )); then
-            printf 'Static theme: %s\n' "$name"
+    if [[ "$source" == custom ]]; then
+        [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || name="$(noctalia_setting custom_palette 2>/dev/null || true)"
+        valid_theme_name "$name" || fail "Noctalia's saved custom theme name is invalid: $name"
+        [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" && -f "$theme_root/$name/wallpaper.png" ]] ||
+            fail "Noctalia's saved static theme is missing or incomplete: $theme_root/$name"
+        current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
+        if [[ "$current" != "$name" ]] || application_theme_is_dynamic "$theme_root"; then
+            if (( dry_run )); then
+                printf 'Static theme: %s\n' "$name"
+                (( reload_apps == 0 )) || printf 'App sync: reload themed apps for %s\n' "$name"
+                return 0
+            fi
+            NOCTALIA_THEME_SYNC=1 THEME_SUPPRESS_NOTIFY=1 "$theme_script" "$name"
             return 0
         fi
-        NOCTALIA_THEME_SYNC=1 "$theme_script" "$name"
+        (( prestart )) || reassert_static_wallpaper "$theme_root" "$name"
+        if (( reload_apps )); then
+            if (( dry_run )); then
+                printf 'App sync: reload themed apps for %s\n' "$name"
+            else
+                "$theme_apply" system >/dev/null
+            fi
+        fi
         return 0
     fi
-    reassert_static_wallpaper "$theme_root" "$name"
-    return 0
+
+    [[ "$source" == wallpaper ]] || return 1
+    name="$(noctalia_setting custom_palette 2>/dev/null || true)"
+    if [[ -n "$name" ]]; then
+        valid_theme_name "$name" || fail "Noctalia's remembered static theme name is invalid: $name"
+        [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" && -f "$theme_root/$name/wallpaper.png" ]] ||
+            fail "Noctalia's remembered static theme is missing or incomplete: $theme_root/$name"
+        current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
+        if [[ "$current" != "$name" ]]; then
+            if (( dry_run )); then
+                printf 'Remembered static theme: %s\n' "$name"
+            else
+                "$theme_script" --current-only "$name"
+            fi
+        fi
+    fi
+    return 1
 }
 
 cleanup_sync_files() {
@@ -245,7 +303,7 @@ run_sync() {
     fi
     convert_palette "$native_file" "$mode" "$converted_file"
     if (( dry_run )); then
-        printf 'Provider: noctalia\nWallpaper: %s\nScheme: %s\nMode: %s\nCache: %s\n' "$wallpaper" "$scheme" "$mode" "$native_file"
+        printf 'Provider: noctalia\nWallpaper: %s\nScheme: %s\nMode: %s\nCache: %s\nApp sync: reload themed apps for Dynamic\n' "$wallpaper" "$scheme" "$mode" "$native_file"
         return 0
     fi
     "$renderer" --provider noctalia "$converted_file" "$wallpaper" >/dev/null
@@ -256,15 +314,25 @@ run_sync() {
 }
 
 main() {
-    local generation
+    local generation source static_theme
     while (( $# )); do
         case "$1" in
             --dry-run) dry_run=1 ;;
+            --reload-apps) reload_apps=1 ;;
+            --prestart) prestart=1 ;;
+            --describe) describe=1 ;;
             --help|-h) usage; return 0 ;;
             *) usage >&2; return 2 ;;
         esac
         shift
     done
+    if (( describe )); then
+        source="$(noctalia_setting source 2>/dev/null || true)"
+        static_theme="$(noctalia_setting custom_palette 2>/dev/null || true)"
+        [[ "$source" == custom || "$source" == wallpaper ]] || source=wallpaper
+        /usr/bin/jq -cn --arg source "$source" --arg static_theme "$static_theme" '{source: $source, staticTheme: $static_theme}'
+        return 0
+    fi
     require_absolute_executable "$noctalia_bin"
     require_absolute_executable "$renderer"
     require_absolute_executable "$theme_apply"

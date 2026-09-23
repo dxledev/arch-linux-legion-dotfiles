@@ -99,9 +99,16 @@ ensure_palette_links() {
 }
 
 sync_current_theme() {
-    local selected current_link current_name dynamic_noctalia dynamic_caelestia handoff_dynamic scheme_source
+    local selected current_link current_name dynamic_noctalia dynamic_caelestia handoff_dynamic scheme_source scheme_name theme_root
     handoff_dynamic="${NOCTALIA_DYNAMIC_HANDOFF:-0}"
     [[ "$handoff_dynamic" == 0 || "$handoff_dynamic" == 1 ]] || fail 'NOCTALIA_DYNAMIC_HANDOFF must be 0 or 1.'
+    read -r scheme_source scheme_name < <("$runtime_bin" msg color-scheme-get 2>/dev/null || true)
+    if [[ "$scheme_source" == custom ]]; then
+        theme_root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
+        [[ "$scheme_name" =~ ^[a-z0-9][a-z0-9._-]*$ && -r "$theme_root/$scheme_name/noctalia.json" && -f "$theme_root/$scheme_name/wallpaper.png" ]] ||
+            fail "Noctalia's saved static theme is missing or invalid: $scheme_name"
+        return 0
+    fi
     selected="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
     dynamic_noctalia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
     dynamic_caelestia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/caelestia" 2>/dev/null || true)"
@@ -113,7 +120,6 @@ sync_current_theme() {
     fi
 
     if [[ "$handoff_dynamic" == 1 ]]; then
-        read -r scheme_source _ < <("$runtime_bin" msg color-scheme-get 2>/dev/null || true)
         [[ "$scheme_source" == custom ]] &&
             "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
         return 0

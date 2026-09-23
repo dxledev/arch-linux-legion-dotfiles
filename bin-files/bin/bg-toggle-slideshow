@@ -44,9 +44,10 @@ TRANSITION_WAVE="${DEFAULT_TRANSITION_WAVE}"
 DRY_RUN=0
 REVERSE=0
 RUN_LOOP=0
+STOP_ONLY=0
 
 usage() {
-    printf 'Usage: %s [--duration SECONDS] [--transition TYPE] [--transition-duration SECONDS] [--transition-angle ANGLE] [--transition-step STEP] [--transition-fps FPS] [--transition-pos POS] [--transition-bezier CURVE] [--transition-wave SIZE] [--reverse|--forward] [--dry-run]\n' "${0##*/}"
+    printf 'Usage: %s [--stop] [--duration SECONDS] [--transition TYPE] [--transition-duration SECONDS] [--transition-angle ANGLE] [--transition-step STEP] [--transition-fps FPS] [--transition-pos POS] [--transition-bezier CURVE] [--transition-wave SIZE] [--reverse|--forward] [--dry-run]\n' "${0##*/}"
 }
 
 require_binary() {
@@ -247,6 +248,9 @@ parse_args() {
             --run-loop)
                 RUN_LOOP=1
                 ;;
+            --stop)
+                STOP_ONLY=1
+                ;;
             -n|--dry-run)
                 DRY_RUN=1
                 ;;
@@ -352,9 +356,17 @@ read_pid() {
     printf '%s\n' "${pid}"
 }
 
-is_pid_running() {
-    local pid="$1"
-    "${KILL_BIN}" -0 "${pid}" 2>/dev/null
+is_slideshow_process() {
+    local pid="$1" arg has_script=0 has_loop=0
+    local -a process_args=()
+
+    [[ "${pid}" =~ ^[1-9][0-9]*$ && -r "/proc/${pid}/cmdline" ]] || return 1
+    mapfile -d '' -t process_args < "/proc/${pid}/cmdline" || return 1
+    for arg in "${process_args[@]}"; do
+        [[ "${arg}" == "${SCRIPT_PATH}" ]] && has_script=1
+        [[ "${arg}" == --run-loop ]] && has_loop=1
+    done
+    (( has_script && has_loop ))
 }
 
 remove_pid_file() {
@@ -370,7 +382,7 @@ cleanup_stale_pid_file() {
         return
     }
 
-    if ! is_pid_running "${pid}"; then
+    if ! is_slideshow_process "${pid}"; then
         remove_pid_file
     fi
 }
@@ -437,7 +449,7 @@ print_start_command() {
 }
 
 stop_slideshow() {
-    local pid="$1"
+    local pid="$1" attempt
 
     if ((DRY_RUN)); then
         printf '%s %s\n' "${KILL_BIN}" "${pid}"
@@ -445,7 +457,19 @@ stop_slideshow() {
         return
     fi
 
+    is_slideshow_process "${pid}" || {
+        remove_pid_file
+        return 0
+    }
     "${KILL_BIN}" "${pid}" 2>/dev/null || true
+    for (( attempt = 0; attempt < 20; attempt++ )); do
+        is_slideshow_process "${pid}" || break
+        "${SLEEP_BIN}" 0.1
+    done
+    if is_slideshow_process "${pid}"; then
+        printf 'Slideshow process %s did not stop.\n' "${pid}" >&2
+        return 1
+    fi
     remove_pid_file
     notify_state "OFF"
 }
@@ -531,19 +555,47 @@ run_loop() {
 }
 
 main() {
-    local pid=""
+    local pid="" arg stop_requested=0
 
-    load_config
+    for arg in "$@"; do
+        if [[ "${arg}" == --stop ]]; then
+            stop_requested=1
+        fi
+    done
+    (( stop_requested )) || load_config
     parse_args "$@"
+
+    if ((STOP_ONLY)); then
+        for arg in "$@"; do
+            case "${arg}" in
+                --stop|-n|--dry-run) ;;
+                *)
+                    usage >&2
+                    exit 1
+                    ;;
+            esac
+        done
+    fi
+
+    require_binary "${KILL_BIN}"
+    require_binary "${RM_BIN}"
+    require_binary "${NOTIFY_SEND_BIN}"
+    require_binary "${SLEEP_BIN}"
+
+    if ((STOP_ONLY)); then
+        pid="$(read_pid 2>/dev/null || true)"
+        if [[ -n "${pid}" ]] && is_slideshow_process "${pid}"; then
+            stop_slideshow "${pid}"
+        else
+            remove_pid_file
+        fi
+        return
+    fi
 
     require_binary "${AWK_BIN}"
     require_binary "${BASH_BIN}"
-    require_binary "${KILL_BIN}"
     require_binary "${MKDIR_BIN}"
     require_binary "${NOHUP_BIN}"
-    require_binary "${NOTIFY_SEND_BIN}"
-    require_binary "${RM_BIN}"
-
     validate_settings
 
     if ((RUN_LOOP)); then

@@ -6,6 +6,16 @@ local knob_press = home .. "/bin/knob-press"
 local knob_release = home .. "/bin/knob-release"
 
 local shell_bindings = {
+  "SUPER + SHIFT + CTRL + C",
+  "SUPER + ALT + V",
+  "SUPER + ALT + N",
+  "SUPER + ALT + W",
+  "CTRL + ALT + SPACE",
+  "CTRL + ALT + SHIFT + SPACE",
+  "SUPER + CTRL + SPACE",
+  "SUPER + S",
+  "SUPER + SHIFT + S",
+  "Print",
   "SUPER + SHIFT + ALT + S",
   "SUPER + ALT + S",
   "SUPER + ALT + F",
@@ -70,7 +80,16 @@ local function bind_message(key, description, message, options)
   hl.bind(key, hl.dsp.exec_cmd(command(message)), options or { description = description })
 end
 
+bind_message("SUPER + SHIFT + CTRL + C", "Settings", "settings-toggle")
+bind_panel("SUPER + ALT + V", "Audio Menu", "control-center audio")
+bind_message("CTRL + ALT + SPACE", "Next Wallpaper", "wallpaper-next")
+bind_message("CTRL + ALT + SHIFT + SPACE", "Previous Wallpaper", "wallpaper-previous")
+bind_message("SUPER + CTRL + SPACE", "Toggle Wallpaper Automation", "wallpaper-automation-toggle")
+
 bind_panel("SUPER + SPACE", "App Launcher", "launcher")
+bind_message("SUPER + S", "Region Screenshot", "screenshot-region")
+bind_message("SUPER + SHIFT + S", "Fullscreen Screenshot", "screenshot-fullscreen")
+bind_message("Print", "Fullscreen Screenshot", "screenshot-fullscreen")
 hl.unbind("SUPER + ALT + SPACE")
 hl.bind(
   "SUPER + ALT + SPACE",

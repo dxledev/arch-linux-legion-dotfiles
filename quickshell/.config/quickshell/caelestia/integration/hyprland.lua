@@ -39,8 +39,16 @@ hl.workspace_rule({
 })
 
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
+local screenshot = root .. "/active/integration/screenshot"
 local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")
+local audio_popout_binding = "SUPER + ALT + V"
+local superseded_audio_binding = "SUPER + CTRL + V"
+for _, key in ipairs({ "SUPER + ALT + N", "SUPER + ALT + W" }) do
+    hl.unbind(key)
+end
+
 local bindings = {
+    { "SUPER + SHIFT + CTRL + C", "Config", "nexus open" },
     { "SUPER + SHIFT + ALT + S", "Capture Menu", "launcher menu capture" },
     { "SUPER + ALT + S", "Screenshot Menu", "launcher menu screenshot" },
     { "SUPER + ALT + E", "Emoji Menu", "launcher menu emojis" },
@@ -52,6 +60,9 @@ local bindings = {
     { "SUPER + ALT + SPACE", "Command Menu", "launcher commands" },
     { "SUPER + ALT + T", "Theme Menu", "launcher theme" },
     { "SUPER + CTRL + ALT + SPACE", "Wallpaper Menu", "launcher wallpaper" },
+    { "CTRL + ALT + SPACE", "Next Wallpaper", "wallpaper next" },
+    { "CTRL + ALT + SHIFT + SPACE", "Previous Wallpaper", "wallpaper previous" },
+    { "SUPER + CTRL + SPACE", "Toggle Wallpaper Slideshow", "wallpaper toggleSlideshow" },
     { "SUPER + SHIFT + ALT + P", "Terminal Prompt Menu", "launcher terminalPrompt" },
     { "SUPER + ALT + P", "Session", "drawers toggle session" },
     { "SUPER + ALT + K", "Keybindings", "launcher learn keybindings" },
@@ -66,6 +77,19 @@ local bindings = {
 for _, binding in ipairs(bindings) do
     hl.unbind(binding[1])
     hl.bind(binding[1], hl.dsp.exec_cmd(ipc .. binding[3]), { description = binding[2] })
+end
+
+hl.unbind(superseded_audio_binding)
+hl.unbind(audio_popout_binding)
+hl.bind(audio_popout_binding, hl.dsp.exec_cmd(knob_hold), { description = "Audio Menu" })
+
+hl.unbind("SUPER + S")
+hl.bind("SUPER + S", hl.dsp.exec_cmd("~/bin/launch-screenshot-clipboard"), { description = "Quick Region Screenshot" })
+
+local active_monitor_screenshot = "/usr/bin/bash " .. screenshot .. " active-monitor clipboard"
+for _, key in ipairs({ "SUPER + SHIFT + S", "Print" }) do
+    hl.unbind(key)
+    hl.bind(key, hl.dsp.exec_cmd(active_monitor_screenshot), { description = "Active Monitor Screenshot" })
 end
 
 local lock_binding = "SUPER + SHIFT + L"

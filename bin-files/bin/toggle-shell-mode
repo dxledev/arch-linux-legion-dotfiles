@@ -12,6 +12,7 @@ noctalia_theme_sync="${NOCTALIA_THEME_SYNC_SCRIPT:-$HOME/bin/noctalia-theme-sync
 theme_apply="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
 shell_theme="${SHELL_THEME_SCRIPT:-$config_home/quickshell/active/integration/shell-theme}"
 wallpaper_refresh="${WALLPAPER_REFRESH_SCRIPT:-$HOME/bin/bg-refresh-current}"
+wallpaper_slideshow="${WALLPAPER_SLIDESHOW_SCRIPT:-$HOME/bin/bg-toggle-slideshow}"
 hyprlock_launcher="${HYPRLOCK_LAUNCHER:-$config_home/hyprlock/scripts/launch-lock-screen.sh}"
 hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 pgrep_bin="${PGREP_BIN:-/usr/bin/pgrep}"
@@ -40,6 +41,7 @@ action=""
 dry_run=0
 startup_locked=0
 fresh_login_marker=""
+noctalia_theme_preloaded=0
 waybar_processes=(ward waybar wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
 waybar_required_processes=(waybar ward wardnc chromack topdash swayosd-server)
 
@@ -270,23 +272,29 @@ restore_external_wallpaper() {
 }
 
 restore_desktop_theme() {
-    local target="$1" resolved dynamic_provider
+    local target="$1"
     [[ -x "$theme_apply" ]] || fail "Theme coordinator not found: $theme_apply"
-    [[ "$target" == waybar || "$target" == caelestia ]] || fail "Invalid desktop theme target: $target"
-    resolved="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
-    if [[ "$resolved" == "$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)" &&
-          -f "$resolved/.noctalia-generated" ]]; then
-        dynamic_provider=noctalia
-    elif [[ "$resolved" == "$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/caelestia" 2>/dev/null || true)" &&
-            -f "$resolved/.caelestia-generated" ]]; then
-        dynamic_provider=caelestia
-    else
-        dynamic_provider=""
+    [[ "$target" == waybar ]] || fail "Invalid desktop theme target: $target"
+    THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" system 9>&-
+}
+
+restore_caelestia_theme() {
+    local lock_flag="$1" args=(restore)
+    if (( lock_flag )) && SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" cache-ready 9>&-; then
+        args+=(--cached)
     fi
-    if [[ "$target" == caelestia && -n "$dynamic_provider" ]]; then
-        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" dynamic "$dynamic_provider" 9>&-
+    SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" "${args[@]}" 9>&-
+}
+
+sync_noctalia_theme() {
+    local dynamic_handoff="${1:-0}" reload_apps="${2:-1}" args=()
+    [[ "$dynamic_handoff" == 0 || "$dynamic_handoff" == 1 ]] || return 1
+    [[ "$reload_apps" == 0 || "$reload_apps" == 1 ]] || return 1
+    (( reload_apps )) && args+=(--reload-apps)
+    if (( dynamic_handoff )); then
+        NOCTALIA_DYNAMIC_HANDOFF=1 THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" "${args[@]}" 9>&-
     else
-        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$theme_apply" system 9>&-
+        THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" "${args[@]}" 9>&-
     fi
 }
 
@@ -371,22 +379,32 @@ verify_mode() {
 
 apply_profile() {
     local target="$1" lock_flag="${2:-0}" dynamic_handoff="${3:-0}"
+    noctalia_theme_preloaded=0
+    if [[ "$target" == caelestia || "$target" == noctalia ]]; then
+        "$wallpaper_slideshow" --stop 9>&- || return 1
+    fi
     stop_process hyprlock || return 1
     stop_quickshell || return 1
     stop_waybar_owned || return 1
     stop_noctalia || return 1
     if [[ "$target" == noctalia ]]; then
+        local theme_state theme_source
+        theme_state="$("$noctalia_theme_sync" --describe)" || return 1
+        theme_source="$("$jq_bin" -r '.source // empty' <<< "$theme_state")"
+        if [[ "$theme_source" == custom ]]; then
+            THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$noctalia_theme_sync" --prestart --reload-apps 9>&- || return 1
+            noctalia_theme_preloaded=1
+        fi
         stop_external_wallpaper
         start_noctalia_profile full "$lock_flag" "$dynamic_handoff"
     else
-        restore_desktop_theme "$target"
-        restore_external_wallpaper
         if [[ "$target" == caelestia ]]; then
-            if (( lock_flag == 0 )); then
-                SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" refresh 9>&- || return 1
-            elif ! SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" cache-ready 9>&-; then
-                SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" refresh 9>&- || return 1
-            fi
+            restore_caelestia_theme "$lock_flag" || return 1
+        else
+            restore_desktop_theme waybar || return 1
+        fi
+        restore_external_wallpaper || return 1
+        if [[ "$target" == caelestia ]]; then
             stop_waybar_owned || return 1
             start_quickshell "$lock_flag"
         else
@@ -414,7 +432,7 @@ commit_fresh_login_marker() {
 
 validate_paths() {
     local target="$1" path
-    for path in "$hypr_config" "$quickshell_config" "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$hyprlock_launcher" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin" "$themes_dir" "$application_selector" "$lock_file" "$process_log_dir"; do
+    for path in "$hypr_config" "$quickshell_config" "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$wallpaper_slideshow" "$hyprlock_launcher" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin" "$themes_dir" "$application_selector" "$lock_file" "$process_log_dir"; do
         require_absolute_path "$path" CONFIG
     done
     [[ "$application_selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $application_selector"
@@ -424,7 +442,7 @@ validate_paths() {
     [[ "$shell_health_timeout" =~ ^([1-9]|[1-5][0-9]|60)$ ]] || fail 'SHELL_HEALTH_TIMEOUT must be 1-60.'
     [[ "$shell_health_delay" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'SHELL_HEALTH_DELAY must be a non-negative number.'
     if (( ! dry_run )); then
-        for path in "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin"; do
+        for path in "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$wallpaper_slideshow" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin"; do
             require_executable "$path"
         done
     fi
@@ -435,6 +453,52 @@ validate_paths() {
     fi
 }
 
+write_caelestia_theme_plan() {
+    local state source theme
+    state="$("$shell_theme" status)" || fail 'Cannot read Caelestia theme state.'
+    source="$("$jq_bin" -r '.source // "system"' <<< "$state")"
+    theme="$("$jq_bin" -r '.staticTheme // empty' <<< "$state")"
+    [[ "$theme" =~ ^[a-z0-9][a-z0-9._-]*$ && -f "$themes_dir/$theme/Colors.qml" ]] ||
+        fail "Caelestia's saved static theme is missing or invalid: $theme"
+    if [[ "$source" == dynamic || "$source" == aether ]]; then
+        printf 'Destination theme: Caelestia Dynamic (remembered static theme: %s)\n' "$theme"
+        if (( startup_locked )) && SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$shell_theme" cache-ready 9>&-; then
+            printf 'App sync: use cached Caelestia palette and force one themed-app reload.\n'
+        else
+            printf 'App sync: refresh Caelestia palette and force one themed-app reload.\n'
+        fi
+    else
+        printf 'Destination theme: Caelestia static %s\n' "$theme"
+        printf 'App sync: restore %s and reload themed apps once.\n' "$theme"
+    fi
+}
+
+write_noctalia_theme_plan() {
+    local state source theme current
+    state="$("$noctalia_theme_sync" --describe)" || fail "Cannot read Noctalia's saved theme state."
+    source="$("$jq_bin" -r '.source // "wallpaper"' <<< "$state")"
+    theme="$("$jq_bin" -r '.staticTheme // empty' <<< "$state")"
+    if [[ -z "$theme" ]]; then
+        current="$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)"
+        theme="${current##*/}"
+    fi
+    [[ "$theme" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || fail "Noctalia's remembered static theme is invalid: $theme"
+    if [[ "$source" == custom ]]; then
+        [[ -r "$themes_dir/$theme/noctalia.json" && -f "$themes_dir/$theme/wallpaper.png" ]] ||
+            fail "Noctalia's saved static theme is missing or incomplete: $theme"
+        printf 'Destination theme: Noctalia static %s\n' "$theme"
+        printf 'App sync: restore %s and reload themed apps once, including when the selector already matches.\n' "$theme"
+    elif [[ "$source" == wallpaper ]]; then
+        [[ -r "$themes_dir/$theme/noctalia.json" && -f "$themes_dir/$theme/wallpaper.png" ]] ||
+            fail "Noctalia's remembered static theme is missing or incomplete: $theme"
+        printf 'Destination theme: Noctalia Dynamic (remembered static theme: %s)\n' "$theme"
+        printf 'App sync: synchronize the Noctalia Dynamic palette and reload themed apps once.\n'
+    else
+        printf 'Destination theme: Noctalia palette source %s\n' "$source"
+        printf 'App sync: synchronize Noctalia colors and reload themed apps once.\n'
+    fi
+}
+
 write_startup_plan() {
     local current="$1" target="$2" waybar_marker=noctalia_marker
     [[ "$target" == waybar ]] && waybar_marker=enabled || waybar_marker=disabled
@@ -442,9 +506,11 @@ write_startup_plan() {
     printf '%s -> %s\n' "$current" "$target"
     printf 'Markers: Waybar=%s, Noctalia=%s\n' "$waybar_marker" "$noctalia_marker"
     if [[ "$target" == noctalia ]]; then
-        printf 'Stop external wallpaper daemon; start Noctalia full profile.\n'
+        printf 'Stop Waybar slideshow and external wallpaper daemon; start Noctalia full profile.\n'
+        write_noctalia_theme_plan
     elif [[ "$target" == caelestia ]]; then
-        printf 'Restore external wallpaper; start Caelestia with its native lock provider.\n'
+        printf 'Stop Waybar slideshow, restore external wallpaper; start Caelestia with its native lock provider.\n'
+        write_caelestia_theme_plan
     elif [[ "$target" == waybar ]]; then
         printf 'Restore the named static theme at %s and its saved wallpaper; start Waybar with Hyprlock as its lock provider.\n' "$themes_dir/current"
     else
@@ -460,6 +526,13 @@ restore_previous() {
     if [[ "$action" != apply ]]; then
         write_markers "$previous" || status=1
         "$hyprctl_bin" reload >/dev/null 2>&1 || status=1
+    fi
+    if [[ "$previous" == noctalia ]]; then
+        if (( noctalia_theme_preloaded )); then
+            sync_noctalia_theme 0 0 || status=1
+        else
+            sync_noctalia_theme 0 || status=1
+        fi
     fi
     /usr/bin/sleep "$shell_health_delay"
     verify_mode "$previous" || status=1
@@ -478,10 +551,10 @@ transition() {
     /usr/bin/sleep "$shell_health_delay"
     if [[ "$target" == noctalia ]]; then
         [[ -x "$noctalia_theme_sync" ]] || fail "Noctalia theme synchronizer not found: $noctalia_theme_sync"
-        if (( dynamic_handoff )); then
-            NOCTALIA_DYNAMIC_HANDOFF=1 THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" || return 1
+        if (( noctalia_theme_preloaded )); then
+            sync_noctalia_theme "$dynamic_handoff" 0 || return 1
         else
-            THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" || return 1
+            sync_noctalia_theme "$dynamic_handoff" || return 1
         fi
         stop_waybar_owned || return 1
     fi

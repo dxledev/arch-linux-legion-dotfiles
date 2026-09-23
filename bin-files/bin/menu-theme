@@ -676,7 +676,11 @@ SELECTED="${THEMES[CHOSEN_INDEX]:-}"
 
 [[ -n "$SELECTED" ]] || exit 0
 named_theme_path "$SELECTED" >/dev/null || exit 1
-[[ "$SELECTED" != "$CURRENT_THEME" ]] || exit 0
+if [[ "$SELECTED" == "$CURRENT_THEME" ]]; then
+    CURRENT_APPLICATION_THEME="$(/usr/bin/readlink -f -- "$THEME_DIR_RESOLVED/.caelestia-use" 2>/dev/null || true)"
+    CURRENT_NAMED_THEME="$(/usr/bin/readlink -f -- "$THEME_DIR_RESOLVED/current" 2>/dev/null || true)"
+    [[ "$CURRENT_APPLICATION_THEME" != "$CURRENT_NAMED_THEME" ]] || exit 0
+fi
 
 "$SCRIPT_DIR/rofi-toggle-pidfile" clear "$MENU_ID"
 trap - EXIT
