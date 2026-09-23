@@ -72,6 +72,10 @@
             },
             {
                 "enabled": true,
+                "id": "aiUsage"
+            },
+            {
+                "enabled": true,
                 "id": "audio"
             },
             {

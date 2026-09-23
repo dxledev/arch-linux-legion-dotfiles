@@ -1,5 +1,8 @@
 module qs.modules.bar.popouts
 ActiveWindow 1.0 ActiveWindow.qml
+AIUsageMetric 1.0 AIUsageMetric.qml
+AIUsagePopout 1.0 AIUsagePopout.qml
+AIUsageSection 1.0 AIUsageSection.qml
 AetherMenu 1.0 AetherMenu.qml
 AudioPopout 1.0 AudioPopout.qml
 Battery 1.0 Battery.qml

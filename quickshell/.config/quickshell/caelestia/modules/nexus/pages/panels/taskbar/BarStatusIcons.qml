@@ -16,7 +16,8 @@ PageBase {
             network: Tr.tr("Network"),
             bluetooth: Tr.tr("Bluetooth"),
             battery: Tr.tr("Battery"),
-            hymission: Tr.tr("Hymission")
+            hymission: Tr.tr("Hymission"),
+            aiUsage: Tr.tr("AI Usage")
         })
 
     title: Tr.tr("Status icons")

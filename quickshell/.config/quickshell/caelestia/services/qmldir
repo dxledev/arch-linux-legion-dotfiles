@@ -1,5 +1,6 @@
 module qs.services
 singleton Aether 1.0 Aether.qml
+singleton AIUsage 1.0 AIUsage.qml
 singleton Audio 1.0 Audio.qml
 singleton Brightness 1.0 Brightness.qml
 singleton Colours 1.0 Colours.qml

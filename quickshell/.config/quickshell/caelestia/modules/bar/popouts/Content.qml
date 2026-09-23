@@ -24,6 +24,15 @@ Item {
         anchors.fill: parent
         anchors.margins: Tokens.padding.large
 
+        Connections {
+            target: root.popouts
+
+            function onCurrentNameChanged(): void {
+                if (root.popouts.currentName === "aiusage")
+                    AIUsage.refresh();
+            }
+        }
+
         Popout {
             name: "activewindow"
             sourceComponent: ActiveWindow {
@@ -114,6 +123,11 @@ Item {
             sourceComponent: HymissionPopout {
                 popouts: root.popouts
             }
+        }
+
+        Popout {
+            name: "aiusage"
+            sourceComponent: AIUsagePopout {}
         }
 
         Popout {

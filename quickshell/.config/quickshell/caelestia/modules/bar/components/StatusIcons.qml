@@ -150,6 +150,14 @@ StyledRect {
                         }
                     }
                 }
+                DelegateChoice {
+                    roleValue: "aiUsage"
+                    delegate: EntryWrapper {
+                        AIUsageStatus {
+                            colour: root.colour
+                        }
+                    }
+                }
             }
         }
     }

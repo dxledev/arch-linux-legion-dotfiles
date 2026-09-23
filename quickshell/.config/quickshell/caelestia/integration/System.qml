@@ -9,6 +9,7 @@ Singleton {
     property var workspaceStarts: ({})
     property var brightnessMonitors: []
     property int brightnessWriteDelay: 100
+    property int aiUsageRefreshIntervalSeconds: 300
     property int wallpaperSlideshowIntervalSeconds: 300
     property bool hasProfilePicture: false
     property bool syncWindowRounding: true
@@ -24,7 +25,9 @@ Singleton {
         Quickshell.execDetached([actionScript, action, ...(args || [])]);
     }
 
-    function refreshProfile(): void { profileCheck.running = true; }
+    function refreshProfile(): void {
+        profileCheck.running = true;
+    }
 
     Process {
         id: profileCheck
@@ -44,6 +47,8 @@ Singleton {
             root.workspaceStarts = config.workspaceStarts || {};
             root.brightnessMonitors = config.brightnessMonitors || [];
             root.brightnessWriteDelay = Math.max(50, config.brightnessWriteDelay ?? 100);
+            const aiUsageInterval = Number(config.aiUsageRefreshIntervalSeconds ?? 300);
+            root.aiUsageRefreshIntervalSeconds = Number.isFinite(aiUsageInterval) ? Math.max(2, Math.round(aiUsageInterval)) : 300;
             root.wallpaperSlideshowIntervalSeconds = Math.max(1, config.wallpaperSlideshowIntervalSeconds ?? 300);
             root.syncWindowRounding = config.windowRounding?.enabled ?? true;
             root.windowRoundingPower = config.windowRounding?.power ?? 2.0;
