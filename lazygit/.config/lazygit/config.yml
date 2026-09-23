@@ -1,3 +1,9 @@
 gui:
   authorColors:
     'dxlefourtwenty': 'yellow'
+git:
+  diffRenderers:
+    - name: delta
+      type: stdinFilter
+      colorArg: always
+      command: delta --paging=never
