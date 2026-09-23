@@ -383,9 +383,10 @@ Singleton {
     }
 
     component Transparency: QtObject {
+        readonly property real minimum: 0.7
         readonly property bool enabled: Tokens.transparency.enabled
-        readonly property real base: Math.max(0, Math.min(1, Tokens.transparency.base - (root.light ? 0.1 : 0)))
-        readonly property real layers: Math.max(0, Math.min(1, Tokens.transparency.layers))
+        readonly property real base: Math.max(minimum, Math.min(1, Tokens.transparency.base - (root.light ? 0.1 : 0)))
+        readonly property real layers: Math.max(minimum, Math.min(1, Tokens.transparency.layers))
 
         onEnabledChanged: {
             if (enabled)

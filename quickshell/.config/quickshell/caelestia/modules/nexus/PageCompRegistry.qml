@@ -23,7 +23,7 @@ QtObject {
     readonly property list<Component> pageComps: [
         // Appearance
         Component {
-            // Wallpaper & style
+            // Wallpaper & Style
             StackPage {
                 Component {
                     WallpaperAndStyle {}
@@ -96,14 +96,6 @@ QtObject {
             }
         },
 
-        // System
-        Component {
-            PlaceholderComp {}
-        },
-        Component {
-            PlaceholderComp {}
-        },
-
         // Shell
         Component {
             // Panels
@@ -171,7 +163,7 @@ QtObject {
             }
         },
         Component {
-            // Language & region
+            // Language & Region
             StackPage {
                 Component {
                     LanguageAndRegion {}

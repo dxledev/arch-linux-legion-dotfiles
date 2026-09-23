@@ -9,7 +9,7 @@ QtObject {
     readonly property list<var> pages: [
         // Appearance
         {
-            label: Tr.tr("Wallpaper & style"),
+            label: Tr.tr("Wallpaper & Style"),
             icon: "palette",
             description: Tr.tr("Wallpaper, fonts, colours"),
             category: "appearance"
@@ -30,7 +30,7 @@ QtObject {
             category: "connectivity"
         },
         {
-            label: Tr.tr("Connected devices"),
+            label: Tr.tr("Connected Devices"),
             icon: "devices_other",
             description: Tr.tr("Bluetooth, pairing"),
             category: "connectivity",
@@ -41,20 +41,6 @@ QtObject {
             icon: "volume_up",
             description: Tr.tr("App volumes, sound devices"),
             category: "connectivity"
-        },
-
-        // System
-        {
-            label: Tr.tr("Updates"),
-            icon: "update",
-            description: Tr.tr("System updates"),
-            category: "system"
-        },
-        {
-            label: Tr.tr("Plugins"),
-            icon: "extension",
-            description: Tr.tr("Manage plugins"),
-            category: "system"
         },
 
         // Shell
@@ -77,7 +63,7 @@ QtObject {
             category: "shell"
         },
         {
-            label: Tr.tr("Language & region"),
+            label: Tr.tr("Language & Region"),
             icon: "globe",
             description: Tr.tr("UI language, weather location, display units"),
             category: "shell"

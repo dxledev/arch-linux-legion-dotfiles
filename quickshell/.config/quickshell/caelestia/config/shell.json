@@ -20,7 +20,9 @@
             "workspaces": "CaskaydiaMono Nerd Font"
         },
         "transparency": {
-            "enabled": false
+            "base": 0.8501133028314918,
+            "enabled": false,
+            "layers": 0.7
         }
     },
     "background": {

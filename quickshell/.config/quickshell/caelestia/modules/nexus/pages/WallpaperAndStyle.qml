@@ -15,7 +15,7 @@ import qs.modules.nexus.common
 PageBase {
     id: root
 
-    title: Tr.tr("Wallpaper & style")
+    title: Tr.tr("Wallpaper & Style")
 
     ColumnLayout {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -205,9 +205,35 @@ PageBase {
 
             text: Tr.tr("Transparency")
             // TRANSLATORS: %1/%2 = opacity values from 0 to 1 for the base surface and layered surfaces
-            subtext: Tr.tr("Base %1, layers %2").arg(Colours.transparency.base).arg(Colours.transparency.layers)
+            subtext: Tr.tr("Base %1, layers %2").arg(Colours.transparency.base.toFixed(3)).arg(Colours.transparency.layers.toFixed(3))
             checked: Colours.transparency.enabled
             onToggled: GlobalConfig.appearance.transparency.enabled = checked
+        }
+
+        SliderRow {
+            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+
+            visible: Colours.transparency.enabled
+            icon: "opacity"
+            label: Tr.tr("Base opacity")
+            value: Colours.transparency.base
+            from: Colours.transparency.minimum
+            to: 1 - (Colours.light ? 0.1 : 0)
+            valueLabel: Colours.transparency.base.toFixed(3)
+            onMoved: value => GlobalConfig.appearance.transparency.base = Math.min(1, value + (Colours.light ? 0.1 : 0))
+        }
+
+        SliderRow {
+            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+
+            visible: Colours.transparency.enabled
+            icon: "layers"
+            label: Tr.tr("Layer opacity")
+            value: Colours.transparency.layers
+            from: Colours.transparency.minimum
+            to: 1
+            valueLabel: Colours.transparency.layers.toFixed(3)
+            onMoved: value => GlobalConfig.appearance.transparency.layers = value
         }
 
         ToggleRow {

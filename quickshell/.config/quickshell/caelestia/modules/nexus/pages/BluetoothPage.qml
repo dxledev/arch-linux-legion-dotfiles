@@ -18,7 +18,7 @@ PageBase {
     readonly property BluetoothAdapter adapter: Bluetooth.defaultAdapter // qmllint disable unresolved-type
     readonly property bool btEnabled: adapter?.enabled ?? false
 
-    title: Tr.tr("Connected devices")
+    title: Tr.tr("Connected Devices")
 
     ColumnLayout {
         anchors.horizontalCenter: parent.horizontalCenter

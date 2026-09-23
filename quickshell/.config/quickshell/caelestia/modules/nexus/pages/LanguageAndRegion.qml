@@ -49,7 +49,7 @@ PageBase {
         }
     ]
 
-    title: Tr.tr("Language & region")
+    title: Tr.tr("Language & Region")
 
     ColumnLayout {
         anchors.horizontalCenter: parent.horizontalCenter
