@@ -6,10 +6,15 @@ Canvas {
     property var segments: ChromackState.data.wheel
     property int hoveredIndex: -1
     property real innerRadiusRatio: 0.10
+    readonly property color borderColor: Style.border
+    readonly property color centerColor: Style.content
     onSegmentsChanged: requestPaint()
     onInnerRadiusRatioChanged: requestPaint()
     onHoveredIndexChanged: requestPaint()
+    onBorderColorChanged: requestPaint()
+    onCenterColorChanged: requestPaint()
     onWidthChanged: requestPaint()
+    onHeightChanged: requestPaint()
     onPaint: {
         const ctx = getContext("2d");
         ctx.reset();
@@ -22,13 +27,13 @@ Canvas {
             ctx.closePath();
             ctx.fillStyle = i === hoveredIndex ? Qt.lighter(segments[i].color, 1.18) : segments[i].color;
             ctx.fill();
-            ctx.strokeStyle = Style.border;
+            ctx.strokeStyle = root.borderColor;
             ctx.lineWidth = i === hoveredIndex ? 2 : 1;
             ctx.stroke();
         }
         ctx.beginPath();
         ctx.arc(width / 2, height / 2, radius * innerRadiusRatio, 0, 2 * Math.PI);
-        ctx.fillStyle = Style.content;
+        ctx.fillStyle = root.centerColor;
         ctx.fill();
         ctx.lineWidth = 1;
         ctx.stroke();

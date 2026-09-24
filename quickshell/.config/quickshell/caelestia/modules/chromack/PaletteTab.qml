@@ -10,7 +10,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: ChromackState.data.status || "Generated 24-base palette from " + ChromackState.data.css
         color: Style.muted
-        font.pixelSize: 12
+        font.pixelSize: Style.captionFontSize
         wrapMode: Text.WordWrap
     }
     Repeater {

@@ -7,8 +7,8 @@ QQC.AbstractButton {
     property string value: ""
     property string tooltip: value
     property bool selected: false
-    property real rounding: Style.size("swatch-radius", 3)
-    implicitWidth: Style.size("swatch-size", 24)
+    property real rounding: Style.swatchRadius
+    implicitWidth: Style.swatchSize
     implicitHeight: implicitWidth
     hoverEnabled: true
     focusPolicy: Qt.NoFocus

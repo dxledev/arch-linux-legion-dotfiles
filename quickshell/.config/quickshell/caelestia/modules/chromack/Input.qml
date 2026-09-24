@@ -9,9 +9,11 @@ QQC.TextField {
     implicitHeight: Style.inputHeight
     color: Style.text
     selectionColor: Style.primary
-    selectedTextColor: Style.panel
+    selectedTextColor: Style.onPrimary
     placeholderTextColor: Style.muted
-    font.family: Style.font
+    font.family: Style.bodyFontFamily
+    font.weight: Style.bodyFontWeight
+    font.variableAxes: Style.bodyFontAxes
     font.pixelSize: Style.inputFontSize
     leftPadding: 10
     rightPadding: 10

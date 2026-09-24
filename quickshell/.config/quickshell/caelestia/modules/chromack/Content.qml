@@ -5,6 +5,11 @@ import QtQuick.Layouts
 FocusScope {
     id: root
     objectName: "chromackContent"
+    Rectangle {
+        anchors.fill: parent
+        radius: Style.panelRadius
+        color: Style.panel
+    }
     Keys.onEscapePressed: event => {
         ChromackState.close(false);
         event.accepted = true;
@@ -30,7 +35,7 @@ FocusScope {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: -Style.size("tab-overlap", 1)
+            spacing: -Style.tabOverlap
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 0
@@ -43,11 +48,8 @@ FocusScope {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         implicitHeight: 30
-                        background: Rectangle {
-                            color: ChromackState.tab === parent.index ? Style.content : "transparent"
-                            topLeftRadius: Style.inputRadius
-                            topRightRadius: Style.inputRadius
-                        }
+                        tabButton: true
+                        tabSelected: ChromackState.tab === index
                         onClicked: ChromackState.tab = index
                     }
                 }

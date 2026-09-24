@@ -7,8 +7,8 @@ RowLayout {
         text: "Base"
     }
     Swatch {
-        implicitWidth: Style.size("swatch-size", 24)
-        implicitHeight: Style.size("swatch-size", 24)
+        implicitWidth: Style.swatchSize
+        implicitHeight: Style.swatchSize
         swatchColor: ChromackState.model.parse(input.text)
         value: input.text
         onClicked: ChromackState.model.copy(value)

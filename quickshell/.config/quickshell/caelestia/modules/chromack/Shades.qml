@@ -10,7 +10,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: "Shades add black, tints add white, and tones adjust saturation with gray."
         color: Style.muted
-        font.pixelSize: 12
+        font.pixelSize: Style.captionFontSize
         wrapMode: Text.WordWrap
     }
     Repeater {
@@ -23,13 +23,13 @@ ColumnLayout {
             Label {
                 text: section.modelData.name
                 font.bold: true
-                font.pixelSize: Style.size("section-title-size", 13)
+                font.pixelSize: Style.sectionTitleFontSize
             }
             Label {
                 Layout.fillWidth: true
                 text: section.modelData.description
                 color: Style.muted
-                font.pixelSize: 12
+                font.pixelSize: Style.captionFontSize
                 wrapMode: Text.WordWrap
             }
             GridLayout {

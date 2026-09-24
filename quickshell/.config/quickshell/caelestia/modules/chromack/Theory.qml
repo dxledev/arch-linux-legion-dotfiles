@@ -10,7 +10,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: "Generate complementary values based on color theory."
         color: Style.muted
-        font.pixelSize: 12
+        font.pixelSize: Style.captionFontSize
         wrapMode: Text.WordWrap
     }
     Repeater {
@@ -23,7 +23,7 @@ ColumnLayout {
             Label {
                 text: scheme.modelData.name
                 font.bold: true
-                font.pixelSize: Style.size("section-title-size", 13)
+                font.pixelSize: Style.sectionTitleFontSize
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -33,7 +33,7 @@ ColumnLayout {
                     Swatch {
                         required property var modelData
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Style.size("preview-height", 34)
+                        Layout.preferredHeight: Style.previewHeight
                         rounding: 0
                         swatchColor: modelData.color
                         value: modelData.css
@@ -46,7 +46,7 @@ ColumnLayout {
     Label {
         text: "Color Wheel"
         font.bold: true
-        font.pixelSize: Style.size("section-title-size", 13)
+        font.pixelSize: Style.sectionTitleFontSize
         Layout.topMargin: 16
     }
     TheoryWheel {

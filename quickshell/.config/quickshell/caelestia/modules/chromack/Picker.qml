@@ -12,7 +12,7 @@ ColumnLayout {
             id: sv
             objectName: "chromackSaturationValue"
             Layout.fillWidth: true
-            Layout.preferredHeight: Style.size("picker-height", 220)
+            Layout.preferredHeight: Style.pickerHeight
             clip: true
             Rectangle {
                 anchors.fill: parent
@@ -52,13 +52,13 @@ ColumnLayout {
                 height: 16
                 radius: 8
                 color: "transparent"
-                border.color: "#141414"
+                border.color: Style.border
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 1
                     radius: 7
                     color: "transparent"
-                    border.color: "white"
+                    border.color: Style.text
                     border.width: 2
                 }
             }
@@ -78,7 +78,7 @@ ColumnLayout {
         Item {
             id: hue
             objectName: "chromackHue"
-            Layout.preferredWidth: Style.size("hue-width", 22)
+            Layout.preferredWidth: Style.hueWidth
             Layout.fillHeight: true
             Rectangle {
                 anchors.fill: parent
@@ -120,8 +120,8 @@ ColumnLayout {
                 height: 12
                 radius: 6
                 y: ChromackState.data.hue / 359 * (parent.height - height)
-                color: Style.value("hue-handle-bg", "#ffffff")
-                border.color: Style.value("hue-handle-border-color", "#111111")
+                color: Style.sliderHandle
+                border.color: Style.border
             }
             MouseArea {
                 anchors.fill: parent
@@ -140,7 +140,7 @@ ColumnLayout {
     Label {
         text: "Material Colors"
         font.bold: true
-        font.pixelSize: Style.size("section-title-size", 13)
+        font.pixelSize: Style.sectionTitleFontSize
     }
     GridLayout {
         Layout.fillWidth: true
@@ -163,7 +163,7 @@ ColumnLayout {
     Label {
         text: "Recent Colors"
         font.bold: true
-        font.pixelSize: Style.size("section-title-size", 13)
+        font.pixelSize: Style.sectionTitleFontSize
     }
     RowLayout {
         Layout.fillWidth: true
@@ -203,13 +203,13 @@ ColumnLayout {
                 width: alpha.availableWidth
                 height: 10
                 radius: 5
-                color: Style.value("slider-track-bg", "#1f1d2e")
+                color: Style.sliderTrack
                 border.color: Style.border
                 Rectangle {
                     width: parent.width * alpha.visualPosition
                     height: parent.height
                     radius: 5
-                    color: Style.value("slider-fill-bg", "#c4a7e7")
+                    color: Style.primary
                 }
             }
             handle: Rectangle {
@@ -218,14 +218,14 @@ ColumnLayout {
                 width: 14
                 height: 14
                 radius: 7
-                color: Style.value("slider-handle-bg", "white")
-                border.color: Style.value("slider-handle-border-color", "#111111")
+                color: Style.sliderHandle
+                border.color: Style.border
             }
         }
         Swatch {
-            implicitWidth: Style.size("preview-width", 74)
-            implicitHeight: Style.size("preview-height", 34)
-            rounding: Style.size("preview-radius", 10)
+            implicitWidth: Style.previewWidth
+            implicitHeight: Style.previewHeight
+            rounding: Style.previewRadius
             swatchColor: ChromackState.data.color
             value: ChromackState.data.css
             onClicked: ChromackState.model.copy(value)

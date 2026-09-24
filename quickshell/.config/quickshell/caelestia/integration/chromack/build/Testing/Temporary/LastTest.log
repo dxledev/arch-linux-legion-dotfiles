@@ -1,0 +1,19 @@
+Start testing: Sep 23 19:14 PDT
+----------------------------------------------------------
+Unable to find executable: /home/dxle/dotfiles/quickshell/.config/quickshell/caelestia/integration/chromack/build/test-chromack
+1/1 Testing: chromack
+1/1 Test: chromack
+Command: "" "-platform" "offscreen"
+Directory: /home/dxle/.config/quickshell/caelestia/integration/chromack/build
+"chromack" start time: 
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"chromack" end time: Sep 23 19:14 PDT
+"chromack" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 23 19:14 PDT

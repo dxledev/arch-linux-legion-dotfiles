@@ -8,8 +8,8 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: saveRow.implicitHeight + 16
         visible: ChromackState.savePrompt
-        radius: Style.size("header-radius", 12)
-        color: Style.value("header-bg", "#1f1d2e")
+        radius: Style.headerRadius
+        color: Style.header
         RowLayout {
             id: saveRow
             anchors.fill: parent
@@ -51,8 +51,8 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         implicitHeight: headerRow.implicitHeight + 16
-        radius: Style.size("header-radius", 12)
-        color: Style.value("header-bg", "#1f1d2e")
+        radius: Style.headerRadius
+        color: Style.header
         RowLayout {
             id: headerRow
             anchors.fill: parent
@@ -64,13 +64,13 @@ ColumnLayout {
                 Label {
                     text: ChromackState.data.title
                     font.bold: true
-                    font.pixelSize: Style.size("title-size", 17)
+                    font.pixelSize: Style.titleFontSize
                 }
                 Label {
                     Layout.fillWidth: true
                     text: ChromackState.data.subtitle
                     color: Style.muted
-                    font.pixelSize: Style.size("subtitle-size", 12)
+                    font.pixelSize: Style.subtitleFontSize
                     elide: Text.ElideRight
                 }
             }
