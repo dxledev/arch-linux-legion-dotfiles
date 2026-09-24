@@ -18,10 +18,11 @@ StyledRect {
     required property Flickable container
     required property ScreenState screenState
 
+    readonly property bool useAppIconAsGroupImage: modelData === "spotify-media-controls"
     readonly property list<var> notifs: Notifs.list.filter(n => n.appName === modelData)
     readonly property list<var> activeNotifs: notifs.filter(n => !n.closed)
     readonly property int notifCount: activeNotifs.length
-    readonly property var imageNotification: activeNotifs.find(n => n.artworkAvailable && n.image.length > 0) ?? null
+    readonly property var imageNotification: useAppIconAsGroupImage ? null : activeNotifs.find(n => n.artworkAvailable && n.image.length > 0) ?? null
     readonly property string image: imageNotification?.image ?? ""
     property bool imageUnavailable: false
     readonly property bool hasImage: image.length > 0 && !imageUnavailable

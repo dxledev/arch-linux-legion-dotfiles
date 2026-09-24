@@ -16,6 +16,7 @@ StyledRect {
 
     required property string modelData
 
+    readonly property bool useAppIconAsGroupImage: modelData === "spotify-media-controls"
     readonly property list<var> notifs: Notifs.list.filter(notif => notif.appName === modelData)
     readonly property var props: {
         let img = "";
@@ -24,7 +25,7 @@ StyledRect {
         let hasCritical = false;
         let hasNormal = false;
         for (const n of notifs) {
-            if (!imageNotification && n.artworkAvailable && n.image.length > 0) {
+            if (!useAppIconAsGroupImage && !imageNotification && n.artworkAvailable && n.image.length > 0) {
                 img = n.image;
                 imageNotification = n;
             }
@@ -324,22 +325,29 @@ StyledRect {
         id: notifLine
 
         required property NotifData modelData
+        readonly property bool useFormattedText: root.useAppIconAsGroupImage
+        readonly property string summaryText: useFormattedText ? modelData.formattedSummary.preview : modelData.summary
+        readonly property string bodyText: useFormattedText ? modelData.formattedBody.preview : modelData.body
+        readonly property string metricSummary: useFormattedText ? summaryText.replace(/<[^>]*>/g, "") : summaryText
+        readonly property string metricBody: useFormattedText ? bodyText.replace(/<[^>]*>/g, "") : bodyText
 
         Layout.fillWidth: true
-        textFormat: Text.MarkdownText
+        textFormat: useFormattedText ? Text.StyledText : Text.MarkdownText
         text: {
-            const summary = modelData.summary.replace(/\n/g, " ");
-            const body = modelData.body.replace(/\n/g, " ");
+            const summary = summaryText.replace(/\n/g, " ");
+            const body = bodyText.replace(/\n/g, " ");
+            const plainSummary = metricSummary.replace(/\n/g, " ");
+            const plainBody = metricBody.replace(/\n/g, " ");
             const colour = root.urgency === "critical" ? Colours.palette.m3secondary : Colours.palette.m3outline;
 
             if (metrics.text === metrics.elidedText)
                 return `${summary} <span style='color:${colour}'>${body}</span>`;
 
             const t = metrics.elidedText.length - 3;
-            if (t < summary.length)
-                return `${summary.slice(0, t)}...`;
+            if (t < plainSummary.length)
+                return `${plainSummary.slice(0, t)}...`;
 
-            return `${summary} <span style='color:${colour}'>${body.slice(0, t - summary.length)}...</span>`;
+            return `${summary} <span style='color:${colour}'>${plainBody.slice(0, t - plainSummary.length)}...</span>`;
         }
         color: root.urgency === "critical" ? Colours.palette.m3onSecondaryContainer : Colours.palette.m3onSurface
 
@@ -349,7 +357,7 @@ StyledRect {
         TextMetrics {
             id: metrics
 
-            text: `${notifLine.modelData.summary} ${notifLine.modelData.body}`.replace(/\n/g, " ")
+            text: `${notifLine.metricSummary} ${notifLine.metricBody}`.replace(/\n/g, " ")
             font: notifLine.font
             elideWidth: notifLine.width
             elide: Text.ElideRight
