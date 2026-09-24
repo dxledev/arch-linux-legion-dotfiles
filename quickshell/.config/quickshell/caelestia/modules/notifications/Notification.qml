@@ -16,7 +16,9 @@ StyledRect {
     id: root
 
     required property NotifData modelData
-    readonly property bool hasImage: modelData.image.length > 0
+    readonly property string imageSource: modelData.image
+    property bool imageUnavailable: false
+    readonly property bool hasImage: imageSource.length > 0 && modelData.artworkAvailable && !imageUnavailable
     readonly property bool hasAppIcon: modelData.appIcon.length > 0
     property real extraRightPadding: 8
     property real extraBottomPadding: 8
@@ -36,6 +38,8 @@ StyledRect {
         modelData.lock(this);
     }
     Component.onDestruction: modelData.unlock(this)
+
+    onImageSourceChanged: imageUnavailable = false
 
     Behavior on x {
         Anim {
@@ -150,6 +154,13 @@ StyledRect {
                     }
 
                     Image {
+                        onStatusChanged: {
+                            if (status === Image.Error) {
+                                root.imageUnavailable = true;
+                                root.modelData.invalidateArtwork(root.imageSource);
+                            }
+                        }
+
                         anchors.fill: parent
                         source: Qt.resolvedUrl(root.modelData.image)
                         fillMode: Image.PreserveAspectCrop

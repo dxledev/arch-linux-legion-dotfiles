@@ -18,6 +18,7 @@ Singleton {
     property string flavour
     property string source: "system"
     property string provider: "theme"
+    property string staticThemeName: ""
     property string variant: "tonalspot"
     readonly property bool light: showPreview ? previewLight : currentLight
     property bool currentLight
@@ -91,6 +92,7 @@ Singleton {
         if (!isPreview) {
             root.source = source;
             root.provider = provider;
+            root.staticThemeName = source === "system" ? (scheme.name ?? "") : "";
             variant = scheme.variant ?? "tonalspot";
             if (root.source === "system") {
                 loadSystemPalette();

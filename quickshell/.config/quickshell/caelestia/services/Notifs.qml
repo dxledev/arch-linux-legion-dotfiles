@@ -39,6 +39,11 @@ Singleton {
         return true;
     }
 
+    function persist(): void {
+        if (loaded)
+            saveTimer.restart();
+    }
+
     onDndChanged: {
         if (!GlobalConfig.utilities.toasts.dndChanged)
             return;
@@ -50,8 +55,7 @@ Singleton {
     }
 
     onListChanged: {
-        if (loaded)
-            saveTimer.restart();
+        persist();
     }
 
     Timer {
@@ -109,7 +113,11 @@ Singleton {
             const notif = root.list.find(n => !n.closed && n.notification && n.notificationId === notificationId);
             if (notif) {
                 notif.popup = root.shouldShowPopup();
+                notif.time = new Date();
+                notif.updateTimeStr();
+                notif.refreshArtwork();
                 notif.restartTimeout();
+                root.list = [notif, ...root.list.filter(n => n !== notif)];
             }
         }
     }

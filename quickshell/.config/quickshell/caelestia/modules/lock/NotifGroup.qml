@@ -19,12 +19,15 @@ StyledRect {
     readonly property list<var> notifs: Notifs.list.filter(notif => notif.appName === modelData)
     readonly property var props: {
         let img = "";
+        let imageNotification = null;
         let icon = "";
         let hasCritical = false;
         let hasNormal = false;
         for (const n of notifs) {
-            if (!img && n.image.length > 0)
+            if (!imageNotification && n.artworkAvailable && n.image.length > 0) {
                 img = n.image;
+                imageNotification = n;
+            }
             if (!icon && n.appIcon.length > 0)
                 icon = n.appIcon;
             if (n.urgency === NotificationUrgency.Critical)
@@ -34,15 +37,20 @@ StyledRect {
         }
         return {
             img,
+            imageNotification,
             icon,
             urgency: hasCritical ? "critical" : hasNormal ? "normal" : "low"
         };
     }
     readonly property string image: props.img
+    property bool imageUnavailable: false
+    readonly property bool hasImage: image.length > 0 && !imageUnavailable
     readonly property string appIcon: props.icon
     readonly property string urgency: props.urgency
 
     property bool expanded
+
+    onImageChanged: imageUnavailable = false
 
     anchors.left: parent?.left
     anchors.right: parent?.right
@@ -71,6 +79,13 @@ StyledRect {
                 id: imageComp
 
                 Image {
+                    onStatusChanged: {
+                        if (status === Image.Error) {
+                            root.imageUnavailable = true;
+                            root.props.imageNotification?.invalidateArtwork(root.image);
+                        }
+                    }
+
                     source: Qt.resolvedUrl(root.image)
                     fillMode: Image.PreserveAspectCrop
                     sourceSize: {
@@ -113,7 +128,7 @@ StyledRect {
                 Loader {
                     asynchronous: true
                     anchors.centerIn: parent
-                    sourceComponent: root.image ? imageComp : root.appIcon ? appIconComp : materialIconComp
+                    sourceComponent: root.hasImage ? imageComp : root.appIcon ? appIconComp : materialIconComp
                 }
             }
 
@@ -121,7 +136,7 @@ StyledRect {
                 asynchronous: true
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                active: root.appIcon && root.image
+                active: root.appIcon && root.hasImage
 
                 sourceComponent: StyledRect {
                     implicitWidth: Tokens.sizes.notifs.badge

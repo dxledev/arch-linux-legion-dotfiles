@@ -160,6 +160,18 @@ PageBase {
             }
 
             IconTextButton {
+                icon: "photo_library"
+                text: Tr.tr("Browse")
+                font: Tokens.font.body.large
+                isRound: true
+                shapeMorph: true
+                type: IconTextButton.Tonal
+                horizontalPadding: Tokens.padding.extraLarge
+                verticalPadding: Tokens.padding.medium
+                onClicked: Quickshell.execDetached([Quickshell.shellPath("integration/aether"), "launch"])
+            }
+
+            IconTextButton {
                 icon: "palette"
                 text: Tr.tr("Colours")
                 font: Tokens.font.body.large
@@ -169,18 +181,6 @@ PageBase {
                 horizontalPadding: Tokens.padding.extraLarge
                 verticalPadding: Tokens.padding.medium
                 onClicked: root.nState.openSubPage(3) // Colours page
-            }
-
-            IconTextButton {
-                icon: "auto_awesome"
-                text: Tr.tr("Aether")
-                font: Tokens.font.body.large
-                isRound: true
-                shapeMorph: true
-                type: IconTextButton.Tonal
-                horizontalPadding: Tokens.padding.extraLarge
-                verticalPadding: Tokens.padding.medium
-                onClicked: Quickshell.execDetached([Quickshell.shellPath("integration/aether"), "launch"])
             }
         }
 
