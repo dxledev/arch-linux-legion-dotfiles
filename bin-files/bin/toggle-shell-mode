@@ -30,6 +30,7 @@ dashboard_bin="${DASHBOARD_BIN:-$HOME/builds/dashboard/build/topdash}"
 swayosd_server_bin="${SWAYOSD_SERVER_BIN:-$HOME/bin/swayosd-server}"
 lock_file="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$UID.lock}"
 process_log_dir="${SHELL_MODE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/toggle-shell-mode}"
+noctalia_handoff_file="${NOCTALIA_THEME_SYNC_DEFER_FILE:-$process_log_dir/noctalia-theme-handoff}"
 quickshell_stop_timeout="${QUICKSHELL_STOP_TIMEOUT:-5}"
 shell_health_timeout="${SHELL_HEALTH_TIMEOUT:-15}"
 shell_health_delay="${SHELL_HEALTH_DELAY:-1}"
@@ -41,7 +42,8 @@ action=""
 dry_run=0
 startup_locked=0
 fresh_login_marker=""
-noctalia_theme_preloaded=0
+noctalia_switch_trace_id=""
+noctalia_switch_start_ns=""
 waybar_processes=(ward waybar wardnc hypr-dock chromack topdash dashboard mako swayosd-server)
 waybar_required_processes=(waybar ward wardnc chromack topdash swayosd-server)
 
@@ -54,6 +56,32 @@ usage() {
 fail() {
     printf 'toggle-shell-mode: %s\n' "$*" >&2
     exit 1
+}
+
+trace_timing() {
+    local phase="$1" now elapsed trace_file="${NOCTALIA_SWITCH_TRACE_FILE:-$process_log_dir/noctalia-switch-timings.tsv}"
+    [[ -n "$noctalia_switch_trace_id" && "$noctalia_switch_start_ns" =~ ^[0-9]+$ ]] || return 0
+    now="$(/usr/bin/date +%s%N)"
+    elapsed=$(((now - noctalia_switch_start_ns) / 1000000))
+    /usr/bin/mkdir -p -- "${trace_file%/*}" 2>/dev/null || return 0
+    printf '%s\t%s\t%s\t%s\n' "$noctalia_switch_trace_id" "$phase" "$now" "$elapsed" >> "$trace_file" 2>/dev/null || true
+}
+
+begin_noctalia_timing() {
+    local now
+    now="$(/usr/bin/date +%s%N)"
+    noctalia_switch_start_ns="$now"
+    noctalia_switch_trace_id="${NOCTALIA_SWITCH_TRACE_ID:-$$-$now}"
+    trace_timing switch-start
+}
+
+prepare_noctalia_handoff() {
+    /usr/bin/mkdir -p -- "${noctalia_handoff_file%/*}"
+    printf '%s\n' "${noctalia_switch_trace_id:-$$}" > "$noctalia_handoff_file"
+}
+
+clear_noctalia_handoff() {
+    /usr/bin/rm -f -- "$noctalia_handoff_file"
 }
 
 require_absolute_path() {
@@ -247,9 +275,17 @@ start_noctalia_profile() {
     args=(start --profile "$profile")
     (( lock_flag )) && args+=(--start-locked)
     if (( dynamic_handoff )); then
-        NOCTALIA_DYNAMIC_HANDOFF=1 "$noctalia_shell" "${args[@]}" 9>&-
+        NOCTALIA_THEME_SYNC_DEFER=1 NOCTALIA_SWITCH_TRACE_ID="$noctalia_switch_trace_id" \
+            NOCTALIA_SWITCH_START_NS="$noctalia_switch_start_ns" \
+            NOCTALIA_SWITCH_TRACE_FILE="${NOCTALIA_SWITCH_TRACE_FILE:-$process_log_dir/noctalia-switch-timings.tsv}" \
+            NOCTALIA_THEME_SYNC_DEFER_FILE="$noctalia_handoff_file" \
+            NOCTALIA_DYNAMIC_HANDOFF=1 "$noctalia_shell" "${args[@]}" 9>&-
     else
-        "$noctalia_shell" "${args[@]}" 9>&-
+        NOCTALIA_THEME_SYNC_DEFER=1 NOCTALIA_SWITCH_TRACE_ID="$noctalia_switch_trace_id" \
+            NOCTALIA_SWITCH_START_NS="$noctalia_switch_start_ns" \
+            NOCTALIA_SWITCH_TRACE_FILE="${NOCTALIA_SWITCH_TRACE_FILE:-$process_log_dir/noctalia-switch-timings.tsv}" \
+            NOCTALIA_THEME_SYNC_DEFER_FILE="$noctalia_handoff_file" \
+            "$noctalia_shell" "${args[@]}" 9>&-
     fi
 }
 
@@ -292,9 +328,14 @@ sync_noctalia_theme() {
     [[ "$reload_apps" == 0 || "$reload_apps" == 1 ]] || return 1
     (( reload_apps )) && args+=(--reload-apps)
     if (( dynamic_handoff )); then
-        NOCTALIA_DYNAMIC_HANDOFF=1 THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" "${args[@]}" 9>&-
+        NOCTALIA_DYNAMIC_HANDOFF=1 NOCTALIA_SWITCH_TRACE_ID="$noctalia_switch_trace_id" \
+            NOCTALIA_SWITCH_START_NS="$noctalia_switch_start_ns" \
+            NOCTALIA_SWITCH_TRACE_FILE="${NOCTALIA_SWITCH_TRACE_FILE:-$process_log_dir/noctalia-switch-timings.tsv}" \
+            NOCTALIA_THEME_SYNC_DEFER=0 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" "${args[@]}" 9>&-
     else
-        THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" "${args[@]}" 9>&-
+        NOCTALIA_SWITCH_TRACE_ID="$noctalia_switch_trace_id" NOCTALIA_SWITCH_START_NS="$noctalia_switch_start_ns" \
+            NOCTALIA_SWITCH_TRACE_FILE="${NOCTALIA_SWITCH_TRACE_FILE:-$process_log_dir/noctalia-switch-timings.tsv}" \
+            NOCTALIA_THEME_SYNC_DEFER=0 THEME_APPLY_SKIP_WAYBAR=1 "$noctalia_theme_sync" "${args[@]}" 9>&-
     fi
 }
 
@@ -379,7 +420,6 @@ verify_mode() {
 
 apply_profile() {
     local target="$1" lock_flag="${2:-0}" dynamic_handoff="${3:-0}"
-    noctalia_theme_preloaded=0
     if [[ "$target" == caelestia || "$target" == noctalia ]]; then
         "$wallpaper_slideshow" --stop 9>&- || return 1
     fi
@@ -392,10 +432,10 @@ apply_profile() {
         theme_state="$("$noctalia_theme_sync" --describe)" || return 1
         theme_source="$("$jq_bin" -r '.source // empty' <<< "$theme_state")"
         if [[ "$theme_source" == custom ]]; then
-            THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_WAIT_FOR_RELOADS=1 "$noctalia_theme_sync" --prestart --reload-apps 9>&- || return 1
-            noctalia_theme_preloaded=1
+            THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 "$noctalia_theme_sync" --prestart 9>&- || return 1
         fi
         stop_external_wallpaper
+        prepare_noctalia_handoff || return 1
         start_noctalia_profile full "$lock_flag" "$dynamic_handoff"
     else
         if [[ "$target" == caelestia ]]; then
@@ -522,18 +562,20 @@ write_startup_plan() {
 
 restore_previous() {
     local previous="$1" status=0
-    apply_profile "$previous" 0 || status=1
+    NOCTALIA_THEME_SYNC_DEFER_FILE="$noctalia_handoff_file" "$noctalia_theme_sync" --cancel || status=1
+    if [[ "$previous" == noctalia ]]; then
+        apply_profile "$previous" 0 1 || status=1
+    else
+        apply_profile "$previous" 0 || status=1
+    fi
     if [[ "$action" != apply ]]; then
         write_markers "$previous" || status=1
         "$hyprctl_bin" reload >/dev/null 2>&1 || status=1
     fi
     if [[ "$previous" == noctalia ]]; then
-        if (( noctalia_theme_preloaded )); then
-            sync_noctalia_theme 0 0 || status=1
-        else
-            sync_noctalia_theme 0 || status=1
-        fi
+        sync_noctalia_theme 0 1 || status=1
     fi
+    clear_noctalia_handoff
     /usr/bin/sleep "$shell_health_delay"
     verify_mode "$previous" || status=1
     return "$status"
@@ -541,7 +583,7 @@ restore_previous() {
 
 transition() {
     local target="$1" previous="$2" dynamic_handoff=0
-    [[ "$target" != noctalia || "$previous" == noctalia ]] || dynamic_handoff=1
+    [[ "$target" != noctalia ]] || dynamic_handoff=1
     apply_profile "$target" "$startup_locked" "$dynamic_handoff" || return 1
     verify_mode "$target" || return 1
     if [[ "$action" != apply ]]; then
@@ -551,11 +593,8 @@ transition() {
     /usr/bin/sleep "$shell_health_delay"
     if [[ "$target" == noctalia ]]; then
         [[ -x "$noctalia_theme_sync" ]] || fail "Noctalia theme synchronizer not found: $noctalia_theme_sync"
-        if (( noctalia_theme_preloaded )); then
-            sync_noctalia_theme "$dynamic_handoff" 0 || return 1
-        else
-            sync_noctalia_theme "$dynamic_handoff" || return 1
-        fi
+        sync_noctalia_theme "$dynamic_handoff" 1 || return 1
+        clear_noctalia_handoff
         stop_waybar_owned || return 1
     fi
     verify_mode "$target"
@@ -584,13 +623,16 @@ main() {
     /usr/bin/flock -n 9 || fail 'A shell mode transition is already running.'
     [[ "$(current_mode)" == "$current" ]] || fail 'Mode changed; run the command again.'
     "$hyprctl_bin" version >/dev/null || fail 'Cannot reach Hyprland.'
+    NOCTALIA_THEME_SYNC_DEFER_FILE="$noctalia_handoff_file" "$noctalia_theme_sync" --cancel || fail 'Could not cancel stale Noctalia theme work.'
+    [[ "$target" != noctalia ]] || begin_noctalia_timing
     if ! transition "$target" "$current"; then
         restore_previous "$current" || true
         fail "Could not sustain $target mode; attempted to restore $current."
     fi
     commit_fresh_login_marker
-    if [[ "$action" != apply && -x "$notify_send_bin" ]]; then
+    if [[ ( "$action" != apply || "$target" == noctalia ) && -x "$notify_send_bin" ]]; then
         "$notify_send_bin" -t 2500 'Desktop' "Shell Mode: <b>${target^}</b>" >/dev/null 2>&1 || true
+        [[ "$target" != noctalia ]] || trace_timing notification-dispatched
     fi
 }
 

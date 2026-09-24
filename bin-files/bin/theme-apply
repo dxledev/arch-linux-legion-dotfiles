@@ -13,14 +13,21 @@ spicetify_link="${SPICETIFY_DYNAMIC_LINK:-$config_home/spicetify/Themes/Caelesti
 shell_mode_script="${SHELL_MODE_SCRIPT:-$script_dir/toggle-shell-mode}"
 notify_send_bin="${NOTIFY_SEND_BIN:-$script_dir/notify-send}"
 spicetify_lock="${THEME_APPLY_SPICETIFY_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/theme-apply-spicetify-$UID.lock}"
+pgrep_bin="${THEME_APPLY_PGREP_BIN:-/usr/bin/pgrep}"
+pkill_bin="${THEME_APPLY_PKILL_BIN:-/usr/bin/pkill}"
+reload_concurrency="${THEME_APPLY_RELOAD_CONCURRENCY:-32}"
+low_priority="${THEME_APPLY_LOW_PRIORITY:-0}"
+activate_only="${THEME_APPLY_ACTIVATE_ONLY:-0}"
 dry_run=0
 failures=()
 reload_pids=()
 reload_labels=()
+reload_count=0
+reload_head=0
 wait_for_reloads="${THEME_APPLY_WAIT_FOR_RELOADS:-0}"
 
 usage() {
-    printf 'Usage: theme-apply [--dry-run] system|dynamic [caelestia|noctalia]\n'
+    printf 'Usage: theme-apply [--dry-run|--activate-only|--reload-only] system|dynamic [caelestia|noctalia]\n'
 }
 
 fail() {
@@ -61,6 +68,9 @@ validate_paths() {
         fail "Unexpected Dynamic theme directory: $dynamic_theme"
     [[ -d "$themes_dir" ]] || fail "Themes directory not found: $themes_dir"
     [[ "$wait_for_reloads" == 0 || "$wait_for_reloads" == 1 ]] || fail 'THEME_APPLY_WAIT_FOR_RELOADS must be 0 or 1.'
+    [[ "$activate_only" == 0 || "$activate_only" == 1 ]] || fail 'THEME_APPLY_ACTIVATE_ONLY must be 0 or 1.'
+    [[ "$low_priority" == 0 || "$low_priority" == 1 ]] || fail 'THEME_APPLY_LOW_PRIORITY must be 0 or 1.'
+    [[ "$reload_concurrency" =~ ^[1-9][0-9]*$ && "$reload_concurrency" -le 64 ]] || fail 'THEME_APPLY_RELOAD_CONCURRENCY must be 1-64.'
     validate_named_current
     if [[ -d "$dynamic_theme" && -f "$dynamic_theme/.$dynamic_provider-generated" ]]; then
         dynamic_resolved="$(/usr/bin/readlink -f -- "$dynamic_theme")"
@@ -107,6 +117,7 @@ ensure_spicetify_link() {
 activate_selector() {
     local mode="$1" target temporary_dir
     if [[ "$mode" == dynamic ]]; then target=".dynamic/$dynamic_provider"; else target='current'; fi
+    [[ "$(/usr/bin/readlink -f -- "$selector" 2>/dev/null || true)" != "$(/usr/bin/readlink -f -- "$themes_dir/$target" 2>/dev/null || true)" ]] || return 0
     temporary_dir="$(/usr/bin/mktemp -d "$themes_dir/.caelestia-use.XXXXXX")"
     /usr/bin/ln -s -- "$target" "$temporary_dir/link"
     /usr/bin/mv -Tf -- "$temporary_dir/link" "$selector"
@@ -117,22 +128,56 @@ record_failure() {
     failures+=("$1")
 }
 
+reload_generation_is_current() {
+    local file="${THEME_APPLY_GENERATION_FILE:-}" expected="${THEME_APPLY_GENERATION:-}" current
+    [[ -z "$file" || -z "$expected" ]] && return 0
+    [[ -r "$file" ]] || return 1
+    IFS= read -r current < "$file"
+    [[ "$current" == "$expected" ]]
+}
+
+wait_for_reload_slot() {
+    local index="$reload_head"
+    (( reload_count - reload_head < reload_concurrency )) && return 0
+    if ! wait "${reload_pids[index]}"; then
+        record_failure "${reload_labels[index]}"
+    fi
+    reload_head=$((reload_head + 1))
+}
+
+track_reload() {
+    local label="$1" pid="$2"
+    reload_labels+=("$label")
+    reload_pids+=("$pid")
+    reload_count=$((reload_count + 1))
+}
+
+run_reload_command() {
+    if (( low_priority )); then
+        /usr/bin/nice -n "${THEME_APPLY_RELOAD_NICE:-10}" /usr/bin/ionice -c 3 -- "$@"
+    else
+        "$@"
+    fi
+}
+
 queue_reload() {
     local label="$1"
     shift
+    reload_generation_is_current || return 0
     if [[ "$1" != /* || ! -x "$1" ]]; then
         record_failure "$label"
         return
     fi
-    "$@" >/dev/null 2>&1 9>&- &
-    reload_pids+=("$!")
-    reload_labels+=("$label")
+    wait_for_reload_slot
+    reload_generation_is_current || return 0
+    (run_reload_command "$@") >/dev/null 2>&1 9>&- &
+    track_reload "$label" "$!"
 }
 
 queue_if_running() {
     local process="$1" label="$2"
     shift 2
-    /usr/bin/pgrep -u "$UID" -x "$process" >/dev/null 2>&1 || return 0
+    "$pgrep_bin" -u "$UID" -x "$process" >/dev/null 2>&1 || return 0
     queue_reload "$label" "$@"
 }
 
@@ -162,14 +207,16 @@ queue_spicetify_reload() {
         record_failure spotify
         return
     fi
+    reload_generation_is_current || return 0
+    wait_for_reload_slot
+    reload_generation_is_current || return 0
     (
         exec 8>"$spicetify_lock"
         /usr/bin/flock 8
         [[ "$(active_theme_key)" == "$expected" ]] || exit 0
-        "$executable" "$@"
+        run_reload_command "$executable" "$@"
     ) >/dev/null 2>&1 &
-    reload_pids+=("$!")
-    reload_labels+=(spotify)
+    track_reload spotify "$!"
 }
 
 external_wallpaper_enabled() {
@@ -184,11 +231,12 @@ external_wallpaper_enabled() {
 
 wait_for_queued_reloads() {
     local index
-    for index in "${!reload_pids[@]}"; do
+    for (( index = reload_head; index < reload_count; index++ )); do
         if ! wait "${reload_pids[index]}"; then
             record_failure "${reload_labels[index]}"
         fi
     done
+    reload_head=$reload_count
 }
 
 reload_waybar_apps() {
@@ -206,9 +254,9 @@ reload_waybar_apps() {
 }
 
 reload_portals() {
-    /usr/bin/pkill -u "$UID" -x xdg-desktop-portal >/dev/null 2>&1 || true
-    /usr/bin/pkill -u "$UID" -x xdg-desktop-portal-gtk >/dev/null 2>&1 || true
-    /usr/bin/pkill -u "$UID" -x xdg-desktop-portal-hyprland >/dev/null 2>&1 || true
+    "$pkill_bin" -u "$UID" -x xdg-desktop-portal >/dev/null 2>&1 || true
+    "$pkill_bin" -u "$UID" -x xdg-desktop-portal-gtk >/dev/null 2>&1 || true
+    "$pkill_bin" -u "$UID" -x xdg-desktop-portal-hyprland >/dev/null 2>&1 || true
 }
 
 reload_applications() {
@@ -277,8 +325,17 @@ show_plan() {
 }
 
 main() {
-    local mode
-    [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
+    local mode action=apply
+    while (( $# )) && [[ "$1" == --* ]]; do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --activate-only) action=activate ;;
+            --reload-only) action=reload ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
     if [[ $# == 1 && "$1" == system ]]; then
         mode=system
     elif [[ $# == 1 && "$1" == dynamic ]]; then
@@ -292,9 +349,17 @@ main() {
     fi
     configure_dynamic_provider
     validate_paths "$mode"
-    if (( dry_run )); then show_plan "$mode"; return; fi
+    if (( dry_run )); then
+        if [[ "$action" == reload ]]; then printf 'Reload desktop applications for %s\n' "$mode"; else show_plan "$mode"; fi
+        return
+    fi
+    if [[ "$action" == reload ]]; then
+        reload_worker "$mode"
+        return
+    fi
     [[ "$mode" != dynamic ]] || ensure_spicetify_link
     activate_selector "$mode"
+    [[ "$action" != activate && "$activate_only" != 1 ]] || return 0
     dispatch_reloads "$mode"
 }
 

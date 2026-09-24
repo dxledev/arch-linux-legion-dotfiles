@@ -8,6 +8,7 @@ state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
 noctalia_bin="${NOCTALIA_BIN:-$config_home/noctalia/.runtime/bin/noctalia}"
 themes_dir="${THEMES_DIR:-$config_home/themes}"
+application_selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
 settings_file="${NOCTALIA_SETTINGS_FILE:-$state_home/noctalia/settings.toml}"
 renderer="${THEME_RENDER_SCRIPT:-$config_home/quickshell/caelestia/integration/theme-render}"
 theme_apply="${THEME_APPLY_SCRIPT:-$HOME/bin/theme-apply}"
@@ -15,15 +16,23 @@ theme_script="${THEME_SCRIPT:-$HOME/bin/theme}"
 cache_dir="${NOCTALIA_THEME_CACHE_DIR:-$cache_home/noctalia-shell/palettes}"
 generation_file="${NOCTALIA_THEME_GENERATION_FILE:-$state_home/toggle-shell-mode/noctalia-theme-generation}"
 lock_file="${NOCTALIA_THEME_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/noctalia-theme-sync-$UID.lock}"
+worker_file="${NOCTALIA_THEME_WORKER_FILE:-$state_home/toggle-shell-mode/noctalia-theme-worker}"
+handoff_file="${NOCTALIA_THEME_SYNC_DEFER_FILE:-$state_home/toggle-shell-mode/noctalia-theme-handoff}"
+active_palette_file="${NOCTALIA_ACTIVE_PALETTE_FILE:-$state_home/noctalia/active-dynamic-palette}"
+trace_file="${NOCTALIA_SWITCH_TRACE_FILE:-$state_home/toggle-shell-mode/noctalia-switch-timings.tsv}"
+template_hash_cache=""
+prewarm_enabled="${NOCTALIA_THEME_PREWARM:-1}"
 dry_run=0
 reload_apps=0
+schedule_reloads=0
 prestart=0
 describe=0
+sync_reload_mode=dynamic
 
 schemes=(m3-tonal-spot m3-content m3-fruit-salad m3-rainbow m3-monochrome vibrant faithful soft dysfunctional muted)
 
 usage() {
-    printf 'Usage: noctalia-theme-sync [--dry-run] [--reload-apps] [--prestart] | --describe\n'
+    printf 'Usage: noctalia-theme-sync [--dry-run] [--reload-apps] [--prestart] | --describe | --cancel\n'
 }
 
 fail() {
@@ -57,8 +66,57 @@ require_absolute_executable() {
     [[ "$1" == /* && -x "$1" ]] || fail "Executable not found: $1"
 }
 
+trace_timing() {
+    local phase="$1" start="${NOCTALIA_SWITCH_START_NS:-}" now elapsed
+    [[ -n "${NOCTALIA_SWITCH_TRACE_ID:-}" && "$start" =~ ^[0-9]+$ ]] || return 0
+    now="$(/usr/bin/date +%s%N)"
+    elapsed=$(((now - start) / 1000000))
+    /usr/bin/mkdir -p -- "${trace_file%/*}" 2>/dev/null || return 0
+    printf '%s\t%s\t%s\t%s\n' "$NOCTALIA_SWITCH_TRACE_ID" "$phase" "$now" "$elapsed" >> "$trace_file" 2>/dev/null || true
+}
+
+generation_is_current() {
+    local expected="$1" current
+    [[ -r "$generation_file" ]] || return 1
+    IFS= read -r current < "$generation_file"
+    [[ "$current" == "$expected" ]]
+}
+
+cleanup_worker_file() {
+    local expected="$1" current
+    [[ -r "$worker_file" ]] || return 0
+    IFS= read -r current < "$worker_file"
+    [[ "$current" == "$expected" ]] && /usr/bin/rm -f -- "$worker_file"
+}
+
+cancel_reload_worker() {
+    local entry pid generation process_group command_line attempt
+    [[ -r "$worker_file" ]] || return 0
+    IFS= read -r entry < "$worker_file"
+    pid="${entry%%:*}"
+    generation="${entry#*:}"
+    [[ "$pid" =~ ^[1-9][0-9]*$ && "$generation" =~ ^[0-9]+$ ]] || {
+        /usr/bin/rm -f -- "$worker_file"
+        return 0
+    }
+    if [[ -r "/proc/$pid/cmdline" ]]; then
+        command_line="$(/usr/bin/tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+        process_group="$(/usr/bin/ps -o pgid= -p "$pid" 2>/dev/null | /usr/bin/tr -d '[:space:]' || true)"
+        if [[ "$process_group" == "$pid" && "$command_line" == *'--reload-worker'* ]]; then
+            /usr/bin/kill -TERM -- "-$pid" 2>/dev/null || true
+            for (( attempt = 0; attempt < 30; attempt++ )); do
+                /usr/bin/kill -0 -- "-$pid" 2>/dev/null || break
+                /usr/bin/sleep 0.1
+            done
+            /usr/bin/kill -0 -- "-$pid" 2>/dev/null && /usr/bin/kill -KILL -- "-$pid" 2>/dev/null || true
+        fi
+    fi
+    /usr/bin/rm -f -- "$worker_file"
+}
+
 next_generation() {
     local generation=0
+    (( dry_run )) || cancel_reload_worker
     [[ -r "$generation_file" ]] && IFS= read -r generation < "$generation_file"
     [[ "$generation" =~ ^[0-9]+$ ]] || generation=0
     generation=$((generation + 1))
@@ -160,11 +218,16 @@ convert_palette() {
 }
 
 cache_key() {
-    local wallpaper="$1" scheme="$2" mode="$3" wallpaper_hash binary_hash integration_hash
+    local wallpaper="$1" scheme="$2" mode="$3" wallpaper_hash binary_hash integration_hash template_hash current_theme
     wallpaper_hash="$(/usr/bin/sha256sum "$wallpaper" | /usr/bin/cut -d' ' -f1)"
     binary_hash="$(/usr/bin/sha256sum "$noctalia_bin" | /usr/bin/cut -d' ' -f1)"
     integration_hash="$(/usr/bin/sha256sum "$renderer" "$0" | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)"
-    printf '%s\n' "$wallpaper_hash:$binary_hash:$integration_hash:$scheme:$mode" |
+    if [[ -z "$template_hash_cache" ]]; then
+        template_hash_cache="$(/usr/bin/find -L "$themes_dir/current" -maxdepth 1 -type f ! -name wallpaper.png -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 -r /usr/bin/sha256sum | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)"
+    fi
+    template_hash="$template_hash_cache"
+    current_theme="$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)"
+    printf '%s\n' "$wallpaper_hash:$binary_hash:$integration_hash:$template_hash:$current_theme:$(/usr/bin/readlink -f -- "$wallpaper"):$scheme:$mode" |
         /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1
 }
 
@@ -198,12 +261,6 @@ prewarm() {
     done
 }
 
-application_theme_is_dynamic() {
-    local theme_root="$1" selector_target
-    selector_target="$(/usr/bin/readlink -f -- "$themes_dir/.caelestia-use" 2>/dev/null || true)"
-    [[ -n "$selector_target" && "$selector_target" == "$theme_root/.dynamic/"* && -d "$selector_target" ]]
-}
-
 reassert_static_wallpaper() {
     local theme_root="$1" name="$2" saved_link saved_wallpaper current_wallpaper
     saved_link="$theme_root/$name/wallpaper.png"
@@ -224,7 +281,7 @@ reassert_static_wallpaper() {
 }
 
 sync_static_theme() {
-    local source name current theme_root
+    local source name current theme_root selector_theme
     read -r source name < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
     if [[ "$source" != custom && "$source" != wallpaper ]]; then
         source="$(noctalia_setting source 2>/dev/null || true)"
@@ -236,23 +293,22 @@ sync_static_theme() {
         [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" && -f "$theme_root/$name/wallpaper.png" ]] ||
             fail "Noctalia's saved static theme is missing or incomplete: $theme_root/$name"
         current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
-        if [[ "$current" != "$name" ]] || application_theme_is_dynamic "$theme_root"; then
+        selector_theme="$(/usr/bin/readlink -f -- "$themes_dir/.caelestia-use" 2>/dev/null || true)"
+        if [[ "$current" != "$name" || "$selector_theme" != "$theme_root/$name" ]]; then
             if (( dry_run )); then
                 printf 'Static theme: %s\n' "$name"
                 (( reload_apps == 0 )) || printf 'App sync: reload themed apps for %s\n' "$name"
                 return 0
             fi
-            NOCTALIA_THEME_SYNC=1 THEME_SUPPRESS_NOTIFY=1 "$theme_script" "$name"
-            return 0
+            NOCTALIA_THEME_SYNC=1 THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_ACTIVATE_ONLY=1 "$theme_script" "$name"
         fi
         (( prestart )) || reassert_static_wallpaper "$theme_root" "$name"
         if (( reload_apps )); then
             if (( dry_run )); then
                 printf 'App sync: reload themed apps for %s\n' "$name"
-            else
-                "$theme_apply" system >/dev/null
             fi
         fi
+        sync_reload_mode=system
         return 0
     fi
 
@@ -274,6 +330,33 @@ sync_static_theme() {
     return 1
 }
 
+sync_state_is_current() {
+    local source name theme_root current selector_target saved_wallpaper current_wallpaper wallpaper scheme mode key active_key dynamic_path
+    read -r source name < <("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)
+    if [[ "$source" != custom && "$source" != wallpaper ]]; then
+        source="$(noctalia_setting source 2>/dev/null || true)"
+    fi
+    theme_root="$(/usr/bin/readlink -f -- "$themes_dir" 2>/dev/null || true)"
+    selector_target="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
+    if [[ "$source" == custom ]]; then
+        [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || name="$(noctalia_setting custom_palette 2>/dev/null || true)"
+        valid_theme_name "$name" || return 1
+        current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
+        saved_wallpaper="$(/usr/bin/readlink -e -- "$theme_root/$name/wallpaper.png" 2>/dev/null || true)"
+        current_wallpaper="$("$noctalia_bin" msg wallpaper-get 2>/dev/null || true)"
+        [[ "$current" == "$name" && "$selector_target" == "$theme_root/$name" && "$current_wallpaper" == "$saved_wallpaper" ]]
+        return
+    fi
+    [[ "$source" == wallpaper ]] || return 1
+    wallpaper="$(wallpaper_path)"
+    scheme="$(scheme_name)"
+    mode="$(resolved_mode)"
+    key="$(cache_key "$wallpaper" "$scheme" "$mode")"
+    active_key="$(/usr/bin/cat -- "$active_palette_file" 2>/dev/null || true)"
+    dynamic_path="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
+    [[ "$selector_target" == "$dynamic_path" && "$active_key" == "$key" && -r "$dynamic_path/.noctalia-generated" ]]
+}
+
 cleanup_sync_files() {
     local converted_file="$1" native_temporary="$2"
     [[ -z "$converted_file" ]] || /usr/bin/rm -f -- "$converted_file"
@@ -281,7 +364,7 @@ cleanup_sync_files() {
 }
 
 run_sync() {
-    local generation="$1" wallpaper scheme mode key native_file converted_file native_temporary=""
+    local generation="$1" wallpaper scheme mode key native_file converted_file native_temporary="" selected dynamic_path state_key
     wallpaper="$(wallpaper_path)"
     scheme="$(scheme_name)"
     mode="$(resolved_mode)"
@@ -303,23 +386,90 @@ run_sync() {
     fi
     convert_palette "$native_file" "$mode" "$converted_file"
     if (( dry_run )); then
-        printf 'Provider: noctalia\nWallpaper: %s\nScheme: %s\nMode: %s\nCache: %s\nApp sync: reload themed apps for Dynamic\n' "$wallpaper" "$scheme" "$mode" "$native_file"
+        printf 'Provider: noctalia\nWallpaper: %s\nScheme: %s\nMode: %s\nCache: %s\n' "$wallpaper" "$scheme" "$mode" "$native_file"
+        if (( reload_apps )); then printf 'App sync: reload themed apps in background\n'; fi
         return 0
     fi
-    "$renderer" --provider noctalia "$converted_file" "$wallpaper" >/dev/null
-    "$theme_apply" dynamic noctalia >/dev/null
+    selected="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
+    dynamic_path="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
+    state_key="$(/usr/bin/cat -- "$active_palette_file" 2>/dev/null || true)"
+    if [[ "$selected" != "$dynamic_path" || "$state_key" != "$key" || ! -r "$dynamic_path/.noctalia-generated" ]]; then
+        "$renderer" --provider noctalia "$converted_file" "$wallpaper" >/dev/null
+    fi
+    THEME_APPLY_ACTIVATE_ONLY=1 "$theme_apply" --activate-only dynamic noctalia >/dev/null
+    /usr/bin/mkdir -p -- "${active_palette_file%/*}"
+    native_temporary="$(/usr/bin/mktemp "${active_palette_file}.XXXXXX")"
+    printf '%s\n' "$key" > "$native_temporary"
+    /usr/bin/mv -f -- "$native_temporary" "$active_palette_file"
+    native_temporary=""
+    trace_timing palette-active
+    if (( schedule_reloads )); then
+        launch_reload_worker "$generation" dynamic "$wallpaper"
+    elif (( prewarm_enabled )); then
+        (
+            exec 8>&-
+            trap '' HUP
+            prewarm "$generation" "$wallpaper"
+        ) >/dev/null 2>&1 9>&- &
+    fi
+}
+
+launch_reload_worker() {
+    local generation="$1" mode="$2" wallpaper="$3" temporary pid
+    /usr/bin/mkdir -p -- "${worker_file%/*}"
+    trace_timing app-reloads-start
     (
-        prewarm "$generation" "$wallpaper"
+        exec 8>&-
+        /usr/bin/setsid --wait /usr/bin/bash "$0" --reload-worker "$generation" "$mode" "$wallpaper"
     ) >/dev/null 2>&1 9>&- &
+    pid="$!"
+    temporary="$(/usr/bin/mktemp "${worker_file}.XXXXXX")"
+    printf '%s:%s\n' "$pid" "$generation" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$worker_file"
+}
+
+reload_worker() {
+    local generation="$1" mode="$2" wallpaper="$3" status=0 expected="$$:$1" args=()
+    require_absolute_executable "$theme_apply"
+    if [[ "$mode" == dynamic ]]; then args+=(noctalia); fi
+    trap 'trace_timing app-reloads-canceled; cleanup_worker_file "$expected"; exit 143' TERM INT HUP
+    generation_is_current "$generation" || return 0
+    THEME_APPLY_WAIT_FOR_RELOADS=1 THEME_APPLY_LOW_PRIORITY=1 THEME_APPLY_RELOAD_CONCURRENCY="${NOCTALIA_RELOAD_CONCURRENCY:-2}" \
+        THEME_APPLY_GENERATION_FILE="$generation_file" THEME_APPLY_GENERATION="$generation" \
+        THEME_APPLY_SKIP_WAYBAR=1 "$theme_apply" --reload-only "$mode" "${args[@]}" || status=1
+    generation_is_current "$generation" || { cleanup_worker_file "$expected"; return 0; }
+    trace_timing app-reloads-done
+    if [[ "$prewarm_enabled" == 1 && "$mode" == dynamic && -n "$wallpaper" ]]; then
+        trace_timing palette-prewarm-start
+        prewarm "$generation" "$wallpaper"
+        trace_timing palette-prewarm-done
+    fi
+    cleanup_worker_file "$expected"
+    return "$status"
 }
 
 main() {
-    local generation source static_theme
+    local generation source static_theme explicit_sync=0
+    if [[ "${1:-}" == --reload-worker ]]; then
+        shift
+        [[ $# == 3 && "$1" =~ ^[0-9]+$ && ( "$2" == system || "$2" == dynamic ) ]] || fail 'Invalid reload worker arguments.'
+        reload_worker "$@"
+        return
+    fi
+    if [[ "${1:-}" == --cancel ]]; then
+        (( $# == 1 )) || fail '--cancel accepts no other arguments.'
+        /usr/bin/mkdir -p -- "${lock_file%/*}" "${generation_file%/*}"
+        exec 8>"$lock_file"
+        /usr/bin/flock 8
+        next_generation >/dev/null
+        /usr/bin/rm -f -- "$handoff_file"
+        return
+    fi
     while (( $# )); do
         case "$1" in
             --dry-run) dry_run=1 ;;
-            --reload-apps) reload_apps=1 ;;
-            --prestart) prestart=1 ;;
+            --reload-apps) reload_apps=1; explicit_sync=1 ;;
+            --prestart) prestart=1; explicit_sync=1 ;;
             --describe) describe=1 ;;
             --help|-h) usage; return 0 ;;
             *) usage >&2; return 2 ;;
@@ -333,19 +483,36 @@ main() {
         /usr/bin/jq -cn --arg source "$source" --arg static_theme "$static_theme" '{source: $source, staticTheme: $static_theme}'
         return 0
     fi
+    if [[ "${NOCTALIA_THEME_SYNC_DEFER:-0}" == 1 && -e "$handoff_file" && "$explicit_sync" == 0 && "$dry_run" == 0 ]]; then
+        trace_timing theme-hook-coalesced
+        return 0
+    fi
     require_absolute_executable "$noctalia_bin"
     require_absolute_executable "$renderer"
     require_absolute_executable "$theme_apply"
     require_absolute_executable "$theme_script"
-    if sync_static_theme; then
-        return 0
-    fi
+    [[ "$prewarm_enabled" == 0 || "$prewarm_enabled" == 1 ]] || fail 'NOCTALIA_THEME_PREWARM must be 0 or 1.'
     if (( ! dry_run )); then
-        /usr/bin/mkdir -p -- "$cache_dir" "${lock_file%/*}"
+        /usr/bin/mkdir -p -- "$cache_dir" "${lock_file%/*}" "${generation_file%/*}"
         exec 8>"$lock_file"
         /usr/bin/flock 8
     fi
+    if (( ! reload_apps && ! prestart && ! dry_run )) && sync_state_is_current; then
+        return 0
+    fi
+    if (( reload_apps || (!prestart && !dry_run) )); then
+        schedule_reloads=1
+    fi
     generation="$(next_generation)"
+    trace_timing palette-prepare-start
+    if sync_static_theme; then
+        (( dry_run )) && return 0
+        trace_timing palette-active
+        if (( schedule_reloads )); then
+            launch_reload_worker "$generation" "$sync_reload_mode" ""
+        fi
+        return 0
+    fi
     run_sync "$generation"
 }
 

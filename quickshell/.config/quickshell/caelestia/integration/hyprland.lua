@@ -70,6 +70,7 @@ local bindings = {
     { "SUPER + SHIFT + ALT + K", "Neovim Keybindings", "launcher learn neovim" },
     { "SUPER + SHIFT + ALT + L", "Learn Menu", "launcher learn ''" },
     { "SUPER + SHIFT + D", "Dashboard", "drawers toggle dashboard" },
+    { "SUPER + SHIFT + N", "Notification Center", "drawers toggle sidebar" },
     { "SUPER + D", "Utilities", "drawers toggle utilities" },
     { "SUPER + SHIFT + B", "Session", "drawers toggle session" },
     { "SUPER + SHIFT + C", "Chromack Color Panel", "chromack toggle" },

@@ -20,6 +20,15 @@ pid_user="$UID"
 start_timeout="${NOCTALIA_START_TIMEOUT:-15}"
 dry_run=0
 
+trace_timing() {
+    local phase="$1" start="${NOCTALIA_SWITCH_START_NS:-}" now elapsed trace_file="${NOCTALIA_SWITCH_TRACE_FILE:-$state_home/toggle-shell-mode/noctalia-switch-timings.tsv}"
+    [[ -n "${NOCTALIA_SWITCH_TRACE_ID:-}" && "$start" =~ ^[0-9]+$ ]] || return 0
+    now="$(/usr/bin/date +%s%N)"
+    elapsed=$(((now - start) / 1000000))
+    /usr/bin/mkdir -p -- "${trace_file%/*}" 2>/dev/null || return 0
+    printf '%s\t%s\t%s\t%s\n' "$NOCTALIA_SWITCH_TRACE_ID" "$phase" "$now" "$elapsed" >> "$trace_file" 2>/dev/null || true
+}
+
 usage() {
     printf '%s\n' \
         'Usage:' \
@@ -210,6 +219,7 @@ start_process() {
     ensure_palette_links
     if running; then
         wait_healthy "$profile" "$start_locked" || fail "Running Noctalia profile does not match $profile."
+        trace_timing shell-ready
         sync_current_theme
         return 0
     fi
@@ -220,6 +230,7 @@ start_process() {
     NOCTALIA_PROFILE="$profile" NOCTALIA_START_LOCKED="$start_locked" NOCTALIA_ASSETS_DIR="$assets_dir" \
         /usr/bin/nohup "${command[@]}" >>"$log_file" 2>&1 9>&- &
     wait_healthy "$profile" "$start_locked" || fail "Noctalia failed to become healthy; see $log_file"
+    trace_timing shell-ready
     sync_current_theme
 }
 
