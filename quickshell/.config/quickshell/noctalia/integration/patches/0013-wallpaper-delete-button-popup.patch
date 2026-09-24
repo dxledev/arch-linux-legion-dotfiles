@@ -1,8 +1,46 @@
+diff --git a/src/shell/panel/panel.h b/src/shell/panel/panel.h
+index e6865fd..46939d1 100644
+--- a/src/shell/panel/panel.h
++++ b/src/shell/panel/panel.h
+@@ -32,6 +32,11 @@ public:
+   virtual void onOpen(std::string_view context) { (void)context; }
+   virtual void onClose() {}
+   virtual void onIconThemeChanged() {}
++  virtual void onPointerButtonPress(float x, float y, std::uint32_t button) {
++    (void)x;
++    (void)y;
++    (void)button;
++  }
+   virtual void scrollFocusedInputIntoView(InputArea* area) { (void)area; }
+   [[nodiscard]] virtual bool isContextActive(std::string_view context) const {
+     (void)context;
+diff --git a/src/shell/panel/panel_manager.cpp b/src/shell/panel/panel_manager.cpp
+index 62add4b..bcdc51a 100644
+--- a/src/shell/panel/panel_manager.cpp
++++ b/src/shell/panel/panel_manager.cpp
+@@ -1654,6 +1654,9 @@ bool PanelManager::onPointerEvent(const PointerEvent& event) {
+     }
+ 
+     if (m_pointerInside) {
++      if (pressed && event.surface == m_wlSurface && m_activePanel != nullptr) {
++        m_activePanel->onPointerButtonPress(static_cast<float>(event.sx), static_cast<float>(event.sy), event.button);
++      }
+       if (pressed && event.surface == m_wlSurface && m_inputDispatcher.hoveredArea() == nullptr) {
+         if (m_activePanel != nullptr && m_activePanel->dismissTransientUi()) {
+           refresh();
 diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
-index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d1f038575 100644
+index 16bef6e..08e8569 100644
 --- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
 +++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
-@@ -646,6 +646,7 @@ public:
+@@ -34,6 +34,7 @@
+ #include <cctype>
+ #include <chrono>
+ #include <filesystem>
++#include <linux/input-event-codes.h>
+ #include <memory>
+ #include <random>
+ #include <string_view>
+@@ -646,6 +647,7 @@ public:
    using ActivateCallback = std::function<void(const WallpaperEntry&)>;
    using StarCallback = std::function<void(const WallpaperEntry&)>;
    using SecondaryActivateCallback = std::function<void(std::size_t)>;
@@ -10,7 +48,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
  
    explicit WallpaperGridAdapter(float scale) : m_scale(scale) {}
  
-@@ -664,6 +665,24 @@ public:
+@@ -664,6 +666,36 @@ public:
    void setOnActivate(ActivateCallback callback) { m_onActivate = std::move(callback); }
    void setOnStarToggle(StarCallback callback) { m_onStarToggle = std::move(callback); }
    void setOnSecondaryActivate(SecondaryActivateCallback callback) { m_onSecondaryActivate = std::move(callback); }
@@ -32,10 +70,22 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
 +  }
 +
 +  [[nodiscard]] bool deleteButtonPromptVisible() const noexcept { return m_deleteButtonPath.has_value(); }
++
++  [[nodiscard]] bool deleteButtonContainsScenePoint(float x, float y) const {
++    if (!m_deleteButtonPath.has_value()) {
++      return false;
++    }
++    for (const WallpaperTile* tile : m_pool) {
++      if (tile != nullptr && tile->entry() != nullptr && tile->entry()->absPath == *m_deleteButtonPath) {
++        return tile->deleteButtonContainsScenePoint(x, y);
++      }
++    }
++    return false;
++  }
  
    void refreshVisibleThumbnails(Renderer& renderer) {
      for (WallpaperTile* tile : m_pool) {
-@@ -692,7 +711,17 @@ public:
+@@ -692,7 +724,17 @@ public:
      wt->setCellSize(wt->width(), wt->height());
      if (m_renderer != nullptr && m_entries != nullptr && index < m_entries->size()) {
        const auto& entry = (*m_entries)[index];
@@ -48,12 +98,12 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
 +      }
        wt->setEntry(entry, *m_renderer);
 +      wt->setDeleteButtonVisible(
-+          m_deleteButtonPath.has_value() && !entry.isDir && entry.absPath == *m_deleteButtonPath
++          m_deleteButtonPath.has_value() && !entry.isDir && entry.absPath == *m_deleteButtonPath, m_renderer
 +      );
        if (m_config != nullptr && !entry.isDir) {
          const std::string path = entry.absPath.string();
          wt->setFavoriteState(
-@@ -711,13 +740,23 @@ public:
+@@ -711,13 +753,23 @@ public:
      wt->setHoveredVisual(hovered && !selected);
    }
  
@@ -78,7 +128,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
      if (entry.isDir) {
        return false;
      }
-@@ -730,6 +769,26 @@ public:
+@@ -730,23 +782,61 @@ public:
      return true;
    }
  
@@ -105,7 +155,35 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    [[nodiscard]] bool overlayHitTest(
        std::size_t index, float cellLocalX, float cellLocalY, float cellWidth, float cellHeight
    ) const override {
-@@ -747,6 +806,9 @@ public:
+     if (m_entries == nullptr || index >= m_entries->size()) {
+       return false;
+     }
+-    if ((*m_entries)[index].isDir) {
++    const auto& entry = (*m_entries)[index];
++    if (entry.isDir) {
+       return false;
+     }
+-    return WallpaperTile::hitTestStarRegion(cellWidth, cellHeight, m_scale, cellLocalX, cellLocalY);
++    const bool starHovered = WallpaperTile::hitTestStarRegion(cellWidth, cellHeight, m_scale, cellLocalX, cellLocalY);
++    const bool deleteHovered = m_deleteButtonPath.has_value() && entry.absPath == *m_deleteButtonPath
++        && WallpaperTile::hitTestDeleteButtonRegion(cellWidth, cellHeight, m_scale, cellLocalX, cellLocalY);
++    for (WallpaperTile* tile : m_pool) {
++      if (tile != nullptr && tile->entry() != nullptr && tile->entry()->absPath == entry.absPath) {
++        tile->setStarHovered(starHovered);
++        tile->setDeleteButtonHovered(deleteHovered);
++        break;
++      }
++    }
++    return starHovered || deleteHovered;
+   }
+ 
+   void applyOverlayHover(Node& tile, bool hovered) override {
+-    static_cast<WallpaperTile&>(tile).setStarHovered(hovered);
++    if (!hovered) {
++      auto& wallpaperTile = static_cast<WallpaperTile&>(tile);
++      wallpaperTile.setStarHovered(false);
++      wallpaperTile.setDeleteButtonHovered(false);
++    }
    }
  
    void onActivate(std::size_t index) override {
@@ -115,7 +193,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
      if (!m_onActivate || m_entries == nullptr || index >= m_entries->size()) {
        return;
      }
-@@ -760,6 +822,18 @@ public:
+@@ -760,6 +850,19 @@ public:
    }
  
  private:
@@ -126,7 +204,8 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
 +      }
 +      const auto* entry = tile->entry();
 +      tile->setDeleteButtonVisible(
-+          entry != nullptr && m_deleteButtonPath.has_value() && !entry->isDir && entry->absPath == *m_deleteButtonPath
++          entry != nullptr && m_deleteButtonPath.has_value() && !entry->isDir && entry->absPath == *m_deleteButtonPath,
++          m_renderer
 +      );
 +    }
 +  }
@@ -134,7 +213,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    float m_scale;
    const std::vector<WallpaperEntry>* m_entries = nullptr;
    std::string m_currentWallpaperPath;
-@@ -768,9 +842,12 @@ private:
+@@ -768,9 +871,12 @@ private:
    ConfigService* m_config = nullptr;
  
    std::vector<WallpaperTile*> m_pool;
@@ -147,7 +226,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
  };
  
  WallpaperPanel::WallpaperPanel(
-@@ -1212,7 +1289,8 @@ void WallpaperPanel::create() {
+@@ -1212,7 +1318,8 @@ void WallpaperPanel::create() {
        toggleFavoriteForPath(entry.absPath.string());
      }
    });
@@ -157,7 +236,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
  
    root->addChild(
        ui::virtualGridView({
-@@ -1236,6 +1314,9 @@ void WallpaperPanel::create() {
+@@ -1236,6 +1343,9 @@ void WallpaperPanel::create() {
                  } else {
                    m_selectedVisibleIndex = kNoVisibleSelection;
                  }
@@ -167,7 +246,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
                  if (m_pendingDeleteVisibleIndex != kNoVisibleSelection
                      && m_selectedVisibleIndex != m_pendingDeleteVisibleIndex) {
                    cancelDeleteConfirmation();
-@@ -1368,6 +1449,9 @@ void WallpaperPanel::onPanelCardOpacityChanged(float opacity) {
+@@ -1368,6 +1478,9 @@ void WallpaperPanel::onPanelCardOpacityChanged(float opacity) {
  }
  
  void WallpaperPanel::onOpen(std::string_view /*context*/) {
@@ -177,9 +256,19 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    cancelDeleteConfirmation();
    m_pendingDeleteReselectIndex.reset();
    m_pendingDeleteNeedsFreshScan = false;
-@@ -1394,6 +1478,9 @@ void WallpaperPanel::onOpen(std::string_view /*context*/) {
+@@ -1393,7 +1506,19 @@ void WallpaperPanel::onOpen(std::string_view /*context*/) {
+   m_dirty = true;
  }
  
++void WallpaperPanel::onPointerButtonPress(float x, float y, std::uint32_t button) {
++  if (button != BTN_LEFT || m_adapter == nullptr || !m_adapter->deleteButtonPromptVisible()
++      || m_adapter->deleteButtonContainsScenePoint(x, y)) {
++    return;
++  }
++  m_adapter->clearDeleteButtonPrompt();
++  PanelManager::instance().refresh();
++}
++
  void WallpaperPanel::onClose() {
 +  if (m_adapter != nullptr) {
 +    m_adapter->clearDeleteButtonPrompt();
@@ -187,7 +276,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    cancelDeleteConfirmation();
    m_pendingDeleteReselectIndex.reset();
    m_pendingDeleteNeedsFreshScan = false;
-@@ -1452,6 +1539,11 @@ bool WallpaperPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers,
+@@ -1452,6 +1577,11 @@ bool WallpaperPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers,
      PanelManager::instance().refresh();
      return true;
    }
@@ -199,7 +288,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
  
    auto& dispatcher = PanelManager::instance().inputDispatcher();
    InputArea* focused = dispatcher.focusedArea();
-@@ -1650,7 +1742,25 @@ std::string WallpaperPanel::selectedWallpaperPath() const {
+@@ -1650,7 +1780,25 @@ std::string WallpaperPanel::selectedWallpaperPath() const {
    return entry.absPath.string();
  }
  
@@ -225,7 +314,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    if (index >= m_visibleEntries.size() || m_visibleEntries[index].isDir) {
      return;
    }
-@@ -1663,6 +1773,9 @@ void WallpaperPanel::requestDeleteAtIndex(std::size_t index) {
+@@ -1663,6 +1811,9 @@ void WallpaperPanel::requestDeleteAtIndex(std::size_t index) {
  }
  
  void WallpaperPanel::requestDeleteSelected() {
@@ -235,7 +324,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    if (!hasVisibleSelection() || m_selectedVisibleIndex >= m_visibleEntries.size()) {
      return;
    }
-@@ -2124,6 +2237,7 @@ void WallpaperPanel::rebindGrid(bool resetScroll) {
+@@ -2124,6 +2275,7 @@ void WallpaperPanel::rebindGrid(bool resetScroll) {
      return;
    }
    if (m_adapter != nullptr) {
@@ -243,7 +332,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
      m_adapter->setCurrentWallpaperPath(currentWallpaperPathForSelection());
    }
    m_grid->notifyDataChanged();
-@@ -2221,6 +2335,9 @@ void WallpaperPanel::selectVisibleIndex(std::size_t index) {
+@@ -2221,6 +2373,9 @@ void WallpaperPanel::selectVisibleIndex(std::size_t index) {
      return;
    }
  
@@ -253,7 +342,7 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    m_selectedVisibleIndex = index;
    if (m_grid != nullptr) {
      m_grid->setSelectedIndex(index);
-@@ -2251,6 +2368,11 @@ bool WallpaperPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers)
+@@ -2251,6 +2406,11 @@ bool WallpaperPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers)
      PanelManager::instance().refresh();
      return true;
    }
@@ -266,10 +355,18 @@ index 16bef6e72a9f2a535cbb96c945e1a0253007a5db..bb2ef26958aa6952a785c9541abf975d
    if (m_visibleEntries.empty()) {
      return false;
 diff --git a/src/shell/wallpaper/panel/wallpaper_panel.h b/src/shell/wallpaper/panel/wallpaper_panel.h
-index 1b354f8723d0080bbfc4df3405e77c0f4840ffcd..749d5de73287cc3fa45c8a05b72c86d3c3863d68 100644
+index 1b354f8..c08cd93 100644
 --- a/src/shell/wallpaper/panel/wallpaper_panel.h
 +++ b/src/shell/wallpaper/panel/wallpaper_panel.h
-@@ -114,6 +114,7 @@ private:
+@@ -52,6 +52,7 @@ public:
+   void create() override;
+   void onOpen(std::string_view context) override;
+   void onClose() override;
++  void onPointerButtonPress(float x, float y, std::uint32_t button) override;
+   [[nodiscard]] bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
+ 
+   [[nodiscard]] float preferredWidth() const override { return scaled(980.0F); }
+@@ -114,6 +115,7 @@ private:
    void selectVisibleIndex(std::size_t index);
    void activateSelectedEntry();
    [[nodiscard]] bool handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers);
@@ -278,18 +375,35 @@ index 1b354f8723d0080bbfc4df3405e77c0f4840ffcd..749d5de73287cc3fa45c8a05b72c86d3
    void requestDeleteSelected();
    void cancelDeleteConfirmation();
 diff --git a/src/shell/wallpaper/panel/wallpaper_tile.cpp b/src/shell/wallpaper/panel/wallpaper_tile.cpp
-index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b3ab47832 100644
+index 6b7f4f2..1aeba5a 100644
 --- a/src/shell/wallpaper/panel/wallpaper_tile.cpp
 +++ b/src/shell/wallpaper/panel/wallpaper_tile.cpp
-@@ -2,6 +2,7 @@
+@@ -2,9 +2,12 @@
  
  #include "config/config_types.h"
  #include "cursor-shape-v1-client-protocol.h"
 +#include "i18n/i18n.h"
  #include "render/animation/animation_manager.h"
++#include "render/core/image_file_loader.h"
  #include "render/core/renderer.h"
  #include "render/core/thumbnail_service.h"
-@@ -28,6 +29,10 @@ namespace {
++#include "render/core/texture_manager.h"
+ #include "ui/builders.h"
+ #include "ui/controls/box.h"
+ #include "ui/palette.h"
+@@ -12,9 +15,11 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <cstdint>
+ #include <filesystem>
+ #include <memory>
+ #include <utility>
++#include <vector>
+ 
+ namespace {
+ 
+@@ -28,6 +33,10 @@ namespace {
  
    [[nodiscard]] float overlayControlSize(float contentScale) { return Style::controlHeightSm * contentScale; }
  
@@ -300,7 +414,7 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
    [[nodiscard]] float starButtonSize(float contentScale) {
      const float starPadding = Style::spaceXs * contentScale;
      return overlayControlSize(contentScale) + starPadding * 2.0F;
-@@ -65,6 +70,20 @@ namespace {
+@@ -65,6 +74,54 @@ namespace {
      return localX >= starX && localX < starX + btnSize && localY >= starY && localY < starY + btnSize;
    }
  
@@ -318,10 +432,44 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
 +    return localX >= buttonX && localX < buttonX + btnWidth && localY >= buttonY && localY < buttonY + btnHeight;
 +  }
 +
++  void boxBlurRgba(std::vector<std::uint8_t>& pixels, int width, int height, int radius) {
++    if (width <= 0 || height <= 0 || radius <= 0) {
++      return;
++    }
++
++    std::vector<std::uint8_t> blurred(pixels.size());
++    for (int y = 0; y < height; ++y) {
++      const int top = std::max(0, y - radius);
++      const int bottom = std::min(height - 1, y + radius);
++      for (int x = 0; x < width; ++x) {
++        const int left = std::max(0, x - radius);
++        const int right = std::min(width - 1, x + radius);
++        const int sampleCount = (right - left + 1) * (bottom - top + 1);
++        std::uint32_t sums[4]{};
++        for (int sampleY = top; sampleY <= bottom; ++sampleY) {
++          for (int sampleX = left; sampleX <= right; ++sampleX) {
++            const std::size_t offset =
++                (static_cast<std::size_t>(sampleY) * static_cast<std::size_t>(width) + static_cast<std::size_t>(sampleX))
++                * 4U;
++            for (std::size_t channel = 0; channel < 4U; ++channel) {
++              sums[channel] += pixels[offset + channel];
++            }
++          }
++        }
++        const std::size_t outputOffset =
++            (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U;
++        for (std::size_t channel = 0; channel < 4U; ++channel) {
++          blurred[outputOffset + channel] = static_cast<std::uint8_t>(sums[channel] / sampleCount);
++        }
++      }
++    }
++    pixels.swap(blurred);
++  }
++
  } // namespace
  
  bool WallpaperTile::hitTestStarRegion(
-@@ -73,6 +92,12 @@ bool WallpaperTile::hitTestStarRegion(
+@@ -73,6 +130,16 @@ bool WallpaperTile::hitTestStarRegion(
    return starRegionContains(cellWidth, cellHeight, contentScale, localX, localY);
  }
  
@@ -331,10 +479,14 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
 +  return deleteButtonRegionContains(cellWidth, cellHeight, contentScale, localX, localY);
 +}
 +
++bool WallpaperTile::deleteButtonContainsScenePoint(float x, float y) const {
++  return m_deleteButton != nullptr && m_deleteButton->visible() && m_deleteButton->containsScenePoint(x, y);
++}
++
  WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentScale)
      : m_cellWidth(cellWidth), m_cellHeight(cellHeight), m_contentScale(contentScale) {
    setAcceptedButtons(InputArea::buttonMask(BTN_LEFT));
-@@ -174,6 +199,25 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
+@@ -174,6 +241,25 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
        })
    );
  
@@ -360,7 +512,7 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
    m_layout->addChild(
        ui::label({
            .out = &m_label,
-@@ -233,6 +277,13 @@ void WallpaperTile::layoutThumbOverlays() {
+@@ -233,6 +319,13 @@ void WallpaperTile::layoutThumbOverlays() {
      m_modeBadge->setSize(btnW, btnH);
    }
  
@@ -374,7 +526,7 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
    if (m_folderGlyph != nullptr) {
      const float folderSize = m_folderGlyph->width() > 0.0F ? m_folderGlyph->width() : std::min(w, h) * 0.45F;
      m_folderGlyph->setPosition(std::round((w - folderSize) * 0.5F), std::round((h - folderSize) * 0.5F));
-@@ -285,6 +336,9 @@ void WallpaperTile::doLayout(Renderer& renderer) {
+@@ -285,6 +378,9 @@ void WallpaperTile::doLayout(Renderer& renderer) {
    if (m_modeBadge != nullptr) {
      m_modeBadge->layout(renderer);
    }
@@ -384,7 +536,47 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
  }
  
  void WallpaperTile::setEntry(const WallpaperEntry& entry, Renderer& renderer) {
-@@ -400,6 +454,7 @@ void WallpaperTile::clearEntry(Renderer& renderer) {
+@@ -314,6 +410,7 @@ void WallpaperTile::setEntry(const WallpaperEntry& entry, Renderer& renderer) {
+ 
+   if (entry.isDir) {
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     m_thumb->setVisible(false);
+     m_loadingThumbnail = false;
+     if (m_thumbHost != nullptr) {
+@@ -344,6 +441,7 @@ void WallpaperTile::setEntry(const WallpaperEntry& entry, Renderer& renderer) {
+   if (parseColorWallpaperPath(pathString, colorFill)) {
+     m_thumbPath.clear();
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     m_thumb->setVisible(false);
+     m_loadingThumbnail = false;
+     if (m_thumbHost != nullptr) {
+@@ -364,6 +462,7 @@ void WallpaperTile::setEntry(const WallpaperEntry& entry, Renderer& renderer) {
+   if (!pathString.empty() && !std::filesystem::exists(entry.absPath, ec)) {
+     m_missingFile = true;
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     m_thumb->setVisible(false);
+     if (m_loadingGlyph != nullptr) {
+       m_loadingGlyph->setVisible(true);
+@@ -376,6 +475,7 @@ void WallpaperTile::setEntry(const WallpaperEntry& entry, Renderer& renderer) {
+ 
+   if (m_thumbnails == nullptr) {
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     applyVisualState();
+     layoutThumbOverlays();
+     return;
+@@ -393,6 +493,7 @@ void WallpaperTile::clearEntry(Renderer& renderer) {
+   releaseThumbnail();
+   if (m_thumb != nullptr) {
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+   }
+   if (m_folderGlyph != nullptr) {
+     m_folderGlyph->setVisible(false);
+@@ -400,6 +501,7 @@ void WallpaperTile::clearEntry(Renderer& renderer) {
    if (m_loadingGlyph != nullptr) {
      m_loadingGlyph->setVisible(false);
    }
@@ -392,40 +584,170 @@ index 6b7f4f29a5a0dce53117f93c2654ced2213ebaf3..56ef6d88a901e25050f81d9801be8b1b
    m_hasEntry = false;
    m_selected = false;
    m_current = false;
-@@ -510,6 +565,11 @@ void WallpaperTile::setFavoriteState(bool favorited, std::optional<ThemeMode> th
+@@ -415,6 +517,7 @@ void WallpaperTile::refreshThumbnail(Renderer& renderer) {
+   }
+   if (m_thumbnails == nullptr || m_thumbPath.empty()) {
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     return;
+   }
+ 
+@@ -430,13 +533,19 @@ void WallpaperTile::refreshThumbnail(Renderer& renderer) {
+   }
+   if (m_thumbTargetPx <= 0) {
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     return;
+   }
+ 
+   const TextureHandle handle = m_thumbnails->peek(m_thumbPath, m_thumbTargetPx);
+   if (handle.id != 0) {
+     m_loadingThumbnail = false;
+-    m_thumb->setExternalTexture(renderer, handle);
++    if (m_deleteButtonVisible) {
++      applyDeleteButtonBlur(renderer, handle);
++    } else {
++      m_thumb->setExternalTexture(renderer, handle);
++      clearDeleteButtonBlurState();
++    }
+     m_thumb->setVisible(true);
+     if (m_loadingGlyph != nullptr) {
+       m_loadingGlyph->setVisible(false);
+@@ -444,6 +553,7 @@ void WallpaperTile::refreshThumbnail(Renderer& renderer) {
+   } else {
+     m_loadingThumbnail = true;
+     m_thumb->clear(renderer);
++    clearDeleteButtonBlurState();
+     m_thumb->setVisible(false);
+     if (m_loadingGlyph != nullptr) {
+       m_loadingGlyph->setVisible(true);
+@@ -451,6 +561,39 @@ void WallpaperTile::refreshThumbnail(Renderer& renderer) {
+   }
+ }
+ 
++void WallpaperTile::applyDeleteButtonBlur(Renderer& renderer, TextureHandle fallback) {
++  const int targetPx = std::max(1, static_cast<int>(std::lround(static_cast<float>(m_thumbTargetPx) * 0.82F)));
++  if (m_deleteBlurPath == m_thumbPath && m_deleteBlurTargetPx == targetPx) {
++    if (!m_deleteBlurApplied) {
++      m_thumb->setExternalTexture(renderer, fallback);
++    }
++    return;
++  }
++
++  m_thumb->setExternalTexture(renderer, fallback);
++  clearDeleteButtonBlurState();
++  m_deleteBlurPath = m_thumbPath;
++  m_deleteBlurTargetPx = targetPx;
++
++  auto loaded = loadImageFile(m_thumbPath, targetPx);
++  if (!loaded.has_value() || loaded->width <= 0 || loaded->height <= 0) {
++    return;
++  }
++  boxBlurRgba(loaded->rgba, loaded->width, loaded->height, 2);
++  if (m_thumb->setSourceRaw(
++          renderer, loaded->rgba.data(), loaded->rgba.size(), loaded->width, loaded->height, loaded->width * 4,
++          PixmapFormat::RGBA
++      )) {
++    m_deleteBlurApplied = true;
++  }
++}
++
++void WallpaperTile::clearDeleteButtonBlurState() {
++  m_deleteBlurPath.clear();
++  m_deleteBlurTargetPx = 0;
++  m_deleteBlurApplied = false;
++}
++
+ void WallpaperTile::releaseThumbnail() {
+   if (!m_thumbPath.empty() && m_thumbnails != nullptr && m_thumbTargetPx > 0) {
+     m_thumbnails->release(m_thumbPath, m_thumbTargetPx);
+@@ -510,6 +653,37 @@ void WallpaperTile::setFavoriteState(bool favorited, std::optional<ThemeMode> th
    applyVisualState();
    layoutThumbOverlays();
  }
-+void WallpaperTile::setDeleteButtonVisible(bool visible) {
++void WallpaperTile::setDeleteButtonVisible(bool visible, Renderer* renderer) {
++  const bool shouldBeVisible = visible && m_hasEntry && !m_entry.isDir;
++  if (m_deleteButtonVisible == shouldBeVisible) {
++    return;
++  }
++  m_deleteButtonVisible = shouldBeVisible;
 +  if (m_deleteButton != nullptr) {
-+    m_deleteButton->setVisible(visible && m_hasEntry && !m_entry.isDir);
++    m_deleteButton->setVisible(shouldBeVisible);
++  }
++  if (!shouldBeVisible) {
++    setDeleteButtonHovered(false);
++    applyVisualState();
++  } else {
++    m_thumbScaleTarget = 1.0F;
++    cancelThumbScaleAnimation();
++    applyThumbScale(1.0F);
++  }
++  if (renderer != nullptr && m_hasEntry && !m_entry.isDir) {
++    refreshThumbnail(*renderer);
++  }
++}
++void WallpaperTile::setDeleteButtonHovered(bool hovered) {
++  const bool shouldBeHovered = hovered && m_deleteButtonVisible;
++  if (m_deleteButtonHoveredVisual == shouldBeHovered) {
++    return;
++  }
++  m_deleteButtonHoveredVisual = shouldBeHovered;
++  if (m_deleteButton != nullptr) {
++    m_deleteButton->setHoveredVisual(shouldBeHovered);
 +  }
 +}
  void WallpaperTile::setOnTileMotion(HoverCallback callback) { m_onMotion = std::move(callback); }
  void WallpaperTile::setOnTileEnter(HoverCallback callback) { m_onEnter = std::move(callback); }
  void WallpaperTile::setOnTileLeave(HoverCallback callback) { m_onLeave = std::move(callback); }
+@@ -597,7 +771,7 @@ void WallpaperTile::applyVisualState() {
+   const bool active = m_selected || m_hoveredVisual || m_current;
+   setOpacity(m_missingFile ? 0.45F : 1.0F);
+   setZIndex((m_selected || m_current) ? 2 : (m_hoveredVisual ? 1 : 0));
+-  animateThumbScale(activeThumbScale(m_selected, m_current, m_hoveredVisual));
++  animateThumbScale(m_deleteButtonVisible ? 1.0F : activeThumbScale(m_selected, m_current, m_hoveredVisual));
+   m_thumb->setTint(active ? rgba(1.0F, 1.0F, 1.0F, 1.0F) : rgba(0.5F, 0.5F, 0.5F, 1.0F));
+ 
+   auto outlineWidth = Style::borderWidth;
 diff --git a/src/shell/wallpaper/panel/wallpaper_tile.h b/src/shell/wallpaper/panel/wallpaper_tile.h
-index 7d757fe82d5648ef382a9ffc9b138bc3668888bf..823cc415d5022a50682620461e930a00acb1c171 100644
+index 7d757fe..81f6dcb 100644
 --- a/src/shell/wallpaper/panel/wallpaper_tile.h
 +++ b/src/shell/wallpaper/panel/wallpaper_tile.h
-@@ -52,6 +52,7 @@ public:
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "render/scene/input_area.h"
++#include "render/core/texture_handle.h"
+ #include "shell/wallpaper/panel/wallpaper_scanner.h"
+ 
+ #include <cstdint>
+@@ -52,6 +53,8 @@ public:
    void setCurrent(bool current);
    void setHoveredVisual(bool hovered);
    void setFavoriteState(bool favorited, std::optional<ThemeMode> themeModeBadge);
-+  void setDeleteButtonVisible(bool visible);
++  void setDeleteButtonVisible(bool visible, Renderer* renderer = nullptr);
++  void setDeleteButtonHovered(bool hovered);
    void setStarHovered(bool hovered);
    void setOnStarClick(std::function<void(const WallpaperEntry&)> callback);
    void setOnTileClick(ClickCallback callback);
-@@ -61,6 +62,8 @@ public:
+@@ -61,12 +64,17 @@ public:
  
    [[nodiscard]] static bool
    hitTestStarRegion(float cellWidth, float cellHeight, float contentScale, float localX, float localY) noexcept;
 +  [[nodiscard]] static bool
 +  hitTestDeleteButtonRegion(float cellWidth, float cellHeight, float contentScale, float localX, float localY) noexcept;
++  [[nodiscard]] bool deleteButtonContainsScenePoint(float x, float y) const;
  
    [[nodiscard]] const WallpaperEntry* entry() const noexcept { return m_hasEntry ? &m_entry : nullptr; }
  
-@@ -87,6 +90,7 @@ private:
+ private:
+   void applyVisualState();
+   void applyStarVisualState();
++  void applyDeleteButtonBlur(Renderer& renderer, TextureHandle fallback);
++  void clearDeleteButtonBlurState();
+   void applyThumbScale(float scale);
+   void animateThumbScale(float targetScale);
+   void cancelThumbScaleAnimation();
+@@ -87,6 +95,7 @@ private:
    Image* m_thumb = nullptr;
    Glyph* m_starGlyph = nullptr;
    Button* m_modeBadge = nullptr;
@@ -433,3 +755,20 @@ index 7d757fe82d5648ef382a9ffc9b138bc3668888bf..823cc415d5022a50682620461e930a00
    Glyph* m_folderGlyph = nullptr;
    Glyph* m_loadingGlyph = nullptr;
    Label* m_label = nullptr;
+@@ -98,11 +107,16 @@ private:
+   bool m_hoveredVisual = false;
+   bool m_favorited = false;
+   bool m_starHoveredVisual = false;
++  bool m_deleteButtonHoveredVisual = false;
++  bool m_deleteButtonVisible = false;
+   std::optional<ThemeMode> m_themeModeBadge;
+   bool m_missingFile = false;
+   bool m_loadingThumbnail = false;
+   std::string m_thumbPath;
+   int m_thumbTargetPx = 0;
++  std::string m_deleteBlurPath;
++  int m_deleteBlurTargetPx = 0;
++  bool m_deleteBlurApplied = false;
+   float m_thumbScale = 1.0F;
+   float m_thumbScaleTarget = 1.0F;
+   std::uint32_t m_thumbScaleAnimId = 0;
