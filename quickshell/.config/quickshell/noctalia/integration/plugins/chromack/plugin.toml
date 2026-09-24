@@ -1,0 +1,38 @@
+id = "dxle/chromack"
+name = "Chromack"
+version = "1.0.0"
+plugin_api = 33
+author = "dxle"
+license = "MIT"
+icon = "color-swatch"
+description = "Color picker, palette, shade, and color theory tools."
+tags = ["color", "palette", "design"]
+
+[[widget]]
+id = "bar"
+entry = "widget.luau"
+
+  [widget.actions]
+  left = "panel-toggle dxle/chromack:panel"
+
+  [[widget.setting]]
+  key = "label"
+  type = "string"
+  label_key = "settings.widget.label"
+  default = "Chromack"
+
+  [[widget.setting]]
+  key = "glyph"
+  type = "glyph"
+  label_key = "settings.widget.glyph"
+  default = "color-swatch"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 550
+height = 680
+placement = "floating"
+position = "bottom_center"
+layer = "overlay"
+open_near_click = false

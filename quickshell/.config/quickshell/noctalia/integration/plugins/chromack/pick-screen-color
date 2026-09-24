@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+panel_id="dxle/chromack:panel"
+noctalia_bin="$(command -v noctalia || true)"
+if [[ -z "$noctalia_bin" ]]; then
+    parent_bin="$(/usr/bin/readlink -f -- "/proc/$PPID/exe" 2>/dev/null || true)"
+    if [[ "${parent_bin##*/}" == "noctalia" ]]; then
+        noctalia_bin="$parent_bin"
+    else
+        config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+        runtime_dir="${NOCTALIA_RUNTIME_DIR:-$config_home/noctalia/.runtime}"
+        noctalia_bin="$runtime_dir/bin/noctalia"
+    fi
+fi
+
+if [[ ! -x "$noctalia_bin" ]]; then
+    exit 127
+fi
+
+/usr/bin/sleep 0.2
+while :; do
+    status="$("$noctalia_bin" msg status 2>/dev/null || true)"
+    if [[ -n "$status" ]]; then
+        active_panel="$(/usr/bin/jq -r '.activePanelId // ""' <<< "$status" 2>/dev/null || printf '%s' "$panel_id")"
+        if [[ "$active_panel" != "$panel_id" ]]; then
+            /usr/bin/sleep 0.25
+            break
+        fi
+    fi
+    /usr/bin/sleep 0.1
+done
+
+picker_bin="$(command -v hyprpicker || true)"
+if [[ -z "$picker_bin" ]]; then
+    context="picker-error:not-found"
+else
+    error_file="$(/usr/bin/mktemp)"
+    trap '/usr/bin/rm -f -- "$error_file"' EXIT
+    set +e
+    picker_output="$("$picker_bin" -a -b -f hex -l 2>"$error_file")"
+    picker_status=$?
+    set -e
+
+    picked=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^#[[:xdigit:]]{6}$ ]]; then
+            picked="$line"
+        fi
+    done <<< "$picker_output"
+
+    if (( picker_status == 0 )) && [[ "$picked" =~ ^#[[:xdigit:]]{6}$ ]]; then
+        context="$picked"
+    elif (( picker_status == 1 )) && [[ -z "$picked" && ! -s "$error_file" ]]; then
+        context="picker-cancelled"
+    elif (( picker_status == 0 )); then
+        context="picker-error:invalid-result"
+    else
+        context="picker-error:failed"
+    fi
+fi
+
+"$noctalia_bin" msg panel-open "$panel_id" "$context" >/dev/null

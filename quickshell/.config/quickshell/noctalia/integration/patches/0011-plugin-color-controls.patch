@@ -1,0 +1,517 @@
+diff --git a/docs/user/plugins/development/declarative-ui.mdx b/docs/user/plugins/development/declarative-ui.mdx
+index 6a32bf786..1e78627b6 100644
+--- a/docs/user/plugins/development/declarative-ui.mdx
++++ b/docs/user/plugins/development/declarative-ui.mdx
+@@ -63,6 +63,9 @@ compact: it hugs its content instead of using the taller settings-panel control
+ | `ui.progress` | `progress` (0–1), `fill`, `track`, `radius`, `width`, `height` |
+ | `ui.button` | `text`, `glyph`, `fontSize`, `glyphSize`, `variant` (`default`/`primary`/`secondary`/`destructive`/`outline`/`ghost`), `contentAlign` (`start`/`center`/`end`), `controlSize` (`sm`/`md`/`lg`), `tooltip`, `enabled`, `selected`, `onClick`, `onRightClick`, `onHover` |
+ | `ui.graph` | `values` / `values2` (arrays of 0–1 numbers), `color` / `color2`, `lineWidth`, `fillOpacity`, `width`, `height`, `onPointerMove`, `onPointerLeave` |
++| `ui.hsvPlane` | `hue`, `saturation`, `value` (normalized 0–1), `width`, `height`, `onChange(x, y)` |
++| `ui.hueStrip` | `hue` (normalized 0–1), `width`, `height`, `onChange(x, y)` |
++| `ui.colorWheel` | `colors` (24 hex colors), `width`, `height`, `onSelect(index)` |
+ | `ui.toggle` | `checked` (bool), `enabled`, `onChange` |
+ | `ui.slider` | `min`, `max`, `step`, `value`, `controlSize` (`sm`/`md`/`lg`), `enabled`, `onChange`, `onDragEnd` |
+ | `ui.select` | `options` (array of strings), `selectedIndex`, `placeholder`, `controlSize` (`sm`/`md`/`lg`), `enabled`, `width`, `height`, `onChange` |
+@@ -146,6 +149,12 @@ prop is logged and skipped - typos surface in the log instead of failing silentl
+   because a closure from the render that dropped the graph is already superseded. A graph with neither prop takes no
+   pointer input at all; an empty callback name counts as unset.
+   Requires <PluginApiBadge feature="graph-pointer-tracking" />.
++- **Color controls**: `ui.hsvPlane` draws a saturation/value plane for `hue`, with a pointer marker at `saturation` and
++  `value`. `ui.hueStrip` draws the vertical hue spectrum and current-hue marker. Both report normalized pointer `x`
++  and `y` strings on press and while dragging; `y` increases downward. `ui.colorWheel` takes exactly 24 hex colors and
++  reports the selected segment as a one-based index. Its wedges start at the top and proceed clockwise, the center hole
++  is 10% of the outer radius, and the center and outlines follow the active Noctalia surface and outline roles. Drawing
++  and hit testing share the same 24-segment geometry. These controls require Plugin API 33.
+ - **Clickable containers**: `onClick` on `ui.row` and `ui.column` makes the whole container a click target while
+   keeping its layout and sizing, so an entire chip (glyph + label) activates as one unit rather than only a bare
+   `ui.box`. The same applies to `ui.image` and `ui.box` (thumbnail grids, placeholder tiles). A clickable container
+diff --git a/src/scripting/plugin_api.h b/src/scripting/plugin_api.h
+index 70a81ff60..c2a175cf3 100644
+--- a/src/scripting/plugin_api.h
++++ b/src/scripting/plugin_api.h
+@@ -32,7 +32,8 @@ namespace scripting {
+   inline constexpr std::uint32_t kPanelLayerPluginApiVersion = 30;
+   inline constexpr std::uint32_t kGetColorPluginApiVersion = 31;
+   inline constexpr std::uint32_t kContainerTooltipPluginApiVersion = 32;
+-  inline constexpr std::uint32_t kCurrentPluginApiVersion = kContainerTooltipPluginApiVersion;
++  inline constexpr std::uint32_t kChromackColorControlsPluginApiVersion = 33;
++  inline constexpr std::uint32_t kCurrentPluginApiVersion = kChromackColorControlsPluginApiVersion;
+ 
+   static_assert(kOldestSupportedPluginApiVersion <= kCurrentPluginApiVersion);
+ 
+diff --git a/src/scripting/ui_prelude.h b/src/scripting/ui_prelude.h
+index 08cca80d1..ddce6d007 100644
+--- a/src/scripting/ui_prelude.h
++++ b/src/scripting/ui_prelude.h
+@@ -26,6 +26,9 @@ ui.spacer = ctor("spacer")
+ ui.progress = ctor("progress")
+ ui.button = ctor("button")
+ ui.graph = ctor("graph")
++ui.hsvPlane = ctor("hsv_plane")
++ui.hueStrip = ctor("hue_strip")
++ui.colorWheel = ctor("color_wheel")
+ ui.input = ctor("input")
+ ui.markdown = ctor("markdown")
+ ui.select = ctor("select")
+diff --git a/src/ui/ui_tree_reconciler.cpp b/src/ui/ui_tree_reconciler.cpp
+index fdc99b0bf..9e9690e35 100644
+--- a/src/ui/ui_tree_reconciler.cpp
++++ b/src/ui/ui_tree_reconciler.cpp
+@@ -4,6 +4,7 @@
+ #include "core/log.h"
+ #include "render/core/color.h"
+ #include "render/core/renderer.h"
++#include "render/core/texture_manager.h"
+ #include "render/scene/input_area.h"
+ #include "ui/controls/box.h"
+ #include "ui/controls/button.h"
+@@ -67,6 +68,198 @@ namespace ui {
+       return it != node.props.end() ? std::get_if<std::vector<std::string>>(&it->second) : nullptr;
+     }
+ 
++    struct Rgba8 {
++      std::uint8_t r;
++      std::uint8_t g;
++      std::uint8_t b;
++      std::uint8_t a;
++    };
++
++    std::uint8_t colorByte(float value) {
++      return static_cast<std::uint8_t>(std::round(std::clamp(value, 0.0F, 1.0F) * 255.0F));
++    }
++
++    Rgba8 toRgba8(const Color& color) {
++      return Rgba8{colorByte(color.r), colorByte(color.g), colorByte(color.b), colorByte(color.a)};
++    }
++
++    void writePixel(std::vector<std::uint8_t>& pixels, int width, int x, int y, const Rgba8& color) {
++      const std::size_t offset =
++          (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U;
++      pixels[offset] = color.r;
++      pixels[offset + 1U] = color.g;
++      pixels[offset + 2U] = color.b;
++      pixels[offset + 3U] = color.a;
++    }
++
++    Color colorFromHsv(float hue, float saturation, float value) {
++      const float h = std::fmod(std::clamp(hue, 0.0F, 1.0F) * 6.0F, 6.0F);
++      const float chroma = value * saturation;
++      const float x = chroma * (1.0F - std::abs(std::fmod(h, 2.0F) - 1.0F));
++      const float offset = value - chroma;
++      float red = 0.0F;
++      float green = 0.0F;
++      float blue = 0.0F;
++      if (h < 1.0F) {
++        red = chroma;
++        green = x;
++      } else if (h < 2.0F) {
++        red = x;
++        green = chroma;
++      } else if (h < 3.0F) {
++        green = chroma;
++        blue = x;
++      } else if (h < 4.0F) {
++        green = x;
++        blue = chroma;
++      } else if (h < 5.0F) {
++        red = x;
++        blue = chroma;
++      } else {
++        red = chroma;
++        blue = x;
++      }
++      return rgba(red + offset, green + offset, blue + offset, 1.0F);
++    }
++
++    std::vector<std::uint8_t>
++    renderHsvPlane(float hue, float saturation, float value, Rgba8 innerRing, Rgba8 outerRing) {
++      constexpr int width = 360;
++      constexpr int height = 192;
++      std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4));
++      for (int y = 0; y < height; ++y) {
++        const float v = 1.0F - static_cast<float>(y) / static_cast<float>(height - 1);
++        for (int x = 0; x < width; ++x) {
++          const float s = static_cast<float>(x) / static_cast<float>(width - 1);
++          writePixel(pixels, width, x, y, toRgba8(colorFromHsv(hue, s, v)));
++        }
++      }
++      const float cursorX = std::clamp(saturation, 0.0F, 1.0F) * static_cast<float>(width - 1);
++      const float cursorY = (1.0F - std::clamp(value, 0.0F, 1.0F)) * static_cast<float>(height - 1);
++      constexpr float radius = 5.0F;
++      for (int y = std::max(0, static_cast<int>(cursorY) - 6); y <= std::min(height - 1, static_cast<int>(cursorY) + 6);
++           ++y) {
++        for (int x = std::max(0, static_cast<int>(cursorX) - 6);
++             x <= std::min(width - 1, static_cast<int>(cursorX) + 6); ++x) {
++          const float distance = std::hypot(static_cast<float>(x) - cursorX, static_cast<float>(y) - cursorY);
++          if (distance >= radius - 1.0F && distance <= radius) {
++            writePixel(pixels, width, x, y, outerRing);
++          } else if (distance >= radius - 2.0F && distance < radius - 1.0F) {
++            writePixel(pixels, width, x, y, innerRing);
++          }
++        }
++      }
++      return pixels;
++    }
++
++    std::vector<std::uint8_t> renderHueStrip(float hue, Rgba8 innerRing, Rgba8 outerRing) {
++      constexpr int width = 48;
++      constexpr int height = 256;
++      std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4));
++      for (int y = 0; y < height; ++y) {
++        const Color color = colorFromHsv(static_cast<float>(y) / static_cast<float>(height - 1), 1.0F, 1.0F);
++        for (int x = 0; x < width; ++x) {
++          writePixel(pixels, width, x, y, toRgba8(color));
++        }
++      }
++      const int cursorY = static_cast<int>(std::round(std::clamp(hue, 0.0F, 1.0F) * static_cast<float>(height - 1)));
++      for (int y = std::max(0, cursorY - 3); y <= std::min(height - 1, cursorY + 3); ++y) {
++        const Rgba8& color = std::abs(y - cursorY) <= 1 ? innerRing : outerRing;
++        for (int x = 0; x < width; ++x) {
++          writePixel(pixels, width, x, y, color);
++        }
++      }
++      return pixels;
++    }
++
++    int wheelSegmentAt(float x, float y, float width, float height) {
++      constexpr int segmentCount = 24;
++      constexpr float innerRadiusRatio = 0.10F;
++      constexpr float pi = 3.14159265358979323846F;
++      const float centerX = width / 2.0F;
++      const float centerY = height / 2.0F;
++      const float radius = std::min(width, height) / 2.0F - 4.0F;
++      if (radius <= 0.0F) {
++        return -1;
++      }
++      const float offsetX = x - centerX;
++      const float offsetY = y - centerY;
++      const float distance = std::hypot(offsetX, offsetY);
++      if (distance < radius * innerRadiusRatio || distance > radius) {
++        return -1;
++      }
++      float angle = std::fmod(std::atan2(offsetY, offsetX) + pi / 2.0F + 2.0F * pi, 2.0F * pi);
++      return std::clamp(static_cast<int>(std::floor(angle / (2.0F * pi) * segmentCount)), 0, segmentCount - 1);
++    }
++
++    std::vector<std::uint8_t> renderColorWheel(
++        const std::vector<std::string>& colorTokens, float logicalWidth, float logicalHeight, Rgba8 outline,
++        Rgba8 center, Rgba8 hover, int hoveredSegment
++    ) {
++      constexpr int width = 512;
++      constexpr int height = 512;
++      std::vector<Rgba8> colors(24, Rgba8{0, 0, 0, 255});
++      for (std::size_t i = 0; i < std::min(colors.size(), colorTokens.size()); ++i) {
++        Color color;
++        if (tryParseHexColor(colorTokens[i], color)) {
++          colors[i] = toRgba8(color);
++        }
++      }
++      std::vector<int> segments(static_cast<std::size_t>(width * height), -1);
++      for (int y = 0; y < height; ++y) {
++        const float logicalY = (static_cast<float>(y) + 0.5F) * logicalHeight / static_cast<float>(height);
++        for (int x = 0; x < width; ++x) {
++          const float logicalX = (static_cast<float>(x) + 0.5F) * logicalWidth / static_cast<float>(width);
++          segments[static_cast<std::size_t>(y * width + x)] =
++              wheelSegmentAt(logicalX, logicalY, logicalWidth, logicalHeight);
++        }
++      }
++      std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4));
++      for (int y = 0; y < height; ++y) {
++        for (int x = 0; x < width; ++x) {
++          const int segment = segments[static_cast<std::size_t>(y * width + x)];
++          bool border = false;
++          for (int offset = -2; offset <= 2 && !border; ++offset) {
++            if (x + offset < 0 || x + offset >= width || y + offset < 0 || y + offset >= height) {
++              border = true;
++              break;
++            }
++            border = segments[static_cast<std::size_t>(y * width + x + offset)] != segment
++                || segments[static_cast<std::size_t>((y + offset) * width + x)] != segment;
++          }
++          if (segment < 0) {
++            const float logicalX = (static_cast<float>(x) + 0.5F) * logicalWidth / static_cast<float>(width);
++            const float logicalY = (static_cast<float>(y) + 0.5F) * logicalHeight / static_cast<float>(height);
++            const float radius = std::min(logicalWidth, logicalHeight) / 2.0F - 4.0F;
++            const float distance = std::hypot(logicalX - logicalWidth / 2.0F, logicalY - logicalHeight / 2.0F);
++            const float innerRadius = radius * 0.10F;
++            const bool insideHole = distance < innerRadius;
++            const bool onHoleBorder = insideHole && distance >= innerRadius - 1.0F;
++            const bool onOuterBorder = !insideHole && distance <= radius + 1.0F;
++            if (onHoleBorder || onOuterBorder) {
++              writePixel(pixels, width, x, y, outline);
++            } else if (insideHole) {
++              writePixel(pixels, width, x, y, center);
++            } else {
++              writePixel(pixels, width, x, y, Rgba8{0, 0, 0, 0});
++            }
++          } else {
++            const Rgba8& color = colors[static_cast<std::size_t>(segment)];
++            if (segment == hoveredSegment) {
++              const Rgba8 hoverFill{
++                  static_cast<std::uint8_t>((3U * color.r + hover.r) / 4U),
++                  static_cast<std::uint8_t>((3U * color.g + hover.g) / 4U),
++                  static_cast<std::uint8_t>((3U * color.b + hover.b) / 4U), color.a};
++              writePixel(pixels, width, x, y, border ? hover : hoverFill);
++            } else {
++              writePixel(pixels, width, x, y, border ? outline : color);
++            }
++          }
++        }
++      }
++      return pixels;
++    }
++
+     constexpr std::size_t kDragPayloadMaxBytes = 16 * 1024;
+     constexpr std::size_t kDragIdentifierMaxBytes = 256;
+     constexpr std::size_t kDropAcceptsMaxEntries = 16;
+@@ -364,8 +557,17 @@ namespace ui {
+     }
+ 
+     // Only these types can carry an InputArea wrapper (see createControl).
++    bool isColorSurfaceType(const std::string& type) {
++      return type == "hsv_plane" || type == "hue_strip" || type == "color_wheel";
++    }
++
+     bool wrappableType(const std::string& type) {
+-      return type == "box" || type == "image" || type == "row" || type == "column" || type == "graph";
++      return type == "box"
++          || type == "image"
++          || type == "row"
++          || type == "column"
++          || type == "graph"
++          || isColorSurfaceType(type);
+     }
+ 
+     // The props that make a wrappable type need its InputArea: pointer tracking
+@@ -374,6 +576,12 @@ namespace ui {
+       if (want.type == "graph") {
+         return callbackProp(want, "onPointerMove") != nullptr || callbackProp(want, "onPointerLeave") != nullptr;
+       }
++      if (want.type == "hsv_plane" || want.type == "hue_strip") {
++        return callbackProp(want, "onChange") != nullptr;
++      }
++      if (want.type == "color_wheel") {
++        return callbackProp(want, "onSelect") != nullptr;
++      }
+       return callbackProp(want, "onClick") != nullptr
+           || callbackProp(want, "onHover") != nullptr
+           || strProp(want, "tooltip") != nullptr;
+@@ -489,6 +697,12 @@ namespace ui {
+           "width", "height", "flexGrow",  "opacity",     "visible",       "values",        "values2",
+           "color", "color2", "lineWidth", "fillOpacity", "onPointerMove", "onPointerLeave"
+       };
++      static const std::unordered_set<std::string> kHsvPlane = {"width", "height",     "flexGrow", "opacity", "visible",
++                                                                "hue",   "saturation", "value",    "onChange"};
++      static const std::unordered_set<std::string> kHueStrip = {"width",   "height", "flexGrow", "opacity",
++                                                                "visible", "hue",    "onChange"};
++      static const std::unordered_set<std::string> kColorWheel = {"width",   "height", "flexGrow", "opacity",
++                                                                  "visible", "colors", "onSelect"};
+       static const std::unordered_set<std::string> kInput = {"width",       "height",   "flexGrow",    "opacity",
+                                                              "visible",     "value",    "placeholder", "fontSize",
+                                                              "enabled",     "password", "multiline",   "focus",
+@@ -549,6 +763,15 @@ namespace ui {
+       if (type == "graph") {
+         return kGraph;
+       }
++      if (type == "hsv_plane") {
++        return kHsvPlane;
++      }
++      if (type == "hue_strip") {
++        return kHueStrip;
++      }
++      if (type == "color_wheel") {
++        return kColorWheel;
++      }
+       if (type == "input") {
+         return kInput;
+       }
+@@ -591,6 +814,8 @@ namespace ui {
+     std::string pointerLeaveCallbackName; // last-wired graph onPointerLeave target
+     std::string pointerStreamKey;         // coalescing stream shared by this graph's pointer callbacks
+     std::string imagePath;                // last-applied resolved image source
++    std::string colorSurfaceSignature;    // last-applied generated color-control texture
++    std::shared_ptr<int> colorWheelHoveredSegment;
+     std::string lastText;                 // markdown source cache - setMarkdown re-parses, only call on change
+     float lastMarkdownScale = 0.0F;       // content scale baked into the parsed markdown
+     float lastMarkdownFontScale = 0.0F;   // text-only multiplier baked into the parsed markdown
+@@ -700,6 +925,12 @@ namespace ui {
+     if (desired.type == "glyph") {
+       return std::make_unique<Glyph>();
+     }
++    if (isColorSurfaceType(desired.type)) {
++      if (wantsInputAreaWrapper(desired)) {
++        return wrapClickable(std::make_unique<Image>(), /*acceptClicks=*/true);
++      }
++      return std::make_unique<Image>();
++    }
+     if (desired.type == "image") {
+       if (wantsInputAreaWrapper(desired)) {
+         return wrapClickable(std::make_unique<Image>(), callbackProp(desired, "onClick") != nullptr);
+@@ -1580,6 +1811,167 @@ namespace ui {
+       return;
+     }
+ 
++    if (isColorSurfaceType(desired.type)) {
++      auto* image = controlFromSlot<Image>(node);
++      if (image == nullptr) {
++        return;
++      }
++      const float imageWidth = width != nullptr ? scaled(*width) : node->width();
++      const float imageHeight = height != nullptr ? scaled(*height) : imageWidth;
++      image->setSize(imageWidth, imageHeight);
++      image->setFit(ImageFit::Stretch);
++      image->setBorder(
++          desired.type == "color_wheel" ? clearColorSpec() : colorSpecFromRole(ColorRole::Outline),
++          desired.type == "color_wheel" ? 0.0F : scaled(1.0)
++      );
++      InputArea* inputArea = inputAreaFromSlot(node);
++      if (inputArea != nullptr) {
++        inputArea->setSize(imageWidth, imageHeight);
++      }
++      const Color outlineColor = colorForRole(ColorRole::Outline);
++      const Color surfaceColor = colorForRole(ColorRole::Surface);
++      const Color primaryColor = colorForRole(ColorRole::Primary);
++      const Rgba8 outline = toRgba8(outlineColor);
++      const Rgba8 surface = toRgba8(surfaceColor);
++      const Rgba8 primary = toRgba8(primaryColor);
++      std::string signature = desired.type
++          + ":"
++          + std::format("{:.3f}:{:.3f}:{}:{}:{}:{}:{}:{}:{}:{}", imageWidth, imageHeight,
++                        static_cast<int>(colorByte(outlineColor.r)), static_cast<int>(colorByte(outlineColor.g)),
++                        static_cast<int>(colorByte(outlineColor.b)), static_cast<int>(colorByte(outlineColor.a)),
++                        static_cast<int>(colorByte(surfaceColor.r)), static_cast<int>(colorByte(surfaceColor.g)),
++                        static_cast<int>(colorByte(surfaceColor.b)), static_cast<int>(colorByte(surfaceColor.a)));
++      const double hue = numProp(desired, "hue") != nullptr ? *numProp(desired, "hue") : 0.0;
++      const double saturation = numProp(desired, "saturation") != nullptr ? *numProp(desired, "saturation") : 1.0;
++      const double value = numProp(desired, "value") != nullptr ? *numProp(desired, "value") : 1.0;
++      const auto* colors = strArrayProp(desired, "colors");
++      const std::vector<std::string> emptyColors;
++      const auto& wheelColors = colors != nullptr ? *colors : emptyColors;
++      if (desired.type == "color_wheel" && slot.colorWheelHoveredSegment == nullptr) {
++        slot.colorWheelHoveredSegment = std::make_shared<int>(-1);
++      }
++      if (desired.type == "hsv_plane") {
++        signature += std::format(":{:.5f}:{:.5f}:{:.5f}", hue, saturation, value);
++      } else if (desired.type == "hue_strip") {
++        signature += std::format(":{:.5f}", hue);
++      } else {
++        if (colors == nullptr || colors->size() != 24) {
++          kLog.warn("ui tree: 'color_wheel' requires exactly 24 hex colors");
++        }
++        for (const std::string& color : wheelColors) {
++          signature += ":" + color;
++        }
++        signature += std::format(":{}:{}:{}:{}", static_cast<int>(primary.r), static_cast<int>(primary.g),
++                                 static_cast<int>(primary.b), static_cast<int>(primary.a));
++      }
++      if (signature != slot.colorSurfaceSignature) {
++        std::vector<std::uint8_t> pixels;
++        int pixelWidth = 0;
++        int pixelHeight = 0;
++        if (desired.type == "hsv_plane") {
++          pixels = renderHsvPlane(
++              static_cast<float>(hue), static_cast<float>(saturation), static_cast<float>(value), surface, outline
++          );
++          pixelWidth = 360;
++          pixelHeight = 192;
++        } else if (desired.type == "hue_strip") {
++          pixels = renderHueStrip(static_cast<float>(hue), surface, outline);
++          pixelWidth = 48;
++          pixelHeight = 256;
++        } else {
++          pixels = renderColorWheel(wheelColors, imageWidth, imageHeight, outline, surface, primary,
++                                    slot.colorWheelHoveredSegment != nullptr ? *slot.colorWheelHoveredSegment : -1);
++          pixelWidth = 512;
++          pixelHeight = 512;
++        }
++        if (!image->setSourceRaw(
++                renderer, pixels.data(), pixels.size(), pixelWidth, pixelHeight, pixelWidth * 4, PixmapFormat::RGBA,
++                false
++            )) {
++          kLog.warn("ui tree: failed to generate '{}' texture", desired.type);
++        }
++        slot.colorSurfaceSignature = std::move(signature);
++      }
++
++      if (inputArea != nullptr) {
++        inputArea->setFocusable(false);
++        inputArea->setTabStop(false);
++        if (desired.type == "color_wheel") {
++          auto hoveredSegment = slot.colorWheelHoveredSegment;
++          const auto paintWheel = [rendererPtr = &renderer, image, wheelColors, imageWidth, imageHeight, outline,
++                                   surface, primary](int segment) {
++            const auto pixels = renderColorWheel(wheelColors, imageWidth, imageHeight, outline, surface, primary,
++                                                 segment);
++            if (!image->setSourceRaw(*rendererPtr, pixels.data(), pixels.size(), 512, 512, 512 * 4,
++                                     PixmapFormat::RGBA, false)) {
++              kLog.warn("ui tree: failed to update color wheel hover texture");
++            }
++          };
++          auto updateHover = [paintWheel, hoveredSegment, imageWidth,
++                              imageHeight](const InputArea::PointerData& pointer) {
++            const int segment = wheelSegmentAt(pointer.localX, pointer.localY, imageWidth, imageHeight);
++            const int previous = *hoveredSegment;
++            if (previous == segment) {
++              return;
++            }
++            *hoveredSegment = segment;
++            if (segment >= 0 || previous >= 0) {
++              paintWheel(segment);
++            }
++          };
++          inputArea->setOnEnter(updateHover);
++          inputArea->setOnMotion(updateHover);
++          inputArea->setOnLeave([paintWheel, hoveredSegment]() {
++            if (*hoveredSegment >= 0) {
++              *hoveredSegment = -1;
++              paintWheel(-1);
++            }
++          });
++          const std::string* callbackName = callbackProp(desired, "onSelect");
++          if (callbackName != nullptr) {
++            inputArea->setOnClick([this, name = *callbackName, inputArea, imageWidth,
++                                   imageHeight](const InputArea::PointerData& pointer) {
++              const int segment = wheelSegmentAt(pointer.localX, pointer.localY, imageWidth, imageHeight);
++              if (segment >= 0 && m_sink) {
++                m_sink(ControlCallback{name, std::format("{}", segment + 1)});
++              }
++            });
++          }
++        } else {
++          const std::string* callbackName = callbackProp(desired, "onChange");
++          if (callbackName != nullptr) {
++            const std::string coalesceKey = desired.key.empty() ? *callbackName : desired.key;
++            auto report = [this, name = *callbackName, inputArea, coalesceKey](const InputArea::PointerData& pointer) {
++              if (!m_sink || inputArea->width() <= 0.0F || inputArea->height() <= 0.0F) {
++                return;
++              }
++              const float x = std::clamp(pointer.localX / inputArea->width(), 0.0F, 1.0F);
++              const float y = std::clamp(pointer.localY / inputArea->height(), 0.0F, 1.0F);
++              m_sink(
++                  ControlCallback{
++                      name, std::format("{:.4F}", x), std::format("{:.4F}", y), true,
++                      std::format("color-surface:{}", coalesceKey)
++                  }
++              );
++            };
++            inputArea->setOnClick([](const InputArea::PointerData&) {});
++            inputArea->setOnPress([report](const InputArea::PointerData& pointer) {
++              if (pointer.pressed) {
++                report(pointer);
++              }
++            });
++            inputArea->setOnMotion([inputArea, report](const InputArea::PointerData& pointer) {
++              if (inputArea->pressed()) {
++                report(pointer);
++              }
++            });
++            inputArea->setOnCancel([] {});
++          }
++        }
++      }
++      return;
++    }
++
+     if (desired.type == "toggle") {
+       auto* toggle = static_cast<Toggle*>(node);
+       if (const bool* checked = boolProp(desired, "checked")) {

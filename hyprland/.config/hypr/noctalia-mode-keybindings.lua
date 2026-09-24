@@ -99,6 +99,7 @@ hl.bind(
   { description = "App Launcher (>)" }
 )
 bind_panel("SUPER + SHIFT + D", "Dashboard", "control-center")
+bind_panel("SUPER + SHIFT + C", "Chromack", "dxle/chromack:panel")
 bind_panel("SUPER + ALT + A", "Audio Menu", "control-center audio")
 bind_panel("SUPER + ALT + C", "Clipboard Menu", "clipboard")
 bind_panel("SUPER + CTRL + ALT + SPACE", "Wallpaper Panel", "wallpaper")
