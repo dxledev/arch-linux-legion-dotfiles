@@ -1,0 +1,941 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+index e186765..d55384d 100644
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -4745,6 +4745,14 @@
+     }
+   },
+   "wallpaper": {
++    "actions": {
++      "delete": "Delete"
++    },
++    "confirm": {
++      "delete-desc": "This moves the original image to Trash.",
++      "delete-error": "Could not move the image to Trash: {error}",
++      "delete-title": "Delete \"{name}\"?"
++    },
+     "panel": {
+       "all-monitors": "ALL",
+       "choose-color": "Choose wallpaper color",
+diff --git a/src/config/config_overrides.cpp b/src/config/config_overrides.cpp
+index f90fe8d..0d78905 100644
+--- a/src/config/config_overrides.cpp
++++ b/src/config/config_overrides.cpp
+@@ -2327,6 +2327,8 @@ std::string ConfigService::getDefaultWallpaperPath() const {
+   return m_defaultWallpaperPath;
+ }
+ 
++std::string ConfigService::getLastWallpaperPath() const { return m_lastWallpaperPath; }
++
+ std::string ConfigService::getPaletteWallpaperPath() const {
+   if (const std::string bundled = firstRunWallpaperPath(); !bundled.empty()) {
+     return bundled;
+@@ -2361,9 +2363,11 @@ void ConfigService::setWallpaperChangeCallback(ChangeCallback callback) {
+   m_wallpaperChangeCallback = std::move(callback);
+ }
+ 
+-void ConfigService::setWallpaperPath(const std::optional<std::string>& connectorName, const std::string& path) {
++bool ConfigService::setWallpaperPath(
++    const std::optional<std::string>& connectorName, const std::string& path, bool updateLast, bool rememberTheme
++) {
+   if (m_overridesPath.empty()) {
+-    return;
++    return false;
+   }
+ 
+   bool changed = false;
+@@ -2382,15 +2386,17 @@ void ConfigService::setWallpaperPath(const std::optional<std::string>& connector
+ 
+   // Track the most recently applied wallpaper so palette generation still has a usable image
+   // when wallpaper management is only used on a subset of displays (no default path set).
+-  const bool lastChanged = (m_lastWallpaperPath != path);
++  const bool lastChanged = updateLast && (m_lastWallpaperPath != path);
+   if (lastChanged) {
+     m_lastWallpaperPath = path;
+     changed = true;
+   }
+ 
+   if (!changed) {
+-    rememberWallpaperForTheme(path, m_config.theme.source, m_config.theme.customPalette);
+-    return;
++    if (rememberTheme) {
++      rememberWallpaperForTheme(path, m_config.theme.source, m_config.theme.customPalette);
++    }
++    return true;
+   }
+ 
+   // Mirror the change into the overrides table so writeOverridesToFile() serializes it.
+@@ -2410,18 +2416,41 @@ void ConfigService::setWallpaperPath(const std::optional<std::string>& connector
+ 
+   if (!writeOverridesToFile()) {
+     kLog.warn("failed to write {}", m_overridesPath);
+-    return;
++    return false;
+   }
+ 
+   m_ownOverridesWritePending = true;
+-  rememberWallpaperForTheme(path, m_config.theme.source, m_config.theme.customPalette);
++  if (rememberTheme) {
++    rememberWallpaperForTheme(path, m_config.theme.source, m_config.theme.customPalette);
++  }
+   if (m_wallpaperBatchDepth > 0) {
+     m_wallpaperBatchDirty = true;
+-    return;
++    return true;
+   }
+   if (m_wallpaperChangeCallback) {
+     m_wallpaperChangeCallback();
+   }
++  return true;
++}
++
++bool ConfigService::setLastWallpaperPath(const std::string& path) {
++  if (m_overridesPath.empty()) {
++    return false;
++  }
++  if (m_lastWallpaperPath == path) {
++    return true;
++  }
++
++  m_lastWallpaperPath = path;
++  auto* wallpaperTbl = ensureTable(m_overridesTable, "wallpaper");
++  auto* lastTbl = ensureTable(*wallpaperTbl, "last");
++  lastTbl->insert_or_assign("path", path);
++  if (!writeOverridesToFile()) {
++    kLog.warn("failed to write {}", m_overridesPath);
++    return false;
++  }
++  m_ownOverridesWritePending = true;
++  return true;
+ }
+ 
+ void ConfigService::extractWallpaperFromOverrides() { extractWallpaperFromTable(m_overridesTable); }
+diff --git a/src/config/config_service.h b/src/config/config_service.h
+index 51d9dda..7e57212 100644
+--- a/src/config/config_service.h
++++ b/src/config/config_service.h
+@@ -87,11 +87,16 @@ public:
+     return m_monitorWallpaperPaths;
+   }
+   [[nodiscard]] std::string getDefaultWallpaperPath() const;
++  [[nodiscard]] std::string getLastWallpaperPath() const;
+   // Last applied wallpaper, else default. Drives palette generation and template previews.
+   [[nodiscard]] std::string getPaletteWallpaperPath() const;
+   // Greeter sync fallback when no monitor-specific path is chosen.
+   [[nodiscard]] std::string getGreeterSyncWallpaperPath() const;
+-  void setWallpaperPath(const std::optional<std::string>& connectorName, const std::string& path);
++  bool setWallpaperPath(
++      const std::optional<std::string>& connectorName, const std::string& path, bool updateLast = true,
++      bool rememberTheme = true
++  );
++  [[nodiscard]] bool setLastWallpaperPath(const std::string& path);
+   void setWallpaperChangeCallback(ChangeCallback callback);
+ 
+   [[nodiscard]] const std::vector<WallpaperFavorite>& wallpaperFavorites() const noexcept;
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+index a3da053..16bef6e 100644
+--- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
++++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+@@ -1,8 +1,11 @@
+ #include "shell/wallpaper/panel/wallpaper_panel.h"
+ 
+ #include "config/config_service.h"
++#include "core/files/resource_paths.h"
++#include "core/input/key_symbols.h"
+ #include "core/input/keybind_matcher.h"
+ #include "core/log.h"
++#include "core/process/process.h"
+ #include "core/random.h"
+ #include "core/ui_phase.h"
+ #include "cursor-shape-v1-client-protocol.h"
+@@ -27,6 +30,7 @@
+ #include "wayland/wayland_connection.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cctype>
+ #include <chrono>
+ #include <filesystem>
+@@ -292,12 +296,356 @@ namespace {
+     return wallpaperPathInsideDirectory(favoriteFile, activeDir);
+   }
+ 
++  [[nodiscard]] std::optional<std::filesystem::path> resolveRegularImage(const std::filesystem::path& path) {
++    std::error_code ec;
++    const auto resolved = std::filesystem::canonical(FileUtils::expandUserPath(path.string()), ec);
++    if (ec || !std::filesystem::is_regular_file(resolved, ec) || ec) {
++      return std::nullopt;
++    }
++    return resolved;
++  }
++
++  [[nodiscard]] bool wallpaperPathReferences(std::string_view path, const std::filesystem::path& resolvedTarget) {
++    if (path.empty() || path.starts_with("color:")) {
++      return false;
++    }
++    const auto resolved = resolveRegularImage(std::filesystem::path(path));
++    return resolved.has_value() && *resolved == resolvedTarget;
++  }
++
++  struct ThemeWallpaperLink {
++    std::filesystem::path path;
++    std::filesystem::path target;
++  };
++
++  [[nodiscard]] bool collectMatchingWallpaperLink(
++      const std::filesystem::path& linkPath, const std::filesystem::path& resolvedTarget,
++      std::vector<ThemeWallpaperLink>& links, std::string& error
++  ) {
++    std::error_code ec;
++    const auto status = std::filesystem::symlink_status(linkPath, ec);
++    if (ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory) {
++      return true;
++    }
++    if (ec) {
++      error = ec.message();
++      return false;
++    }
++    if (status.type() == std::filesystem::file_type::not_found) {
++      return true;
++    }
++    if (!std::filesystem::is_symlink(status)) {
++      return true;
++    }
++
++    const auto resolved = resolveRegularImage(linkPath);
++    if (!resolved.has_value() || *resolved != resolvedTarget) {
++      return true;
++    }
++    auto target = std::filesystem::read_symlink(linkPath, ec);
++    if (ec) {
++      error = ec.message();
++      return false;
++    }
++    links.push_back({.path = linkPath, .target = std::move(target)});
++    return true;
++  }
++
++  [[nodiscard]] bool collectSavedWallpaperLinks(
++      const std::filesystem::path& themesRoot, const std::filesystem::path& resolvedTarget,
++      std::vector<ThemeWallpaperLink>& links, std::string& error
++  ) {
++    std::error_code ec;
++    const bool themesExist = std::filesystem::exists(themesRoot, ec);
++    if (ec) {
++      error = ec.message();
++      return false;
++    }
++    if (themesExist) {
++      if (!std::filesystem::is_directory(themesRoot, ec) || ec) {
++        error = ec ? ec.message() : "theme config path is not a directory";
++        return false;
++      }
++
++      std::filesystem::directory_iterator it(themesRoot, ec);
++      if (ec) {
++        error = ec.message();
++        return false;
++      }
++      for (const std::filesystem::directory_iterator end; it != end; it.increment(ec)) {
++        if (ec) {
++          error = ec.message();
++          return false;
++        }
++        std::error_code dirEc;
++        const auto dirStatus = it->symlink_status(dirEc);
++        if (dirEc) {
++          error = dirEc.message();
++          return false;
++        }
++        if (!std::filesystem::is_directory(dirStatus) || it->path().filename().string().starts_with('.')) {
++          continue;
++        }
++
++        const auto linkPath = it->path() / "wallpaper.png";
++        if (!collectMatchingWallpaperLink(linkPath, resolvedTarget, links, error)) {
++          return false;
++        }
++      }
++    }
++
++    const std::string stateDir = FileUtils::stateDir();
++    return stateDir.empty()
++        || collectMatchingWallpaperLink(
++            std::filesystem::path(stateDir) / "dynamic-wallpaper", resolvedTarget, links, error
++        );
++  }
++
++  [[nodiscard]] bool atomicallySetSymlink(
++      const std::filesystem::path& linkPath, const std::filesystem::path& target, std::filesystem::path* previousTarget,
++      std::string& error
++  ) {
++    std::error_code ec;
++    if (previousTarget != nullptr) {
++      const auto status = std::filesystem::symlink_status(linkPath, ec);
++      if (ec || !std::filesystem::is_symlink(status)) {
++        error = ec ? ec.message() : "saved wallpaper link changed";
++        return false;
++      }
++      *previousTarget = std::filesystem::read_symlink(linkPath, ec);
++      if (ec) {
++        error = ec.message();
++        return false;
++      }
++    }
++
++    static std::atomic<std::uint64_t> sequence{0};
++    for (int attempt = 0; attempt < 8; ++attempt) {
++      auto temporaryLink = linkPath;
++      temporaryLink += ".noctalia-delete." + std::to_string(sequence.fetch_add(1));
++      std::filesystem::create_symlink(target, temporaryLink, ec);
++      if (ec == std::errc::file_exists) {
++        ec.clear();
++        continue;
++      }
++      if (ec) {
++        error = ec.message();
++        return false;
++      }
++      std::filesystem::rename(temporaryLink, linkPath, ec);
++      if (!ec) {
++        return true;
++      }
++      std::error_code cleanupEc;
++      std::filesystem::remove(temporaryLink, cleanupEc);
++      error = ec.message();
++      return false;
++    }
++    error = "could not allocate a temporary wallpaper link";
++    return false;
++  }
++
++  [[nodiscard]] std::string trashFailureDetail(const process::RunResult& result) {
++    std::string detail = result.err.empty() ? result.out : result.err;
++    for (char& value : detail) {
++      const auto ch = static_cast<unsigned char>(value);
++      if (ch < 0x20U || ch == 0x7fU) {
++        value = ' ';
++      }
++    }
++    const auto first = detail.find_first_not_of(' ');
++    if (first == std::string::npos) {
++      detail =
++          result.timedOut ? "trash-put timed out" : "trash-put exited with status " + std::to_string(result.exitCode);
++    } else {
++      detail.erase(0, first);
++      const auto last = detail.find_last_not_of(' ');
++      detail.resize(last + 1);
++      if (detail.size() > 512) {
++        detail.resize(512);
++      }
++    }
++    return detail;
++  }
++
++  struct WallpaperPathChange {
++    std::optional<std::string> connector;
++    std::string previousPath;
++  };
++
++  class WallpaperDeleteTransaction {
++  public:
++    WallpaperDeleteTransaction(
++        ConfigService& config, std::filesystem::path target, std::filesystem::path replacement,
++        std::filesystem::path replacementOriginal
++    )
++        : m_config(config), m_target(std::move(target)), m_replacement(std::move(replacement)),
++          m_replacementOriginal(std::move(replacementOriginal)) {}
++
++    ~WallpaperDeleteTransaction() {
++      if (m_changesApplied && !restore()) {
++        kLog.warn("failed to restore wallpaper state after an incomplete delete transaction");
++      }
++    }
++
++    [[nodiscard]] bool prepare(std::string& error) {
++      const std::string defaultPath = m_config.getDefaultWallpaperPath();
++      if (wallpaperPathReferences(defaultPath, m_target)) {
++        m_wallpaperChanges.push_back({.connector = std::nullopt, .previousPath = defaultPath});
++      }
++      for (const auto& [connector, path] : m_config.monitorWallpaperPaths()) {
++        if (wallpaperPathReferences(path, m_target)) {
++          m_wallpaperChanges.push_back({.connector = connector, .previousPath = path});
++        }
++      }
++      m_previousLast = m_config.getLastWallpaperPath();
++      m_updateLast = wallpaperPathReferences(m_previousLast, m_target);
++
++      const auto themesRoot = FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/themes");
++      if (!collectSavedWallpaperLinks(themesRoot, m_target, m_themeLinks, error)) {
++        return false;
++      }
++      for (const auto& favorite : m_config.wallpaperFavorites()) {
++        if (wallpaperPathReferences(favorite.path, m_target)) {
++          m_matchingFavorites.push_back(favorite.path);
++        }
++      }
++      return true;
++    }
++
++    [[nodiscard]] bool apply(std::string& error) {
++      m_changesApplied = true;
++      for (const auto& link : m_themeLinks) {
++        const auto currentTarget = resolveRegularImage(link.path);
++        if (!currentTarget.has_value() || *currentTarget != m_target) {
++          error = "a saved theme wallpaper link changed";
++          return restoreWithError(error);
++        }
++        std::filesystem::path oldTarget;
++        if (!atomicallySetSymlink(link.path, m_replacementOriginal, &oldTarget, error)) {
++          return restoreWithError(error);
++        }
++        m_changedThemeLinks.push_back({.path = link.path, .target = std::move(oldTarget)});
++      }
++
++      if (!applyWallpaperSettings(error) || !replacementSettingsMatch(error)) {
++        return restoreWithError(error);
++      }
++      return true;
++    }
++
++    [[nodiscard]] bool trash(std::string& error) {
++      const process::RunResult result =
++          process::runSync(std::vector<std::string>{"/usr/bin/trash-put", "--", m_target.string()});
++      if (!result) {
++        error = trashFailureDetail(result);
++        return restoreWithError(error);
++      }
++      for (const auto& favoritePath : m_matchingFavorites) {
++        m_config.removeWallpaperFavorite(favoritePath);
++      }
++      m_committed = true;
++      m_changesApplied = false;
++      return true;
++    }
++
++  private:
++    [[nodiscard]] bool applyWallpaperSettings(std::string& error) {
++      ConfigService::WallpaperBatch batch(m_config);
++      const std::string replacement = m_replacement.string();
++      for (const auto& change : m_wallpaperChanges) {
++        if (!m_config.setWallpaperPath(change.connector, replacement, false, false)) {
++          error = "could not save the replacement wallpaper settings";
++          return false;
++        }
++      }
++      if (m_updateLast && !m_config.setLastWallpaperPath(replacement)) {
++        error = "could not save the replacement wallpaper history";
++        return false;
++      }
++      return true;
++    }
++
++    [[nodiscard]] bool replacementSettingsMatch(std::string& error) const {
++      const std::string replacement = m_replacement.string();
++      for (const auto& change : m_wallpaperChanges) {
++        if (change.connector.has_value()) {
++          const auto it = m_config.monitorWallpaperPaths().find(*change.connector);
++          if (it == m_config.monitorWallpaperPaths().end() || it->second != replacement) {
++            error = "the replacement wallpaper was not applied to a monitor";
++            return false;
++          }
++        } else if (m_config.getDefaultWallpaperPath() != replacement) {
++          error = "the replacement wallpaper was not applied as the default";
++          return false;
++        }
++      }
++      return true;
++    }
++
++    [[nodiscard]] bool restoreWithError(std::string& error) {
++      if (!restore()) {
++        error += "; some previous wallpaper settings could not be restored";
++      }
++      return false;
++    }
++
++    [[nodiscard]] bool restore() {
++      if (!m_changesApplied || m_committed) {
++        return true;
++      }
++      bool restored = true;
++      for (auto it = m_changedThemeLinks.rbegin(); it != m_changedThemeLinks.rend(); ++it) {
++        const auto currentTarget = resolveRegularImage(it->path);
++        if (currentTarget.has_value() && *currentTarget == m_target) {
++          continue;
++        }
++        if (!currentTarget.has_value() || *currentTarget != m_replacementOriginal) {
++          restored = false;
++          continue;
++        }
++        std::string restoreError;
++        if (!atomicallySetSymlink(it->path, it->target, nullptr, restoreError)) {
++          restored = false;
++          kLog.warn("failed to restore saved wallpaper link {}: {}", it->path.string(), restoreError);
++        }
++      }
++      {
++        ConfigService::WallpaperBatch batch(m_config);
++        for (auto it = m_wallpaperChanges.rbegin(); it != m_wallpaperChanges.rend(); ++it) {
++          restored = m_config.setWallpaperPath(it->connector, it->previousPath, false, false) && restored;
++        }
++      }
++      if (m_updateLast) {
++        restored = m_config.setLastWallpaperPath(m_previousLast) && restored;
++      }
++      if (restored) {
++        m_changesApplied = false;
++      }
++      return restored;
++    }
++
++    ConfigService& m_config;
++    std::filesystem::path m_target;
++    std::filesystem::path m_replacement;
++    std::filesystem::path m_replacementOriginal;
++    std::string m_previousLast;
++    bool m_updateLast = false;
++    bool m_changesApplied = false;
++    bool m_committed = false;
++    std::vector<WallpaperPathChange> m_wallpaperChanges;
++    std::vector<ThemeWallpaperLink> m_themeLinks;
++    std::vector<ThemeWallpaperLink> m_changedThemeLinks;
++    std::vector<std::string> m_matchingFavorites;
++  };
++
+ } // namespace
+ 
+ class WallpaperGridAdapter : public VirtualGridAdapter {
+ public:
+   using ActivateCallback = std::function<void(const WallpaperEntry&)>;
+   using StarCallback = std::function<void(const WallpaperEntry&)>;
++  using SecondaryActivateCallback = std::function<void(std::size_t)>;
+ 
+   explicit WallpaperGridAdapter(float scale) : m_scale(scale) {}
+ 
+@@ -315,6 +663,7 @@ public:
+   }
+   void setOnActivate(ActivateCallback callback) { m_onActivate = std::move(callback); }
+   void setOnStarToggle(StarCallback callback) { m_onStarToggle = std::move(callback); }
++  void setOnSecondaryActivate(SecondaryActivateCallback callback) { m_onSecondaryActivate = std::move(callback); }
+ 
+   void refreshVisibleThumbnails(Renderer& renderer) {
+     for (WallpaperTile* tile : m_pool) {
+@@ -404,6 +753,12 @@ public:
+     m_onActivate((*m_entries)[index]);
+   }
+ 
++  void onSecondaryActivate(std::size_t index, float /*anchorX*/, float /*anchorY*/) override {
++    if (m_onSecondaryActivate && m_entries != nullptr && index < m_entries->size() && !(*m_entries)[index].isDir) {
++      m_onSecondaryActivate(index);
++    }
++  }
++
+ private:
+   float m_scale;
+   const std::vector<WallpaperEntry>* m_entries = nullptr;
+@@ -415,6 +770,7 @@ private:
+   std::vector<WallpaperTile*> m_pool;
+   ActivateCallback m_onActivate;
+   StarCallback m_onStarToggle;
++  SecondaryActivateCallback m_onSecondaryActivate;
+ };
+ 
+ WallpaperPanel::WallpaperPanel(
+@@ -773,6 +1129,72 @@ void WallpaperPanel::create() {
+ 
+   root->addChild(std::move(favoritesOptions));
+ 
++  auto deleteConfirmPanel = ui::column({
++      .out = &m_deleteConfirmPanel,
++      .gap = Style::spaceXs * scale,
++      .padding = Style::spaceSm * scale,
++      .fill = colorSpecFromRole(ColorRole::Error, 0.10F),
++      .radius = Style::scaledRadiusSm(scale),
++      .border = colorSpecFromRole(ColorRole::Error, 0.5F),
++      .fillWidth = true,
++      .visible = false,
++      .participatesInLayout = false,
++  });
++  deleteConfirmPanel->addChild(
++      ui::label({
++          .out = &m_deleteConfirmTitle,
++          .fontSize = Style::fontSizeBody * scale,
++          .fontWeight = FontWeight::Bold,
++          .color = colorSpecFromRole(ColorRole::Error),
++      })
++  );
++  deleteConfirmPanel->addChild(
++      ui::label({
++          .text = i18n::tr("wallpaper.confirm.delete-desc"),
++          .fontSize = Style::fontSizeCaption * scale,
++          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
++      })
++  );
++  deleteConfirmPanel->addChild(
++      ui::label({
++          .out = &m_deleteConfirmError,
++          .fontSize = Style::fontSizeCaption * scale,
++          .color = colorSpecFromRole(ColorRole::Error),
++          .visible = false,
++          .participatesInLayout = false,
++      })
++  );
++  deleteConfirmPanel->addChild(
++      ui::row(
++          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, ui::spacer(),
++          ui::button({
++              .text = i18n::tr("common.actions.cancel"),
++              .fontSize = Style::fontSizeCaption * scale,
++              .variant = ButtonVariant::Ghost,
++              .minHeight = Style::controlHeightSm * scale,
++              .paddingV = Style::spaceXs * scale,
++              .paddingH = Style::spaceSm * scale,
++              .radius = Style::scaledRadiusSm(scale),
++              .onClick =
++                  [this]() {
++                    cancelDeleteConfirmation();
++                    PanelManager::instance().refresh();
++                  },
++          }),
++          ui::button({
++              .text = i18n::tr("wallpaper.actions.delete"),
++              .fontSize = Style::fontSizeCaption * scale,
++              .variant = ButtonVariant::Destructive,
++              .minHeight = Style::controlHeightSm * scale,
++              .paddingV = Style::spaceXs * scale,
++              .paddingH = Style::spaceSm * scale,
++              .radius = Style::scaledRadiusSm(scale),
++              .onClick = [this]() { performConfirmedDelete(); },
++          })
++      )
++  );
++  root->addChild(std::move(deleteConfirmPanel));
++
+   // ── Body: virtualized scrolling grid ──────────────────────────────────
+   m_adapter = std::make_unique<WallpaperGridAdapter>(scale);
+   m_adapter->setThumbnailService(m_thumbnails);
+@@ -790,6 +1212,7 @@ void WallpaperPanel::create() {
+       toggleFavoriteForPath(entry.absPath.string());
+     }
+   });
++  m_adapter->setOnSecondaryActivate([this](std::size_t index) { requestDeleteAtIndex(index); });
+ 
+   root->addChild(
+       ui::virtualGridView({
+@@ -813,6 +1236,10 @@ void WallpaperPanel::create() {
+                 } else {
+                   m_selectedVisibleIndex = kNoVisibleSelection;
+                 }
++                if (m_pendingDeleteVisibleIndex != kNoVisibleSelection
++                    && m_selectedVisibleIndex != m_pendingDeleteVisibleIndex) {
++                  cancelDeleteConfirmation();
++                }
+                 syncThemeControls();
+               },
+           .configure = [](VirtualGridView& grid) { grid.setFillWidth(true); },
+@@ -941,6 +1368,9 @@ void WallpaperPanel::onPanelCardOpacityChanged(float opacity) {
+ }
+ 
+ void WallpaperPanel::onOpen(std::string_view /*context*/) {
++  cancelDeleteConfirmation();
++  m_pendingDeleteReselectIndex.reset();
++  m_pendingDeleteNeedsFreshScan = false;
+   m_filterQuery.clear();
+   m_pendingFilterQuery.clear();
+   m_filterDebounceTimer.stop();
+@@ -964,6 +1394,9 @@ void WallpaperPanel::onOpen(std::string_view /*context*/) {
+ }
+ 
+ void WallpaperPanel::onClose() {
++  cancelDeleteConfirmation();
++  m_pendingDeleteReselectIndex.reset();
++  m_pendingDeleteNeedsFreshScan = false;
+   m_filterDebounceTimer.stop();
+   m_pendingFilterQuery.clear();
+   m_filterQuery.clear();
+@@ -992,6 +1425,9 @@ void WallpaperPanel::onClose() {
+   m_refreshButton = nullptr;
+   m_colorButton = nullptr;
+   m_closeButton = nullptr;
++  m_deleteConfirmPanel = nullptr;
++  m_deleteConfirmTitle = nullptr;
++  m_deleteConfirmError = nullptr;
+   m_favoriteThemeSegmented = nullptr;
+   m_favoritePaletteSourceSegmented = nullptr;
+   m_favoritePaletteDetailSelect = nullptr;
+@@ -1011,6 +1447,12 @@ bool WallpaperPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers,
+     return false;
+   }
+ 
++  if (!m_pendingDeleteOriginalPath.empty() && KeySymbol::isEscape(sym)) {
++    cancelDeleteConfirmation();
++    PanelManager::instance().refresh();
++    return true;
++  }
++
+   auto& dispatcher = PanelManager::instance().inputDispatcher();
+   InputArea* focused = dispatcher.focusedArea();
+ 
+@@ -1208,6 +1650,170 @@ std::string WallpaperPanel::selectedWallpaperPath() const {
+   return entry.absPath.string();
+ }
+ 
++void WallpaperPanel::requestDeleteAtIndex(std::size_t index) {
++  if (index >= m_visibleEntries.size() || m_visibleEntries[index].isDir) {
++    return;
++  }
++  if (m_selectedVisibleIndex != index) {
++    selectVisibleIndex(index);
++  }
++  if (m_selectedVisibleIndex == index) {
++    requestDeleteSelected();
++  }
++}
++
++void WallpaperPanel::requestDeleteSelected() {
++  if (!hasVisibleSelection() || m_selectedVisibleIndex >= m_visibleEntries.size()) {
++    return;
++  }
++  const std::string selectedPath = selectedWallpaperPath();
++  if (selectedPath.empty()) {
++    return;
++  }
++  const auto originalPath = resolveRegularImage(selectedPath);
++  if (!originalPath.has_value()) {
++    return;
++  }
++
++  m_pendingDeleteVisibleIndex = m_selectedVisibleIndex;
++  m_pendingDeleteSelectedPath = selectedPath;
++  m_pendingDeleteOriginalPath = *originalPath;
++  if (m_deleteConfirmTitle != nullptr) {
++    m_deleteConfirmTitle->setText(
++        i18n::tr("wallpaper.confirm.delete-title", "name", m_pendingDeleteOriginalPath.filename().string())
++    );
++  }
++  if (m_deleteConfirmError != nullptr) {
++    m_deleteConfirmError->setText("");
++    m_deleteConfirmError->setVisible(false);
++    m_deleteConfirmError->setParticipatesInLayout(false);
++  }
++  if (m_deleteConfirmPanel != nullptr) {
++    m_deleteConfirmPanel->setVisible(true);
++    m_deleteConfirmPanel->setParticipatesInLayout(true);
++  }
++  m_dirty = true;
++  PanelManager::instance().refresh();
++}
++
++void WallpaperPanel::cancelDeleteConfirmation() {
++  m_pendingDeleteVisibleIndex = kNoVisibleSelection;
++  m_pendingDeleteSelectedPath.clear();
++  m_pendingDeleteOriginalPath.clear();
++  if (m_deleteConfirmTitle != nullptr) {
++    m_deleteConfirmTitle->setText("");
++  }
++  if (m_deleteConfirmError != nullptr) {
++    m_deleteConfirmError->setText("");
++    m_deleteConfirmError->setVisible(false);
++    m_deleteConfirmError->setParticipatesInLayout(false);
++  }
++  if (m_deleteConfirmPanel != nullptr) {
++    m_deleteConfirmPanel->setVisible(false);
++    m_deleteConfirmPanel->setParticipatesInLayout(false);
++  }
++  m_dirty = true;
++}
++
++void WallpaperPanel::setDeleteConfirmationError(std::string message) {
++  if (m_deleteConfirmError == nullptr) {
++    return;
++  }
++  m_deleteConfirmError->setText(i18n::tr("wallpaper.confirm.delete-error", "error", message));
++  m_deleteConfirmError->setVisible(true);
++  m_deleteConfirmError->setParticipatesInLayout(true);
++  m_dirty = true;
++  PanelManager::instance().refresh();
++}
++
++void WallpaperPanel::restoreSelectionAfterDeleteScan() {
++  if (!m_pendingDeleteReselectIndex.has_value()) {
++    return;
++  }
++  const std::size_t previousIndex = *m_pendingDeleteReselectIndex;
++  m_pendingDeleteReselectIndex.reset();
++  if (m_visibleEntries.empty()) {
++    resetSelection();
++    return;
++  }
++  selectVisibleIndex(std::min(previousIndex, m_visibleEntries.size() - 1));
++}
++
++void WallpaperPanel::performConfirmedDelete() {
++  if (m_config == nullptr || m_pendingDeleteOriginalPath.empty()) {
++    return;
++  }
++  if (!hasVisibleSelection()
++      || m_selectedVisibleIndex != m_pendingDeleteVisibleIndex
++      || selectedWallpaperPath() != m_pendingDeleteSelectedPath) {
++    cancelDeleteConfirmation();
++    PanelManager::instance().refresh();
++    return;
++  }
++
++  const auto target = resolveRegularImage(m_pendingDeleteSelectedPath);
++  if (!target.has_value() || *target != m_pendingDeleteOriginalPath) {
++    setDeleteConfirmationError("the selected file changed after confirmation");
++    return;
++  }
++
++  const std::size_t selectedIndex = m_pendingDeleteVisibleIndex;
++  std::optional<std::filesystem::path> replacementPath;
++  std::optional<std::filesystem::path> replacementOriginalPath;
++  for (std::size_t offset = 1; offset <= m_visibleEntries.size(); ++offset) {
++    const std::size_t candidateIndex = (selectedIndex + offset) % m_visibleEntries.size();
++    const auto& entry = m_visibleEntries[candidateIndex];
++    if (entry.isDir) {
++      continue;
++    }
++    const auto candidate = resolveRegularImage(entry.absPath);
++    if (!candidate.has_value() || *candidate == m_pendingDeleteOriginalPath) {
++      continue;
++    }
++    replacementPath = entry.absPath;
++    replacementOriginalPath = *candidate;
++    break;
++  }
++  if (!replacementPath.has_value()) {
++    const auto bundledWallpaper = paths::assetPath("noctalia-wallpaper.png");
++    const auto bundledOriginal = resolveRegularImage(bundledWallpaper);
++    if (bundledOriginal.has_value() && *bundledOriginal != m_pendingDeleteOriginalPath) {
++      replacementPath = bundledWallpaper;
++      replacementOriginalPath = *bundledOriginal;
++    }
++  }
++  if (!replacementPath.has_value() || !replacementOriginalPath.has_value()) {
++    setDeleteConfirmationError("no usable replacement wallpaper is available");
++    return;
++  }
++
++  WallpaperDeleteTransaction transaction(
++      *m_config, m_pendingDeleteOriginalPath, *replacementPath, *replacementOriginalPath
++  );
++  std::string error;
++  if (!transaction.prepare(error) || !transaction.apply(error) || !transaction.trash(error)) {
++    setDeleteConfirmationError(error);
++    return;
++  }
++
++  m_pendingDeleteReselectIndex = selectedIndex;
++  m_pendingDeleteNeedsFreshScan = m_scanner != nullptr;
++  cancelDeleteConfirmation();
++  resetSelection();
++  if (m_scanner != nullptr) {
++    m_scanner->invalidate();
++  }
++  refreshVisibleEntries();
++  rebindGrid();
++  if (!m_scanPending) {
++    m_pendingDeleteNeedsFreshScan = false;
++    restoreSelectionAfterDeleteScan();
++  }
++  syncBrowseChrome();
++  m_dirty = true;
++  PanelManager::instance().refresh();
++}
++
+ void WallpaperPanel::appendFilteredFavoriteEntries(
+     std::vector<WallpaperEntry>& out, std::unordered_set<std::string>& favoritePaths,
+     const std::filesystem::path& activeDir, const std::filesystem::path& rootDir
+@@ -1433,9 +2039,29 @@ void WallpaperPanel::onScanComplete() {
+   }
+   const auto dir = activeDirectoryForSelection();
+   m_scanPending = !dir.empty() && m_scanner != nullptr && m_scanner->scanning(dir, m_flatten);
++  if (m_pendingDeleteReselectIndex.has_value() && m_scanPending) {
++    syncLoadingState();
++    m_dirty = true;
++    PanelManager::instance().refresh();
++    return;
++  }
++  if (m_pendingDeleteNeedsFreshScan && !dir.empty() && m_scanner != nullptr) {
++    m_pendingDeleteNeedsFreshScan = false;
++    m_scanner->invalidate();
++    if (!m_scanner->requestScan(dir, m_flatten)) {
++      m_scanPending = true;
++      syncLoadingState();
++      m_dirty = true;
++      PanelManager::instance().refresh();
++      return;
++    }
++  }
+ 
+   applyFilter();
+   rebindGrid();
++  if (!m_scanPending) {
++    restoreSelectionAfterDeleteScan();
++  }
+   syncBrowseChrome();
+   syncLoadingState();
+   m_dirty = true;
+@@ -1620,10 +2246,21 @@ void WallpaperPanel::activateSelectedEntry() {
+ }
+ 
+ bool WallpaperPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
++  if (!m_pendingDeleteOriginalPath.empty() && KeySymbol::isEscape(sym)) {
++    cancelDeleteConfirmation();
++    PanelManager::instance().refresh();
++    return true;
++  }
++
+   if (m_visibleEntries.empty()) {
+     return false;
+   }
+ 
++  if (m_gridKeyboardActive && modifiers == 0 && KeySymbol::isBackspace(sym) && hasVisibleSelection()) {
++    requestDeleteSelected();
++    return true;
++  }
++
+   // Approximate column count from current grid layout. VirtualGridView does
+   // not expose its column count directly, so we recompute from viewport width.
+   std::size_t columns = 1;
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.h b/src/shell/wallpaper/panel/wallpaper_panel.h
+index c9d58b6..1b354f8 100644
+--- a/src/shell/wallpaper/panel/wallpaper_panel.h
++++ b/src/shell/wallpaper/panel/wallpaper_panel.h
+@@ -114,6 +114,12 @@ private:
+   void selectVisibleIndex(std::size_t index);
+   void activateSelectedEntry();
+   [[nodiscard]] bool handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers);
++  void requestDeleteAtIndex(std::size_t index);
++  void requestDeleteSelected();
++  void cancelDeleteConfirmation();
++  void performConfirmedDelete();
++  void setDeleteConfirmationError(std::string message);
++  void restoreSelectionAfterDeleteScan();
+   [[nodiscard]] std::filesystem::path activeDirectoryForSelection() const;
+   [[nodiscard]] std::filesystem::path rootDirectoryForSelection() const;
+   [[nodiscard]] std::string currentWallpaperPathForSelection() const;
+@@ -145,6 +151,9 @@ private:
+   Button* m_refreshButton = nullptr;
+   Button* m_colorButton = nullptr;
+   Button* m_closeButton = nullptr;
++  Flex* m_deleteConfirmPanel = nullptr;
++  Label* m_deleteConfirmTitle = nullptr;
++  Label* m_deleteConfirmError = nullptr;
+   VirtualGridView* m_grid = nullptr;
+   Flex* m_loadingBox = nullptr;
+   Spinner* m_spinner = nullptr;
+@@ -177,6 +186,11 @@ private:
+   std::vector<PaletteSource> m_paletteSourceOrder;
+   static constexpr std::size_t kNoVisibleSelection = std::numeric_limits<std::size_t>::max();
+   std::size_t m_selectedVisibleIndex = kNoVisibleSelection;
++  std::size_t m_pendingDeleteVisibleIndex = kNoVisibleSelection;
++  std::filesystem::path m_pendingDeleteOriginalPath;
++  std::string m_pendingDeleteSelectedPath;
++  std::optional<std::size_t> m_pendingDeleteReselectIndex;
++  bool m_pendingDeleteNeedsFreshScan = false;
+   float m_lastWidth = 0.0F;
+   float m_lastHeight = 0.0F;
+   bool m_dirty = false;

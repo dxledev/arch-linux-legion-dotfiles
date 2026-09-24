@@ -12,7 +12,8 @@
     "0008-wallpaper-shortcuts-automation.patch",
     "0009-shell-mode-plugin-width.patch",
     "0010-shell-mode-plugin-settings.patch",
-    "0011-plugin-color-controls.patch"
+    "0011-plugin-color-controls.patch",
+    "0012-wallpaper-delete.patch"
   ],
   "schemes": [
     "m3-tonal-spot",
