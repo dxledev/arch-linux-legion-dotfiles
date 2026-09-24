@@ -14,7 +14,8 @@
     "0010-shell-mode-plugin-settings.patch",
     "0011-plugin-color-controls.patch",
     "0012-wallpaper-delete.patch",
-    "0013-wallpaper-delete-button-popup.patch"
+    "0013-wallpaper-delete-button-popup.patch",
+    "0014-active-wallpaper-style.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

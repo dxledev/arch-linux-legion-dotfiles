@@ -1,0 +1,154 @@
+diff --git a/src/shell/wallpaper/panel/wallpaper_tile.cpp b/src/shell/wallpaper/panel/wallpaper_tile.cpp
+--- a/src/shell/wallpaper/panel/wallpaper_tile.cpp
++++ b/src/shell/wallpaper/panel/wallpaper_tile.cpp
+@@ -54,6 +54,20 @@
+     return 1.0F;
+   }
+ 
++  [[nodiscard]] std::string italicWallpaperName(std::string_view name) {
++    std::string escaped;
++    escaped.reserve(name.size());
++    for (const char character : name) {
++      switch (character) {
++      case '&': escaped += "&amp;"; break;
++      case '<': escaped += "&lt;"; break;
++      case '>': escaped += "&gt;"; break;
++      default: escaped.push_back(character); break;
++      }
++    }
++    return "<i>" + escaped + "</i>";
++  }
++
+   void applyStarGlyphStyle(Glyph* glyph, const ColorSpec& fill, float contentScale) {
+     if (glyph == nullptr) {
+       return;
+@@ -176,6 +190,18 @@
+ 
+   m_layout->addChild(
+       ui::box({
++          .out = &m_currentGlow,
++          .visible = false,
++          .participatesInLayout = false,
++          .configure = [](Box& box) {
++            box.setZIndex(-1);
++            box.setHitTestVisible(false);
++          },
++      })
++  );
++
++  m_layout->addChild(
++      ui::box({
+           .out = &m_thumbHost,
+           .radius = frameRadius,
+           .configure = [frameRadius](Box& box) {
+@@ -269,6 +295,7 @@
+       })
+   );
+ 
++  m_paletteConn = paletteChanged().connect([this] { updateCurrentGlowStyle(); });
+   setCellSize(cellWidth, cellHeight);
+ }
+ 
+@@ -303,6 +330,15 @@
+     m_thumb->setFrameSize(w, h);
+   }
+ 
++  if (m_currentGlow != nullptr && m_thumbHost != nullptr) {
++    const float glowSpread = 4.0F * m_contentScale;
++    m_currentGlow->setPosition(
++        std::round(m_thumbHost->x() - glowSpread), std::round(m_thumbHost->y() - glowSpread)
++    );
++    m_currentGlow->setFrameSize(w + glowSpread * 2.0F, h + glowSpread * 2.0F);
++    updateCurrentGlowStyle();
++  }
++
+   if (m_starGlyph != nullptr) {
+     const float hitSize = starButtonSize(m_contentScale);
+     const float glyphW = m_starGlyph->width() > 0.0F ? m_starGlyph->width() : hitSize;
+@@ -337,6 +373,29 @@
+   }
+ }
+ 
++void WallpaperTile::updateCurrentGlowStyle() {
++  if (m_currentGlow == nullptr) {
++    return;
++  }
++
++  const float glowSpread = 4.0F * m_contentScale;
++  const float frameRadius = Style::scaledRadiusLg(m_contentScale);
++  m_currentGlow->setStyle(RoundedRectStyle{
++      .fill = resolveColorSpec(colorSpecFromRole(ColorRole::Secondary, 0.18F)),
++      .border = clearColor(),
++      .fillMode = FillMode::Solid,
++      .radius = frameRadius + glowSpread,
++      .softness = 3.0F * m_contentScale,
++      .outerShadow = true,
++      .shadowExclusion = true,
++      .shadowExclusionOffsetX = -glowSpread,
++      .shadowExclusionOffsetY = -glowSpread,
++      .shadowExclusionWidth = m_thumbFrameWidth,
++      .shadowExclusionHeight = m_thumbFrameHeight,
++      .shadowExclusionRadius = frameRadius,
++  });
++}
++
+ void WallpaperTile::setCellSize(float cellWidth, float cellHeight) {
+   m_cellWidth = cellWidth;
+   m_cellHeight = cellHeight;
+@@ -709,6 +768,9 @@
+   if (m_thumbHost != nullptr) {
+     m_thumbHost->setScale(scale);
+   }
++  if (m_currentGlow != nullptr) {
++    m_currentGlow->setScale(scale);
++  }
+ }
+ 
+ void WallpaperTile::animateThumbScale(float targetScale) {
+@@ -769,6 +831,13 @@
+     return;
+   }
+   const bool active = m_selected || m_hoveredVisual || m_current;
++  if (m_label != nullptr) {
++    m_label->setUseMarkup(m_current);
++    m_label->setText(m_current ? italicWallpaperName(m_entry.name) : m_entry.name);
++  }
++  if (m_currentGlow != nullptr) {
++    m_currentGlow->setVisible(m_current && m_hasEntry && !m_entry.isDir);
++  }
+   setOpacity(m_missingFile ? 0.45F : 1.0F);
+   setZIndex((m_selected || m_current) ? 2 : (m_hoveredVisual ? 1 : 0));
+   animateThumbScale(m_deleteButtonVisible ? 1.0F : activeThumbScale(m_selected, m_current, m_hoveredVisual));
+diff --git a/src/shell/wallpaper/panel/wallpaper_tile.h b/src/shell/wallpaper/panel/wallpaper_tile.h
+--- a/src/shell/wallpaper/panel/wallpaper_tile.h
++++ b/src/shell/wallpaper/panel/wallpaper_tile.h
+@@ -3,6 +3,7 @@
+ #include "render/scene/input_area.h"
+ #include "render/core/texture_handle.h"
+ #include "shell/wallpaper/panel/wallpaper_scanner.h"
++#include "ui/signal.h"
+ 
+ #include <cstdint>
+ #include <functional>
+@@ -72,6 +73,7 @@
+ 
+ private:
+   void applyVisualState();
++  void updateCurrentGlowStyle();
+   void applyStarVisualState();
+   void applyDeleteButtonBlur(Renderer& renderer, TextureHandle fallback);
+   void clearDeleteButtonBlurState();
+@@ -91,6 +93,7 @@
+   float m_thumbFrameHeight = 0.0F;
+ 
+   Flex* m_layout = nullptr;
++  Box* m_currentGlow = nullptr;
+   Box* m_thumbHost = nullptr;
+   Image* m_thumb = nullptr;
+   Glyph* m_starGlyph = nullptr;
+@@ -126,4 +129,5 @@
+   HoverCallback m_onEnter;
+   HoverCallback m_onLeave;
+   ThumbnailService* m_thumbnails = nullptr;
++  Signal<>::ScopedConnection m_paletteConn;
+ };
