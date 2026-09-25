@@ -18,6 +18,7 @@ dynamic_wallpaper_file="${SHELL_DYNAMIC_WALLPAPER:-$state_dir/dynamic-wallpaper}
 cache_dir="$cache_home/caelestia/shell-theme"
 engine_dir="$cache_dir/engine"
 palette_cache_dir="$cache_dir/palettes"
+aether_palettes_dir="${AETHER_PALETTES_DIR:-$state_dir/aether-palettes}"
 prewarm_marker="$cache_dir/prewarm-current"
 theme_renderer="${THEME_RENDERER:-$script_dir/theme-render}"
 theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
@@ -29,9 +30,10 @@ dry_run=0
 static_theme_name=""
 palette_cache_version=1
 variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral rainbow content)
+style_name=""
 
 usage() {
-    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [COLORS]|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
+    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [--style STYLE] [COLORS]|list-aether|set-aether-variant STYLE light|dark|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
 }
 
 fail() {
@@ -41,6 +43,10 @@ fail() {
 
 valid_theme_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]]
+}
+
+valid_aether_style() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
 }
 
 named_theme_path() {
@@ -165,9 +171,10 @@ toml_value() {
 }
 
 aether_palette() {
-    local file="$1" mode colour name args=()
+    local file="$1" style="${2:-}" mode colour name args=()
     [[ "$file" == /* ]] || fail 'Aether palette must be an absolute path.'
     [[ -r "$file" ]] || fail "Aether palette not found: $file"
+    [[ -z "$style" ]] || valid_aether_style "$style" || fail 'Aether style has an invalid identifier.'
     mode="$(toml_value "$file" mode)"
     [[ "$mode" == light || "$mode" == dark ]] || fail 'Aether palette has an invalid mode.'
 
@@ -182,9 +189,11 @@ aether_palette() {
         args+=(--arg "term$name" "${colour#\#}")
     done
 
-    /usr/bin/jq -cn --arg mode "$mode" "${args[@]}" '
-        {source: "dynamic", provider: "aether", name: "dynamic", flavour: "", mode: $mode, variant: "tonalspot",
-         colours: ({background: $background, onBackground: $foreground,
+    /usr/bin/jq -cn --arg mode "$mode" --arg style "$style" "${args[@]}" '
+        {source: "dynamic", provider: "aether", name: "dynamic", flavour: "", mode: $mode, variant: "tonalspot"}
+        + (if $style == "" then {} else {style: $style} end)
+        +
+        {colours: ({background: $background, onBackground: $foreground,
                     foreground: $foreground, accent: $accent, muted: $muted,
                     red: $red, green: $green, yellow: $yellow, blue: $blue,
                     magenta: $magenta, cyan: $cyan} +
@@ -202,6 +211,180 @@ write_json() {
     temporary="$(/usr/bin/mktemp "${path%/*}/.${path##*/}.XXXXXX")"
     printf '%s\n' "$contents" > "$temporary"
     /usr/bin/mv -f -- "$temporary" "$path"
+}
+
+wallpaper_hash() {
+    [[ "$1" == /* && -f "$1" ]] || return 1
+    /usr/bin/sha256sum -- "$1" | /usr/bin/cut -d' ' -f1
+}
+
+aether_record_path() {
+    printf '%s/%s.json\n' "$aether_palettes_dir" "$(wallpaper_hash "$1")"
+}
+
+empty_aether_record() {
+    local wallpaper="$1" hash
+    hash="$(wallpaper_hash "$wallpaper")" || return 1
+    /usr/bin/jq -cn --arg hash "$hash" --arg wallpaper "$wallpaper" \
+        '{version: 1, wallpaperHash: $hash, wallpaperPath: $wallpaper, snapshots: {}, selection: null}'
+}
+
+read_aether_record() {
+    local wallpaper="$1" record_file hash
+    hash="$(wallpaper_hash "$wallpaper")" || return 1
+    record_file="$aether_palettes_dir/$hash.json"
+    [[ -r "$record_file" ]] || return 1
+    /usr/bin/jq -e --arg hash "$hash" '
+        type == "object" and .version == 1 and .wallpaperHash == $hash and (.snapshots | type == "object")
+    ' "$record_file" >/dev/null 2>&1 || return 1
+    /usr/bin/jq -c . "$record_file"
+}
+
+aether_snapshot_palette() {
+    local wallpaper="$1" style="$2" mode="$3" record hash
+    valid_aether_style "$style" && [[ "$mode" == light || "$mode" == dark ]] || return 1
+    record="$(read_aether_record "$wallpaper")" || return 1
+    hash="$(wallpaper_hash "$wallpaper")" || return 1
+    /usr/bin/jq -ce --arg style "$style" --arg mode "$mode" --arg hash "$hash" '
+        def valid_palette($style; $mode; $hash):
+            . as $palette |
+            ($palette.source == "dynamic" and $palette.provider == "aether" and $palette.style == $style and
+             $palette.mode == $mode and $palette.wallpaperHash == $hash and ($palette.colours | type == "object")) and
+            ((["background", "onBackground", "foreground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"] + [range(0; 16) | "term" + tostring]) as $keys |
+                ((($keys - ($palette.colours | keys)) | length) == 0) and
+                all($keys[]; . as $key | ($palette.colours[$key] | type == "string" and test("^[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))));
+        .snapshots[$style][$mode] as $entry |
+        select($entry.style == $style and $entry.mode == $mode) |
+        $entry.palette | select(valid_palette($style; $mode; $hash))
+    ' <<< "$record"
+}
+
+saved_wallpaper_selection() {
+    local wallpaper="$1" record selection type style mode variant hash
+    record="$(read_aether_record "$wallpaper")" || return 1
+    selection="$(/usr/bin/jq -ce '.selection | select(type == "object")' <<< "$record")" || return 1
+    type="$(/usr/bin/jq -r '.type // empty' <<< "$selection")"
+    mode="$(/usr/bin/jq -r '.mode // empty' <<< "$selection")"
+    if [[ "$type" == aether ]]; then
+        style="$(/usr/bin/jq -r '.style // empty' <<< "$selection")"
+        aether_snapshot_palette "$wallpaper" "$style" "$mode" >/dev/null || return 1
+        /usr/bin/jq -cn --arg style "$style" --arg mode "$mode" '{type: "aether", style: $style, mode: $mode}'
+    elif [[ "$type" == caelestia && ( "$mode" == light || "$mode" == dark ) ]]; then
+        variant="$(/usr/bin/jq -r '.variant // empty' <<< "$selection")"
+        is_variant "$variant" || return 1
+        /usr/bin/jq -cn --arg mode "$mode" --arg variant "$variant" '{type: "caelestia", mode: $mode, variant: $variant}'
+    else
+        return 1
+    fi
+    hash="$(wallpaper_hash "$wallpaper")"
+    [[ -n "$hash" ]]
+}
+
+write_wallpaper_selection() {
+    local wallpaper="$1" mode="$2" variant="$3" record record_file hash updated
+    record="$(read_aether_record "$wallpaper" 2>/dev/null || empty_aether_record "$wallpaper")" || return 1
+    hash="$(wallpaper_hash "$wallpaper")" || return 1
+    record_file="$aether_palettes_dir/$hash.json"
+    updated="$(/usr/bin/jq -c --arg wallpaper "$wallpaper" --arg mode "$mode" --arg variant "$variant" '
+        .wallpaperPath = $wallpaper |
+        .selection = {type: "caelestia", mode: $mode, variant: $variant}
+    ' <<< "$record")" || return 1
+    write_json "$record_file" "$updated"
+}
+
+write_aether_snapshot() {
+    local wallpaper="$1" style="$2" mode="$3" palette="$4" record record_file hash updated
+    valid_aether_style "$style" && [[ "$mode" == light || "$mode" == dark ]] || fail 'Invalid Aether snapshot identity.'
+    hash="$(wallpaper_hash "$wallpaper")" || fail 'Could not identify the wallpaper for this Aether palette.'
+    palette="$(/usr/bin/jq -c --arg hash "$hash" --arg style "$style" --arg mode "$mode" \
+        '.style = $style | .mode = $mode | .wallpaperHash = $hash' <<< "$palette")"
+    /usr/bin/jq -e --arg style "$style" --arg mode "$mode" --arg hash "$hash" '
+        def valid_palette($style; $mode; $hash):
+            . as $palette |
+            ($palette.source == "dynamic" and $palette.provider == "aether" and $palette.style == $style and
+             $palette.mode == $mode and $palette.wallpaperHash == $hash and ($palette.colours | type == "object")) and
+            ((["background", "onBackground", "foreground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"] + [range(0; 16) | "term" + tostring]) as $keys |
+                ((($keys - ($palette.colours | keys)) | length) == 0) and
+                all($keys[]; . as $key | ($palette.colours[$key] | type == "string" and test("^[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))));
+        valid_palette($style; $mode; $hash)
+    ' <<< "$palette" >/dev/null || fail 'Aether palette is incomplete or does not match its wallpaper.'
+    record="$(read_aether_record "$wallpaper" 2>/dev/null || empty_aether_record "$wallpaper")" || fail 'Could not prepare the Aether palette record.'
+    record_file="$aether_palettes_dir/$hash.json"
+    updated="$(/usr/bin/jq -c --arg wallpaper "$wallpaper" --arg style "$style" --arg mode "$mode" --argjson palette "$palette" '
+        .wallpaperPath = $wallpaper |
+        .snapshots = (.snapshots // {}) |
+        .snapshots[$style] = (if (.snapshots[$style] | type) == "object" then .snapshots[$style] else {} end) |
+        .snapshots[$style][$mode] = {style: $style, mode: $mode, palette: $palette} |
+        .selection = {type: "aether", style: $style, mode: $mode}
+    ' <<< "$record")" || fail 'Could not serialize the Aether palette record.'
+    write_json "$record_file" "$updated"
+}
+
+set_aether_wallpaper_selection() {
+    local wallpaper="$1" style="$2" mode="$3" record record_file hash updated
+    aether_snapshot_palette "$wallpaper" "$style" "$mode" >/dev/null || fail "No saved Aether palette for $style ($mode) on this wallpaper."
+    record="$(read_aether_record "$wallpaper")" || fail 'Could not read the saved Aether palette record.'
+    hash="$(wallpaper_hash "$wallpaper")" || fail 'Could not identify the wallpaper for this Aether palette.'
+    record_file="$aether_palettes_dir/$hash.json"
+    updated="$(/usr/bin/jq -c --arg wallpaper "$wallpaper" --arg style "$style" --arg mode "$mode" '
+        .wallpaperPath = $wallpaper | .selection = {type: "aether", style: $style, mode: $mode}
+    ' <<< "$record")" || fail 'Could not select the saved Aether palette.'
+    write_json "$record_file" "$updated"
+}
+
+list_aether_palettes() {
+    local wallpaper="$1" record hash active_style active_mode active_provider
+    if ! wallpaper="$(dynamic_seed "$wallpaper")"; then
+        printf '[]\n'
+        return 0
+    fi
+    record="$(read_aether_record "$wallpaper" 2>/dev/null || printf '{}')"
+    hash="$(wallpaper_hash "$wallpaper")"
+    active_style="$(/usr/bin/jq -r '.style // empty' "$palette_file" 2>/dev/null || true)"
+    active_mode="$(/usr/bin/jq -r '.mode // empty' "$palette_file" 2>/dev/null || true)"
+    active_provider="$provider_name"
+    /usr/bin/jq -cn --arg hash "$hash" --arg activeStyle "$active_style" --arg activeMode "$active_mode" \
+        --arg activeProvider "$active_provider" --argjson record "$record" '
+        def valid_palette($style; $mode; $hash):
+            . as $palette |
+            ($palette.source == "dynamic" and $palette.provider == "aether" and $palette.style == $style and
+             $palette.mode == $mode and $palette.wallpaperHash == $hash and ($palette.colours | type == "object")) and
+            ((["background", "onBackground", "foreground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"] + [range(0; 16) | "term" + tostring]) as $keys |
+                ((($keys - ($palette.colours | keys)) | length) == 0) and
+                all($keys[]; . as $key | ($palette.colours[$key] | type == "string" and test("^[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"))));
+        [($record.snapshots // {} | to_entries[]) as $styleEntry |
+         ["dark", "light"][] as $mode |
+         ($styleEntry.value[$mode] // {}) as $entry |
+         select($styleEntry.key | test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) |
+         select($entry.style == $styleEntry.key and $entry.mode == $mode) |
+         $entry.palette | select(valid_palette($styleEntry.key; $mode; $hash)) |
+         {style: .style, mode: .mode,
+          active: ($activeProvider == "aether" and .style == $activeStyle and .mode == $activeMode)}]
+    '
+}
+
+preview_palette() {
+    local wallpaper selection type mode variant style palette
+    wallpaper="$(dynamic_seed "$1")"
+    selection="$(saved_wallpaper_selection "$wallpaper" 2>/dev/null || true)"
+    [[ -n "$selection" ]] || selection='{}'
+    type="$(/usr/bin/jq -r '.type // empty' <<< "$selection")"
+    if [[ "$type" == aether ]]; then
+        style="$(/usr/bin/jq -r '.style' <<< "$selection")"
+        mode="$(/usr/bin/jq -r '.mode' <<< "$selection")"
+        palette="$(aether_snapshot_palette "$wallpaper" "$style" "$mode")" || fail 'The selected Aether palette is invalid.'
+    else
+        mode="$mode_name"
+        variant="$variant_name"
+        if [[ "$type" == caelestia ]]; then
+            mode="$(/usr/bin/jq -r '.mode' <<< "$selection")"
+            variant="$(/usr/bin/jq -r '.variant' <<< "$selection")"
+        fi
+        palette="$(generate_palette dynamic "$mode" "$variant" "$wallpaper")"
+        /usr/bin/jq -c --arg hash "$(wallpaper_hash "$wallpaper")" '.wallpaperHash = $hash' <<< "$palette"
+        return
+    fi
+    printf '%s\n' "$palette"
 }
 
 write_text() {
@@ -341,26 +524,42 @@ palette_is_valid() {
 }
 
 cached_palette_is_current() {
+    local wallpaper hash selection selection_type selection_mode selection_variant selection_style snapshot raw_selection_type
     [[ -r "$palette_file" ]] || return 1
-    /usr/bin/jq -e \
-        --arg source "$source_name" \
-        --arg mode "$mode_name" \
-        --arg variant "$variant_name" \
-        --arg provider "$provider_name" '
-        .source == $source and
+    if [[ "$source_name" == system ]]; then
+        /usr/bin/jq -e '.source == "system" and (.colours | type == "object")' "$palette_file" >/dev/null 2>&1
+        return
+    fi
+    wallpaper="$(dynamic_seed 2>/dev/null)" || return 1
+    hash="$(wallpaper_hash "$wallpaper")" || return 1
+    selection="$(saved_wallpaper_selection "$wallpaper" 2>/dev/null || true)"
+    [[ -n "$selection" ]] || selection='{}'
+    selection_type="$(/usr/bin/jq -r '.type // empty' <<< "$selection")"
+    selection_mode="$(/usr/bin/jq -r '.mode // empty' <<< "$selection")"
+    selection_variant="$(/usr/bin/jq -r '.variant // empty' <<< "$selection")"
+    selection_style="$(/usr/bin/jq -r '.style // empty' <<< "$selection")"
+    raw_selection_type="$(/usr/bin/jq -r '.selection.type // empty' "$(aether_record_path "$wallpaper")" 2>/dev/null || true)"
+    [[ -z "$raw_selection_type" || -n "$selection_type" ]] || return 1
+
+    if [[ "$provider_name" == aether ]]; then
+        [[ "$selection_type" == aether ]] || return 1
+        [[ "$selection_mode" == "$mode_name" && "$selection_style" == "$(/usr/bin/jq -r '.style // empty' "$palette_file" 2>/dev/null)" ]] || return 1
+        snapshot="$(aether_snapshot_palette "$wallpaper" "$selection_style" "$selection_mode" 2>/dev/null)" || return 1
+        /usr/bin/jq -e --arg hash "$hash" --arg style "$selection_style" --arg mode "$selection_mode" --argjson snapshot "$snapshot" '
+            .source == "dynamic" and .provider == "aether" and .mode == $mode and .style == $style and
+            .wallpaperHash == $hash and .colours == $snapshot.colours
+        ' "$palette_file" >/dev/null 2>&1
+        return
+    fi
+
+    [[ "$selection_type" != aether ]] || return 1
+    [[ "$mode_name" == "$selection_mode" || -z "$selection_type" ]] || return 1
+    [[ "$variant_name" == "$selection_variant" || -z "$selection_type" ]] || return 1
+    /usr/bin/jq -e --arg hash "$hash" --arg mode "$mode_name" --arg variant "$variant_name" '
+        .source == "dynamic" and (.provider // "caelestia") == "caelestia" and
+        .mode == $mode and .variant == $variant and .wallpaperHash == $hash and
         (.colours | type == "object") and
-        if $source == "system" then
-            true
-        else
-            (.provider // "caelestia") == $provider and
-            .mode == $mode and
-            ($provider == "aether" or .variant == $variant) and
-            ((if $provider == "aether" then
-                ["background", "onBackground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"]
-            else
-                ["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"]
-            end) - (.colours | keys) | length == 0)
-        end
+        (["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"] - (.colours | keys) | length == 0)
     ' "$palette_file" >/dev/null 2>&1
 }
 
@@ -501,35 +700,106 @@ show_dry_run() {
 }
 
 apply_settings() {
-    local source="$1" mode="$2" variant="$3" provider="$4" requested="${5:-}" force_apply="${6:-0}" palette wallpaper changed=unchanged
-    if (( dry_run )); then
-        show_dry_run "$source" "$mode" "$variant" "$provider"
-        return
-    fi
-    if [[ "$source" == dynamic && "$provider" == aether ]]; then
-        palette="$(aether_palette "$aether_theme_file")"
-        mode="$(/usr/bin/jq -r '.mode' <<< "$palette")"
-    elif [[ "$source" == dynamic ]]; then
-        notify_first_dynamic_generation
-        palette="$(generate_palette "$source" "$mode" "$variant" "$requested")"
-        mark_dynamic_generation_notification
-    else
-        palette="$(system_palette "$variant")"
-    fi
+    local source="$1" mode="$2" variant="$3" provider="$4" requested="${5:-}" force_apply="${6:-0}"
+    local palette_override="${7:-}" requested_style="${8:-}" palette wallpaper changed=unchanged hash selection selection_type
+    local selection_action="" style="$requested_style" dry_engine previous_engine palette_ready=0
+
     if [[ "$source" == dynamic ]]; then
         wallpaper="$(dynamic_seed "$requested")"
+        hash="$(wallpaper_hash "$wallpaper")" || fail 'Could not identify the active Dynamic wallpaper.'
+        if [[ "$provider" == auto ]]; then
+            selection="$(saved_wallpaper_selection "$wallpaper" 2>/dev/null || true)"
+            [[ -n "$selection" ]] || selection='{}'
+            selection_type="$(/usr/bin/jq -r '.type // empty' <<< "$selection")"
+            if [[ "$selection_type" == aether ]]; then
+                provider=aether
+                mode="$(/usr/bin/jq -r '.mode' <<< "$selection")"
+                style="$(/usr/bin/jq -r '.style' <<< "$selection")"
+                palette="$(aether_snapshot_palette "$wallpaper" "$style" "$mode")" || fail 'The selected Aether palette is invalid.'
+                palette_ready=1
+            elif [[ "$selection_type" == caelestia ]]; then
+                provider=caelestia
+                mode="$(/usr/bin/jq -r '.mode' <<< "$selection")"
+                variant="$(/usr/bin/jq -r '.variant' <<< "$selection")"
+                selection_action=caelestia
+            else
+                provider=caelestia
+                selection_action=caelestia
+            fi
+        fi
+
+        if [[ "$provider" == caelestia ]]; then
+            notify_first_dynamic_generation
+            if (( dry_run )); then
+                dry_engine="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/caelestia-engine.XXXXXX")"
+                previous_engine="$engine_dir"
+                engine_dir="$dry_engine"
+                if ! palette="$(generate_palette dynamic "$mode" "$variant" "$wallpaper")"; then
+                    engine_dir="$previous_engine"
+                    /usr/bin/rm -rf -- "$dry_engine"
+                    fail 'Could not validate the Dynamic palette.'
+                fi
+                engine_dir="$previous_engine"
+                /usr/bin/rm -rf -- "$dry_engine"
+            else
+                palette="$(generate_palette dynamic "$mode" "$variant" "$wallpaper")"
+            fi
+            selection_action=caelestia
+            mark_dynamic_generation_notification
+        elif [[ "$provider" == aether ]]; then
+            if (( palette_ready )); then
+                :
+            elif [[ -n "$palette_override" ]]; then
+                palette="$palette_override"
+            else
+                palette="$(aether_palette "$aether_theme_file" "$style")"
+            fi
+            mode="$(/usr/bin/jq -r '.mode' <<< "$palette")"
+            if [[ -n "$style" ]]; then
+                style="$(/usr/bin/jq -r '.style // empty' <<< "$palette")"
+                [[ -n "$style" ]] || fail 'Aether style is missing from the palette snapshot.'
+                selection_action=aether
+            fi
+        else
+            fail "Unsupported Dynamic palette provider: $provider"
+        fi
+        palette="$(/usr/bin/jq -c --arg hash "$hash" --arg style "$style" '
+            .wallpaperHash = $hash | if $style == "" then . else .style = $style end
+        ' <<< "$palette")" || fail 'Could not bind the Dynamic palette to its wallpaper.'
+    else
+        provider=theme
+        palette="$(system_palette "$variant")"
+    fi
+
+    if [[ "$source" == dynamic ]]; then
+        if (( dry_run )); then
+            printf 'Source: dynamic\nProvider: %s\nMode: %s\nVariant: %s\nWallpaper: %s\n' "$provider" "$mode" "$variant" "$wallpaper"
+            [[ -z "$style" ]] || printf 'Aether style: %s\n' "$style"
+        fi
         changed="$(render_dynamic "$palette" "$wallpaper" "$force_apply")"
     fi
     apply_desktop "$source" "$changed" "$force_apply"
+    (( dry_run )) && return 0
+
+    source_name="$source"
+    mode_name="$mode"
+    variant_name="$variant"
+    provider_name="$provider"
+    style_name="$style"
     write_json "$palette_file" "$palette"
     write_json "$settings_file" "$(settings_json "$source" "$mode" "$variant" "$provider" "$static_theme_name")"
+    if [[ "$source" == dynamic && "$selection_action" == caelestia ]]; then
+        write_wallpaper_selection "$wallpaper" "$mode" "$variant"
+    elif [[ "$source" == dynamic && "$selection_action" == aether ]]; then
+        write_aether_snapshot "$wallpaper" "$style" "$mode" "$palette"
+    fi
     if [[ "$source" == dynamic && "$provider" == caelestia ]]; then
-        prewarm_palettes_async "$mode" "$variant" "$requested"
+        prewarm_palettes_async "$mode" "$variant" "$wallpaper"
     fi
 }
 
 restore_theme() {
-    local cached=0
+    local cached=0 selection
     if [[ "${1:-}" == --cached ]]; then
         cached=1
         shift
@@ -542,11 +812,13 @@ restore_theme() {
         if [[ "$source_name" == system ]]; then
             theme_file="$themes_dir/$static_theme_name/Colors.qml"
             show_dry_run system "$mode_name" "$variant_name" theme
-        elif (( cached )); then
-            printf 'Dynamic palette: reuse the cached Caelestia palette\n'
-            apply_desktop dynamic unchanged 1
         else
-            show_dry_run dynamic "$mode_name" "$variant_name" "$provider_name"
+            if (( cached )) && cached_palette_is_current; then
+                printf 'Dynamic palette: reuse the wallpaper-bound cached palette\n'
+                apply_desktop dynamic unchanged 1
+            else
+                apply_settings dynamic "$mode_name" "$variant_name" auto "" 1
+            fi
         fi
         return
     fi
@@ -554,13 +826,16 @@ restore_theme() {
     set_current_theme "$static_theme_name"
     if [[ "$source_name" == system ]]; then
         apply_settings system "$mode_name" "$variant_name" theme "" 1
-    elif (( cached )); then
-        cached_palette_is_current || fail 'The cached Caelestia palette is no longer current.'
+    elif (( cached )) && cached_palette_is_current; then
         [[ -f "$dynamic_theme_dir/.caelestia-generated" ]] || fail "Cached Caelestia theme is missing: $dynamic_theme_dir"
         apply_desktop dynamic unchanged 1
+        selection="$(saved_wallpaper_selection "$(dynamic_seed)" 2>/dev/null || true)"
+        if [[ -z "$selection" && "$provider_name" == caelestia ]]; then
+            write_wallpaper_selection "$(dynamic_seed)" "$mode_name" "$variant_name"
+        fi
         write_json "$settings_file" "$(settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name" "$static_theme_name")"
     else
-        apply_settings dynamic "$mode_name" "$variant_name" "$provider_name" "" 1
+        apply_settings dynamic "$mode_name" "$variant_name" auto "" 1
     fi
 }
 
@@ -595,7 +870,7 @@ case "$command_name" in
         ;;
     refresh)
         (( $# == 0 )) || { usage >&2; exit 2; }
-        apply_settings "$source_name" "$mode_name" "$variant_name" "$provider_name"
+        apply_settings "$source_name" "$mode_name" "$variant_name" auto
         ;;
     restore)
         restore_theme "$@"
@@ -616,23 +891,46 @@ case "$command_name" in
     refresh-wallpaper)
         (( $# == 0 )) || { usage >&2; exit 2; }
         [[ "$source_name" == dynamic ]] || fail 'Wallpaper palette refresh is only available for Dynamic.'
-        apply_settings dynamic "$mode_name" "$variant_name" caelestia
+        apply_settings dynamic "$mode_name" "$variant_name" auto
         ;;
     set-source)
         [[ $# == 1 && ( "$1" == system || "$1" == dynamic ) ]] || { usage >&2; exit 2; }
         if [[ "$1" == dynamic ]]; then
             previous_source="$source_name"
-            apply_settings dynamic "$mode_name" "$variant_name" caelestia
+            apply_settings dynamic "$mode_name" "$variant_name" auto
             [[ "$previous_source" == system ]] && notify_dynamic_switch
         else
             apply_settings system "$mode_name" "$variant_name" theme "" 1
         fi
         ;;
     set-aether)
-        (( $# <= 1 )) || { usage >&2; exit 2; }
-        [[ $# == 0 ]] || aether_theme_file="$1"
-        mode_name="$(/usr/bin/jq -r '.mode' <<< "$(aether_palette "$aether_theme_file")")"
-        apply_settings dynamic "$mode_name" "$variant_name" aether "" 1
+        if [[ "${1:-}" == --style ]]; then
+            [[ $# == 2 || $# == 3 ]] || { usage >&2; exit 2; }
+            style_name="$2"
+            valid_aether_style "$style_name" || fail 'Aether style has an invalid identifier.'
+            [[ $# == 3 ]] && aether_theme_file="$3"
+            palette="$(aether_palette "$aether_theme_file" "$style_name")"
+            mode_name="$(/usr/bin/jq -r '.mode' <<< "$palette")"
+            apply_settings dynamic "$mode_name" "$variant_name" aether "" 1 "$palette" "$style_name"
+        else
+            (( $# <= 1 )) || { usage >&2; exit 2; }
+            [[ $# == 0 ]] || aether_theme_file="$1"
+            palette="$(aether_palette "$aether_theme_file")"
+            mode_name="$(/usr/bin/jq -r '.mode' <<< "$palette")"
+            apply_settings dynamic "$mode_name" "$variant_name" aether "" 1 "$palette"
+        fi
+        ;;
+    list-aether)
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        list_aether_palettes ""
+        ;;
+    set-aether-variant)
+        [[ $# == 2 && ( "$2" == light || "$2" == dark ) ]] || { usage >&2; exit 2; }
+        valid_aether_style "$1" || fail 'Aether style has an invalid identifier.'
+        [[ "$source_name" == dynamic ]] || fail 'Aether palettes are only available for Dynamic.'
+        wallpaper="$(dynamic_seed)"
+        palette="$(aether_snapshot_palette "$wallpaper" "$1" "$2")" || fail "No saved Aether palette for $1 ($2) on this wallpaper."
+        apply_settings dynamic "$2" "$variant_name" aether "" 1 "$palette" "$1"
         ;;
     set-mode)
         [[ $# == 1 && ( "$1" == light || "$1" == dark ) ]] || { usage >&2; exit 2; }
@@ -652,11 +950,7 @@ case "$command_name" in
         ;;
     preview)
         [[ $# == 1 ]] || { usage >&2; exit 2; }
-        if (( dry_run )); then
-            show_dry_run dynamic "$mode_name" "$variant_name" caelestia "$1"
-        else
-            generate_palette dynamic "$mode_name" "$variant_name" "$1"
-        fi
+        preview_palette "$1"
         ;;
     *)
         usage >&2

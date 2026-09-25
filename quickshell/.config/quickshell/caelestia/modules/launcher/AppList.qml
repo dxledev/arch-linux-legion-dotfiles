@@ -53,7 +53,10 @@ StyledListView {
             return DesktopMenus.query(text);
         switch (stateForText(text)) {
         case "actions":
-            return Actions.query(text).filter(action => Colours.source === "dynamic" || !(action.modelData.dynamicOnly ?? false));
+            return Actions.query(text).filter(action =>
+                (Colours.source === "dynamic" || !(action.modelData.dynamicOnly ?? false)) &&
+                !(Colours.source === "dynamic" && Colours.provider === "aether" && action.isModeToggle)
+            );
         case "calc":
             return [0];
         case "theme":
@@ -119,8 +122,10 @@ StyledListView {
             ShellMode.reload();
         if (state === "theme")
             Themes.reload();
-        if (state === "scheme" || state === "variant")
+        if (state === "scheme")
             Schemes.reload();
+        if (state === "variant")
+            M3Variants.reloadAether();
     }
 
     Component.onCompleted: displayText = search.text

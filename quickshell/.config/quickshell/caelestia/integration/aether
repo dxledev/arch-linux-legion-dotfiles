@@ -9,18 +9,21 @@ shell_entry="$config_home/quickshell/shell.qml"
 aether_bin="${AETHER_BIN:-$shell_root/.runtime/aether/bin/aether}"
 aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
 aether_wallpapers_dir="${AETHER_WALLPAPERS_DIR:-$config_home/aether/theme/backgrounds}"
+aether_themes_dir="${AETHER_THEMES_DIR:-$config_home/aether/themes}"
 aether_library_dir="${AETHER_LIBRARY_DIR:-$HOME/files/pictures/Aether}"
 dynamic_wallpapers_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic}"
 quickshell_wrapper="${AETHER_QUICKSHELL_WRAPPER:-$shell_root/scripts/quickshell}"
+system_action="${AETHER_SYSTEM_ACTION_BIN:-$script_dir/system-action}"
 hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
 jq_bin="${JQ_BIN:-/usr/bin/jq}"
 notify_send_bin="${NOTIFY_SEND_BIN:-$HOME/bin/notify-send}"
 workspace="special:aether"
 state_dir="$state_home/caelestia"
-launch_lock="$state_dir/aether-launch.lock"
-apply_lock="$state_dir/aether-apply.lock"
+launch_lock="$state_dir/aether-launch-v2.lock"
+apply_lock="$state_dir/aether-apply-v2.lock"
 log_file="$state_dir/aether.log"
 dry_run=0
+temporary_palette_file=""
 
 usage() {
     printf 'Usage: aether [--dry-run] launch|quit|apply|sync|status\n'
@@ -30,6 +33,12 @@ fail() {
     printf 'aether: %s\n' "$*" >&2
     exit 1
 }
+
+cleanup_temporary_palette() {
+    [[ -z "$temporary_palette_file" || ! -e "$temporary_palette_file" ]] || /usr/bin/rm -f -- "$temporary_palette_file"
+}
+
+trap cleanup_temporary_palette EXIT
 
 notify_failure() {
     local message="$1"
@@ -170,35 +179,168 @@ install_apply_hook() {
     done
 }
 
-resolve_aether_wallpaper() {
-    local binary="$1" attempt status wallpaper="" generated_wallpaper
+read_aether_apply_status() {
+    local binary="$1" attempt status wallpaper
     # Aether briefly clears the wallpaper while Apply rebuilds its outputs.
     for (( attempt=0; attempt<10; attempt++ )); do
         status="$("$binary" status --json 2>/dev/null || true)"
         if "$jq_bin" -e '.ok == true' <<< "$status" >/dev/null 2>&1; then
             wallpaper="$("$jq_bin" -r '.wallpaper // empty' <<< "$status")"
-            [[ "$wallpaper" == /* && -f "$wallpaper" ]] && break
+            if [[ "$wallpaper" == /* ]] && aether_wallpaper_source_available "$wallpaper"; then
+                printf '%s\n' "$status"
+                return
+            fi
         fi
         /usr/bin/sleep 0.2
     done
-    [[ "$wallpaper" == /* && -f "$wallpaper" ]] || fail 'Aether did not report an existing wallpaper.'
+    fail 'Aether did not finish writing an existing wallpaper.'
+}
 
-    generated_wallpaper="$aether_wallpapers_dir/${wallpaper##*/}"
-    if [[ -f "$generated_wallpaper" ]]; then
-        wallpaper="$generated_wallpaper"
+aether_wallpaper_source_available() {
+    local reported="$1" name candidate
+    name="${reported##*/}"
+    [[ -f "$reported" || -f "$aether_wallpapers_dir/$name" ]] && return 0
+    [[ -d "$aether_themes_dir" ]] || return 1
+    while IFS= read -r -d '' candidate; do
+        [[ "${candidate##*/}" == "$name" ]] && return 0
+    done < <(/usr/bin/find -L "$aether_themes_dir" -mindepth 3 -maxdepth 3 -type f -path '*/backgrounds/*' -print0 2>/dev/null)
+    return 1
+}
+
+resolve_aether_wallpaper() {
+    local status="$1" reported wallpaper candidate candidate_hash expected_hash
+    local -a candidates=()
+    reported="$("$jq_bin" -r '.wallpaper // empty' <<< "$status")"
+    [[ "$reported" == /* ]] || fail 'Aether did not report an absolute wallpaper path.'
+    [[ ! -f "$reported" ]] || candidates+=("$reported")
+    candidate="$aether_wallpapers_dir/${reported##*/}"
+    [[ ! -f "$candidate" ]] || candidates+=("$candidate")
+    if [[ -d "$aether_themes_dir" ]]; then
+        while IFS= read -r -d '' candidate; do
+            [[ "${candidate##*/}" == "${reported##*/}" ]] && candidates+=("$candidate")
+        done < <(/usr/bin/find -L "$aether_themes_dir" -mindepth 3 -maxdepth 3 -type f -path '*/backgrounds/*' -print0 2>/dev/null)
     fi
+
+    (( ${#candidates[@]} )) || fail 'Aether output and reported wallpaper are both missing.'
+    wallpaper="${candidates[0]}"
+    expected_hash="$(hash_file "$wallpaper")"
+    for candidate in "${candidates[@]:1}"; do
+        candidate_hash="$(hash_file "$candidate")"
+        [[ "$candidate_hash" == "$expected_hash" ]] || fail 'Aether wallpaper paths with the same name contain different content.'
+    done
     /usr/bin/readlink -f -- "$wallpaper"
 }
 
-save_aether_wallpaper() {
-    local source="$1" destination temporary
-    [[ "$dynamic_wallpapers_dir" == /* ]] || fail 'CAELESTIA_DYNAMIC_WALLPAPERS_DIR must be an absolute path.'
-    destination="$dynamic_wallpapers_dir/${source##*/}"
-    saved_wallpaper="$destination"
+aether_output_value() {
+    local file="$1" name="$2"
+    /usr/bin/awk -F= -v name="$name" '
+        $1 ~ "^[[:space:]]*" name "[[:space:]]*$" {
+            value=$2
+            sub(/^[[:space:]]*/, "", value)
+            sub(/[[:space:]]*$/, "", value)
+            gsub(/"/, "", value)
+            print value
+            exit
+        }
+    ' "$file"
+}
 
-    if [[ "$(/usr/bin/readlink -f -- "$source")" == "$(/usr/bin/readlink -m -- "$destination")" ]]; then
+validate_aether_apply_output() {
+    local status="$1" output="$2" style light_mode mode palette_mode name colour
+    "$jq_bin" -e '
+        .ok == true and (.mode | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+        (.light_mode | type == "boolean") and (.palette | type == "array" and length == 16) and
+        all(.palette[]; type == "string" and test("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")) and
+        (.wallpaper | type == "string" and startswith("/"))
+    ' <<< "$status" >/dev/null || fail 'Aether status is missing a valid style, mode, palette, or wallpaper.'
+    style="$("$jq_bin" -r '.mode' <<< "$status")"
+    light_mode="$("$jq_bin" -r '.light_mode' <<< "$status")"
+    if [[ "$light_mode" == true ]]; then mode=light; else mode=dark; fi
+    palette_mode="$(aether_output_value "$output" mode)"
+    [[ "$palette_mode" == "$mode" ]] || fail 'Aether colors.toml mode does not match the current Aether editor state.'
+
+    for name in background foreground accent muted red green yellow blue magenta cyan; do
+        colour="$(aether_output_value "$output" "$name")"
+        [[ "$colour" =~ ^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$ ]] || fail "Aether colors.toml has an invalid $name value."
+    done
+    printf '%s\n%s\n' "$style" "$mode"
+}
+
+write_complete_aether_palette() {
+    local status="$1" semantic_file="$2" mode="$3" output="$4" name colour index
+    printf 'mode = "%s"\n' "$mode" > "$output"
+    for name in background foreground accent muted red green yellow blue magenta cyan; do
+        colour="$(aether_output_value "$semantic_file" "$name")"
+        printf '%s = "%s"\n' "$name" "$colour" >> "$output"
+    done
+    for (( index=0; index<16; index++ )); do
+        colour="$("$jq_bin" -r --argjson index "$index" '.palette[$index]' <<< "$status")"
+        printf 'color%d = "%s"\n' "$index" "$colour" >> "$output"
+    done
+}
+
+hash_file() {
+    /usr/bin/sha256sum -- "$1" | /usr/bin/cut -d' ' -f1
+}
+
+find_identical_dynamic_wallpaper() {
+    local wanted_hash="$1" candidate candidate_hash
+    [[ -d "$dynamic_wallpapers_dir" ]] || return 1
+    while IFS= read -r -d '' candidate; do
+        candidate_hash="$(hash_file "$candidate" 2>/dev/null || true)"
+        if [[ -n "$candidate_hash" && "$candidate_hash" == "$wanted_hash" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done < <(/usr/bin/find -L "$dynamic_wallpapers_dir" -maxdepth 1 -type f -print0 2>/dev/null)
+    return 1
+}
+
+dynamic_wallpaper_destination() {
+    local source="$1" name hash base stem extension candidate candidate_hash
+    hash="$(hash_file "$source")"
+    if candidate="$(find_identical_dynamic_wallpaper "$hash")"; then
+        printf '%s\n' "$candidate"
         return
     fi
+
+    name="${source##*/}"
+    base="$dynamic_wallpapers_dir/$name"
+    if [[ ! -e "$base" && ! -L "$base" ]]; then
+        printf '%s\n' "$base"
+        return
+    fi
+
+    if [[ "$name" == *.* && "$name" != .* ]]; then
+        stem="${name%.*}"
+        extension=".${name##*.}"
+    else
+        stem="$name"
+        extension=""
+    fi
+    candidate="$dynamic_wallpapers_dir/$stem-${hash:0:12}$extension"
+    if [[ -e "$candidate" || -L "$candidate" ]]; then
+        candidate_hash="$(hash_file "$candidate" 2>/dev/null || true)"
+        if [[ "$candidate_hash" == "$hash" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+        candidate="$dynamic_wallpapers_dir/$stem-$hash$extension"
+    fi
+    if [[ -e "$candidate" || -L "$candidate" ]]; then
+        candidate_hash="$(hash_file "$candidate" 2>/dev/null || true)"
+        [[ "$candidate_hash" == "$hash" ]] || fail "A hash-suffixed Dynamic wallpaper path is already occupied: $candidate"
+    fi
+    printf '%s\n' "$candidate"
+}
+
+save_aether_wallpaper() {
+    local source="$1" destination temporary source_hash
+    [[ "$dynamic_wallpapers_dir" == /* ]] || fail 'CAELESTIA_DYNAMIC_WALLPAPERS_DIR must be an absolute path.'
+    destination="$(dynamic_wallpaper_destination "$source")"
+    saved_wallpaper="$destination"
+    source_hash="$(hash_file "$source")"
+    if [[ -f "$destination" ]] && [[ "$(hash_file "$destination")" == "$source_hash" ]]; then return; fi
     if (( dry_run )); then
         run /usr/bin/mkdir -p -- "$dynamic_wallpapers_dir"
         run /usr/bin/cp -- "$source" "$destination"
@@ -207,8 +349,13 @@ save_aether_wallpaper() {
 
     /usr/bin/mkdir -p -- "$dynamic_wallpapers_dir"
     temporary="$(/usr/bin/mktemp "$dynamic_wallpapers_dir/.${destination##*/}.XXXXXX")"
-    /usr/bin/cp -- "$source" "$temporary"
-    /usr/bin/mv -f -- "$temporary" "$destination"
+    /usr/bin/cp -- "$source" "$temporary" || { /usr/bin/rm -f -- "$temporary"; fail 'Could not copy the Aether wallpaper.'; }
+    [[ "$(hash_file "$temporary")" == "$source_hash" ]] || { /usr/bin/rm -f -- "$temporary"; fail 'Copied Aether wallpaper content did not match its source.'; }
+    /usr/bin/mv -nT -- "$temporary" "$destination" || { /usr/bin/rm -f -- "$temporary"; fail 'Could not save the Aether wallpaper.'; }
+    if [[ -e "$temporary" ]]; then
+        /usr/bin/rm -f -- "$temporary"
+        [[ -f "$destination" && "$(hash_file "$destination")" == "$source_hash" ]] || fail "Dynamic wallpaper path was taken by different content: $destination"
+    fi
 }
 
 write_shell_palette() {
@@ -242,7 +389,7 @@ write_shell_palette() {
     /usr/bin/mv -f -- "$temporary" "$output"
 }
 
-sync_shell_palette() {
+sync_shell_palette_contents() {
     local palette
     [[ "$quickshell_wrapper" == /* && -x "$quickshell_wrapper" ]] || fail "Quickshell wrapper must be an executable absolute path: $quickshell_wrapper"
     if ! palette="$("$quickshell_wrapper" -p "$shell_entry" ipc call theme aetherPalette 2>&1)"; then
@@ -254,6 +401,19 @@ sync_shell_palette() {
         (.terminal | type == "array" and length == 16 and all(.[]; type == "string" and test("^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")))
     ' <<< "$palette" >/dev/null || fail "Caelestia returned an invalid Aether palette. Restart the shell and try again."
     write_shell_palette "$palette"
+}
+
+sync_shell_palette() {
+    if (( dry_run )); then
+        sync_shell_palette_contents
+        return
+    fi
+    /usr/bin/mkdir -p -- "$state_dir"
+    (
+        exec 8>"$apply_lock"
+        /usr/bin/flock 8
+        sync_shell_palette_contents
+    )
 }
 
 sync() {
@@ -337,7 +497,7 @@ launch() {
     fi
 
     sync_shell_palette
-    GDK_BACKEND=wayland "$binary" --tab editor >>"$log_file" 2>&1 &
+    GDK_BACKEND=wayland "$binary" --tab editor 8>&- 9>&- >>"$log_file" 2>&1 &
     launched_pid=$!
     if info="$(wait_for_client)"; then
         focus_info "$info"
@@ -354,7 +514,7 @@ quit() {
     local attempt pid
     local -a pids=()
     mapfile -t pids < <(running_pids)
-    (( ${#pids[@]} )) || return
+    (( ${#pids[@]} )) || return 0
 
     if (( dry_run )); then
         for pid in "${pids[@]}"; do
@@ -366,36 +526,76 @@ quit() {
     /usr/bin/kill -TERM -- "${pids[@]}"
     for (( attempt=0; attempt<50; attempt++ )); do
         mapfile -t pids < <(running_pids)
-        (( ${#pids[@]} )) || return
+        (( ${#pids[@]} )) || return 0
         /usr/bin/sleep 0.1
     done
     notify_failure 'Aether did not exit after SIGTERM.'
 }
 
 apply_to_shell() {
-    local binary colors wallpaper
-    binary="$(resolve_binary)"
+    local binary colors status wallpaper capture style mode
+    binary="$(resolve_binary)" || return
     validate_runtime "$binary"
     colors="$aether_theme_file"
     [[ -r "$colors" ]] || fail "Aether palette not found: $colors"
-    wallpaper="$(resolve_aether_wallpaper "$binary")"
-    "$script_dir/shell-theme" --dry-run set-aether "$colors" >/dev/null
+    [[ "$system_action" == /* && -x "$system_action" ]] || fail "System action must be an executable absolute path: $system_action"
+    if (( ! dry_run )); then
+        /usr/bin/mkdir -p -- "$state_dir"
+        exec 8>"$apply_lock"
+        /usr/bin/flock 8
+    fi
+    status="$(read_aether_apply_status "$binary")" || return
+    wallpaper="$(resolve_aether_wallpaper "$status")" || return
+    capture="$(validate_aether_apply_output "$status" "$colors")" || return
+    style="${capture%%$'\n'*}"
+    mode="${capture#*$'\n'}"
+    temporary_palette_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/caelestia-aether-palette.XXXXXX")" || fail 'Could not create a temporary Aether palette.'
+    write_complete_aether_palette "$status" "$colors" "$mode" "$temporary_palette_file" || fail 'Could not build the complete Aether palette.'
+    SHELL_DYNAMIC_WALLPAPER="$wallpaper" "$script_dir/shell-theme" --dry-run set-aether --style "$style" "$temporary_palette_file" >/dev/null
 
     if (( dry_run )); then
-        printf 'Source wallpaper: %s\n' "$wallpaper"
+        printf 'Source wallpaper: %s\nStyle: %s\nMode: %s\n' "$wallpaper" "$style" "$mode"
         save_aether_wallpaper "$wallpaper"
         printf 'Saved wallpaper: %s\n' "$saved_wallpaper"
-        "$script_dir/shell-theme" --dry-run set-aether "$colors"
-        "$script_dir/system-action" --dry-run dynamic-wallpaper "$saved_wallpaper"
+        "$system_action" --dry-run dynamic-wallpaper "$saved_wallpaper"
+        return
+    fi
+
+    save_aether_wallpaper "$wallpaper"
+    "$system_action" dynamic-wallpaper "$saved_wallpaper" 8>&- || fail 'Could not select the saved Dynamic wallpaper.'
+    SHELL_DYNAMIC_WALLPAPER="$saved_wallpaper" "$script_dir/shell-theme" set-aether --style "$style" "$temporary_palette_file" 8>&-
+}
+
+apply() {
+    local output_file status details message notifier
+    if (( dry_run )); then
+        apply_to_shell
         return
     fi
 
     /usr/bin/mkdir -p -- "$state_dir"
-    exec 8>"$apply_lock"
-    /usr/bin/flock 8
-    save_aether_wallpaper "$wallpaper"
-    "$script_dir/system-action" dynamic-wallpaper "$saved_wallpaper"
-    "$script_dir/shell-theme" set-aether "$colors"
+    output_file="$(/usr/bin/mktemp "$state_dir/.aether-apply.XXXXXX")"
+    if AETHER_APPLY_WORKER=1 "$script_dir/aether" apply-worker > "$output_file" 2>&1; then
+        if [[ -s "$output_file" ]]; then /usr/bin/cat -- "$output_file" >> "$log_file"; fi
+        /usr/bin/rm -f -- "$output_file"
+        return 0
+    else
+        status="$?"
+    fi
+
+    /usr/bin/cat -- "$output_file" >> "$log_file"
+    details="$(/usr/bin/tail -n 2 -- "$output_file" | /usr/bin/tr '\n' ' ' | /usr/bin/sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' | /usr/bin/cut -c1-180)"
+    [[ -n "$details" ]] || details='The import command failed without an error message.'
+    printf '[%s] Aether Apply import failed (exit %s): %s\n' "$(/usr/bin/date -Is)" "$status" "$details" >> "$log_file"
+    message="Aether palette import failed: $details See $log_file."
+    /usr/bin/rm -f -- "$output_file"
+    notifier="$notify_send_bin"
+    [[ -x "$notifier" ]] || notifier=/usr/bin/notify-send
+    if [[ -x "$notifier" ]]; then
+        "$notifier" -t 8000 'Aether Apply failed' "$message" >/dev/null 2>&1 || true
+    fi
+    printf 'aether: %s\n' "$message" >&2
+    return "$status"
 }
 
 status() {
@@ -441,7 +641,11 @@ command_name="${1:-launch}"
 case "$command_name" in
     launch) launch ;;
     quit) quit ;;
-    apply) apply_to_shell ;;
+    apply) apply ;;
+    apply-worker)
+        [[ "${AETHER_APPLY_WORKER:-}" == 1 ]] || fail 'Apply worker cannot be called directly.'
+        apply_to_shell
+        ;;
     sync) sync ;;
     status) status ;;
     --help|-h) usage ;;

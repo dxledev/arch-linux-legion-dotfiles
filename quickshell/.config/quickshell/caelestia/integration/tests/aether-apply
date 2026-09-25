@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+launcher="$root/caelestia/integration/aether"
+shell_theme="$root/caelestia/integration/shell-theme"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/aether-apply-test.XXXXXX")"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+
+home="$test_root/home"
+config="$test_root/config"
+state="$test_root/state"
+cache="$test_root/cache"
+tmp="$test_root/tmp"
+dynamic="$test_root/dynamic"
+aether_output="$config/aether/theme/backgrounds"
+aether_themes="$config/aether/themes"
+colors="$config/aether/theme/colors.toml"
+status_file="$test_root/aether-status.json"
+status_palette_log="$test_root/palette-values.log"
+action_log="$test_root/system-actions.log"
+theme_apply_log="$test_root/theme-applies.log"
+notification_log="$test_root/notifications.log"
+template_source="${TEST_THEME_TEMPLATE:-$HOME/.config/themes/current}"
+spicetify_template="${TEST_SPICETIFY_TEMPLATE:-$HOME/.config/spicetify/Themes/text}"
+mkdir -p "$home" "$config/themes/everforest" "$state" "$cache" "$tmp" "$dynamic" "$aether_output" "$aether_themes"
+/usr/bin/cp -a -- "$template_source/." "$config/themes/everforest/"
+/usr/bin/ln -s -- everforest "$config/themes/current"
+
+mock_aether="$test_root/aether"
+cat > "$mock_aether" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == status && "${2:-}" == --json ]]
+/usr/bin/cat -- "$AETHER_STATUS_FILE"
+EOF
+/usr/bin/chmod +x "$mock_aether"
+
+fake_renderer="$test_root/theme-renderer"
+cat > "$fake_renderer" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == --dry-run || "${1:-}" == --force ]]; then palette="$2"; wallpaper="$3"; else palette="$1"; wallpaper="$2"; fi
+/usr/bin/jq -e '
+    . as $palette |
+    $palette.provider == "aether" and
+    ($palette.colours | type == "object") and
+    ([range(0; 16) | "term" + tostring] as $keys |
+        (($keys - ($palette.colours | keys)) | length == 0) and
+        all($keys[]; . as $key | ($palette.colours[$key] | type == "string" and test("^[0-9A-Fa-f]{6}$"))))
+' "$palette" >/dev/null
+[[ -f "$wallpaper" ]]
+/usr/bin/jq -r '[.mode, .style, .colours.accent, .colours.term0] | @tsv' "$palette" >> "$AETHER_TEST_PALETTE_LOG"
+exec /usr/bin/env \
+    THEMES_DIR="$AETHER_TEST_THEMES_DIR" THEME_TEMPLATE_DIR="$AETHER_TEST_TEMPLATE_DIR" \
+    SPICETIFY_TEMPLATE_DIR="$AETHER_TEST_SPICETIFY_TEMPLATE_DIR" \
+    "$AETHER_TEST_REAL_RENDERER" "$@"
+EOF
+/usr/bin/chmod +x "$fake_renderer"
+
+fake_theme_apply="$test_root/theme-apply"
+cat > "$fake_theme_apply" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$AETHER_TEST_THEME_APPLY_LOG"
+EOF
+/usr/bin/chmod +x "$fake_theme_apply"
+
+fake_system_action="$test_root/system-action"
+cat > "$fake_system_action" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == --dry-run ]]; then
+    shift
+    printf 'dry-run %s\n' "$*" >> "$AETHER_TEST_ACTION_LOG"
+    exit 0
+fi
+[[ "${1:-}" == dynamic-wallpaper && $# == 2 && -f "$2" ]]
+if [[ "${AETHER_TEST_FAIL_ACTION:-0}" == 1 ]]; then
+    printf 'fake system action: deliberate failure\n' >&2
+    exit 23
+fi
+/usr/bin/mkdir -p -- "$XDG_STATE_HOME/caelestia"
+/usr/bin/ln -sfn -- "$2" "$XDG_STATE_HOME/caelestia/dynamic-wallpaper"
+printf '%s\n' "$2" >> "$AETHER_TEST_ACTION_LOG"
+EOF
+/usr/bin/chmod +x "$fake_system_action"
+
+fake_notify="$test_root/notify-send"
+cat > "$fake_notify" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$AETHER_TEST_NOTIFICATION_LOG"
+EOF
+/usr/bin/chmod +x "$fake_notify"
+
+fail() {
+    printf 'aether-apply test: %s\n' "$*" >&2
+    exit 1
+}
+
+make_terminal_palette() {
+    local base="$1" index
+    local -a colours=()
+    for (( index=0; index<16; index++ )); do
+        colours+=("$(printf '#%06x' "$((base + index))")")
+    done
+    printf '%s\n' "${colours[@]}" | /usr/bin/jq -R . | /usr/bin/jq -s .
+}
+
+write_colors() {
+    local mode="$1" accent="$2"
+    cat > "$colors" <<EOF
+mode = "$mode"
+background = "#101112"
+foreground = "#f1f2f3"
+accent = "$accent"
+muted = "#667788"
+red = "#ff0000"
+green = "#00ff00"
+yellow = "#ffff00"
+blue = "#0000ff"
+magenta = "#ff00ff"
+cyan = "#00ffff"
+EOF
+}
+
+write_status() {
+    local wallpaper="$1" style="$2" mode="$3" base="$4" light_mode=false palette
+    [[ "$mode" != light ]] || light_mode=true
+    palette="$(make_terminal_palette "$base")"
+    /usr/bin/jq -cn --arg wallpaper "$wallpaper" --arg style "$style" --argjson light_mode "$light_mode" --argjson palette "$palette" \
+        '{ok: true, wallpaper: $wallpaper, mode: $style, light_mode: $light_mode, palette: $palette}' > "$status_file"
+}
+
+run_aether() {
+    /usr/bin/env \
+        HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" XDG_CACHE_HOME="$cache" TMPDIR="$tmp" \
+        AETHER_BIN="$mock_aether" AETHER_STATUS_FILE="$status_file" AETHER_THEME_FILE="$colors" \
+        AETHER_WALLPAPERS_DIR="$aether_output" AETHER_THEMES_DIR="$aether_themes" AETHER_SYSTEM_ACTION_BIN="$fake_system_action" \
+        CAELESTIA_DYNAMIC_WALLPAPERS_DIR="$dynamic" NOTIFY_SEND_BIN="$fake_notify" \
+        THEME_RENDERER="$fake_renderer" THEME_APPLY="$fake_theme_apply" SHELL_THEME_SUPPRESS_NOTIFY=1 \
+        AETHER_TEST_REAL_RENDERER="$root/caelestia/integration/theme-render" \
+        AETHER_TEST_THEMES_DIR="$config/themes" AETHER_TEST_TEMPLATE_DIR="$config/themes/current" \
+        AETHER_TEST_SPICETIFY_TEMPLATE_DIR="$spicetify_template" \
+        AETHER_TEST_PALETTE_LOG="$status_palette_log" AETHER_TEST_THEME_APPLY_LOG="$theme_apply_log" \
+        AETHER_TEST_ACTION_LOG="$action_log" AETHER_TEST_NOTIFICATION_LOG="$notification_log" \
+        /usr/bin/timeout 20 "$launcher" "$@" 19>&-
+}
+
+run_shell_theme() {
+    /usr/bin/env \
+        HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" XDG_CACHE_HOME="$cache" TMPDIR="$tmp" \
+        CAELESTIA_DYNAMIC_WALLPAPERS_DIR="$dynamic" THEME_RENDERER="$fake_renderer" THEME_APPLY="$fake_theme_apply" \
+        AETHER_TEST_REAL_RENDERER="$root/caelestia/integration/theme-render" \
+        AETHER_TEST_THEMES_DIR="$config/themes" AETHER_TEST_TEMPLATE_DIR="$config/themes/current" \
+        AETHER_TEST_SPICETIFY_TEMPLATE_DIR="$spicetify_template" \
+        AETHER_TEST_PALETTE_LOG="$status_palette_log" AETHER_TEST_THEME_APPLY_LOG="$theme_apply_log" \
+        SHELL_THEME_SUPPRESS_NOTIFY=1 "$shell_theme" "$@"
+}
+
+import_palette() {
+    local wallpaper="$1" style="$2" mode="$3" base="$4" accent="$5"
+    write_colors "$mode" "$accent"
+    write_status "$wallpaper" "$style" "$mode" "$base"
+    local before_colors
+    before_colors="$(/usr/bin/sha256sum -- "$colors")"
+    run_aether apply
+    [[ "$before_colors" == "$(/usr/bin/sha256sum -- "$colors")" ]] || fail 'Apply changed Aether generated colors.toml'
+    [[ -z "$(/usr/bin/find "$tmp" -mindepth 1 -maxdepth 1 -type f -print -quit)" ]] || fail 'temporary complete palette was left behind'
+}
+
+apply_a="$home/files/pictures/Aether/wallhaven-rq68qq.jpg"
+apply_b="$home/files/pictures/Aether/wallhaven-8g8kyo.jpg"
+output_a="$aether_output/wallhaven-rq68qq.jpg"
+output_b="$aether_themes/wallhaven-8g8kyo/backgrounds/wallhaven-8g8kyo.jpg"
+/usr/bin/mkdir -p "$home/files/pictures/Aether"
+printf 'wallpaper rq68qq\0bytes\n' > "$output_a"
+/usr/bin/mkdir -p "${output_b%/*}"
+printf 'wallpaper 8g8kyo\0bytes\n' > "$output_b"
+/usr/bin/cp -- "$output_a" "$dynamic/wallhaven-rq68qq.jpg"
+inode_a="$(/usr/bin/stat -c %i -- "$dynamic/wallhaven-rq68qq.jpg")"
+
+write_colors dark '#aabbcc'
+write_status "$apply_a" Pastel dark 1048576
+before_colors="$(/usr/bin/sha256sum -- "$colors")"
+dry_output="$(run_aether --dry-run apply)"
+[[ "$dry_output" == *"Source wallpaper: $output_a"* ]] || fail 'did not resolve the completed wallpaper after its original moved'
+[[ "$dry_output" == *"Saved wallpaper: $dynamic/wallhaven-rq68qq.jpg"* ]] || fail 'did not reuse the identical Dynamic wallpaper'
+[[ "$before_colors" == "$(/usr/bin/sha256sum -- "$colors")" ]] || fail 'dry-run changed Aether generated colors.toml'
+[[ "$(/usr/bin/stat -c %i -- "$dynamic/wallhaven-rq68qq.jpg")" == "$inode_a" ]] || fail 'dry-run changed the existing Dynamic wallpaper'
+
+legacy_apply_lock="$state/caelestia/aether-apply.lock"
+/usr/bin/mkdir -p -- "${legacy_apply_lock%/*}"
+exec 19>"$legacy_apply_lock"
+/usr/bin/flock 19
+import_palette "$apply_a" Pastel dark 1048576 '#aabbcc'
+exec 19>&-
+[[ "$(/usr/bin/stat -c %i -- "$dynamic/wallhaven-rq68qq.jpg")" == "$inode_a" ]] || fail 'identical Dynamic wallpaper was copied again'
+hash_a="$(/usr/bin/sha256sum -- "$output_a" | /usr/bin/cut -d' ' -f1)"
+record_a="$state/caelestia/aether-palettes/$hash_a.json"
+/usr/bin/jq -e --arg hash "$hash_a" '
+    .wallpaperHash == $hash and .selection == {type: "aether", style: "Pastel", mode: "dark"} and
+    .snapshots.Pastel.dark.palette.colours.term0 == "100000" and
+    .snapshots.Pastel.dark.palette.colours.accent == "aabbcc"
+' "$record_a" >/dev/null || fail 'Aether status palette or semantic colors were not saved'
+
+/usr/bin/cp -- "$output_a" "$apply_a"
+import_palette "$apply_a" Pastel light 2097152 '#bbccdd'
+import_palette "$apply_a" Vivid dark 3145728 '#ccddee'
+import_palette "$apply_a" Pastel dark 4194304 '#ddeeff'
+/usr/bin/jq -e '
+    .snapshots.Pastel.dark.palette.colours.term0 == "400000" and
+    .snapshots.Pastel.light.palette.colours.term0 == "200000" and
+    .snapshots.Vivid.dark.palette.colours.term0 == "300000" and
+    .selection == {type: "aether", style: "Pastel", mode: "dark"}
+' "$record_a" >/dev/null || fail 'reapplying one style and mode replaced another saved slot'
+
+list_a="$(/usr/bin/env HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" XDG_CACHE_HOME="$cache" \
+    CAELESTIA_DYNAMIC_WALLPAPERS_DIR="$dynamic" THEME_RENDERER="$fake_renderer" THEME_APPLY="$fake_theme_apply" \
+    AETHER_TEST_REAL_RENDERER="$root/caelestia/integration/theme-render" \
+    AETHER_TEST_THEMES_DIR="$config/themes" AETHER_TEST_TEMPLATE_DIR="$config/themes/current" \
+    AETHER_TEST_SPICETIFY_TEMPLATE_DIR="$spicetify_template" \
+    AETHER_TEST_PALETTE_LOG="$status_palette_log" AETHER_TEST_THEME_APPLY_LOG="$theme_apply_log" \
+    "$shell_theme" list-aether)"
+/usr/bin/jq -e 'length == 3 and any(.[]; .style == "Pastel" and .mode == "dark" and .active)' <<< "$list_a" >/dev/null || fail 'Dynamic Aether list omitted saved style and mode choices'
+run_shell_theme set-aether-variant Pastel light
+/usr/bin/jq -e '.selection == {type: "aether", style: "Pastel", mode: "light"}' "$record_a" >/dev/null || fail 'could not select the saved light palette'
+
+printf 'different existing wallpaper bytes\n' > "$dynamic/wallhaven-8g8kyo.jpg"
+collision_hash="$(/usr/bin/sha256sum -- "$output_b" | /usr/bin/cut -d' ' -f1)"
+expected_b="$dynamic/wallhaven-8g8kyo-${collision_hash:0:12}.jpg"
+before_conflict="$(/usr/bin/sha256sum -- "$dynamic/wallhaven-8g8kyo.jpg")"
+import_palette "$apply_b" Pastel dark 5242880 '#abcdef'
+[[ -f "$expected_b" ]] || fail 'different content was not saved under a hash-suffixed filename'
+[[ "$(/usr/bin/sha256sum -- "$expected_b" | /usr/bin/cut -d' ' -f1)" == "$collision_hash" ]] || fail 'hash-suffixed wallpaper content changed'
+[[ "$before_conflict" == "$(/usr/bin/sha256sum -- "$dynamic/wallhaven-8g8kyo.jpg")" ]] || fail 'filename collision overwrote existing content'
+hash_b="$collision_hash"
+record_b="$state/caelestia/aether-palettes/$hash_b.json"
+/usr/bin/jq -e '.selection == {type: "aether", style: "Pastel", mode: "dark"}' "$record_b" >/dev/null || fail 'colliding wallpaper was not recorded'
+
+select_dynamic() {
+    /usr/bin/env HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" XDG_CACHE_HOME="$cache" \
+        AETHER_TEST_ACTION_LOG="$action_log" \
+        "$fake_system_action" dynamic-wallpaper "$1"
+}
+
+select_dynamic "$dynamic/wallhaven-rq68qq.jpg"
+run_shell_theme restore --cached
+/usr/bin/jq -e '.source == "dynamic" and .provider == "aether" and .mode == "light" and .style == "Pastel"' \
+    "$state/caelestia/shell-theme-palette.json" >/dev/null || fail 'shell restore did not recover the selected saved light palette'
+select_dynamic "$expected_b"
+run_shell_theme restore --cached
+/usr/bin/jq -e '.source == "dynamic" and .provider == "aether" and .mode == "dark" and .style == "Pastel"' \
+    "$state/caelestia/shell-theme-palette.json" >/dev/null || fail 'switching wallpapers did not restore that wallpaper palette'
+select_dynamic "$dynamic/wallhaven-rq68qq.jpg"
+run_shell_theme restore --cached
+/usr/bin/jq -e '.source == "dynamic" and .provider == "aether" and .mode == "light" and .style == "Pastel"' \
+    "$state/caelestia/shell-theme-palette.json" >/dev/null || fail 'returning to the first wallpaper lost its selected palette'
+rendered="$config/themes/.dynamic/caelestia"
+/usr/bin/jq -e '.mode == "light" and .terminal[0] == "200000"' "$rendered/palette.json" >/dev/null || fail 'Aether palette was not rendered into the Dynamic desktop theme'
+[[ -f "$rendered/gtk.css" && -f "$rendered/chromium-flags.conf" && -f "$rendered/discord.css" && -f "$rendered/neovim.lua" ]] || fail 'Dynamic desktop consumers were not rendered'
+
+action_count="$(/usr/bin/wc -l < "$action_log")"
+apply_count="$(/usr/bin/wc -l < "$theme_apply_log")"
+printf 'mismatched original content\n' > "$apply_a"
+write_status "$apply_a" Pastel dark 6291456
+if run_aether apply > "$test_root/failed-apply.out" 2>&1; then
+    fail 'a wallpaper content mismatch unexpectedly imported'
+fi
+[[ "$(/usr/bin/wc -l < "$action_log")" == "$action_count" ]] || fail 'failed preflight selected a wallpaper'
+[[ "$(/usr/bin/wc -l < "$theme_apply_log")" == "$apply_count" ]] || fail 'failed preflight applied a desktop theme'
+/usr/bin/grep -F 'Aether wallpaper paths with the same name contain different content' "$state/caelestia/aether.log" >/dev/null || fail 'callback failure was not logged with its cause'
+/usr/bin/grep -F 'Aether Apply failed' "$notification_log" >/dev/null || fail 'callback failure did not notify'
+/usr/bin/grep -F 'Aether wallpaper paths with the same name contain different content' "$notification_log" >/dev/null || fail 'failure notification omitted a useful cause'
+
+printf 'aether-apply: ok\n'

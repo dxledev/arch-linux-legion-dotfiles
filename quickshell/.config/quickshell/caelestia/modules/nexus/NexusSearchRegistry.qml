@@ -2,25 +2,28 @@ pragma Singleton
 
 import QtQuick
 import Caelestia.I18n
+import qs.services
 import qs.utils
 
 Searcher {
     id: root
 
-    list: entries
+    list: Colours.source === "dynamic" && Colours.provider === "aether"
+        ? entries.filter(entry => entry.control !== "dynamic-mode")
+        : entries
     useFuzzy: true
     keys: ["label", "description", "breadcrumb", "keywords"]
     weights: [4, 2, 1, 1]
 
-    function setting(label: string, description: string, breadcrumb: string, icon: string, pageIndex: int, subPagePath: list<int>, keywords = ""): var {
-        return { label, description, breadcrumb, icon, pageIndex, subPagePath, keywords };
+    function setting(label: string, description: string, breadcrumb: string, icon: string, pageIndex: int, subPagePath: list<int>, keywords = "", control = ""): var {
+        return { label, description, breadcrumb, icon, pageIndex, subPagePath, keywords, control };
     }
 
     readonly property var entries: [
         setting(Tr.tr("Wallpaper & Style"), Tr.tr("Wallpaper, fonts, colours"), Tr.tr("Wallpaper & Style"), "palette", 0, [], "appearance theme"),
         setting(Tr.tr("Display wallpaper"), Tr.tr("Show the wallpaper behind the shell"), Tr.tr("Wallpaper & Style"), "wallpaper", 0, [], "background"),
         setting(Tr.tr("Transparency"), Tr.tr("Adjust shell transparency"), Tr.tr("Wallpaper & Style"), "opacity", 0, [], "opacity"),
-        setting(Tr.tr("Dark theme"), Tr.tr("Use the dark colour scheme"), Tr.tr("Wallpaper & Style"), "dark_mode", 0, [], "light mode"),
+        setting(Tr.tr("Dark theme"), Tr.tr("Use the dark colour scheme"), Tr.tr("Wallpaper & Style"), "dark_mode", 0, [], "light mode", "dynamic-mode"),
         setting(Tr.tr("Wallpapers"), Tr.tr("Choose a wallpaper"), Tr.tr("Wallpaper & Style"), "wallpaper", 0, [1], "background"),
         setting(Tr.tr("Colours"), Tr.tr("Choose shell colours"), Tr.tr("Wallpaper & Style"), "palette", 0, [3], "color theme"),
         setting(Tr.tr("Desktop widgets"), Tr.tr("Configure the desktop clock and audio visualiser"), Tr.tr("Wallpaper & Style"), "widgets", 0, [4], "background clock visualiser visualizer"),

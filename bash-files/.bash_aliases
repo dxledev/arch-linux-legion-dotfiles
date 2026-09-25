@@ -86,6 +86,7 @@ alias trash-empty='trash-empty --trash-dir ~/.local/share/Trash'
 alias mkdir='mkdir -p'
 alias less='less -R'
 alias ps='ps auxf'
+alias tree='tree -C'
 
 # terminal aesthetics
 alias activity='btop'

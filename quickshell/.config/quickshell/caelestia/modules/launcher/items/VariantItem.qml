@@ -7,8 +7,13 @@ import qs.modules.launcher.services
 Item {
     id: root
 
-    required property M3Variants.Variant modelData
+    required property var modelData
     required property var list
+
+    readonly property bool activeChoice: modelData?.kind === "aether"
+        ? Colours.source === "dynamic" && Colours.provider === "aether" && modelData.style === Colours.aetherStyle && modelData.mode === (Colours.light ? "light" : "dark")
+        : modelData?.kind === "aether-menu" ? false
+        : Colours.source === "dynamic" && Colours.provider === "caelestia" && modelData?.variant === Colours.variant
 
     implicitHeight: Tokens.sizes.launcher.itemHeight
 
@@ -66,7 +71,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
 
-            active: root.modelData?.variant === Colours.variant
+            active: root.activeChoice
 
             sourceComponent: MaterialIcon {
                 text: "check"

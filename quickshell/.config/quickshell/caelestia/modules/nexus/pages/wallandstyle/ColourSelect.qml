@@ -21,6 +21,16 @@ PageBase {
         return name.replace(/[-_]/g, " ").split(/\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
     }
 
+    function formattedAetherStyle(style: string): string {
+        return style.replace(/[-_.]/g, " ").split(/\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+    }
+
+    function formattedAetherVariant(): string {
+        const style = Colours.aetherStyle ? ` · ${root.formattedAetherStyle(Colours.aetherStyle)}` : "";
+        const mode = Colours.light ? Tr.tr("Light") : Tr.tr("Dark");
+        return `${Tr.tr("Aether")}${style} · ${mode}`;
+    }
+
     function hexColour(value: color): string {
         const hex = [value.r, value.g, value.b]
             .map(channel => Math.round(channel * 255).toString(16).padStart(2, "0"))
@@ -78,7 +88,9 @@ PageBase {
 
                     StyledText {
                         Layout.fillWidth: true
-                        text: M3Variants.allVariants.find(item => item.variant === Colours.variant)?.name ?? Colours.variant
+                        text: Colours.provider === "aether"
+                            ? root.formattedAetherVariant()
+                            : M3Variants.allVariants.find(item => item.variant === Colours.variant)?.name ?? Colours.variant
                         color: Colours.current.m3onSurface
                         font: Tokens.font.title.small
                         elide: Text.ElideRight

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+launcher="$root/caelestia/integration/aether"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/aether-launch-test.XXXXXX")"
+
+home="$test_root/home"
+config="$test_root/config"
+state="$test_root/state"
+marker="$test_root/aether.pid"
+dispatch_log="$test_root/dispatch.log"
+palette_json="$(/usr/bin/jq -cn '{mode:"dark", background:"#101112", foreground:"#f1f2f3", accent:"#aabbcc", muted:"#667788", red:"#ff0000", green:"#00ff00", yellow:"#ffff00", blue:"#0000ff", magenta:"#ff00ff", cyan:"#00ffff", terminal:[range(0;16) | "#112233"]}')"
+
+/usr/bin/mkdir -p "$home" "$config" "$state"
+
+cleanup() {
+    if [[ -r "$marker" ]]; then /usr/bin/kill "$(<"$marker")" 2>/dev/null || true; fi
+    /usr/bin/rm -rf -- "$test_root"
+}
+trap cleanup EXIT
+
+mock_aether="$test_root/aether"
+cat > "$mock_aether" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == status ]]; then
+    printf '{"ok":false}\n'
+    exit 0
+fi
+[[ "${1:-}" == --tab && "${2:-}" == editor ]]
+printf '%s\n' "$$" > "$AETHER_TEST_PID_FILE"
+/usr/bin/sleep 20
+EOF
+/usr/bin/chmod +x "$mock_aether"
+
+mock_hyprctl="$test_root/hyprctl"
+cat > "$mock_hyprctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-} ${2:-}" in
+    'clients -j')
+        if [[ -r "$AETHER_TEST_PID_FILE" ]]; then
+            printf '[{"class":"aether","address":"0x123","workspace":{"name":"special:aether"}}]\n'
+        else
+            printf '[]\n'
+        fi
+        ;;
+    'monitors -j')
+        printf '[{"specialWorkspace":{"name":"special:aether"}}]\n'
+        ;;
+    dispatch*)
+        printf '%s\n' "$*" >> "$AETHER_TEST_DISPATCH_LOG"
+        ;;
+    *)
+        exit 2
+        ;;
+esac
+EOF
+/usr/bin/chmod +x "$mock_hyprctl"
+
+mock_quickshell="$test_root/quickshell"
+cat > "$mock_quickshell" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$AETHER_TEST_SHELL_PALETTE"
+EOF
+/usr/bin/chmod +x "$mock_quickshell"
+
+legacy_apply_lock="$state/caelestia/aether-apply.lock"
+legacy_launch_lock="$state/caelestia/aether-launch.lock"
+/usr/bin/mkdir -p "$state/caelestia"
+exec 19>"$legacy_apply_lock"
+/usr/bin/flock 19
+exec 20>"$legacy_launch_lock"
+/usr/bin/flock 20
+
+/usr/bin/env \
+    HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" \
+    AETHER_BIN="$mock_aether" AETHER_TEST_PID_FILE="$marker" \
+    AETHER_TEST_SHELL_PALETTE="$palette_json" AETHER_TEST_DISPATCH_LOG="$dispatch_log" \
+    AETHER_QUICKSHELL_WRAPPER="$mock_quickshell" HYPRCTL_BIN="$mock_hyprctl" \
+    AETHER_LIBRARY_DIR="$home/files/pictures/Aether" \
+    "$launcher" launch 19>&- 20>&-
+
+[[ -r "$marker" ]] || { printf 'aether-launch test: launch did not start Aether\n' >&2; exit 1; }
+for lock in "$state/caelestia/aether-apply-v2.lock" "$state/caelestia/aether-launch-v2.lock"; do
+    /usr/bin/flock -n "$lock" /usr/bin/true || {
+        printf 'aether-launch test: launched Aether retained lock %s\n' "$lock" >&2
+        exit 1
+    }
+done
+
+for lock in "$legacy_apply_lock" "$legacy_launch_lock"; do
+    if /usr/bin/flock -n "$lock" /usr/bin/true 2>/dev/null; then
+        printf 'aether-launch test: did not preserve the held legacy lock %s\n' "$lock" >&2
+        exit 1
+    fi
+done
+
+/usr/bin/kill "$(<"$marker")" 2>/dev/null || true
+exec 19>&-
+exec 20>&-
+
+printf 'aether-launch: ok\n'

@@ -239,6 +239,7 @@ PageBase {
         ToggleRow {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
 
+            visible: Colours.source !== "dynamic" || Colours.provider !== "aether"
             last: true
             text: Tr.tr("Dark theme")
             checked: !Colours.light

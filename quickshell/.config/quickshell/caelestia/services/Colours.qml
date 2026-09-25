@@ -18,6 +18,8 @@ Singleton {
     property string flavour
     property string source: "system"
     property string provider: "theme"
+    property string aetherStyle: ""
+    property int paletteRevision
     property string staticThemeName: ""
     property string variant: "tonalspot"
     readonly property bool light: showPreview ? previewLight : currentLight
@@ -87,6 +89,8 @@ Singleton {
             const required = provider === "aether" ? ["background", "onBackground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan"] : ["background", "onBackground", "surface", "onSurface", "primary", "onPrimary", "secondary", "tertiary", "error"];
             if (!["light", "dark"].includes(scheme.mode) || required.some(name => !scheme.colours.hasOwnProperty(name)))
                 return false;
+            if (provider === "aether" && scheme.style !== undefined && (typeof scheme.style !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(scheme.style)))
+                return false;
         }
 
         if (!isPreview) {
@@ -94,8 +98,10 @@ Singleton {
             root.provider = provider;
             root.staticThemeName = source === "system" ? (scheme.name ?? "") : "";
             variant = scheme.variant ?? "tonalspot";
+            aetherStyle = provider === "aether" ? scheme.style ?? "" : "";
             if (root.source === "system") {
                 loadSystemPalette();
+                paletteRevision++;
                 return true;
             }
             root.scheme = scheme.name;
@@ -114,6 +120,8 @@ Singleton {
             loadAetherPalette(scheme.colours);
         if (!isPreview && root.source === "dynamic" && root.provider === "caelestia" && Quickshell.env("CAELESTIA_START_LOCKED") !== "1")
             queueAetherSync();
+        if (!isPreview)
+            paletteRevision++;
         return true;
     }
 
@@ -240,6 +248,12 @@ Singleton {
         if (source !== "dynamic")
             return;
         runController(["set-variant", name]);
+    }
+
+    function setAetherVariant(style: string, mode: string): void {
+        if (source !== "dynamic")
+            return;
+        runController(["set-aether-variant", style, mode]);
     }
 
     function setSource(name: string): void {
