@@ -116,8 +116,8 @@ Singleton {
             if (colours.hasOwnProperty(propName))
                 colours[propName] = `#${colour}`;
         }
-        if (!isPreview && scheme.provider === "aether")
-            loadAetherPalette(scheme.colours);
+        if (scheme.provider === "aether")
+            loadAetherPalette(scheme.colours, colours);
         if (!isPreview && root.source === "dynamic" && root.provider === "caelestia" && Quickshell.env("CAELESTIA_START_LOCKED") !== "1")
             queueAetherSync();
         if (!isPreview)
@@ -138,7 +138,7 @@ Singleton {
         return value ? `#${value}` : fallback;
     }
 
-    function loadAetherPalette(colours: var): void {
+    function loadAetherPalette(colours: var, targetPalette: var): void {
         const background = paletteColour(colours, "background", current.m3background);
         const foreground = paletteColour(colours, "onBackground", current.m3onBackground);
         const accent = paletteColour(colours, "accent", paletteColour(colours, "blue", current.m3primary));
@@ -198,17 +198,17 @@ Singleton {
             m3onSuccessContainer: foreground
         };
         for (const [name, value] of Object.entries(values))
-            current[name] = value;
+            targetPalette[name] = value;
         for (const role of ["primary", "secondary", "tertiary"]) {
             const capital = role[0].toUpperCase() + role.slice(1);
             const value = values[`m3${role}`];
-            current[`m3${role}Fixed`] = value;
-            current[`m3${role}FixedDim`] = Qt.tint(background, Qt.alpha(value, 0.8));
-            current[`m3on${capital}Fixed`] = on(value);
-            current[`m3on${capital}FixedVariant`] = on(value);
+            targetPalette[`m3${role}Fixed`] = value;
+            targetPalette[`m3${role}FixedDim`] = Qt.tint(background, Qt.alpha(value, 0.8));
+            targetPalette[`m3on${capital}Fixed`] = on(value);
+            targetPalette[`m3on${capital}FixedVariant`] = on(value);
         }
         for (let index = 0; index < 16; index++)
-            current[`term${index}`] = paletteColour(colours, `term${index}`, index < 8 ? background : foreground);
+            targetPalette[`term${index}`] = paletteColour(colours, `term${index}`, index < 8 ? background : foreground);
     }
 
     function aetherPalette(): var {
