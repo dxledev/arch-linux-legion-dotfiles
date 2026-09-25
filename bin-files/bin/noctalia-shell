@@ -118,19 +118,19 @@ sync_current_theme() {
             fail "Noctalia's saved static theme is missing or invalid: $scheme_name"
         return 0
     fi
-    selected="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
-    dynamic_noctalia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
-    dynamic_caelestia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/caelestia" 2>/dev/null || true)"
-    if [[ -n "$selected" && ( "$selected" == "$dynamic_noctalia" || "$selected" == "$dynamic_caelestia" ) &&
-          -f "$selected/wallpaper.png" ]]; then
-        "$runtime_bin" msg wallpaper-set "$selected/wallpaper.png" >/dev/null 2>&1 || true
-        "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
+    if [[ "$handoff_dynamic" == 1 ]]; then
         return 0
     fi
 
-    if [[ "$handoff_dynamic" == 1 ]]; then
-        [[ "$scheme_source" == custom ]] &&
-            "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
+    selected="$(/usr/bin/readlink -f -- "$application_selector" 2>/dev/null || true)"
+    dynamic_noctalia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
+    dynamic_caelestia="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/caelestia" 2>/dev/null || true)"
+    if [[ -n "$selected" && "$selected" == "$dynamic_caelestia" ]]; then
+        return 0
+    fi
+    if [[ -n "$selected" && "$selected" == "$dynamic_noctalia" && -f "$selected/wallpaper.png" ]]; then
+        "$runtime_bin" msg wallpaper-set "$selected/wallpaper.png" >/dev/null 2>&1 || true
+        "$runtime_bin" msg color-scheme-set wallpaper m3-tonal-spot >/dev/null 2>&1 || true
         return 0
     fi
 
