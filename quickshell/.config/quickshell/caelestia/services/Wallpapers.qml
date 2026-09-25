@@ -242,9 +242,10 @@ Searcher {
     Process {
         id: applyWallpaper
 
+        stderr: StdioCollector {}
         onExited: (code, status) => {
             if (code !== 0) {
-                console.warn("Wallpaper update failed:", code);
+                console.warn("Wallpaper update failed:", code, stderr.text.trim());
                 root.refresh();
             } else if (root.applyPersists) {
                 root.previewColourLock = false;

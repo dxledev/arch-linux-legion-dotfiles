@@ -23,7 +23,7 @@ show_wallpaper() {
         --transition-duration "${AWWW_TRANSITION_DURATION:-0.65}" \
         --transition-angle "${AWWW_TRANSITION_ANGLE:-0}" \
         --transition-step "${AWWW_TRANSITION_STEP:-3}" \
-        --transition-fps "${AWWW_TRANSITION_FPS:-144}"
+        --transition-fps "${AWWW_TRANSITION_FPS:-144}" || true
 }
 
 theme_source() {

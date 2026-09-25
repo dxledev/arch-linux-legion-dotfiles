@@ -12,9 +12,28 @@ force=0
 staging_dir=""
 backup_dir=""
 temporary_palette=""
+temporary_plan=""
+temporary_report=""
+contrast_helper="${THEME_RENDER_CONTRAST_HELPER:-${BASH_SOURCE[0]%/*}/contrast-palette.py}"
+render_text=""
+render_nvim_muted=""
+render_nvim_subtext0=""
+render_nvim_subtext1=""
+render_nvim_peach=""
+render_nvim_green=""
+render_nvim_blue=""
+render_nvim_mauve=""
+render_nvim_pink=""
+render_nvim_teal=""
+render_nvim_sky=""
+render_nvim_red=""
+render_nvim_yellow=""
+render_nvim_primary=""
+render_terminal=()
 
 usage() {
     printf 'Usage: theme-render [--dry-run] [--force] [--provider caelestia|noctalia] PALETTE_JSON ABSOLUTE_WALLPAPER\n'
+    printf 'Thresholds: THEME_RENDER_TEXT_CONTRAST=4.5 THEME_RENDER_COLOR_CONTRAST=3 THEME_RENDER_ROLE_DISTANCE=0.06\n'
 }
 
 fail() {
@@ -26,6 +45,8 @@ cleanup() {
     [[ -z "$staging_dir" || ! -e "$staging_dir" ]] || /usr/bin/rm -rf -- "$staging_dir"
     [[ -z "$backup_dir" || ! -e "$backup_dir" ]] || /usr/bin/rm -rf -- "$backup_dir"
     [[ -z "$temporary_palette" || ! -e "$temporary_palette" ]] || /usr/bin/rm -f -- "$temporary_palette"
+    [[ -z "$temporary_plan" || ! -e "$temporary_plan" ]] || /usr/bin/rm -f -- "$temporary_plan"
+    [[ -z "$temporary_report" || ! -e "$temporary_report" ]] || /usr/bin/rm -f -- "$temporary_report"
 }
 
 require_absolute() {
@@ -107,9 +128,39 @@ normalise_palette() {
           lavender: pick(["lavender", "primaryFixed", "primary", "term12"]),
           rosewater: pick(["rosewater", "onPrimaryContainer", "text", "term15"]),
           flamingo: pick(["flamingo", "pink", "secondary", "term13"]),
-          terminal: [range(0; 16) as $i | pick(["term" + ($i | tostring)])]
+          terminal: [range(0; 16) as $i | pick(["term" + ($i | tostring)])],
+          source_colours: ([.source_colours[]?, .colours[]?, .terminal[]?] | map(select(type == "string") | colour) | unique)
         }
     ' "$palette_file" > "$output" || fail 'Palette is malformed or incomplete.'
+}
+
+load_contrast_plan() {
+    local palette_file="$1"
+    local -a values=()
+    [[ -x /usr/bin/python3 ]] || fail 'Python 3 is required for Dynamic contrast rendering.'
+    [[ -r "$contrast_helper" && -f "$contrast_helper" ]] || fail "Contrast helper not found: $contrast_helper"
+    temporary_plan="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/theme-render-plan.XXXXXX")"
+    temporary_report="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/theme-render-report.XXXXXX")"
+    /usr/bin/python3 "$contrast_helper" \
+        --text-contrast "${THEME_RENDER_TEXT_CONTRAST:-4.5}" \
+        --color-contrast "${THEME_RENDER_COLOR_CONTRAST:-3}" \
+        --role-distance "${THEME_RENDER_ROLE_DISTANCE:-0.06}" \
+        "$palette_file" > "$temporary_plan" || fail 'Could not calculate Dynamic palette contrast.'
+    mapfile -t values < <(/usr/bin/jq -r '[.text, .terminal[], .neovim.subtext0, .neovim.subtext1, .neovim.peach, .neovim.green, .neovim.blue, .neovim.mauve, .neovim.pink, .neovim.teal, .neovim.sky, .neovim.red, .neovim.yellow, .neovim.primary, .neovim.muted] | .[]' "$temporary_plan")
+    (( ${#values[@]} == 30 )) || fail 'Contrast helper returned an incomplete palette.'
+    render_text="${values[0]}"
+    render_terminal=("${values[@]:1:16}")
+    render_nvim_subtext0="${values[17]}" render_nvim_subtext1="${values[18]}"
+    render_nvim_peach="${values[19]}" render_nvim_green="${values[20]}"
+    render_nvim_blue="${values[21]}" render_nvim_mauve="${values[22]}"
+    render_nvim_pink="${values[23]}" render_nvim_teal="${values[24]}" render_nvim_sky="${values[25]}"
+    render_nvim_red="${values[26]}" render_nvim_yellow="${values[27]}" render_nvim_primary="${values[28]}"
+    render_nvim_muted="${values[29]}"
+    /usr/bin/jq -r '.report[]' "$temporary_plan" > "$temporary_report"
+}
+
+print_contrast_report() {
+    /usr/bin/cat -- "$1" >&2
 }
 
 load_palette() {
@@ -135,19 +186,19 @@ rgb() {
 write_terminals() {
     local directory="$1" index
     {
-        printf '[colors.primary]\nbackground = "#%s"\nforeground = "#%s"\n\n' "$base" "$text_colour"
+        printf '[colors.primary]\nbackground = "#%s"\nforeground = "#%s"\n\n' "$base" "$render_text"
         printf '[colors.normal]\n'
-        for index in {0..7}; do printf '%-7s = "#%s"\n' "${terminal_names[index]}" "${terminal[index]}"; done
+        for index in {0..7}; do printf '%-7s = "#%s"\n' "${terminal_names[index]}" "${render_terminal[index]}"; done
         printf '\n[colors.bright]\n'
-        for index in {8..15}; do printf '%-7s = "#%s"\n' "${terminal_names[index - 8]}" "${terminal[index]}"; done
+        for index in {8..15}; do printf '%-7s = "#%s"\n' "${terminal_names[index - 8]}" "${render_terminal[index]}"; done
     } > "$directory/alacritty.toml"
     {
-        printf 'foreground #%s\nbackground #%s\n\n' "$text_colour" "$base"
-        for index in {0..15}; do printf 'color%-2d #%s\n' "$index" "${terminal[index]}"; done
+        printf 'foreground #%s\nbackground #%s\n\n' "$render_text" "$base"
+        for index in {0..15}; do printf 'color%-2d #%s\n' "$index" "${render_terminal[index]}"; done
     } > "$directory/kitty.conf"
     {
-        printf 'background = #%s\nforeground = #%s\n\n' "$base" "$text_colour"
-        for index in {0..15}; do printf 'palette = %d=#%s\n' "$index" "${terminal[index]}"; done
+        printf 'background = #%s\nforeground = #%s\n\n' "$base" "$render_text"
+        for index in {0..15}; do printf 'palette = %d=#%s\n' "$index" "${render_terminal[index]}"; done
     } > "$directory/ghostty.ghostty"
 }
 
@@ -235,9 +286,9 @@ write_neovim() {
     {
         printf 'local palette = {\n'
         printf '  base = "#%s", mantle = "#%s", surface0 = "#%s", surface1 = "#%s", surface2 = "#%s",\n' "$base" "$mantle" "$surface0" "$surface1" "$surface2"
-        printf '  overlay0 = "#%s", overlay1 = "#%s", text = "#%s", subtext0 = "#%s", subtext1 = "#%s",\n' "$overlay0" "$overlay1" "$text_colour" "$subtext0" "$subtext1"
-        printf '  primary = "#%s", secondary = "#%s", peach = "#%s", red = "#%s", green = "#%s", yellow = "#%s",\n' "$primary" "$secondary" "$peach" "$red" "$green" "$yellow"
-        printf '  blue = "#%s", mauve = "#%s", pink = "#%s", teal = "#%s", sky = "#%s", lavender = "#%s"\n' "$blue" "$mauve" "$pink" "$teal" "$sky" "$lavender"
+        printf '  overlay0 = "#%s", overlay1 = "#%s", text = "#%s", muted = "#%s", subtext0 = "#%s", subtext1 = "#%s",\n' "$overlay0" "$overlay1" "$render_text" "$render_nvim_muted" "$render_nvim_subtext0" "$render_nvim_subtext1"
+        printf '  primary = "#%s", secondary = "#%s", peach = "#%s", red = "#%s", green = "#%s", yellow = "#%s",\n' "$render_nvim_primary" "$secondary" "$render_nvim_peach" "$render_nvim_red" "$render_nvim_green" "$render_nvim_yellow"
+        printf '  blue = "#%s", mauve = "#%s", pink = "#%s", teal = "#%s", sky = "#%s", lavender = "#%s"\n' "$render_nvim_blue" "$render_nvim_mauve" "$render_nvim_pink" "$render_nvim_teal" "$render_nvim_sky" "$lavender"
         printf '}\n\n'
         printf 'vim.cmd("highlight clear")\n'
         printf 'if vim.fn.exists("syntax_on") == 1 then vim.cmd("syntax reset") end\n'
@@ -277,7 +328,8 @@ write_neovim() {
         printf 'set({ "DiffChange", "GitSignsChange" }, { fg = palette.yellow })\n'
         printf 'set({ "DiffDelete", "GitSignsDelete" }, { fg = palette.red })\n'
         printf 'set({ "DiffText" }, { fg = palette.base, bg = palette.primary })\n'
-        printf 'set({ "Comment", "@comment", "@comment.documentation" }, { fg = palette.subtext0, italic = true })\n'
+        printf 'set({ "Comment", "@comment", "@comment.documentation" }, { fg = palette.muted, italic = true })\n'
+        printf 'set({ "LspInlayHint" }, { fg = palette.muted })\n'
         printf 'set({ "Constant", "@constant", "@constant.builtin", "Number", "Boolean" }, { fg = palette.peach })\n'
         printf 'set({ "String", "Character", "@string", "@string.escape" }, { fg = palette.green })\n'
         printf 'set({ "Identifier", "@variable", "@variable.builtin", "@parameter" }, { fg = palette.text })\n'
@@ -362,6 +414,7 @@ build_output() {
         printf '%s\n' "$fingerprint" > "$staging_dir/.caelestia-generated"
     fi
     /usr/bin/cp -- "$normalised" "$staging_dir/palette.json"
+    /usr/bin/cp -- "$temporary_report" "$staging_dir/contrast-report.txt"
 }
 
 install_output() {
@@ -404,21 +457,25 @@ main() {
     trap 'status=$?; cleanup; exit "$status"' EXIT
     normalise_palette "$palette_file" "$temporary_palette"
     load_palette "$temporary_palette"
+    load_contrast_plan "$temporary_palette"
     template_fingerprint="$(/usr/bin/find -L "$template_dir" -maxdepth 1 -type f ! -name wallpaper.png -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 -r /usr/bin/sha256sum | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1)"
-    renderer_fingerprint="$(/usr/bin/sha256sum "${BASH_SOURCE[0]}" | /usr/bin/cut -d' ' -f1)"
+    renderer_fingerprint="$( { /usr/bin/sha256sum "${BASH_SOURCE[0]}" "$contrast_helper"; printf '%s\n%s\n%s\n' "${THEME_RENDER_TEXT_CONTRAST:-4.5}" "${THEME_RENDER_COLOR_CONTRAST:-3}" "${THEME_RENDER_ROLE_DISTANCE:-0.06}"; } | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1 )"
     fingerprint="$( { printf '%s\n' "$provider"; /usr/bin/sha256sum "$temporary_palette" | /usr/bin/cut -d' ' -f1; /usr/bin/readlink -f -- "$wallpaper"; /usr/bin/readlink -f -- "$template_dir"; printf '%s\n%s\n' "$template_fingerprint" "$renderer_fingerprint"; } | /usr/bin/sha256sum | /usr/bin/cut -d' ' -f1 )"
     [[ ! -r "$output_dir/.$provider-generated" ]] || current_fingerprint="$(<"$output_dir/.$provider-generated")"
     if (( ! force )) && [[ "$fingerprint" == "$current_fingerprint" ]]; then
+        if [[ -r "$output_dir/contrast-report.txt" ]]; then print_contrast_report "$output_dir/contrast-report.txt"; else print_contrast_report "$temporary_report"; fi
         printf 'unchanged\n'
         return
     fi
     if (( dry_run )); then
+        print_contrast_report "$temporary_report"
         printf 'Provider: %s\nRender: %s\nTemplate: %s\nWallpaper: %s\nFingerprint: %s\n' "$provider" "$output_dir" "$(/usr/bin/readlink -f -- "$template_dir")" "$(/usr/bin/readlink -f -- "$wallpaper")" "$fingerprint"
         return
     fi
     /usr/bin/mkdir -p -- "$themes_dir/.dynamic"
     build_output "$temporary_palette" "$wallpaper" "$fingerprint"
     install_output
+    print_contrast_report "$output_dir/contrast-report.txt"
     printf 'changed\n'
 }
 
