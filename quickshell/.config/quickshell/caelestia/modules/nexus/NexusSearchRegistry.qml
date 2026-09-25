@@ -8,9 +8,9 @@ import qs.utils
 Searcher {
     id: root
 
-    list: Colours.source === "dynamic" && Colours.provider === "aether"
-        ? entries.filter(entry => entry.control !== "dynamic-mode")
-        : entries
+    list: Colours.source === "dynamic" && Colours.provider !== "aether"
+        ? entries
+        : entries.filter(entry => entry.control !== "dynamic-mode")
     useFuzzy: true
     keys: ["label", "description", "breadcrumb", "keywords"]
     weights: [4, 2, 1, 1]

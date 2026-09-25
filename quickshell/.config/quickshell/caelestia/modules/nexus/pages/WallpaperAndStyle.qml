@@ -15,6 +15,8 @@ import qs.modules.nexus.common
 PageBase {
     id: root
 
+    readonly property bool darkThemeToggleVisible: Colours.source === "dynamic" && Colours.provider !== "aether"
+
     title: Tr.tr("Wallpaper & Style")
 
     ColumnLayout {
@@ -203,6 +205,7 @@ PageBase {
         ToggleRow {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
 
+            last: !root.darkThemeToggleVisible && !Colours.transparency.enabled
             text: Tr.tr("Transparency")
             // TRANSLATORS: %1/%2 = opacity values from 0 to 1 for the base surface and layered surfaces
             subtext: Tr.tr("Base %1, layers %2").arg(Colours.transparency.base.toFixed(3)).arg(Colours.transparency.layers.toFixed(3))
@@ -227,6 +230,7 @@ PageBase {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
 
             visible: Colours.transparency.enabled
+            last: !root.darkThemeToggleVisible
             icon: "layers"
             label: Tr.tr("Layer opacity")
             value: Colours.transparency.layers
@@ -239,7 +243,7 @@ PageBase {
         ToggleRow {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
 
-            visible: Colours.source !== "dynamic" || Colours.provider !== "aether"
+            visible: root.darkThemeToggleVisible
             last: true
             text: Tr.tr("Dark theme")
             checked: !Colours.light
