@@ -164,6 +164,7 @@ PageBase {
             IconTextButton {
                 icon: "photo_library"
                 text: Tr.tr("Browse")
+                visible: Colours.source === "dynamic"
                 font: Tokens.font.body.large
                 isRound: true
                 shapeMorph: true

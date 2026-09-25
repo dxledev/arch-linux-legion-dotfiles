@@ -100,6 +100,7 @@ Singleton {
             variant = scheme.variant ?? "tonalspot";
             aetherStyle = provider === "aether" ? scheme.style ?? "" : "";
             if (root.source === "system") {
+                Aether.quit();
                 loadSystemPalette();
                 paletteRevision++;
                 return true;

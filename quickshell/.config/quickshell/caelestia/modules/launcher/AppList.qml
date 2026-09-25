@@ -54,7 +54,6 @@ StyledListView {
         switch (stateForText(text)) {
         case "actions":
             return Actions.query(text).filter(action =>
-                (Colours.source === "dynamic" || !(action.modelData.dynamicOnly ?? false)) &&
                 !(Colours.source === "dynamic" && Colours.provider === "aether" && action.isModeToggle)
             );
         case "calc":

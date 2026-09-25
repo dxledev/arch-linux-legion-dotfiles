@@ -48,7 +48,9 @@ Searcher {
         }
     }
 
-    list: variants.instances
+    list: Colours.source === "dynamic"
+        ? variants.instances
+        : variants.instances.filter(action => !(action.modelData.dynamicOnly ?? false))
     useFuzzy: GlobalConfig.launcher.useFuzzy.actions
 
     Variants {

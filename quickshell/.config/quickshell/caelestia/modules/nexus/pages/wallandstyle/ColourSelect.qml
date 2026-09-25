@@ -62,9 +62,11 @@ PageBase {
                     spacing: Tokens.spacing.extraSmall
 
                     StyledText {
+                        Layout.fillWidth: true
                         text: Tr.tr("Theme")
                         color: Colours.current.m3onSurfaceVariant
                         font: Tokens.font.label.small
+                        horizontalAlignment: Colours.source === "dynamic" ? Text.AlignLeft : Text.AlignHCenter
                     }
 
                     StyledText {
@@ -73,12 +75,14 @@ PageBase {
                         color: Colours.current.m3onSurface
                         font: Tokens.font.title.small
                         elide: Text.ElideRight
+                        horizontalAlignment: Colours.source === "dynamic" ? Text.AlignLeft : Text.AlignHCenter
                     }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Tokens.spacing.extraSmall
+                    visible: Colours.source === "dynamic"
 
                     StyledText {
                         text: Tr.tr("Variant")
