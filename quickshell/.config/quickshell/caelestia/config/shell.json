@@ -78,6 +78,10 @@
             },
             {
                 "enabled": true,
+                "id": "sunshine"
+            },
+            {
+                "enabled": true,
                 "id": "audio"
             },
             {

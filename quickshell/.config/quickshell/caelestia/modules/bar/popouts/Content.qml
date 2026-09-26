@@ -131,6 +131,13 @@ Item {
         }
 
         Popout {
+            name: "sunshine"
+            sourceComponent: SunshinePopout {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
             name: "kblayout"
             sourceComponent: KbLayout {}
         }

@@ -16,6 +16,7 @@ NexusMenu 1.0 NexusMenu.qml
 ObsidianMenu 1.0 ObsidianMenu.qml
 PopoutState 1.0 PopoutState.qml
 RecordingControls 1.0 RecordingControls.qml
+SunshinePopout 1.0 SunshinePopout.qml
 TrayMenu 1.0 TrayMenu.qml
 WifiQrModal 1.0 WifiQrModal.qml
 WirelessPassword 1.0 WirelessPassword.qml

@@ -237,6 +237,10 @@ Singleton {
         return icon;
     }
 
+    function isSunshineTray(id: string, title: string, tooltipTitle: string, icon: string): bool {
+        return `${id} ${title} ${tooltipTitle} ${icon}`.toLowerCase().includes("sunshine");
+    }
+
     function getBatteryIcon(percentage: real, charging = false): string {
         if (percentage === 1)
             return charging ? "battery_charging_full" : "battery_full";

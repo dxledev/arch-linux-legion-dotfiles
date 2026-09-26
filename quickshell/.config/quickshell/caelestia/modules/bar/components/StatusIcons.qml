@@ -158,6 +158,14 @@ StyledRect {
                         }
                     }
                 }
+                DelegateChoice {
+                    roleValue: "sunshine"
+                    delegate: EntryWrapper {
+                        SunshineStatus {
+                            colour: root.colour
+                        }
+                    }
+                }
             }
         }
     }

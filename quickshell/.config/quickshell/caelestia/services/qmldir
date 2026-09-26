@@ -17,6 +17,7 @@ singleton Players 1.0 Players.qml
 singleton Recorder 1.0 Recorder.qml
 singleton Screens 1.0 Screens.qml
 singleton ShellState 1.0 ShellState.qml
+singleton Sunshine 1.0 Sunshine.qml
 singleton Time 1.0 Time.qml
 singleton TrayPersistence 1.0 TrayPersistence.qml
 singleton VPN 1.0 VPN.qml

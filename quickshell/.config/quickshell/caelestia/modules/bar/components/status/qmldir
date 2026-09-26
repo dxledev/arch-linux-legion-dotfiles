@@ -4,3 +4,5 @@ AIUsageStatus 1.0 AIUsageStatus.qml
 BluetoothStatus 1.0 BluetoothStatus.qml
 HymissionStatus 1.0 HymissionStatus.qml
 LockStatus 1.0 LockStatus.qml
+SunshineIcon 1.0 SunshineIcon.qml
+SunshineStatus 1.0 SunshineStatus.qml
