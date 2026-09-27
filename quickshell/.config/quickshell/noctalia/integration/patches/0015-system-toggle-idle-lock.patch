@@ -145,7 +145,7 @@ index 8d4a52f2d..c14951185 100644
 +  process::RunOptions options;
 +  options.timeout = std::chrono::seconds(5);
 +  options.env = {
-+      {"QS_BIN", "/usr/bin/false"},
++      {"QS_BIN", "/usr/bin/true"},
 +      {"NOTIFY_SEND_BIN", "/usr/bin/true"},
 +  };
 +

@@ -16,7 +16,8 @@
     "0012-wallpaper-delete.patch",
     "0013-wallpaper-delete-button-popup.patch",
     "0014-active-wallpaper-style.patch",
-    "0015-system-toggle-idle-lock.patch"
+    "0015-system-toggle-idle-lock.patch",
+    "0016-wallpaper-favorites-follow-active-theme.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

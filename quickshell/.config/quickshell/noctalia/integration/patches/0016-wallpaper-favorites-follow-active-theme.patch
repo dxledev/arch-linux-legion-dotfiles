@@ -1,0 +1,13 @@
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+index 08e8569ef..f18f5c9e0 100644
+--- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
++++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+@@ -289,7 +289,7 @@ namespace {
+ 
+     const std::filesystem::path favoriteFile = std::filesystem::path(FileUtils::normalizeWallpaperPath(favoritePath));
+     if (wallpaperDirectoriesEquivalent(activeDir, rootDir)) {
+-      return true;
++      return wallpaperPathInsideDirectory(favoriteFile, rootDir);
+     }
+     if (!flatten) {
+       return wallpaperDirectoriesEquivalent(favoriteFile.parent_path(), activeDir);
