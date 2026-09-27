@@ -4,6 +4,15 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 launcher="$root/caelestia/integration/aether"
 test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/aether-library-test.XXXXXX")"
+home="$test_root/home"
+config="$test_root/config"
+state="$test_root/state"
+default_library="$home/files/pictures/wallpapers/dynamic"
+settings="$config/aether/settings.json"
+mock_hyprctl="$test_root/hyprctl"
+library_override_set=0
+library_override=""
+
 trap '/usr/bin/rm -rf -- "$test_root"' EXIT
 
 fail() {
@@ -12,48 +21,141 @@ fail() {
 }
 
 run_launch() {
-    HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
-        AETHER_BIN=/usr/bin/true "$launcher" "$@" >/dev/null 2>&1 || true
+    if (( library_override_set )); then
+        /usr/bin/env HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" \
+            AETHER_BIN=/usr/bin/true HYPRCTL_BIN="$mock_hyprctl" AETHER_LIBRARY_DIR="$library_override" \
+            "$launcher" "$@"
+    else
+        /usr/bin/env -u AETHER_LIBRARY_DIR HOME="$home" XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$state" \
+            AETHER_BIN=/usr/bin/true HYPRCTL_BIN="$mock_hyprctl" "$launcher" "$@"
+    fi
 }
 
-settings="$test_root/config/aether/settings.json"
-library="$test_root/home/files/pictures/Aether"
-run_launch launch
-[[ -d "$library" ]] || fail 'default library was not created'
-/usr/bin/jq -e --arg folder "$library" '.wallpaperFolder == $folder' "$settings" >/dev/null || fail 'default library was not configured'
+cat > "$mock_hyprctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-} ${2:-}" in
+    'clients -j') printf '[{"class":"aether","address":"0x123","workspace":{"name":"special:aether"}}]\n' ;;
+    'monitors -j') printf '[{"specialWorkspace":{"name":"special:aether"}}]\n' ;;
+    dispatch*) ;;
+    *) exit 2 ;;
+esac
+EOF
+/usr/bin/chmod +x "$mock_hyprctl"
 
-/usr/bin/jq -n --arg folder "$library" '{keep: {enabled: true}, wallpaperFolder: $folder}' > "$settings"
-run_launch launch
-/usr/bin/jq -e --arg folder "$library" '.keep.enabled and .wallpaperFolder == $folder' "$settings" >/dev/null || fail 'settings merge did not preserve keys'
-first_hash="$(/usr/bin/sha256sum "$settings")"
-run_launch launch
-[[ "$first_hash" == "$(/usr/bin/sha256sum "$settings")" ]] || fail 'settings merge is not idempotent'
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'default launch failed'
+[[ -d "$default_library" ]] || fail 'Dynamic default library was not created'
+/usr/bin/jq -e --arg folder "$default_library" '.wallpaperFolder == $folder' "$settings" >/dev/null || \
+    fail 'missing settings did not initialize the Dynamic default'
 
-override="$test_root/override/library"
-HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
-    AETHER_BIN=/usr/bin/true AETHER_LIBRARY_DIR="$override" "$launcher" launch >/dev/null 2>&1 || true
-[[ -d "$override" ]] || fail 'override library was not created'
-/usr/bin/jq -e --arg folder "$override" '.wallpaperFolder == $folder' "$settings" >/dev/null || fail 'override library was not configured'
+custom_library="$home/files/pictures/wallpapers/dynamic/My Aether Library"
+/usr/bin/jq -n --arg folder "$custom_library" \
+    '{keep: {enabled: true}, wallpaperFolder: $folder}' > "$settings"
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'custom path launch failed'
+[[ -d "$custom_library" ]] || fail 'custom library containing spaces was not created'
+/usr/bin/jq -e --arg folder "$custom_library" '.keep.enabled and .wallpaperFolder == $folder' "$settings" >/dev/null || \
+    fail 'custom wallpaperFolder or unrelated settings were not preserved'
+custom_inode="$(/usr/bin/stat -c %i "$settings")"
+/usr/bin/rm -rf -- "$custom_library"
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'launch failed with a temporarily missing library'
+[[ -d "$custom_library" ]] || fail 'saved missing library was not recreated at its saved path'
+/usr/bin/jq -e --arg folder "$custom_library" '.wallpaperFolder == $folder' "$settings" >/dev/null || \
+    fail 'missing saved directory was replaced with the default'
+[[ "$custom_inode" == "$(/usr/bin/stat -c %i "$settings")" ]] || fail 'matching saved settings were rewritten'
 
-before_relative="$(/usr/bin/sha256sum "$settings")"
-if HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
-    AETHER_BIN=/usr/bin/true AETHER_LIBRARY_DIR=relative "$launcher" launch >/dev/null 2>&1; then
-    fail 'relative library unexpectedly succeeded'
+library_override="$home/custom override/Aether Library"
+library_override_set=1
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'explicit override launch failed'
+library_override_set=0
+[[ -d "$library_override" ]] || fail 'explicit override directory was not created'
+/usr/bin/jq -e --arg folder "$library_override" '.keep.enabled and .wallpaperFolder == $folder' "$settings" >/dev/null || \
+    fail 'explicit override was not saved or unrelated settings were lost'
+override_inode="$(/usr/bin/stat -c %i "$settings")"
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'saved override launch failed'
+[[ "$library_override" == "$(/usr/bin/jq -r '.wallpaperFolder' "$settings")" ]] || \
+    fail 'saved override did not survive a later launch'
+[[ "$override_inode" == "$(/usr/bin/stat -c %i "$settings")" ]] || fail 'saved override settings were rewritten'
+
+saved_override="$library_override"
+library_override_set=1
+library_override=""
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'empty override launch failed'
+library_override_set=0
+[[ "$saved_override" == "$(/usr/bin/jq -r '.wallpaperFolder' "$settings")" ]] || \
+    fail 'empty environment override replaced the saved path'
+
+/usr/bin/jq -n '{keep: {enabled: true}, wallpaperFolder: "   "}' > "$settings"
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'blank setting launch failed'
+/usr/bin/jq -e --arg folder "$default_library" '.keep.enabled and .wallpaperFolder == $folder' "$settings" >/dev/null || \
+    fail 'blank setting did not initialize the Dynamic default'
+
+legacy_library="$home/files/pictures/Aether"
+/usr/bin/jq -n --arg folder "$legacy_library" '{wallpaperFolder: $folder}' > "$settings"
+run_launch launch > "$test_root/launch.out" 2>&1 || fail 'legacy default migration failed'
+/usr/bin/jq -e --arg folder "$default_library" '.wallpaperFolder == $folder' "$settings" >/dev/null || \
+    fail 'previous automatic default was not migrated to Caelestia Dynamic'
+
+for invalid in '42' 'null' 'false' '[]' '{}' '"relative/path"'; do
+    /usr/bin/jq -n --argjson value "$invalid" '{keep: "unchanged", wallpaperFolder: $value}' > "$settings"
+    invalid_hash="$(/usr/bin/sha256sum "$settings")"
+    if run_launch launch > "$test_root/invalid.out" 2>&1; then
+        fail "invalid wallpaperFolder $invalid unexpectedly succeeded"
+    fi
+    if [[ "$invalid" == '"relative/path"' ]]; then
+        /usr/bin/grep -F 'wallpaperFolder must be an absolute path' "$test_root/invalid.out" >/dev/null || \
+            fail 'relative setting error was not clear'
+    else
+        /usr/bin/grep -F 'wallpaperFolder must be a string' "$test_root/invalid.out" >/dev/null || \
+            fail "invalid setting type error was not clear for $invalid"
+    fi
+    [[ "$invalid_hash" == "$(/usr/bin/sha256sum "$settings")" ]] || fail "invalid setting $invalid was modified"
+done
+
+/usr/bin/jq -n '{keep: "unchanged", wallpaperFolder: "/saved/library"}' > "$settings"
+before_relative_override="$(/usr/bin/sha256sum "$settings")"
+library_override_set=1
+library_override=relative
+if run_launch launch > "$test_root/invalid.out" 2>&1; then
+    fail 'relative environment override unexpectedly succeeded'
 fi
-[[ "$before_relative" == "$(/usr/bin/sha256sum "$settings")" ]] || fail 'relative library changed settings'
+library_override_set=0
+/usr/bin/grep -F 'AETHER_LIBRARY_DIR must be an absolute path' "$test_root/invalid.out" >/dev/null || \
+    fail 'relative override error was not clear'
+[[ "$before_relative_override" == "$(/usr/bin/sha256sum "$settings")" ]] || fail 'relative override changed settings'
 
-printf '%s' '{' > "$settings"
-if HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
-    AETHER_BIN=/usr/bin/true "$launcher" launch >/dev/null 2>&1; then
+printf '{' > "$settings"
+if run_launch launch > "$test_root/invalid.out" 2>&1; then
     fail 'malformed settings unexpectedly succeeded'
 fi
 [[ "$(/usr/bin/cat "$settings")" == '{' ]] || fail 'malformed settings were overwritten'
 
 dry_home="$test_root/dry-home"
 dry_config="$test_root/dry-config"
-if HOME="$dry_home" XDG_CONFIG_HOME="$dry_config" XDG_STATE_HOME="$test_root/dry-state" \
-    AETHER_BIN=/usr/bin/true "$launcher" --dry-run launch > "$test_root/dry-run.out" 2>&1; then
-    fail 'dry-run unexpectedly launched Aether'
-fi
-[[ ! -e "$dry_home" && ! -e "$dry_config" ]] || fail 'dry-run wrote filesystem state'
-/usr/bin/grep -F "Create Aether wallpaper library: $dry_home/files/pictures/Aether" "$test_root/dry-run.out" >/dev/null || fail 'dry-run did not report library configuration'
+dry_state="$test_root/dry-state"
+dry_library="$dry_home/files/pictures/wallpapers/dynamic"
+/usr/bin/env -u AETHER_LIBRARY_DIR HOME="$dry_home" XDG_CONFIG_HOME="$dry_config" XDG_STATE_HOME="$dry_state" \
+    AETHER_BIN=/usr/bin/true HYPRCTL_BIN="$mock_hyprctl" "$launcher" --dry-run launch > "$test_root/dry.out" 2>&1 || \
+    fail 'default dry-run failed'
+/usr/bin/grep -F "Resolved Aether wallpaper library: $dry_library" "$test_root/dry.out" >/dev/null || \
+    fail 'dry-run did not report the resolved Dynamic default'
+[[ ! -e "$dry_home" && ! -e "$dry_config" && ! -e "$dry_state" ]] || fail 'default dry-run wrote filesystem state'
+
+dry_saved_home="$test_root/dry-saved-home"
+dry_saved_config="$test_root/dry-saved-config"
+dry_saved_state="$test_root/dry-saved-state"
+dry_saved_library="$test_root/missing saved library"
+dry_saved_settings="$dry_saved_config/aether/settings.json"
+/usr/bin/mkdir -p -- "${dry_saved_settings%/*}"
+/usr/bin/jq -n --arg folder "$dry_saved_library" '{keep: true, wallpaperFolder: $folder}' > "$dry_saved_settings"
+dry_saved_hash="$(/usr/bin/sha256sum "$dry_saved_settings")"
+dry_saved_inode="$(/usr/bin/stat -c %i "$dry_saved_settings")"
+/usr/bin/env -u AETHER_LIBRARY_DIR HOME="$dry_saved_home" XDG_CONFIG_HOME="$dry_saved_config" XDG_STATE_HOME="$dry_saved_state" \
+    AETHER_BIN=/usr/bin/true HYPRCTL_BIN="$mock_hyprctl" "$launcher" --dry-run launch > "$test_root/dry-saved.out" 2>&1 || \
+    fail 'saved path dry-run failed'
+/usr/bin/grep -F "Resolved Aether wallpaper library: $dry_saved_library" "$test_root/dry-saved.out" >/dev/null || \
+    fail 'dry-run did not report the saved directory accurately'
+[[ ! -e "$dry_saved_library" && ! -e "$dry_saved_state" ]] || fail 'saved path dry-run wrote filesystem state'
+[[ "$dry_saved_hash" == "$(/usr/bin/sha256sum "$dry_saved_settings")" ]] || fail 'saved path dry-run changed settings'
+[[ "$dry_saved_inode" == "$(/usr/bin/stat -c %i "$dry_saved_settings")" ]] || fail 'saved path dry-run rewrote settings'
+
+printf 'aether-library: ok\n'

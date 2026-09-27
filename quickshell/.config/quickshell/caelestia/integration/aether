@@ -10,8 +10,9 @@ aether_bin="${AETHER_BIN:-$shell_root/.runtime/aether/bin/aether}"
 aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
 aether_wallpapers_dir="${AETHER_WALLPAPERS_DIR:-$config_home/aether/theme/backgrounds}"
 aether_themes_dir="${AETHER_THEMES_DIR:-$config_home/aether/themes}"
-aether_library_dir="${AETHER_LIBRARY_DIR:-$HOME/files/pictures/Aether}"
 dynamic_wallpapers_dir="${CAELESTIA_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic}"
+aether_library_dir="$dynamic_wallpapers_dir"
+legacy_aether_library_dir="$HOME/files/pictures/Aether"
 quickshell_wrapper="${AETHER_QUICKSHELL_WRAPPER:-$shell_root/scripts/quickshell}"
 system_action="${AETHER_SYSTEM_ACTION_BIN:-$script_dir/system-action}"
 hyprctl_bin="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
@@ -69,30 +70,69 @@ find_binary() {
 }
 
 configure_library() {
-    local settings_dir settings_file temporary
+    local settings_dir settings_file temporary saved_library_dir="" saved_library_present=0 needs_write=1
     settings_dir="$config_home/aether"
     settings_file="$settings_dir/settings.json"
-    [[ "$aether_library_dir" == /* ]] || fail 'AETHER_LIBRARY_DIR must be an absolute path.'
 
     if [[ -e "$settings_file" ]]; then
         "$jq_bin" -e 'type == "object"' "$settings_file" >/dev/null 2>&1 || \
             fail "Aether settings are malformed: $settings_file"
+        if "$jq_bin" -e 'has("wallpaperFolder")' "$settings_file" >/dev/null; then
+            saved_library_present=1
+            "$jq_bin" -e '.wallpaperFolder | type == "string"' "$settings_file" >/dev/null 2>&1 || \
+                fail "Aether settings wallpaperFolder must be a string: $settings_file"
+            saved_library_dir="$("$jq_bin" -r '.wallpaperFolder' "$settings_file")"
+            if [[ "$saved_library_dir" =~ [^[:space:]] ]]; then
+                [[ "$saved_library_dir" == /* ]] || \
+                    fail "Aether settings wallpaperFolder must be an absolute path: $settings_file"
+            fi
+        fi
+    fi
+
+    if [[ -n "${AETHER_LIBRARY_DIR:-}" ]]; then
+        aether_library_dir="$AETHER_LIBRARY_DIR"
+        [[ "$aether_library_dir" == /* ]] || fail 'AETHER_LIBRARY_DIR must be an absolute path.'
+    elif (( saved_library_present )) && [[ "$saved_library_dir" =~ [^[:space:]] ]]; then
+        if [[ "$saved_library_dir" == "$legacy_aether_library_dir" ]]; then
+            aether_library_dir="$dynamic_wallpapers_dir"
+        else
+            aether_library_dir="$saved_library_dir"
+            needs_write=0
+        fi
+    fi
+
+    [[ "$aether_library_dir" == /* ]] || fail 'Aether wallpaper library must be an absolute path.'
+
+    if (( saved_library_present )) && [[ "$saved_library_dir" == "$aether_library_dir" ]] && \
+        [[ "$saved_library_dir" =~ [^[:space:]] ]]; then
+        needs_write=0
     fi
 
     if (( dry_run )); then
-        printf 'Create Aether wallpaper library: %s\n' "$aether_library_dir"
-        printf 'Set Aether wallpaperFolder in %s: %s\n' "$settings_file" "$aether_library_dir"
+        printf 'Resolved Aether wallpaper library: %s\n' "$aether_library_dir"
+        [[ -d "$aether_library_dir" ]] || printf 'Would create Aether wallpaper library: %s\n' "$aether_library_dir"
+        (( needs_write == 0 )) || printf 'Would set Aether wallpaperFolder in %s\n' "$settings_file"
         return
     fi
 
-    /usr/bin/mkdir -p -- "$aether_library_dir" "$settings_dir"
-    temporary="$(/usr/bin/mktemp "$settings_dir/.settings.json.XXXXXX")"
-    if [[ -e "$settings_file" ]]; then
-        "$jq_bin" --arg folder "$aether_library_dir" '.wallpaperFolder = $folder' "$settings_file" > "$temporary"
-    else
-        "$jq_bin" -n --arg folder "$aether_library_dir" '{wallpaperFolder: $folder}' > "$temporary"
+    /usr/bin/mkdir -p -- "$aether_library_dir"
+    if (( needs_write )); then
+        /usr/bin/mkdir -p -- "$settings_dir"
+        temporary="$(/usr/bin/mktemp "$settings_dir/.settings.json.XXXXXX")"
+        if [[ -e "$settings_file" ]]; then
+            if ! "$jq_bin" --arg folder "$aether_library_dir" '.wallpaperFolder = $folder' "$settings_file" > "$temporary"; then
+                /usr/bin/rm -f -- "$temporary"
+                fail "Could not update Aether settings: $settings_file"
+            fi
+        elif ! "$jq_bin" -n --arg folder "$aether_library_dir" '{wallpaperFolder: $folder}' > "$temporary"; then
+            /usr/bin/rm -f -- "$temporary"
+            fail "Could not create Aether settings: $settings_file"
+        fi
+        if ! /usr/bin/mv -f -- "$temporary" "$settings_file"; then
+            /usr/bin/rm -f -- "$temporary"
+            fail "Could not replace Aether settings: $settings_file"
+        fi
     fi
-    /usr/bin/mv -f -- "$temporary" "$settings_file"
 }
 
 resolve_binary() {

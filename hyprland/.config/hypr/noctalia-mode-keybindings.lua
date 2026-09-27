@@ -8,6 +8,7 @@ local knob_release = home .. "/bin/knob-release"
 
 local shell_bindings = {
   "SUPER + SHIFT + CTRL + C",
+  "SUPER + SHIFT + CTRL + A",
   "SUPER + ALT + V",
   "SUPER + ALT + N",
   "SUPER + ALT + W",

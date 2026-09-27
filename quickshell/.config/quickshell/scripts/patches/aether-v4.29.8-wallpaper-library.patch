@@ -14,46 +14,63 @@ index 3a12dff..161eef1 100644
  	}
  
 diff --git a/default_wallpapers.go b/default_wallpapers.go
-index e745ebb..b4e9b9d 100644
+index e745ebb..34f3b42 100644
 --- a/default_wallpapers.go
 +++ b/default_wallpapers.go
-@@ -5,6 +5,7 @@ import (
- 	"io/fs"
- 	"os"
- 	"path/filepath"
-+	"strings"
- 
- 	"aether/internal/platform"
- )
-@@ -17,7 +17,7 @@ var defaultWallpapers embed.FS
- 
- // installDefaultWallpapers copies bundled Aether artwork without overwriting user files.
- func installDefaultWallpapers() error {
--	destination := filepath.Join(platform.WallpaperDir(), "Aether")
-+	destination := defaultWallpapersDestination(readConfigJSON("settings.json"))
- 	if err := os.MkdirAll(destination, 0o755); err != nil {
- 		return fmt.Errorf("create default wallpapers directory: %w", err)
- 	}
-@@ -46,3 +46,10 @@ func installDefaultWallpapers() error {
- 	}
- 	return nil
- }
-+
-+func defaultWallpapersDestination(config map[string]interface{}) string {
-+	if folder, ok := config[wallpaperFolderSetting].(string); ok && strings.TrimSpace(folder) != "" {
-+		return folder
-+	}
-+	return filepath.Join(platform.WallpaperDir(), "Aether")
-+}
-diff --git a/default_wallpapers_test.go b/default_wallpapers_test.go
-index cad961b..5b90459 100644
---- a/default_wallpapers_test.go
-+++ b/default_wallpapers_test.go
-@@ -1,40 +1,99 @@
+@@ -1,48 +1,5 @@
  package main
  
- import (
-+	"io/fs"
+-import (
+-	"embed"
+-	"fmt"
+-	"io/fs"
+-	"os"
+-	"path/filepath"
+-
+-	"aether/internal/platform"
+-)
+-
+-const defaultWallpapersDir = "assets/default-wallpapers"
+-
+-//go:embed assets/default-wallpapers/*.jpg
+-var defaultWallpapers embed.FS
+-
+-// installDefaultWallpapers copies bundled Aether artwork without overwriting user files.
+ func installDefaultWallpapers() error {
+-	destination := filepath.Join(platform.WallpaperDir(), "Aether")
+-	if err := os.MkdirAll(destination, 0o755); err != nil {
+-		return fmt.Errorf("create default wallpapers directory: %w", err)
+-	}
+-
+-	entries, err := fs.ReadDir(defaultWallpapers, defaultWallpapersDir)
+-	if err != nil {
+-		return fmt.Errorf("list bundled wallpapers: %w", err)
+-	}
+-	for _, entry := range entries {
+-		if entry.IsDir() {
+-			continue
+-		}
+-		destinationPath := filepath.Join(destination, entry.Name())
+-		if _, err := os.Stat(destinationPath); err == nil {
+-			continue
+-		} else if !os.IsNotExist(err) {
+-			return fmt.Errorf("inspect default wallpaper %q: %w", entry.Name(), err)
+-		}
+-		data, err := fs.ReadFile(defaultWallpapers, filepath.Join(defaultWallpapersDir, entry.Name()))
+-		if err != nil {
+-			return fmt.Errorf("read bundled wallpaper %q: %w", entry.Name(), err)
+-		}
+-		if err := os.WriteFile(destinationPath, data, 0o644); err != nil {
+-			return fmt.Errorf("write default wallpaper %q: %w", entry.Name(), err)
+-		}
+-	}
+ 	return nil
+ }
+diff --git a/default_wallpapers_test.go b/default_wallpapers_test.go
+index cad961b..4a25d3c 100644
+--- a/default_wallpapers_test.go
++++ b/default_wallpapers_test.go
+@@ -4,37 +4,26 @@ import (
  	"os"
  	"path/filepath"
  	"testing"
@@ -62,27 +79,12 @@ index cad961b..5b90459 100644
  )
  
 -func TestInstallDefaultWallpapers(t *testing.T) {
-+func bundledWallpaperNames(t *testing.T) []string {
-+	t.Helper()
-+	entries, err := fs.ReadDir(defaultWallpapers, defaultWallpapersDir)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	names := make([]string, 0, len(entries))
-+	for _, entry := range entries {
-+		if !entry.IsDir() {
-+			names = append(names, entry.Name())
-+		}
-+	}
-+	return names
-+}
-+
-+func TestInstallDefaultWallpapersUsesConfiguredFolder(t *testing.T) {
-+	configHome := t.TempDir()
++func TestInstallDefaultWallpapersDoesNotGenerateFiles(t *testing.T) {
  	home := t.TempDir()
-+	library := filepath.Join(home, "files", "pictures", "Aether")
-+	t.Setenv("XDG_CONFIG_HOME", configHome)
++	configHome := t.TempDir()
++	library := filepath.Join(home, "files", "pictures", "wallpapers", "dynamic")
  	t.Setenv("HOME", home)
++	t.Setenv("XDG_CONFIG_HOME", configHome)
 +	if err := writeConfigJSON("settings.json", map[string]interface{}{wallpaperFolderSetting: library}); err != nil {
 +		t.Fatal(err)
 +	}
@@ -90,74 +92,400 @@ index cad961b..5b90459 100644
  	if err := installDefaultWallpapers(); err != nil {
  		t.Fatal(err)
  	}
-+	names := bundledWallpaperNames(t)
-+	if len(names) != 8 {
-+		t.Fatalf("bundled wallpaper count = %d; want 8", len(names))
-+	}
-+	for _, name := range names {
-+		if _, err := os.Stat(filepath.Join(library, name)); err != nil {
-+			t.Errorf("configured wallpaper %q: %v", name, err)
-+		}
-+	}
-+	if _, err := os.Stat(filepath.Join(platform.WallpaperDir(), "Aether")); !os.IsNotExist(err) {
-+		t.Errorf("fallback wallpapers directory exists or could not be inspected: %v", err)
-+	}
-+}
- 
+-
 -	dir := filepath.Join(home, "Wallpapers", "Aether")
 -	entries, err := os.ReadDir(dir)
 -	if err != nil {
-+func TestInstallDefaultWallpapersPreservesExistingFiles(t *testing.T) {
-+	configHome := t.TempDir()
-+	home := t.TempDir()
-+	library := filepath.Join(home, "library")
-+	t.Setenv("XDG_CONFIG_HOME", configHome)
-+	t.Setenv("HOME", home)
-+	if err := writeConfigJSON("settings.json", map[string]interface{}{wallpaperFolderSetting: library}); err != nil {
- 		t.Fatal(err)
- 	}
+-		t.Fatal(err)
+-	}
 -	if got, want := len(entries), 8; got != want {
 -		t.Fatalf("bundled wallpaper count = %d; want %d", got, want)
-+	if err := os.MkdirAll(library, 0o755); err != nil {
-+		t.Fatal(err)
- 	}
+-	}
 -
 -	path := filepath.Join(dir, "aether-dark-2k.jpg")
 -	if err := os.WriteFile(path, []byte("custom"), 0o644); err != nil {
-+	name := bundledWallpaperNames(t)[0]
-+	path := filepath.Join(library, name)
-+	if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
- 		t.Fatal(err)
- 	}
-+
- 	if err := installDefaultWallpapers(); err != nil {
- 		t.Fatal(err)
- 	}
+-		t.Fatal(err)
+-	}
+-	if err := installDefaultWallpapers(); err != nil {
+-		t.Fatal(err)
+-	}
 -	data, err := os.ReadFile(path)
-+	got, err := os.ReadFile(path)
- 	if err != nil {
- 		t.Fatal(err)
- 	}
+-	if err != nil {
+-		t.Fatal(err)
+-	}
 -	if got, want := string(data), "custom"; got != want {
 -		t.Errorf("existing wallpaper = %q; want %q", got, want)
-+	if string(got) != "existing" {
-+		t.Errorf("existing wallpaper = %q; want preserved content", got)
-+	}
-+}
-+
-+func TestInstallDefaultWallpapersUsesFallbackWithoutConfiguredFolder(t *testing.T) {
-+	configHome := t.TempDir()
-+	home := t.TempDir()
-+	t.Setenv("XDG_CONFIG_HOME", configHome)
-+	t.Setenv("HOME", home)
-+
-+	if err := installDefaultWallpapers(); err != nil {
-+		t.Fatal(err)
-+	}
-+	fallback := filepath.Join(platform.WallpaperDir(), "Aether")
-+	for _, name := range bundledWallpaperNames(t) {
-+		if _, err := os.Stat(filepath.Join(fallback, name)); err != nil {
-+			t.Errorf("fallback wallpaper %q: %v", name, err)
++	for _, directory := range []string{library, filepath.Join(platform.WallpaperDir(), "Aether")} {
++		if _, err := os.Stat(directory); !os.IsNotExist(err) {
++			t.Errorf("wallpaper directory %q was created: %v", directory, err)
 +		}
  	}
+ }
+diff --git a/frontend/src/App.svelte b/frontend/src/App.svelte
+index e03ea2f..28f6112 100644
+--- a/frontend/src/App.svelte
++++ b/frontend/src/App.svelte
+@@ -3,13 +3,11 @@
+     import {fade} from 'svelte/transition';
+     import HeaderBar from '$lib/components/layout/HeaderBar.svelte';
+     import ActionBar from '$lib/components/layout/ActionBar.svelte';
+-    import TargetAppsStrip from '$lib/components/layout/TargetAppsStrip.svelte';
+     import ThemeEditor from '$lib/components/editor/ThemeEditor.svelte';
+     import WallhavenBrowser from '$lib/components/wallhaven/WallhavenBrowser.svelte';
+     import LocalBrowser from '$lib/components/local/LocalBrowser.svelte';
+     import FavoritesView from '$lib/components/favorites/FavoritesView.svelte';
+     import BlueprintsView from '$lib/components/blueprints/BlueprintsView.svelte';
+-    import OmarchyThemes from '$lib/components/blueprints/OmarchyThemes.svelte';
+     import SettingsView from '$lib/components/settings/SettingsView.svelte';
+     import AboutView from '$lib/components/layout/AboutView.svelte';
+     import {
+@@ -33,7 +31,6 @@
+         toggleSidebar,
+         getLiveApply,
+         setLivePending,
+-        getTargetsVisible,
+         getApplySaveDialogOpen,
+         setApplySaveDialogOpen,
+         type Tab,
+@@ -45,7 +42,6 @@
+         'local',
+         'favorites',
+         'blueprints',
+-        'system',
+         'settings',
+         'about',
+     ] as const;
+@@ -463,8 +459,6 @@
+                     <FavoritesView />
+                 {:else if activeTab === 'blueprints'}
+                     <BlueprintsView />
+-                {:else if activeTab === 'system'}
+-                    <OmarchyThemes />
+                 {:else if activeTab === 'settings'}
+                     <SettingsView />
+                 {:else if activeTab === 'about'}
+@@ -473,9 +467,6 @@
+             </div>
+         {/key}
+     </main>
+-    {#if activeTab === 'editor' && getTargetsVisible()}
+-        <TargetAppsStrip />
+-    {/if}
+     <ActionBar />
+     <Toast />
+     <KeymapDialog open={getKeymapOpen()} onclose={() => setKeymapOpen(false)} />
+diff --git a/frontend/src/lib/commands/commands.svelte.ts b/frontend/src/lib/commands/commands.svelte.ts
+index 177102d..951240b 100644
+--- a/frontend/src/lib/commands/commands.svelte.ts
++++ b/frontend/src/lib/commands/commands.svelte.ts
+@@ -67,13 +67,6 @@ export function buildCommands(): Command[] {
+             keywords: 'saved themes presets',
+             run: () => setActiveTab('blueprints'),
+         },
+-        {
+-            id: 'nav.system',
+-            label: 'Go to System',
+-            category: 'Navigate',
+-            keywords: 'themes omarchy',
+-            run: () => setActiveTab('system'),
+-        },
+         {
+             id: 'nav.settings',
+             label: 'Go to Settings',
+diff --git a/frontend/src/lib/components/layout/ActionBar.svelte b/frontend/src/lib/components/layout/ActionBar.svelte
+index 4b9096c..e601c60 100644
+--- a/frontend/src/lib/components/layout/ActionBar.svelte
++++ b/frontend/src/lib/components/layout/ActionBar.svelte
+@@ -33,8 +33,6 @@
+         getLiveApply,
+         setLiveApply,
+         getLivePending,
+-        getTargetsVisible,
+-        toggleTargetsVisible,
+     } from '$lib/stores/ui.svelte';
+     import {getApiKey, getTotalResults} from '$lib/stores/wallhaven.svelte';
+     import {
+@@ -142,7 +140,6 @@
+     let livePending = $derived(getLivePending());
+     let applying = $derived(getIsApplying());
+     let dirty = $derived(isDirty());
+-    let targetsVisible = $derived(getTargetsVisible());
+     let overrideCount = $derived(
+         Object.values(getAppOverrides()).reduce(
+             (sum, o) => sum + Object.keys(o).length,
+@@ -285,20 +282,6 @@
+                 {overrideCount} override{overrideCount === 1 ? '' : 's'}
+             </span>
+         {/if}
+-        {#if activeTab === 'editor'}
+-            <button
+-                class="hover:text-fg-secondary transition-colors {targetsVisible
+-                    ? 'text-fg-secondary'
+-                    : ''}"
+-                onclick={toggleTargetsVisible}
+-                title={targetsVisible
+-                    ? 'Hide the Targets strip'
+-                    : 'Show the Targets strip'}
+-                aria-pressed={targetsVisible}
+-            >
+-                Targets
+-            </button>
+-        {/if}
+     </div>
+ 
+     <div class="flex min-w-0 flex-1 items-center justify-between gap-1">
+@@ -554,13 +537,6 @@
+             <div class="flex items-center gap-1">
+                 {@render goToEditor()}
+             </div>
+-        {:else if activeTab === 'system'}
+-            <div class="flex items-center gap-1">
+-                <span class="text-fg-dimmed text-[11px]">System themes</span>
+-            </div>
+-            <div class="flex items-center gap-1">
+-                {@render goToEditor()}
+-            </div>
+         {:else if activeTab === 'settings'}
+             <div class="flex items-center gap-1">
+                 <span class="text-fg-dimmed text-[11px]">App settings</span>
+diff --git a/frontend/src/lib/components/layout/HeaderBar.svelte b/frontend/src/lib/components/layout/HeaderBar.svelte
+index 136dcdc..1c94de8 100644
+--- a/frontend/src/lib/components/layout/HeaderBar.svelte
++++ b/frontend/src/lib/components/layout/HeaderBar.svelte
+@@ -10,7 +10,6 @@
+         type Tab,
+     } from '$lib/stores/ui.svelte';
+     import SearchIcon from '$lib/components/shared/SearchIcon.svelte';
+-    import ReleaseIndicator from '$lib/components/layout/ReleaseIndicator.svelte';
+     import aetherLogo from '../../../assets/aether-logo.png';
+ 
+     let sidebarVisible = $derived(getSidebarVisible());
+@@ -55,12 +54,6 @@
+             // Layers
+             icon: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+         },
+-        {
+-            id: 'system',
+-            label: 'System',
+-            // Paintbrush / Brush
+-            icon: '<path d="M18.37 2.63a2.12 2.12 0 0 1 3 3L14 13l-4 1 1-4z"/><path d="M9 14.5A3.5 3.5 0 0 0 5.5 18c-1.2 0-2.5.7-2.5 2 2 0 4.5-1 5.5-3.5"/>',
+-        },
+     ];
+ </script>
+ 
+@@ -143,7 +136,6 @@
+         class="ml-2 flex items-center gap-0.5"
+         style="--wails-draggable:no-drag"
+     >
+-        <ReleaseIndicator {isMac} />
+         <button
+             class="flex h-7 w-7 items-center justify-center transition-colors
+                 {activeTab === 'settings'
+diff --git a/frontend/src/lib/components/layout/TargetAppsStrip.svelte b/frontend/src/lib/components/layout/TargetAppsStrip.svelte
+deleted file mode 100644
+index dc4ccaa..0000000
+--- a/frontend/src/lib/components/layout/TargetAppsStrip.svelte
++++ /dev/null
+@@ -1,77 +0,0 @@
+-<script lang="ts">
+-    import {onMount} from 'svelte';
+-    import {
+-        isAppIncluded,
+-        toggleAppInclusion,
+-    } from '$lib/stores/settings.svelte';
+-    import {setTargetsVisible} from '$lib/stores/ui.svelte';
+-    import {
+-        SPECIAL_APP_FLAGS,
+-        SPECIAL_APP_ORDER,
+-        ALWAYS_INCLUDED_APPS,
+-        appLabel,
+-    } from '$lib/constants/apps';
+-
+-    let appList = $state<string[]>([]);
+-
+-    onMount(async () => {
+-        // Specials always appear: GetTemplateColors filters out apps whose
+-        // templates have no color variables (vscode.json is just a pointer).
+-        // Inject all specials unconditionally so the target list is stable.
+-        try {
+-            const {GetTemplateColors} = await import(
+-                '../../../../wailsjs/go/main/App'
+-            );
+-            const result = await GetTemplateColors();
+-            const all = Object.keys(result || {});
+-            const rest = all
+-                .filter(
+-                    k =>
+-                        !(k in SPECIAL_APP_FLAGS) &&
+-                        !ALWAYS_INCLUDED_APPS.has(k)
+-                )
+-                .sort();
+-            appList = [...SPECIAL_APP_ORDER, ...rest];
+-        } catch {
+-            appList = [...SPECIAL_APP_ORDER];
+-        }
+-    });
+-</script>
+-
+-<div
+-    class="bg-bg-secondary border-border flex shrink-0 items-center gap-2 border-t px-3 py-1.5"
+->
+-    <span
+-        class="text-fg-dimmed shrink-0 text-[10px] uppercase tracking-wider"
+-        title="Aether app templates included as overrides"
+-    >
+-        Targets
+-    </span>
+-    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+-        {#each appList as app}
+-            {@const on = isAppIncluded(app)}
+-            <button
+-                type="button"
+-                onclick={() => toggleAppInclusion(app)}
+-                class="border px-2 py-0.5 text-[10px] transition-colors duration-100 {on
+-                    ? 'bg-accent-muted border-accent text-accent'
+-                    : 'border-border text-fg-dimmed hover:text-fg-secondary hover:border-border-focus'}"
+-                title={on
+-                    ? `${appLabel(app)} will use Aether's template override`
+-                    : `${appLabel(app)} will use the default generated template unless it has color overrides`}
+-                aria-pressed={on}
+-            >
+-                {appLabel(app)}
+-            </button>
+-        {/each}
+-    </div>
+-    <button
+-        type="button"
+-        class="text-fg-dimmed hover:text-fg-secondary shrink-0 px-1 text-[14px] leading-none transition-colors"
+-        onclick={() => setTargetsVisible(false)}
+-        title="Hide targets"
+-        aria-label="Hide targets"
+-    >
+-        ×
+-    </button>
+-</div>
+diff --git a/frontend/src/lib/constants/apps.ts b/frontend/src/lib/constants/apps.ts
+index a32e8ec..fd0af3a 100644
+--- a/frontend/src/lib/constants/apps.ts
++++ b/frontend/src/lib/constants/apps.ts
+@@ -14,7 +14,7 @@ export const SPECIAL_APP_KEYS = new Set(Object.keys(SPECIAL_APP_FLAGS));
+ export const SPECIAL_APP_ORDER: readonly string[] = ['neovim', 'zed', 'vscode'];
+ 
+ // Templates that are always written and never user-togglable. Hidden from
+-// the Apps sidebar and the Targets strip. colors.toml is the canonical
++// the Apps sidebar. colors.toml is the canonical
+ // machine-readable export consumed by external tools, so opting out of it
+ // would silently break integrations.
+ export const ALWAYS_INCLUDED_APPS = new Set(['colors']);
+diff --git a/frontend/src/lib/constants/storage.ts b/frontend/src/lib/constants/storage.ts
+index 9be4ce8..15a678c 100644
+--- a/frontend/src/lib/constants/storage.ts
++++ b/frontend/src/lib/constants/storage.ts
+@@ -11,7 +11,6 @@ export const STORAGE_KEYS = {
+     // anti-flash inliner — keep both in sync if the literal changes.
+     themeColors: 'aether-theme-colors',
+     liveApply: 'aether-live-apply',
+-    targetsVisible: 'aether-targets-visible',
+     zoom: 'aether-zoom',
+     recentColors: 'aether.recentColors',
+     customPresets: 'aether.customPresets',
+diff --git a/frontend/src/lib/stores/ui.svelte.ts b/frontend/src/lib/stores/ui.svelte.ts
+index c193892..543c951 100644
+--- a/frontend/src/lib/stores/ui.svelte.ts
++++ b/frontend/src/lib/stores/ui.svelte.ts
+@@ -6,7 +6,6 @@ export type Tab =
+     | 'local'
+     | 'favorites'
+     | 'blueprints'
+-    | 'system'
+     | 'settings'
+     | 'about';
+ 
+@@ -23,9 +22,6 @@ let toastVisible = $state<boolean>(false);
+ let toastAction = $state<ToastAction | null>(null);
+ let liveApply = $state<boolean>(readBoolPref(STORAGE_KEYS.liveApply, false));
+ let livePending = $state<boolean>(false);
+-let targetsVisible = $state<boolean>(
+-    readBoolPref(STORAGE_KEYS.targetsVisible, true)
+-);
+ 
+ function readBoolPref(key: string, fallback: boolean): boolean {
+     try {
+@@ -187,17 +183,6 @@ export function setLivePending(v: boolean): void {
+     livePending = v;
+ }
+ 
+-export function getTargetsVisible(): boolean {
+-    return targetsVisible;
+-}
+-export function setTargetsVisible(v: boolean): void {
+-    targetsVisible = v;
+-    writeBoolPref(STORAGE_KEYS.targetsVisible, v);
+-}
+-export function toggleTargetsVisible(): void {
+-    setTargetsVisible(!targetsVisible);
+-}
+-
+ export function openColorPicker(index: number): void {
+     colorPickerIndex = index;
+     colorPickerExtKey = '';
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+index c93522c..b6376c1 100644
+--- a/frontend/vite.config.ts
++++ b/frontend/vite.config.ts
+@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
+ export default defineConfig({
+     plugins: [tailwindcss(), svelte()],
+     define: {
+-        __APP_VERSION__: JSON.stringify(pkg.version),
++        __APP_VERSION__: JSON.stringify(process.env.AETHER_VERSION || pkg.version),
+     },
+     resolve: {
+         alias: {
+
+diff --git a/frontend/src/lib/actions/themeActions.ts b/frontend/src/lib/actions/themeActions.ts
+--- a/frontend/src/lib/actions/themeActions.ts
++++ b/frontend/src/lib/actions/themeActions.ts
+@@ -96,12 +96,21 @@
+ function getSavedThemeFolder(): string {
+     const wallpaper = getWallpaperPath();
+     if (!wallpaper) return '';
+     try {
+         const folders = JSON.parse(
+             localStorage.getItem(STORAGE_KEYS.savedThemeFolders) ?? '{}'
+         ) as Record<string, string>;
+-        return folders[wallpaper] ?? '';
++        const exactMatch = folders[wallpaper];
++        if (exactMatch) return exactMatch;
++
++        const filename = wallpaper.split(/[\\/]/).pop() ?? '';
++        if (!filename) return '';
++        const savedMatch = Object.entries(folders).find(
++            ([savedWallpaper]) =>
++                (savedWallpaper.split(/[\\/]/).pop() ?? '') === filename
++        );
++        return savedMatch?.[1] ?? '';
+     } catch {
+         return '';
+     }
+ }
+@@ -172,8 +181,15 @@
+-    } catch (e: unknown) {
+-        showToast(
+-            e instanceof Error ? e.message : 'Couldn’t save and apply theme'
+-        );
++    } catch (e: unknown) {
++        const message =
++            e instanceof Error
++                ? e.message
++                : typeof e === 'string'
++                  ? e
++                  : e && typeof e === 'object' && 'message' in e &&
++                      typeof e.message === 'string'
++                    ? e.message
++                    : 'Couldn’t save and apply theme';
++        showToast(message);
+     } finally {
+         setIsApplying(false);
+     }
  }

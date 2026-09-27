@@ -15,7 +15,8 @@
     "0011-plugin-color-controls.patch",
     "0012-wallpaper-delete.patch",
     "0013-wallpaper-delete-button-popup.patch",
-    "0014-active-wallpaper-style.patch"
+    "0014-active-wallpaper-style.patch",
+    "0015-system-toggle-idle-lock.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

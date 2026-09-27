@@ -54,6 +54,7 @@ hl.unbind("SUPER + SPACE")
 
 local mode_owned_keys = {
   "SUPER + SHIFT + CTRL + C",
+  "SUPER + SHIFT + CTRL + A",
   "SUPER + ALT + V",
   "SUPER + ALT + N",
   "SUPER + ALT + W",

@@ -14,7 +14,7 @@ dry_run=0
 export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.24.7}"
 
 usage() {
-    printf 'Usage: build-aether [--dry-run]\nBuild patched Aether v4.29.8 into QUICKSHELL_RUNTIME.\n'
+    printf 'Usage: build-aether [--dry-run]\nBuild patched Aether v%s into QUICKSHELL_RUNTIME.\n' "$expected_version"
 }
 
 case "${1:-}" in
@@ -58,11 +58,18 @@ run /usr/bin/git -C "$work_dir" apply --check "$patch_file"
 run /usr/bin/git -C "$work_dir" apply "$patch_file"
 run /usr/bin/bash -c 'command -v "$1" >/dev/null' _ "$wails_bin"
 run /usr/bin/mkdir -p -- "$work_dir/.config"
-run /usr/bin/env XDG_CONFIG_HOME="$work_dir/.config" /usr/bin/bash -c 'cd -- "$1" && exec "$2" build -tags webkit2_41 -ldflags "-X aether/cli.Version=$3"' _ "$work_dir" "$wails_bin" "$expected_version"
+run /usr/bin/env AETHER_VERSION="$expected_version" XDG_CONFIG_HOME="$work_dir/.config" /usr/bin/bash -c 'cd -- "$1" && exec "$2" build -tags webkit2_41 -ldflags "-X aether/cli.Version=$3"' _ "$work_dir" "$wails_bin" "$expected_version"
 run /usr/bin/bash -c 'cd -- "$1" && exec /usr/bin/go test ./...' _ "$work_dir"
 candidate="$work_dir/build/bin/aether"
 run /usr/bin/test -x "$candidate"
-run /usr/bin/bash -c '"$1" --version | /usr/bin/grep -Fx "aether 4.29.8"' _ "$candidate"
+run /usr/bin/bash -c '"$1" --version | /usr/bin/grep -Fx "aether $2"' _ "$candidate" "$expected_version"
+run /usr/bin/bash -c '! /usr/bin/grep -aFq "Checking for Aether updates" "$1"' _ "$candidate"
+run /usr/bin/bash -c '! /usr/bin/grep -aFq "System themes" "$1"' _ "$candidate"
+run /usr/bin/bash -c '! /usr/bin/grep -aFq "Go to System" "$1"' _ "$candidate"
+run /usr/bin/bash -c '! /usr/bin/grep -aFq "Hide the Targets strip" "$1"' _ "$candidate"
+run /usr/bin/bash -c '! /usr/bin/grep -aFq "Hide targets" "$1"' _ "$candidate"
+run /usr/bin/bash -c '! /usr/bin/grep -aFq "aether-targets-visible" "$1"' _ "$candidate"
+run /usr/bin/bash -c '/usr/bin/grep -aFq "textContent=\`v$2\`" "$1"' _ "$candidate" "$expected_version"
 run /usr/bin/bash -c '! /usr/bin/ldd "$1" | /usr/bin/grep -q "=> not found"' _ "$candidate"
 
 if (( dry_run )); then
