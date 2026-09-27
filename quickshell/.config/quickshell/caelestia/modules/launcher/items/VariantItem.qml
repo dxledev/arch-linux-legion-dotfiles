@@ -12,7 +12,7 @@ Item {
 
     readonly property bool activeChoice: modelData?.kind === "aether"
         ? Colours.source === "dynamic" && Colours.provider === "aether" && modelData.style === Colours.aetherStyle && modelData.mode === (Colours.light ? "light" : "dark")
-        : modelData?.kind === "aether-menu" ? false
+        : modelData?.kind === "aether-menu" ? Colours.source === "dynamic" && Colours.provider === "aether"
         : Colours.source === "dynamic" && Colours.provider === "caelestia" && modelData?.variant === Colours.variant
 
     implicitHeight: Tokens.sizes.launcher.itemHeight
