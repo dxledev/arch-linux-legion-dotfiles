@@ -6,11 +6,23 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LAUNCH_SCRIPT="${SCRIPT_DIR}/launch-hypridle"
 QS_BIN="${QS_BIN:-/usr/bin/qs}"
 NOTIFY_SEND_BIN="${NOTIFY_SEND_BIN:-/home/dxle/bin/notify-send}"
+NOCTALIA_SHELL_BIN="${NOCTALIA_SHELL_BIN:-/home/dxle/bin/noctalia-shell}"
+JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
 IDLE_LOCK_NOTIFY_APP_NAME="${IDLE_LOCK_NOTIFY_APP_NAME:-system-toggle-idle-lock}"
 IDLE_LOCK_NOTIFY_STACK_TAG="${IDLE_LOCK_NOTIFY_STACK_TAG:-system-toggle-idle-lock}"
 
+noctalia_shell_running() {
+    local status
+    status="$("$NOCTALIA_SHELL_BIN" status 2>/dev/null)" || return 1
+    "$JQ_BIN" -e '.running == true and .profile == "full"' >/dev/null 2>&1 <<< "$status"
+}
+
 notify() {
     if "$QS_BIN" ipc call toaster info "$1" "$2" "$3" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if noctalia_shell_running; then
         return 0
     fi
 
