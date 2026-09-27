@@ -1,0 +1,60 @@
+diff --git a/src/shell/bar/bar.cpp b/src/shell/bar/bar.cpp
+index 5fe61b9af..024c4dc9b 100644
+--- a/src/shell/bar/bar.cpp
++++ b/src/shell/bar/bar.cpp
+@@ -46,6 +46,23 @@ namespace {
+   constexpr std::chrono::milliseconds kWorkspacePeekHold{450};
+   constexpr std::int32_t kAutoHideTriggerPx = 3;
+   constexpr float kAutoHideSlideExtraPx = 4.0F;
++  constexpr float kAttachedPanelGeometryEpsilon = 0.01F;
++
++  [[nodiscard]] bool sameAttachedPanelGeometry(
++      const std::optional<AttachedPanelGeometry>& current, const std::optional<AttachedPanelGeometry>& next
++  ) noexcept {
++    if (current.has_value() != next.has_value()) {
++      return false;
++    }
++    if (!current.has_value()) {
++      return true;
++    }
++
++    const auto same = [](float lhs, float rhs) { return std::abs(lhs - rhs) <= kAttachedPanelGeometryEpsilon; };
++    return same(current->x, next->x) && same(current->y, next->y) && same(current->width, next->width)
++        && same(current->height, next->height) && same(current->cornerRadius, next->cornerRadius)
++        && same(current->bulgeRadius, next->bulgeRadius);
++  }
+ 
+   [[nodiscard]] std::string activeWorkspaceId(const std::vector<Workspace>& workspaces) {
+     for (const auto& workspace : workspaces) {
+@@ -2173,6 +2190,10 @@ void Bar::setAttachedPanelGeometry(
+     return;
+   }
+ 
++  if (sameAttachedPanelGeometry(instance->attachedPanelGeometry, geometry)) {
++    return;
++  }
++
+   instance->attachedPanelGeometry = geometry;
+   if (instance->surface != nullptr && instance->surface->width() > 0 && instance->surface->height() > 0) {
+     applyBarShadowStyle(
+diff --git a/src/shell/panel/panel_manager.cpp b/src/shell/panel/panel_manager.cpp
+index bcdc51aad..9a0bbf3b7 100644
+--- a/src/shell/panel/panel_manager.cpp
++++ b/src/shell/panel/panel_manager.cpp
+@@ -1156,7 +1156,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+           {InputRect{m_panelInsetX, m_panelInsetY, static_cast<int>(panelWidth), static_cast<int>(panelHeight)}}
+       );
+       m_surface->setBlurRegion({});
+-      publishAttachedPanelGeometry(m_attachedRevealProgress);
++      publishAttachedPanelGeometry(1.0F);
+       m_surface->requestRedraw();
+       if (hasFocusGrab && wantsOutsideDismiss) {
+         activateFocusGrab();
+@@ -2149,7 +2149,6 @@ void PanelManager::applyAttachedReveal(float progress) {
+     m_panelContactShadowNode->setOpacity(m_attachedRevealProgress);
+   }
+ 
+-  publishAttachedPanelGeometry(m_attachedRevealProgress);
+   const int bodyX = m_panelInsetX + static_cast<int>(std::lround(contentX));
+   const int bodyY = m_panelInsetY + static_cast<int>(std::lround(contentY));
+   applyPanelCompositorBlur(
