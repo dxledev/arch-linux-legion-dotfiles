@@ -1,0 +1,108 @@
+--- a/src/app/application.h
++++ b/src/app/application.h
+@@ -212,6 +212,7 @@
+   [[nodiscard]] bool likelySupportsInSessionPolkit() const noexcept;
+   void syncClipboardService();
+   void syncStorageKeyProvider();
++  void initializeSecretConsumers();
+   void syncScreenTimeService();
+   void performGreeterSync(bool quiet = false);
+   void scheduleGreeterAutoSync();
+@@ -307,6 +308,7 @@
+   bool m_secretServiceOwned = false;
+   bool m_storageKeyAutoRetried = false;
+   bool m_calendarCredentialAutoRetried = false;
++  bool m_secretConsumersInitialized = false;
+   std::unique_ptr<PipeWireService> m_pipewireService;
+   std::unique_ptr<WirePlumberMixer> m_wirePlumberMixer;
+   std::unique_ptr<EasyEffectsService> m_easyEffectsService;
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -334,7 +334,7 @@
+ }
+ 
+ void Application::onSecretServiceCollectionChanged() {
+-  if (!defaultSecretCollectionUnlocked()) {
++  if (!m_secretConsumersInitialized || !defaultSecretCollectionUnlocked()) {
+     return;
+   }
+   // Reachable and unlocked now: give every consumer that gave up at startup a fresh attempt. The
+@@ -370,7 +370,7 @@
+ }
+ 
+ void Application::retrySecretServiceConsumers() {
+-  if (!m_secretServiceOwned) {
++  if (!m_secretConsumersInitialized || !m_secretServiceOwned) {
+     return;
+   }
+   // A locked storage key is only worth reopening once the collection is actually unlocked: a lookup
+@@ -538,19 +538,31 @@
+   m_storageKeyProvider.configure(storage.keySource, storage.keyFile, encryptedDataExists);
+ }
+ 
++void Application::initializeSecretConsumers() {
++  if (m_secretConsumersInitialized) {
++    return;
++  }
++  syncStorageKeyProvider();
++  m_calendarService.initialize();
++  m_secretConsumersInitialized = true;
++  m_clipboardService.syncPersistence();
++}
++
+ void Application::initServices() {
+   if (!security::initializeSecurityPrimitives()) {
+     kLog.error("libsodium initialization failed; encrypted persistence is unavailable");
+   }
+   m_storageKeyProvider.setChangeCallback([this]() {
++    if (!m_secretConsumersInitialized) {
++      return;
++    }
+     m_clipboardService.syncPersistence();
+     m_calendarService.syncCachePersistence();
+     retrySecretServiceConsumers();
+   });
+-  syncStorageKeyProvider();
+   m_configService.addReloadCallback(
+       [this]() {
+-        if (m_configService.lastChange().storage) {
++        if (m_secretConsumersInitialized && m_configService.lastChange().storage) {
+           syncStorageKeyProvider();
+         }
+       },
+@@ -1748,7 +1760,9 @@
+ 
+   m_locationService.initialize();
+   m_weatherService.initialize();
+-  m_calendarService.initialize();
++  if (!noctalia::runtime::startLocked()) {
++    initializeSecretConsumers();
++  }
+ 
+   // LocationService is the single source of "where am I": push its resolved coordinates to the
+   // weather service, night light, and theme auto mode. Manual latitude/longitude and fixed
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -380,6 +380,9 @@
+         if (m_logindService != nullptr) {
+           m_logindService->setSessionLockedHint(false);
+         }
++        if (noctalia::runtime::startLocked()) {
++          DeferredCall::callLater([this]() { initializeSecretConsumers(); });
++        }
+       },
+       [this]() {
+         m_idleGraceOverlay.hide();
+--- a/src/app/application_poll_sources.cpp
++++ b/src/app/application_poll_sources.cpp
+@@ -71,7 +71,9 @@
+   if (!noctalia::runtime::isLockProvider()) {
+     sources.push_back(&m_locationPollSource);
+     sources.push_back(&m_weatherPollSource);
+-    sources.push_back(&m_calendarPollSource);
++    if (m_secretConsumersInitialized) {
++      sources.push_back(&m_calendarPollSource);
++    }
+     sources.push_back(&m_thumbnailService);
+     sources.push_back(&m_wallpaperScanner);
+     sources.push_back(&m_asyncTextureCache);
