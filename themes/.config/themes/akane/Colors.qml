@@ -4,7 +4,7 @@ import Quickshell
 import QtQuick
 
 Singleton {
-    readonly property color background: Qt.rgba(14 / 255, 30 / 255, 54 / 255, 0.88)
+    readonly property color background: "#e00e1e36"
     readonly property color backgroundAlt: "#0E1E36"
     readonly property color backgroundAlpha: Qt.rgba(26 / 255, 42 / 255, 70 / 255, 0.88)
     readonly property color backgroundGray: "#2a3a56"

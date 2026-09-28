@@ -27,13 +27,21 @@ Singleton {
     function parse(contents: string): void {
         const next = {};
         const expression = /property\s+color\s+(\w+)\s*:\s*["'](#[0-9a-fA-F]{6,8})["']/g;
+        const rgbaExpression = /property\s+color\s+(\w+)\s*:\s*Qt\.rgba\(\s*([\d.]+(?:\s*\/\s*[\d.]+)?)\s*,\s*([\d.]+(?:\s*\/\s*[\d.]+)?)\s*,\s*([\d.]+(?:\s*\/\s*[\d.]+)?)\s*,\s*([\d.]+(?:\s*\/\s*[\d.]+)?)\s*\)/g;
         let match;
         while ((match = expression.exec(contents)) !== null)
             next[match[1]] = match[2];
+        while ((match = rgbaExpression.exec(contents)) !== null)
+            next[match[1]] = Qt.rgba(parseChannel(match[2]), parseChannel(match[3]), parseChannel(match[4]), parseChannel(match[5]));
         if (next.background && next.foreground && next.primary)
             values = next;
         else
             console.warn("Shared theme is missing background, foreground or primary:", System.themeFile);
+    }
+
+    function parseChannel(expression: string): real {
+        const parts = expression.split("/");
+        return parts.length === 1 ? Number(parts[0]) : Number(parts[0]) / Number(parts[1]);
     }
 
     function mix(base: color, tint: color, amount: real): color {
