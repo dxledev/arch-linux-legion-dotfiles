@@ -1,0 +1,259 @@
+--- a/src/shell/panel/panel_manager.cpp
++++ b/src/shell/panel/panel_manager.cpp
+@@ -915,6 +915,7 @@
+   const auto resetPanelOpenState = [this]() {
+     deactivateOutsideClickHandlers();
+     m_surface.reset();
++    invalidatePanelBlurShapeCache();
+     m_layerSurface = nullptr;
+     m_output = nullptr;
+     m_wlSurface = nullptr;
+@@ -1496,6 +1497,7 @@
+   m_selectPopup.reset();
+   m_sceneRoot.reset();
+   m_surface.reset();
++  invalidatePanelBlurShapeCache();
+   m_layerSurface = nullptr;
+   m_output = nullptr;
+   m_wlSurface = nullptr;
+@@ -2324,32 +2326,58 @@
+     return;
+   }
+ 
+-  const float radius = Style::scaledRadiusXl(m_activePanel->contentScale());
++  const float contentScale = m_activePanel->contentScale();
++  const float radius = Style::scaledRadiusXl(contentScale);
++  const std::string_view barPosition = m_attachedToBar ? std::string_view{m_attachedBarPosition} : std::string_view{};
+   const CornerShapes corners = m_attachedToBar ? attached_panel::cornerShapes(m_attachedBarPosition) : CornerShapes{};
+   const RectInsets logicalInset =
+       m_attachedToBar ? attached_panel::logicalInset(m_attachedBarPosition, radius) : RectInsets{};
+   const Radii radii = Radii{radius, radius, radius, radius};
+-  auto strips = Surface::tessellateShape(bodyX, bodyY, bodyW, bodyH, corners, logicalInset, radii);
+-  if (strips.empty()) {
++  const bool shapeCacheHit = m_panelBlurShapeValid
++      && m_panelBlurShapeWidth == bodyW
++      && m_panelBlurShapeHeight == bodyH
++      && m_panelBlurShapeScale == contentScale
++      && m_panelBlurShapeRadius == radius
++      && m_panelBlurShapeAttached == m_attachedToBar
++      && m_panelBlurShapeBarPosition == barPosition;
++  if (!shapeCacheHit) {
++    m_panelBlurShapeRects = Surface::tessellateShape(0, 0, bodyW, bodyH, corners, logicalInset, radii);
++    m_panelBlurShapeWidth = bodyW;
++    m_panelBlurShapeHeight = bodyH;
++    m_panelBlurShapeScale = contentScale;
++    m_panelBlurShapeRadius = radius;
++    m_panelBlurShapeAttached = m_attachedToBar;
++    m_panelBlurShapeBarPosition = barPosition;
++    m_panelBlurShapeValid = true;
++  }
++  if (blurTraceEnabled()) {
++    kLog.debug(
++        "blur-trace panel-blur-shape-cache result={} body={}x{} strips={}",
++        shapeCacheHit ? "hit" : "miss", bodyW, bodyH, m_panelBlurShapeRects.size()
++    );
++  }
++
++  std::vector<InputRect> clipped;
++  clipped.reserve(m_panelBlurShapeRects.size());
++  const int clipRight = clipX + clipW;
++  const int clipBottom = clipY + clipH;
++  for (const auto& strip : m_panelBlurShapeRects) {
++    const int stripX = bodyX + strip.x;
++    const int stripY = bodyY + strip.y;
++    const int sxLeft = std::max(stripX, clipX);
++    const int sxRight = std::min(stripX + strip.width, clipRight);
++    const int syTop = std::max(stripY, clipY);
++    const int syBottom = std::min(stripY + strip.height, clipBottom);
++    if (sxRight > sxLeft && syBottom > syTop) {
++      clipped.push_back({sxLeft, syTop, sxRight - sxLeft, syBottom - syTop});
++    }
++  }
++  if (m_panelBlurShapeRects.empty()) {
+     if (blurTraceEnabled()) {
+       kLog.debug("blur-trace panel-blur-clear reason=empty-shape");
+     }
+     m_surface->clearBlurRegion();
+     return;
+-  }
+-
+-  const int clipRight = clipX + clipW;
+-  const int clipBottom = clipY + clipH;
+-  std::vector<InputRect> clipped;
+-  clipped.reserve(strips.size());
+-  for (const auto& s : strips) {
+-    const int sxLeft = std::max(s.x, clipX);
+-    const int sxRight = std::min(s.x + s.width, clipRight);
+-    const int syTop = std::max(s.y, clipY);
+-    const int syBottom = std::min(s.y + s.height, clipBottom);
+-    if (sxRight > sxLeft && syBottom > syTop) {
+-      clipped.push_back({sxLeft, syTop, sxRight - sxLeft, syBottom - syTop});
+-    }
+   }
+ 
+   if (clipped.empty()) {
+@@ -2370,6 +2398,12 @@
+     );
+   }
+   m_surface->setBlurRegion(clipped);
++}
++
++void PanelManager::invalidatePanelBlurShapeCache() noexcept {
++  m_panelBlurShapeValid = false;
++  m_panelBlurShapeRects.clear();
++  m_panelBlurShapeBarPosition.clear();
+ }
+ 
+ void PanelManager::applyAttachedDecorationStyle() {
+@@ -2433,6 +2467,7 @@
+ }
+ 
+ void PanelManager::onConfigReloaded() {
++  invalidatePanelBlurShapeCache();
+   m_persistentHost.onConfigReloaded();
+   if (!isOpen() || m_config == nullptr || m_activePanel == nullptr) {
+     return;
+--- a/src/shell/panel/panel_manager.h
++++ b/src/shell/panel/panel_manager.h
+@@ -17,6 +17,7 @@
+ #include <string_view>
+ #include <unordered_map>
+ #include <unordered_set>
++#include <vector>
+ 
+ class ConfigService;
+ class CompositorPlatform;
+@@ -204,6 +205,7 @@
+   void applyAttachedDecorationStyle();
+   // Submit a wl_region matching the panel body after applying the current reveal clip.
+   void applyPanelCompositorBlur(int bodyX, int bodyY, int bodyW, int bodyH, int clipX, int clipY, int clipW, int clipH);
++  void invalidatePanelBlurShapeCache() noexcept;
+ 
+   CompositorPlatform* m_platform = nullptr;
+   ConfigService* m_config = nullptr;
+@@ -276,6 +278,14 @@
+   std::string m_attachedBarPosition; // "top" / "bottom" / "left" / "right" while attached, empty otherwise
+   std::string m_sourceBarName;       // name of the bar that opened the current panel
+   std::optional<AttachedPanelGeometry> m_attachedPanelGeometry;
++  std::vector<InputRect> m_panelBlurShapeRects;
++  std::int32_t m_panelBlurShapeWidth = -1;
++  std::int32_t m_panelBlurShapeHeight = -1;
++  float m_panelBlurShapeScale = -1.0F;
++  float m_panelBlurShapeRadius = -1.0F;
++  std::string m_panelBlurShapeBarPosition;
++  bool m_panelBlurShapeAttached = false;
++  bool m_panelBlurShapeValid = false;
+   bool m_pointerInside = false;
+   bool m_inTransition = false;
+   bool m_closing = false;
+--- a/src/wayland/surface.cpp
++++ b/src/wayland/surface.cpp
+@@ -146,6 +146,50 @@
+         uiPhaseName(currentUiPhase()), surface.isRunning(), surface.width(), surface.height(),
+         surface.bufferWidthFor(surface.width()), surface.bufferHeightFor(surface.height()),
+         surface.effectiveBufferScale()
++    );
++  }
++
++  bool sameInputRects(const std::vector<InputRect>& lhs, const std::vector<InputRect>& rhs) {
++    if (lhs.size() != rhs.size()) {
++      return false;
++    }
++    for (std::size_t index = 0; index < lhs.size(); ++index) {
++      const auto& left = lhs[index];
++      const auto& right = rhs[index];
++      if (left.x != right.x || left.y != right.y || left.width != right.width || left.height != right.height) {
++        return false;
++      }
++    }
++    return true;
++  }
++
++  bool frameTraceEnabled() {
++    static const bool enabled = SysUtils::isEnvFlagOn("NOCTALIA_FRAME_TRACE");
++    return enabled;
++  }
++
++  float frameBudgetMs() {
++    static const float budget = [] {
++      const char* value = std::getenv("NOCTALIA_FRAME_BUDGET_MS");
++      if (value == nullptr || *value == '\0') {
++        return 16.667F;
++      }
++      char* end = nullptr;
++      const float parsed = std::strtof(value, &end);
++      return end != value && *end == '\0' && std::isfinite(parsed) && parsed > 0.0F ? parsed : 16.667F;
++    }();
++    return budget;
++  }
++
++  void traceFrameInterval(const Surface& surface, float intervalMs) {
++    if (!frameTraceEnabled() || intervalMs <= 0.0F || !surface.debugName().starts_with("layer:noctalia-")) {
++      return;
++    }
++    const float budget = frameBudgetMs();
++    const auto estimatedMissed = intervalMs > budget ? static_cast<unsigned>(std::ceil(intervalMs / budget)) - 1U : 0U;
++    kLog.debug(
++        "frame-trace name={} interval_ms={:.3F} budget_ms={:.3F} estimated_missed={}",
++        surfaceTraceName(surface), intervalMs, budget, estimatedMissed
+     );
+   }
+ 
+@@ -384,6 +428,7 @@
+     deltaMs = std::chrono::duration<float, std::milli>(now - *self->m_lastFrameAt).count();
+   }
+   self->m_lastFrameAt = now;
++  traceFrameInterval(*self, deltaMs);
+ 
+   const bool activeAnimations = self->m_animationManager != nullptr && self->m_animationManager->hasActive();
+   const bool runFrameTick = self->m_frameCallbackShouldTick || self->m_frameTickPending || activeAnimations;
+@@ -700,6 +745,11 @@
+     return;
+   }
+ 
++  if (m_blurRegionValid && sameInputRects(m_blurRegion, rects)) {
++    traceBlurRegionEvent(*this, "blur-set-unchanged", rects);
++    return;
++  }
++
+   // Hyprland renders a fully off-surface non-empty blur region as full-surface blur, so send null instead.
+   const bool hasVisibleRegion = regionIntersectsBounds(rects, m_width, m_height);
+   wl_region* region = nullptr;
+@@ -719,6 +769,8 @@
+   }
+   traceBlurRegionEvent(*this, traceLabel, rects);
+   ext_background_effect_surface_v1_set_blur_region(m_backgroundEffect, region);
++  m_blurRegion = rects;
++  m_blurRegionValid = true;
+   if (region != nullptr) {
+     wl_region_destroy(region);
+   }
+@@ -1144,6 +1196,8 @@
+ }
+ 
+ void Surface::clearBlurRegion() {
++  m_blurRegion.clear();
++  m_blurRegionValid = false;
+   if (m_backgroundEffect == nullptr) {
+     traceSurfaceEvent(*this, "blur-clear-no-effect");
+     return;
+@@ -1281,6 +1335,8 @@
+     ext_background_effect_surface_v1_destroy(m_backgroundEffect);
+     m_backgroundEffect = nullptr;
+   }
++  m_blurRegion.clear();
++  m_blurRegionValid = false;
+ 
+   if (m_fractionalScale != nullptr) {
+     wp_fractional_scale_v1_destroy(m_fractionalScale);
+--- a/src/wayland/surface.h
++++ b/src/wayland/surface.h
+@@ -202,6 +202,8 @@
+   OutputChangedCallback m_outputChangedCallback;
+   wl_callback* m_frameCallback = nullptr;
+   ext_background_effect_surface_v1* m_backgroundEffect = nullptr;
++  std::vector<InputRect> m_blurRegion;
++  bool m_blurRegionValid = false;
+   wp_viewport* m_viewport = nullptr;
+   wp_fractional_scale_v1* m_fractionalScale = nullptr;
+   std::optional<std::chrono::steady_clock::time_point> m_lastFrameAt;
