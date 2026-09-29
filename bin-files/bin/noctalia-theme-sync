@@ -204,7 +204,7 @@ state_matches() {
 
 scheme_name() {
     local source scheme
-    read -r source scheme < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
+    read -r source scheme <<< "$("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)"
     if [[ "$source" == wallpaper && " ${schemes[*]} " == *" $scheme "* ]]; then
         printf '%s\n' "$scheme"
     else
@@ -349,7 +349,7 @@ reassert_static_wallpaper() {
 
 sync_static_theme() {
     local source name current theme_root selector_theme
-    read -r source name < <($noctalia_bin msg color-scheme-get 2>/dev/null || true)
+    read -r source name <<< "$("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)"
     if [[ "$source" != custom && "$source" != wallpaper ]]; then
         source="$(noctalia_setting source 2>/dev/null || true)"
     fi
@@ -399,7 +399,7 @@ sync_static_theme() {
 
 sync_state_is_current() {
     local source name theme_root current selector_target saved_wallpaper current_wallpaper wallpaper scheme mode key active_key dynamic_path applied_wallpaper
-    read -r source name < <("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)
+    read -r source name <<< "$("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)"
     if [[ "$source" != custom && "$source" != wallpaper ]]; then
         source="$(noctalia_setting source 2>/dev/null || true)"
     fi
@@ -676,7 +676,7 @@ main() {
         /usr/bin/flock 8
     fi
 
-    read -r source name < <("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)
+    read -r source name <<< "$("$noctalia_bin" msg color-scheme-get 2>/dev/null || true)"
     if [[ "$source" != custom && "$source" != wallpaper ]]; then
         source="$(noctalia_setting source 2>/dev/null || true)"
     fi

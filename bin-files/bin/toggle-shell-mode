@@ -251,7 +251,7 @@ start_quickshell() {
     if (( lock_flag )); then
         /usr/bin/env -u CAELESTIA_NATIVE_LOCK_PROVIDER CAELESTIA_START_LOCKED=1 "$quickshell_bin" --daemonize --no-duplicate --path "$quickshell_config" 9>&- || return 1
     else
-        /usr/bin/env -u CAELESTIA_NATIVE_LOCK_PROVIDER "$quickshell_bin" --daemonize --no-duplicate --path "$quickshell_config" 9>&- || return 1
+        /usr/bin/env -u CAELESTIA_NATIVE_LOCK_PROVIDER -u CAELESTIA_START_LOCKED "$quickshell_bin" --daemonize --no-duplicate --path "$quickshell_config" 9>&- || return 1
     fi
     for (( attempt = 0; attempt < shell_health_timeout * 10; attempt++ )); do
         pids="$(quickshell_pids)" || return 1
