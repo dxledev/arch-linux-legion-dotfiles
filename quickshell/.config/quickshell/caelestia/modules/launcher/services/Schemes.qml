@@ -57,7 +57,7 @@ Searcher {
 
         function onClicked(list: AppList): void {
             list.screenState.launcher = false;
-            System.run("theme", [name]);
+            ThemeSwitch.request(name, false, false);
         }
     }
 }

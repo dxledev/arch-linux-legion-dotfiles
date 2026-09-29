@@ -74,13 +74,7 @@ Searcher {
             list.screenState.launcher = false;
             if (current)
                 return;
-            if (dynamic) {
-                Colours.setSource("dynamic");
-            } else if (applied) {
-                Colours.setSource("system");
-            } else {
-                System.run("theme", [themeId]);
-            }
+            ThemeSwitch.request(themeId, dynamic, applied);
         }
     }
 }
