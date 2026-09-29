@@ -19,6 +19,7 @@ CustomMouseArea {
     required property bool fullscreen
 
     property point dragStart
+    property bool clipboardGesture
     property bool dashboardShortcutActive
     property bool osdShortcutActive
     property bool utilitiesShortcutActive
@@ -66,7 +67,22 @@ CustomMouseArea {
         return y > height - Math.max(Config.border.minThickness, Config.border.thickness + panelHeight) - (isCorner ? Config.border.rounding : 0) && withinPanelWidth(panel, x, y);
     }
 
+    function inClipboardPanel(x: real, y: real): bool {
+        if (!panels.clipboard.visible)
+            return false;
+        if (inBottomPanel(panels.clipboard, x, y))
+            return true;
+        if (!panels.clipboard.confirmationVisible)
+            return false;
+        const panelLeft = bar.implicitWidth + panels.clipboard.x;
+        const panelTop = borderThickness + panels.clipboard.y;
+        return x >= panelLeft && x <= panelLeft + panels.clipboard.width
+            && y >= panelTop - panels.clipboard.confirmationHeight && y < panelTop;
+    }
+
     function onWheel(event: WheelEvent): void {
+        if (inClipboardPanel(event.x, event.y))
+            return;
         if (fullscreen)
             return;
         if (event.x < bar.implicitWidth) {
@@ -83,7 +99,11 @@ CustomMouseArea {
     acceptedButtons: fullscreen ? Qt.NoButton : Qt.AllButtons
     hoverEnabled: true
 
-    onPressed: event => dragStart = Qt.point(event.x, event.y)
+    onPressed: event => {
+        dragStart = Qt.point(event.x, event.y);
+        clipboardGesture = inClipboardPanel(event.x, event.y);
+    }
+    onReleased: clipboardGesture = false
     onContainsMouseChanged: {
         if (!containsMouse) {
             // Only hide if not activated by shortcut
@@ -112,7 +132,7 @@ CustomMouseArea {
     }
 
     onPositionChanged: event => {
-        if (popouts.interactive)
+        if (popouts.interactive || clipboardGesture || inClipboardPanel(event.x, event.y))
             return;
 
         const x = event.x;

@@ -196,6 +196,14 @@
             },
             {
                 "command": [
+                    "clipboard"
+                ],
+                "description": "Browse and search clipboard history",
+                "icon": "content_paste",
+                "name": "Clipboard"
+            },
+            {
+                "command": [
                     "autocomplete",
                     "theme"
                 ],

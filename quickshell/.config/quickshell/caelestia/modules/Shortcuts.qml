@@ -5,6 +5,7 @@ import Caelestia
 import qs.components.misc
 import qs.services
 import qs.modules.chromack as Chromack
+import qs.modules.clipboard as Clipboard
 import qs.modules.nexus
 
 Scope {
@@ -114,6 +115,14 @@ Scope {
         function open(): void { Chromack.ChromackState.open(); }
         function toggle(): void { Chromack.ChromackState.toggle(); }
         function isOpen(): bool { return Chromack.ChromackState.isOpen; }
+    }
+
+    IpcHandler {
+        target: "clipboard"
+        function open(): void { Clipboard.ClipboardState.open(); }
+        function close(): void { Clipboard.ClipboardState.close(); }
+        function toggle(): void { Clipboard.ClipboardState.toggle(); }
+        function isOpen(): bool { return Clipboard.ClipboardState.isOpen; }
     }
 
     IpcHandler {

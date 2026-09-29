@@ -1,0 +1,8 @@
+module qs.modules.clipboard
+singleton ClipboardState 1.0 ClipboardState.qml
+singleton Style 1.0 Style.qml
+Content 1.0 Content.qml
+ClearConfirmation 1.0 ClearConfirmation.qml
+EntryList 1.0 EntryList.qml
+EntryRow 1.0 EntryRow.qml
+Wrapper 1.0 Wrapper.qml

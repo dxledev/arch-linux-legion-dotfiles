@@ -36,7 +36,7 @@ StyledWindow {
     property color surfaceColour: Colours.tPalette.m3surface
 
     readonly property int dragMaskPadding: {
-        if (focusGrab.active || panels.popouts.isDetached || panels.chromack.shouldBeActive)
+        if (focusGrab.active || panels.popouts.isDetached || panels.chromack.shouldBeActive || panels.clipboard.shouldBeActive)
             return 0;
 
         if (monitor?.lastIpcObject.specialWorkspace?.name || monitor?.activeWorkspace?.lastIpcObject.windows > 0)
@@ -58,8 +58,8 @@ StyledWindow {
 
     name: "drawers"
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: panels.chromack.shouldBeActive || (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
-    WlrLayershell.keyboardFocus: panels.chromack.acquireFocus ? WlrKeyboardFocus.Exclusive : panels.chromack.shouldBeActive || screenState.launcher || screenState.session || screenState.dashboardPinned ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.layer: panels.chromack.shouldBeActive || panels.clipboard.shouldBeActive || (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
+    WlrLayershell.keyboardFocus: panels.chromack.acquireFocus ? WlrKeyboardFocus.Exclusive : panels.chromack.shouldBeActive || panels.clipboard.shouldBeActive || screenState.launcher || screenState.session || screenState.dashboardPinned ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     mask: hasFullscreen ? emptyRegion : regions
 
@@ -89,6 +89,13 @@ StyledWindow {
             y: panels.chromack.y + root.borderThickness
             width: panels.chromack.width
             height: panels.chromack.occupiedHeight
+        }
+
+        Region {
+            x: panels.clipboard.x + bar.implicitWidth
+            y: panels.clipboard.y + root.borderThickness - panels.clipboard.confirmationHeight
+            width: panels.clipboard.width
+            height: panels.clipboard.occupiedHeight + panels.clipboard.confirmationHeight
         }
 
         Region {
@@ -194,6 +201,14 @@ StyledWindow {
         }
 
         PanelBg {
+            id: clipboardBg
+            visible: panels.clipboard.visible
+            group: visible ? blobGroup : null
+            panel: panels.clipboard
+            deformAmount: 0.1
+        }
+
+        PanelBg {
             id: launcherBg
             visible: panels.launcher.visible
             group: visible ? blobGroup : null
@@ -292,6 +307,9 @@ StyledWindow {
             }
             chromack.transform: Matrix4x4 {
                 matrix: chromackBg.deformMatrix
+            }
+            clipboard.transform: Matrix4x4 {
+                matrix: clipboardBg.deformMatrix
             }
             launcher.transform: Matrix4x4 {
                 matrix: launcherBg.deformMatrix

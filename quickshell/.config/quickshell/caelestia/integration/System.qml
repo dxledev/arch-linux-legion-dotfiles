@@ -6,6 +6,16 @@ import Quickshell.Io
 Singleton {
     id: root
     property var chromack: ({})
+    property var clipboard: ({
+        width: 520,
+        height: 610,
+        durationMs: 220,
+        searchDebounceMs: 150,
+        historyRefreshMs: 2000,
+        cliphistPath: "/usr/bin/cliphist",
+        wlCopyPath: "/usr/bin/wl-copy",
+        historyDatabasePath: ""
+    })
     property var workspaceStarts: ({})
     property var brightnessMonitors: []
     property int brightnessWriteDelay: 100
@@ -44,6 +54,21 @@ Singleton {
         onLoaded: {
             const config = JSON.parse(text());
             root.chromack = config.chromack || {};
+            const clipboard = config.clipboard || {};
+            const numberOr = (value, fallback, minimum) => {
+                const number = Number(value);
+                return Number.isFinite(number) ? Math.max(minimum, number) : fallback;
+            };
+            root.clipboard = {
+                width: numberOr(clipboard.width, 520, 1),
+                height: numberOr(clipboard.height, 610, 1),
+                durationMs: numberOr(clipboard.durationMs, 220, 0),
+                searchDebounceMs: numberOr(clipboard.searchDebounceMs, 150, 0),
+                historyRefreshMs: numberOr(clipboard.historyRefreshMs, 2000, 200),
+                cliphistPath: clipboard.cliphistPath || "/usr/bin/cliphist",
+                wlCopyPath: clipboard.wlCopyPath || "/usr/bin/wl-copy",
+                historyDatabasePath: clipboard.historyDatabasePath || ""
+            };
             root.workspaceStarts = config.workspaceStarts || {};
             root.brightnessMonitors = config.brightnessMonitors || [];
             root.brightnessWriteDelay = Math.max(50, config.brightnessWriteDelay ?? 100);

@@ -85,6 +85,12 @@ local aether_binding = "SUPER + SHIFT + CTRL + A"
 hl.unbind(aether_binding)
 hl.bind(aether_binding, hl.dsp.exec_cmd(root .. "/active/integration/aether launch"), { description = "Focus Aether" })
 
+local clipboard_binding = "SUPER + V"
+hl.unbind(clipboard_binding)
+
+hl.unbind("SUPER + ALT + C")
+hl.bind("SUPER + ALT + C", hl.dsp.exec_cmd(ipc .. "clipboard toggle"), { description = "Clipboard History" })
+
 hl.unbind(superseded_audio_binding)
 hl.unbind(audio_popout_binding)
 hl.bind(audio_popout_binding, hl.dsp.exec_cmd(knob_hold), { description = "Audio Menu" })

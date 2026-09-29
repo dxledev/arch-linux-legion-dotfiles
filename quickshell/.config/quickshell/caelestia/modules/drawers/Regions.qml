@@ -40,6 +40,12 @@ Region {
     }
 
     R {
+        panel: root.panels.clipboard
+        y: root.win.height - height
+        height: root.panels.clipboard.occupiedHeight + root.panels.clipboard.confirmationHeight + root.borderThickness
+    }
+
+    R {
         id: sessionRegion
 
         panel: root.panels.sessionWrapper
