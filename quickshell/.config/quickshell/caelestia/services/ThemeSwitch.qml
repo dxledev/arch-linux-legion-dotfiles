@@ -32,7 +32,7 @@ Singleton {
     Timer {
         id: delay
 
-        interval: 400
+        interval: 300
         repeat: false
         onTriggered: root.applyPending()
     }
