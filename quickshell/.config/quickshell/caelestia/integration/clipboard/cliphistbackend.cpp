@@ -98,6 +98,46 @@ void CliphistBackend::wipe(quint64 request)
     process->start(m_executable, arguments({"wipe"}));
 }
 
+void CliphistBackend::removeEntries(const QStringList &keys, quint64 request)
+{
+    QStringList validKeys;
+    for (const auto &key : keys)
+        if (!key.isEmpty())
+            validKeys.append(key);
+    if (validKeys.isEmpty()) {
+        emit removeFinished(request, {}, false, "No clipboard history entry was selected.");
+        return;
+    }
+
+    auto *process = new QProcess(this);
+    process->setProperty("removeRequestCompleted", false);
+    const auto complete = [this, process, request, validKeys](bool success, const QString &message) {
+        if (process->property("removeRequestCompleted").toBool())
+            return;
+        process->setProperty("removeRequestCompleted", true);
+        emit removeFinished(request, validKeys, success, message);
+        process->deleteLater();
+    };
+    connect(process, &QProcess::started, this, [process, validKeys] {
+        QByteArray input;
+        for (const auto &key : validKeys)
+            input += key.toUtf8() + '\n';
+        process->write(input);
+        process->closeWriteChannel();
+    });
+    connect(process, &QProcess::errorOccurred, this,
+            [process, complete](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart)
+            complete(false, process->errorString());
+    });
+    connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [process, complete](int code, QProcess::ExitStatus) {
+        const QString errorText = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+        complete(code == 0, code == 0 ? QString() : errorText.isEmpty() ? "cliphist delete failed." : errorText);
+    });
+    process->start(m_executable, arguments({"delete"}));
+}
+
 void CliphistBackend::finishListing(QProcess *process, quint64 generation, int exitCode)
 {
     if (!m_listing)

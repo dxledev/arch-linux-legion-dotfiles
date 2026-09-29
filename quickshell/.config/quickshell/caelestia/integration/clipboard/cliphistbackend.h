@@ -20,12 +20,14 @@ public:
 
     void refresh(quint64 generation);
     void wipe(quint64 request);
+    void removeEntries(const QStringList &keys, quint64 request);
     void decode(const QString &key, quint64 generation, const QString &outputPath);
     void copy(const QString &key, const QString &payloadPath, const QString &mimeType, quint64 request);
 
 signals:
     void listingReady(quint64 generation, QStringList keys, QStringList previews, bool success);
     void wipeFinished(quint64 request, bool success, QString errorText);
+    void removeFinished(quint64 request, QStringList keys, bool success, QString errorText);
     void decodeReady(QString key, quint64 generation, QString payloadPath, QString errorText);
     void copyFinished(QString key, quint64 request, bool success, QString errorText);
     void error(QString message);

@@ -13,6 +13,7 @@ FocusScope {
     property string description
     property string confirmText
     property string errorText
+    property string busyText: "Working…"
     property bool busy: false
 
     signal confirmed
@@ -87,7 +88,7 @@ FocusScope {
 
             TextButton {
                 id: confirmButton
-                text: root.busy ? "Clearing…" : root.confirmText
+                text: root.busy ? root.busyText : root.confirmText
                 type: TextButton.Filled
                 activeColour: Style.error
                 inactiveColour: Style.error

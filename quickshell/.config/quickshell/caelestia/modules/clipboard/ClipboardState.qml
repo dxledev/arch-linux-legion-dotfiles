@@ -76,8 +76,10 @@ Singleton {
     Connections {
         target: controller
         function onCopyCompleted(key: string, success: bool, message: string): void {
-            if (success)
+            if (success) {
+                Quickshell.execDetached(["notify-send", "-a", "Caelestia Clipboard", "-i", "edit-copy", "-t", "2000", "Clipboard", "Copied to clipboard"]);
                 root.close();
+            }
         }
     }
 

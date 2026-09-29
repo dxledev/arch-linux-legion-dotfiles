@@ -9,11 +9,11 @@ Item {
     readonly property bool shouldBeActive: ClipboardState.isOpen && ClipboardState.screen === screen
     readonly property bool acquireFocus: focusTimer.running && shouldBeActive
     readonly property real occupiedHeight: height * (1 - offsetScale)
-    readonly property bool confirmationVisible: content.item?.clearConfirmationOpen ?? false
+    readonly property bool confirmationVisible: (content.item?.confirmationHeight ?? 0) > 0
     readonly property real confirmationHeight: confirmationVisible ? content.item?.confirmationHeight ?? 0 : 0
     property real offsetScale: shouldBeActive ? 0 : 1
 
-    implicitWidth: Math.max(1, Math.min(ClipboardState.options.width ?? 520, parent.width - Tokens.padding.large * 2))
+    implicitWidth: Math.max(1, Math.min(ClipboardState.options.width ?? 640, parent.width - Tokens.padding.large * 2))
     implicitHeight: Math.max(1, Math.min(ClipboardState.options.height ?? 610, parent.height - 100))
     visible: offsetScale < 1 && ClipboardState.screen === screen
     opacity: 1 - offsetScale

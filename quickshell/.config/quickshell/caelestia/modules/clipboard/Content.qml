@@ -21,19 +21,26 @@ FocusScope {
     property string favoritesSelection: ""
     property bool clearConfirmationOpen: false
     property string clearError: ""
-    readonly property real confirmationHeight: clearConfirmationOpen ? clearConfirmation.height + Style.gap : 0
+    property bool deleteConfirmationOpen: false
+    property string deleteError: ""
+    property string pendingFavoriteKey: ""
+    property bool deletePending: false
+    readonly property real confirmationHeight: clearConfirmationOpen || deleteConfirmationOpen ? clearConfirmation.height + Style.gap : 0
 
     function focusSearch(): void {
         search.forceActiveFocus();
     }
 
     function switchTab(next: int): void {
-        if (ClipboardState.controller.clearingHistory)
+        if (ClipboardState.controller.clearingHistory || deletePending)
             return;
         if (tab === next)
             return;
         clearConfirmationOpen = false;
+        deleteConfirmationOpen = false;
         clearError = "";
+        deleteError = "";
+        pendingFavoriteKey = "";
         saveCurrentTab();
         tab = next;
         search.text = tab === 0 ? historyQuery : favoritesQuery;
@@ -68,7 +75,11 @@ FocusScope {
 
     function resetForOpen(): void {
         clearConfirmationOpen = false;
+        deleteConfirmationOpen = false;
         clearError = "";
+        deleteError = "";
+        pendingFavoriteKey = "";
+        deletePending = false;
         tab = 0;
         historyQuery = "";
         favoritesQuery = "";
@@ -84,10 +95,23 @@ FocusScope {
     }
 
     function requestClear(): void {
-        if (ClipboardState.controller.clearingHistory)
+        if (ClipboardState.controller.clearingHistory || deletePending)
             return;
+        deleteConfirmationOpen = false;
+        deleteError = "";
+        pendingFavoriteKey = "";
         clearError = "";
         clearConfirmationOpen = true;
+    }
+
+    function requestFavoriteDelete(key: string): void {
+        if (deletePending)
+            return;
+        clearConfirmationOpen = false;
+        clearError = "";
+        pendingFavoriteKey = key;
+        deleteError = "";
+        deleteConfirmationOpen = true;
     }
 
     function cancelClear(): void {
@@ -95,6 +119,15 @@ FocusScope {
         clearConfirmationOpen = false;
         clearError = "";
         Qt.callLater(() => focusTarget.forceActiveFocus());
+    }
+
+    function cancelFavoriteDelete(): void {
+        if (deletePending)
+            return;
+        deleteConfirmationOpen = false;
+        deleteError = "";
+        pendingFavoriteKey = "";
+        Qt.callLater(() => search.forceActiveFocus());
     }
 
     function confirmClear(): void {
@@ -111,10 +144,19 @@ FocusScope {
         }
     }
 
+    function confirmFavoriteDelete(): void {
+        if (deletePending || pendingFavoriteKey.length === 0)
+            return;
+        deletePending = true;
+        ClipboardState.controller.deleteFavoriteEntry(pendingFavoriteKey);
+    }
+
     Component.onCompleted: Qt.callLater(focusSearch)
 
     Keys.onEscapePressed: event => {
-        if (clearConfirmationOpen)
+        if (deleteConfirmationOpen)
+            cancelFavoriteDelete();
+        else if (clearConfirmationOpen)
             cancelClear();
         else
             ClipboardState.close();
@@ -218,7 +260,9 @@ FocusScope {
             onTextChanged: searchDelay.restart()
 
             Keys.onEscapePressed: event => {
-                if (root.clearConfirmationOpen)
+                if (root.deleteConfirmationOpen)
+                    root.cancelFavoriteDelete();
+                else if (root.clearConfirmationOpen)
                     root.cancelClear();
                 else
                     ClipboardState.close();
@@ -287,6 +331,7 @@ FocusScope {
                 searchText: root.tab === 1 ? search.text : root.favoritesQuery
                 selectedKey: root.favoritesSelection
                 onSelectedKeyChanged: if (root.tab === 1) root.favoritesSelection = selectedKey
+                onDeleteFavoriteRequested: key => root.requestFavoriteDelete(key)
             }
         }
     }
@@ -315,6 +360,20 @@ FocusScope {
                 root.clearError = errorText;
             }
         }
+
+        function onEntryDeleteCompleted(key: string, favorite: bool, success: bool, errorText: string): void {
+            if (!favorite || key !== root.pendingFavoriteKey)
+                return;
+            root.deletePending = false;
+            if (success) {
+                root.deleteConfirmationOpen = false;
+                root.pendingFavoriteKey = "";
+                root.deleteError = "";
+                Qt.callLater(() => search.forceActiveFocus());
+            } else {
+                root.deleteError = errorText;
+            }
+        }
     }
 
     ClearConfirmation {
@@ -322,15 +381,19 @@ FocusScope {
         anchors.horizontalCenter: root.horizontalCenter
         anchors.bottom: root.top
         anchors.bottomMargin: visible ? Style.gap : 0
-        visible: root.clearConfirmationOpen
-        title: root.tab === 0 ? "Clear clipboard history?" : "Remove all favorites?"
-        description: root.tab === 0
+        visible: root.clearConfirmationOpen || root.deleteConfirmationOpen
+        title: root.deleteConfirmationOpen ? "Delete favorite and history entries?"
+            : root.tab === 0 ? "Clear clipboard history?" : "Remove all favorites?"
+        description: root.deleteConfirmationOpen
+            ? "This removes the saved favorite and permanently deletes all matching history entries."
+            : root.tab === 0
             ? "This permanently removes every item from cliphist."
             : "This removes every saved favorite and its stored payload."
-        confirmText: root.tab === 0 ? "Clear history" : "Clear favorites"
-        errorText: root.clearError
-        busy: ClipboardState.controller.clearingHistory
-        onConfirmed: root.confirmClear()
-        onCancelled: root.cancelClear()
+        confirmText: root.deleteConfirmationOpen ? "Delete entry" : root.tab === 0 ? "Clear history" : "Clear favorites"
+        errorText: root.deleteConfirmationOpen ? root.deleteError : root.clearError
+        busy: ClipboardState.controller.clearingHistory || root.deletePending
+        busyText: root.deleteConfirmationOpen ? "Deleting…" : "Clearing…"
+        onConfirmed: root.deleteConfirmationOpen ? root.confirmFavoriteDelete() : root.confirmClear()
+        onCancelled: root.deleteConfirmationOpen ? root.cancelFavoriteDelete() : root.cancelClear()
     }
 }

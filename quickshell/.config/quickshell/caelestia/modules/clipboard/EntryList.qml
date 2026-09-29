@@ -22,6 +22,8 @@ Item {
     readonly property alias listView: list
     readonly property bool dragActive: draggingKey.length > 0
 
+    signal deleteFavoriteRequested(string key)
+
     function copySelected(): void {
         const key = filterModel.keyAt(list.currentIndex);
         if (key.length > 0)
@@ -143,6 +145,12 @@ Item {
                 root.controller.copyEntry(entryKey);
             }
             onFavoriteRequested: enabled => root.controller.setFavorite(entryKey, enabled)
+            onDeleteRequested: {
+                if (root.favorites)
+                    root.deleteFavoriteRequested(entryKey);
+                else
+                    root.controller.deleteHistoryEntry(entryKey);
+            }
             onDragStarted: key => {
                 root.dragCancelled = false;
                 FavoriteReorder.begin(root, key);

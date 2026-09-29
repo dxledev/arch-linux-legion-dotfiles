@@ -7,7 +7,7 @@ Singleton {
     id: root
     property var chromack: ({})
     property var clipboard: ({
-        width: 520,
+        width: 640,
         height: 610,
         durationMs: 220,
         searchDebounceMs: 150,
@@ -60,7 +60,7 @@ Singleton {
                 return Number.isFinite(number) ? Math.max(minimum, number) : fallback;
             };
             root.clipboard = {
-                width: numberOr(clipboard.width, 520, 1),
+                width: numberOr(clipboard.width, 640, 1),
                 height: numberOr(clipboard.height, 610, 1),
                 durationMs: numberOr(clipboard.durationMs, 220, 0),
                 searchDebounceMs: numberOr(clipboard.searchDebounceMs, 150, 0),

@@ -84,6 +84,19 @@ case "$1" in
         cat "$root/history.tsv"
         ;;
     wipe) : > "$root/history.tsv" ;;
+    delete)
+        declare -A removed=()
+        while IFS= read -r id; do
+            [[ -n "$id" ]] && removed["$id"]=1
+        done
+        next="$root/history.tsv.next"
+        : > "$next"
+        while IFS= read -r line; do
+            id="${line%%$'\t'*}"
+            if [[ -z "${removed[$id]+x}" ]]; then printf '%s\n' "$line" >> "$next"; fi
+        done < "$root/history.tsv"
+        mv "$next" "$root/history.tsv"
+        ;;
     decode)
         if [[ "$2" == "slow" ]]; then sleep 0.25; fi
         cat "$root/payloads/$2"
@@ -310,6 +323,77 @@ cat > "$root/copied-payload"
         QCOMPARE(store.hashes(), QStringList{hash});
         QVERIFY(QFileInfo::exists(store.payloadPath(hash)));
         QVERIFY(!error.isEmpty());
+    }
+
+    void entryDeletionTargetsTheRequestedCollection()
+    {
+        const QString favoriteDirectory = QDir(m_data).filePath("favorites-entry-delete");
+        QVERIFY(writeListing({{"text", "text preview"}, {"opaque", "opaque preview"}}));
+        ClipboardController favorites;
+        configure(favorites, favoriteDirectory);
+        favorites.initialize();
+        favorites.refresh();
+        QTRY_COMPARE_WITH_TIMEOUT(favorites.historyModel()->rowCount(), 2, 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!role(favorites.historyModel(), 0, "loading").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!role(favorites.historyModel(), 1, "loading").toBool(), 5000);
+        favorites.setFavorite("text", true);
+        QTRY_COMPARE_WITH_TIMEOUT(favorites.favoritesModel()->rowCount(), 1, 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!role(favorites.favoritesModel(), 0, "loading").toBool(), 5000);
+
+        const QString favoriteHash = role(favorites.favoritesModel(), 0, "key").toString();
+        QSignalSpy favoriteDeleteSpy(&favorites, &ClipboardController::entryDeleteCompleted);
+        favorites.deleteFavoriteEntry(favoriteHash);
+        QTRY_COMPARE_WITH_TIMEOUT(favoriteDeleteSpy.count(), 1, 5000);
+        const QList<QVariant> favoriteDelete = favoriteDeleteSpy.takeFirst();
+        QVERIFY(favoriteDelete.at(1).toBool());
+        QVERIFY(favoriteDelete.at(2).toBool());
+        QTRY_COMPARE_WITH_TIMEOUT(favorites.favoritesModel()->rowCount(), 0, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(favorites.historyModel()->rowCount(), 1, 5000);
+        QCOMPARE(role(favorites.historyModel(), 0, "key").toString(), "opaque");
+
+        QVERIFY(writeListing({{"text", "text preview"}, {"opaque", "opaque preview"}}));
+        ClipboardController history;
+        configure(history, QDir(m_data).filePath("history-entry-delete"));
+        history.initialize();
+        history.refresh();
+        QTRY_COMPARE_WITH_TIMEOUT(history.historyModel()->rowCount(), 2, 3000);
+        QSignalSpy historyDeleteSpy(&history, &ClipboardController::entryDeleteCompleted);
+        history.deleteHistoryEntry("opaque");
+        QTRY_COMPARE_WITH_TIMEOUT(historyDeleteSpy.count(), 1, 5000);
+        const QList<QVariant> historyDelete = historyDeleteSpy.takeFirst();
+        QVERIFY(!historyDelete.at(1).toBool());
+        QVERIFY(historyDelete.at(2).toBool());
+        QTRY_COMPARE_WITH_TIMEOUT(history.historyModel()->rowCount(), 1, 5000);
+        QCOMPARE(role(history.historyModel(), 0, "key").toString(), "text");
+    }
+
+    void deletionFailurePreservesHistoryAndFavorite()
+    {
+        QVERIFY(writeListing({{"text", "text preview"}}));
+        const QString favoriteDirectory = QDir(m_data).filePath("favorites-entry-delete-failure");
+        ClipboardController shell;
+        configure(shell, favoriteDirectory);
+        shell.initialize();
+        shell.refresh();
+        QTRY_COMPARE_WITH_TIMEOUT(shell.historyModel()->rowCount(), 1, 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!role(shell.historyModel(), 0, "loading").toBool(), 5000);
+        shell.setFavorite("text", true);
+        QTRY_COMPARE_WITH_TIMEOUT(shell.favoritesModel()->rowCount(), 1, 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!role(shell.favoritesModel(), 0, "loading").toBool(), 5000);
+
+        const QString favoriteHash = role(shell.favoritesModel(), 0, "key").toString();
+        const QString missingTool = QDir(m_data).filePath("missing-cliphist-for-delete");
+        QVERIFY(!QFileInfo::exists(missingTool));
+        shell.setCliphistPath(missingTool);
+        QSignalSpy deleteSpy(&shell, &ClipboardController::entryDeleteCompleted);
+        shell.deleteFavoriteEntry(favoriteHash);
+        QTRY_COMPARE_WITH_TIMEOUT(deleteSpy.count(), 1, 5000);
+        const QList<QVariant> result = deleteSpy.takeFirst();
+        QVERIFY(!result.at(2).toBool());
+        QVERIFY(!result.at(3).toString().isEmpty());
+        QCOMPARE(shell.historyModel()->rowCount(), 1);
+        QCOMPARE(shell.favoritesModel()->rowCount(), 1);
+        QVERIFY(QFileInfo::exists(QDir(favoriteDirectory).filePath(favoriteHash + ".payload")));
     }
 
     void evictionReleasesHistoryPayloadFile()

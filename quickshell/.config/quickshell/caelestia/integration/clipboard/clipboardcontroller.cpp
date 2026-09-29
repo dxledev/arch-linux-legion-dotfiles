@@ -33,13 +33,14 @@ ClipboardController::ClipboardController(QObject *parent)
         setError({});
         if (m_refreshInFlight) {
             m_refreshQueued = true;
-            m_discardListingAfterHistoryClear = true;
+            m_discardListingAfterHistoryMutation = true;
         } else {
             refresh();
         }
         emit historyClearCompleted(true, {});
     });
     connect(&m_backend, &CliphistBackend::decodeReady, this, &ClipboardController::acceptDecoded);
+    connect(&m_backend, &CliphistBackend::removeFinished, this, &ClipboardController::finishDelete);
     connect(&m_backend, &CliphistBackend::copyFinished, this,
             [this](const QString &key, quint64 request, bool success, const QString &message) {
         if (request != m_copyRequest)
@@ -60,6 +61,7 @@ QAbstractItemModel *ClipboardController::favoritesModel() const { return const_c
 QString ClipboardController::errorMessage() const { return m_favoritesStorageError.isEmpty() ? m_errorMessage : m_favoritesStorageError; }
 bool ClipboardController::loading() const { return m_loading; }
 bool ClipboardController::clearingHistory() const { return m_clearingHistory; }
+bool ClipboardController::deleting() const { return m_deleting; }
 QString ClipboardController::cliphistPath() const { return m_cliphistPath; }
 QString ClipboardController::wlCopyPath() const { return m_wlCopyPath; }
 QString ClipboardController::historyDatabasePath() const { return m_historyDatabasePath; }
@@ -129,6 +131,42 @@ void ClipboardController::clearHistory()
     m_backend.wipe(++m_historyClearRequest);
 }
 
+void ClipboardController::deleteHistoryEntry(const QString &key)
+{
+    if (!m_initialized)
+        initialize();
+    if (key.isEmpty() || !m_history.contains(key) || m_pendingHistoryDeletes.contains(key))
+        return;
+
+    const quint64 request = ++m_deleteRequest;
+    m_deleteOperations.insert(request, {key, {}, false});
+    m_pendingHistoryDeletes.insert(key);
+    updateDeleting();
+    setError({});
+    m_backend.removeEntries({key}, request);
+}
+
+void ClipboardController::deleteFavoriteEntry(const QString &hash)
+{
+    if (!m_initialized)
+        initialize();
+    if (hash.isEmpty() || !m_store.hashes().contains(hash)) {
+        const QString message = "That clipboard favorite is no longer available.";
+        setError(message);
+        emit entryDeleteCompleted(hash, true, false, message);
+        return;
+    }
+
+    const quint64 request = ++m_deleteRequest;
+    m_deferredFavoriteDeletes.insert(request, hash);
+    updateDeleting();
+    if (m_loading || m_refreshInFlight || m_decodeQueuePending || !m_decoding.isEmpty() || !m_pendingDecode.isEmpty())
+        return;
+
+    m_deferredFavoriteDeletes.remove(request);
+    startFavoriteDelete(request, hash);
+}
+
 bool ClipboardController::clearFavorites()
 {
     if (!m_initialized)
@@ -160,17 +198,19 @@ void ClipboardController::acceptListing(quint64 generation, const QStringList &k
     if (generation != m_generation)
         return;
     m_refreshInFlight = false;
-    if (m_discardListingAfterHistoryClear) {
-        m_discardListingAfterHistoryClear = false;
+    if (m_discardListingAfterHistoryMutation) {
+        m_discardListingAfterHistoryMutation = false;
         m_refreshQueued = false;
         refresh();
         return;
     }
     if (!success) {
+        m_historyListingAvailable = false;
         startDecodeQueue();
         finishRefreshIfReady();
         return;
     }
+    m_historyListingAvailable = true;
     setError({});
     QStringList order;
     QHash<QString, ClipboardEntry> next;
@@ -612,10 +652,124 @@ void ClipboardController::finishRefreshIfReady()
     if (m_refreshInFlight || m_decodeQueuePending || !m_decoding.isEmpty())
         return;
     setLoading(false);
+    const auto deferredDeletes = m_deferredFavoriteDeletes;
+    m_deferredFavoriteDeletes.clear();
+    for (auto it = deferredDeletes.cbegin(); it != deferredDeletes.cend(); ++it)
+        startFavoriteDelete(it.key(), it.value());
     if (m_refreshQueued) {
         m_refreshQueued = false;
         refresh();
     }
+}
+
+void ClipboardController::startFavoriteDelete(quint64 request, const QString &hash)
+{
+    if (!m_historyListingAvailable) {
+        const QString message = "Clipboard history could not be checked. Try again after it refreshes.";
+        setError(message);
+        emit entryDeleteCompleted(hash, true, false, message);
+        updateDeleting();
+        return;
+    }
+
+    for (auto it = m_history.cbegin(); it != m_history.cend(); ++it) {
+        if (it.value().contentHash.isEmpty()) {
+            const QString message = "A clipboard history entry could not be checked for this favorite.";
+            setError(message);
+            emit entryDeleteCompleted(hash, true, false, message);
+            updateDeleting();
+            return;
+        }
+    }
+
+    QStringList matchingKeys;
+    for (auto it = m_history.cbegin(); it != m_history.cend(); ++it)
+        if (it.value().contentHash == hash)
+            matchingKeys.append(it.key());
+
+    if (matchingKeys.isEmpty()) {
+        QString errorText;
+        const bool success = m_store.remove(hash, &errorText);
+        if (!success && errorText.isEmpty())
+            errorText = "Clipboard favorite could not be removed.";
+        if (!success)
+            setError(errorText);
+        else
+            setError({});
+        emit entryDeleteCompleted(hash, true, success, errorText);
+        updateDeleting();
+        return;
+    }
+
+    m_deleteOperations.insert(request, {hash, hash, true});
+    updateDeleting();
+    setError({});
+    m_backend.removeEntries(matchingKeys, request);
+}
+
+void ClipboardController::finishDelete(quint64 request, const QStringList &keys, bool success, const QString &errorText)
+{
+    const auto operation = m_deleteOperations.take(request);
+    if (operation.key.isEmpty())
+        return;
+    if (!operation.favorite)
+        m_pendingHistoryDeletes.remove(operation.key);
+
+    QString resultError = errorText;
+    const bool historyRemoved = success;
+    if (success) {
+        removeHistoryRows(keys);
+        if (operation.favorite) {
+            if (!m_store.remove(operation.favoriteHash, &resultError)) {
+                if (resultError.isEmpty())
+                    resultError = "Clipboard favorite could not be removed.";
+                success = false;
+            }
+        }
+    }
+    if (historyRemoved) {
+        if (m_refreshInFlight) {
+            m_refreshQueued = true;
+            m_discardListingAfterHistoryMutation = true;
+        } else {
+            refresh();
+        }
+    }
+    if (success) {
+        setError({});
+    } else {
+        setError(resultError.isEmpty() ? "Clipboard entry could not be deleted." : resultError);
+    }
+    emit entryDeleteCompleted(operation.key, operation.favorite, success, resultError);
+    updateDeleting();
+}
+
+void ClipboardController::removeHistoryRows(const QStringList &keys)
+{
+    for (const auto &key : keys) {
+        const ClipboardEntry entry = m_history.take(key);
+        m_historyOrder.removeAll(key);
+        m_pendingDecode.removeAll(key);
+        m_decoding.remove(key);
+        m_pendingFavorite.remove(key);
+        if (!entry.payloadPath.isEmpty())
+            QFile::remove(entry.payloadPath);
+        if (m_pendingCopy.remove(key)) {
+            const QString message = "That clipboard entry was deleted before it could be copied.";
+            setError(message);
+            emit copyCompleted(key, false, message);
+        }
+        m_historyModel.remove(key);
+    }
+}
+
+void ClipboardController::updateDeleting()
+{
+    const bool next = !m_deleteOperations.isEmpty() || !m_deferredFavoriteDeletes.isEmpty();
+    if (m_deleting == next)
+        return;
+    m_deleting = next;
+    emit deletingChanged();
 }
 
 void ClipboardController::setError(const QString &message)

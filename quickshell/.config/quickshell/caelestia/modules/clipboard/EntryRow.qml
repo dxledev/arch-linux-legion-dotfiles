@@ -26,9 +26,11 @@ Item {
     required property bool selected
     required property bool insertionBefore
     required property var controller
+    property bool rowHovered: false
 
     signal copyRequested
     signal favoriteRequested(bool enabled)
+    signal deleteRequested
     signal dragStarted(string key)
     signal dragMoved(point position)
     signal dragEnded
@@ -50,7 +52,7 @@ Item {
     StyledRect {
         anchors.fill: parent
         radius: Tokens.rounding.large
-        color: root.selected ? Colours.palette.m3secondaryContainer : Style.row
+        color: root.selected ? Colours.palette.m3secondaryContainer : root.rowHovered ? Style.rowHover : Style.row
         border.width: 0
         border.color: Style.accent
 
@@ -59,17 +61,27 @@ Item {
         }
     }
 
+    HoverHandler {
+        cursorShape: Qt.PointingHandCursor
+        onHoveredChanged: root.rowHovered = hovered
+    }
+
     MouseArea {
         anchors.fill: parent
         z: 1
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton
         onClicked: root.copyRequested()
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: Tokens.padding.small
-        spacing: Tokens.spacing.small
+        anchors.topMargin: Tokens.padding.small
+        anchors.bottomMargin: Tokens.padding.small
+        anchors.leftMargin: Tokens.padding.medium
+        anchors.rightMargin: Tokens.padding.medium
+        spacing: Tokens.spacing.medium
         z: 2
 
         Item {
@@ -181,7 +193,7 @@ Item {
                     anchors.fill: parent
                     acceptedButtons: Qt.LeftButton
                     hoverEnabled: true
-                    cursorShape: previewText.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: function(mouse) {
                         const link = previewText.linkAt(mouse.x, mouse.y);
                         if (link.length > 0) {
@@ -191,10 +203,6 @@ Item {
                             root.copyRequested();
                         }
                     }
-                }
-
-                HoverHandler {
-                    cursorShape: previewText.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
                 }
             }
 
@@ -224,14 +232,28 @@ Item {
             Keys.onReturnPressed: root.favoriteRequested(!root.isFavorite)
             Keys.onSpacePressed: root.favoriteRequested(!root.isFavorite)
         }
+
+        IconButton {
+            type: IconButton.Text
+            isRound: true
+            icon: "delete"
+            inactiveOnColour: Style.error
+            Accessible.name: root.favoritesTab ? "Delete favorite and matching history entries" : "Delete history entry"
+            activeFocusOnTab: true
+            enabled: !root.controller.deleting
+            stateLayer.manualHoverOverride: activeFocus
+            onClicked: root.deleteRequested()
+            Keys.onReturnPressed: root.deleteRequested()
+            Keys.onSpacePressed: root.deleteRequested()
+        }
     }
 
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.leftMargin: Tokens.padding.small
-        anchors.rightMargin: Tokens.padding.small
+        anchors.leftMargin: Tokens.padding.medium
+        anchors.rightMargin: Tokens.padding.medium
         height: 2
         z: 2.5
         color: Style.accent

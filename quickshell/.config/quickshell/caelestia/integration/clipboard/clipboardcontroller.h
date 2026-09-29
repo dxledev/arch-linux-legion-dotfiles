@@ -20,6 +20,7 @@ class ClipboardController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool clearingHistory READ clearingHistory NOTIFY clearingHistoryChanged)
+    Q_PROPERTY(bool deleting READ deleting NOTIFY deletingChanged)
     Q_PROPERTY(QString cliphistPath READ cliphistPath WRITE setCliphistPath)
     Q_PROPERTY(QString wlCopyPath READ wlCopyPath WRITE setWlCopyPath)
     Q_PROPERTY(QString historyDatabasePath READ historyDatabasePath WRITE setHistoryDatabasePath)
@@ -33,6 +34,7 @@ public:
     QString errorMessage() const;
     bool loading() const;
     bool clearingHistory() const;
+    bool deleting() const;
     QString cliphistPath() const;
     QString wlCopyPath() const;
     QString historyDatabasePath() const;
@@ -47,6 +49,8 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE bool clearFavorites();
+    Q_INVOKABLE void deleteHistoryEntry(const QString &key);
+    Q_INVOKABLE void deleteFavoriteEntry(const QString &hash);
     Q_INVOKABLE void prioritizeHistory(const QVariantList &keys);
     Q_INVOKABLE void copyEntry(const QString &key);
     Q_INVOKABLE void setFavorite(const QString &key, bool enabled);
@@ -56,7 +60,9 @@ signals:
     void errorMessageChanged();
     void loadingChanged();
     void clearingHistoryChanged();
+    void deletingChanged();
     void historyClearCompleted(bool success, QString errorText);
+    void entryDeleteCompleted(QString key, bool favorite, bool success, QString errorText);
     void operationCompleted(QString operation, QString key, bool success);
     void copyCompleted(QString key, bool success, QString errorText);
     void errorOccurred(QString message);
@@ -79,6 +85,16 @@ private:
     void finishRefreshIfReady();
     void copyPath(const QString &key, const QString &path, const QString &mimeType);
     void applyPendingOperations(const QString &key);
+    void startFavoriteDelete(quint64 request, const QString &hash);
+    void finishDelete(quint64 request, const QStringList &keys, bool success, const QString &errorText);
+    void removeHistoryRows(const QStringList &keys);
+    void updateDeleting();
+
+    struct DeleteOperation {
+        QString key;
+        QString favoriteHash;
+        bool favorite = false;
+    };
 
     ClipboardListModel m_historyModel;
     ClipboardListModel m_favoritesModel;
@@ -91,6 +107,9 @@ private:
     QHash<QString, quint64> m_decoding;
     QHash<QString, bool> m_pendingFavorite;
     QSet<QString> m_pendingCopy;
+    QSet<QString> m_pendingHistoryDeletes;
+    QHash<quint64, DeleteOperation> m_deleteOperations;
+    QHash<quint64, QString> m_deferredFavoriteDeletes;
     QSet<QString> m_favoriteClassifying;
     QStringList m_pendingFavoriteClassifications;
     QString m_errorMessage;
@@ -108,6 +127,9 @@ private:
     bool m_decodeQueuePending = false;
     bool m_loading = false;
     bool m_clearingHistory = false;
-    bool m_discardListingAfterHistoryClear = false;
+    bool m_deleting = false;
+    bool m_historyListingAvailable = false;
+    bool m_discardListingAfterHistoryMutation = false;
     quint64 m_historyClearRequest = 0;
+    quint64 m_deleteRequest = 0;
 };
