@@ -11,6 +11,7 @@ Searcher {
     id: root
 
     property bool refreshPending: false
+    property var promptRows: []
 
     function transformSearch(search: string): string {
         return search.slice(`${GlobalConfig.launcher.actionPrefix}terminal-prompt `.length);
@@ -29,6 +30,7 @@ Searcher {
     Variants {
         id: prompts
 
+        model: root.promptRows.map(prompt => prompt.id)
         Prompt {}
     }
 
@@ -42,13 +44,13 @@ Searcher {
         onExited: exitCode => {
             if (exitCode === 0) {
                 try {
-                    prompts.model = JSON.parse(stdout.text);
+                    root.promptRows = JSON.parse(stdout.text);
                 } catch (error) {
-                    prompts.model = [];
+                    root.promptRows = [];
                     console.warn("Could not parse prompts:", error);
                 }
             } else {
-                prompts.model = [];
+                root.promptRows = [];
                 console.warn("Could not load prompts:", stderr.text);
             }
             if (root.refreshPending) {
@@ -59,16 +61,17 @@ Searcher {
     }
 
     component Prompt: QtObject {
-        required property var modelData
-        readonly property string name: modelData.name
+        required property string modelData
+        readonly property var row: root.promptRows.find(prompt => prompt.id === modelData) ?? ({})
+        readonly property string name: row.name ?? ""
         readonly property string desc: current ? "Current prompt" : ""
         readonly property string icon: "terminal"
-        readonly property bool current: modelData.current
+        readonly property bool current: row.current ?? false
 
         function onClicked(list: AppList): void {
             list.screenState.launcher = false;
             if (!current)
-                Quickshell.execDetached(["/usr/bin/bash", Quickshell.shellPath("integration/terminal-prompt"), "--apply", modelData.id]);
+                Quickshell.execDetached(["/usr/bin/bash", Quickshell.shellPath("integration/terminal-prompt"), "--apply", modelData]);
         }
     }
 }

@@ -11,6 +11,7 @@ Searcher {
     id: root
 
     property bool refreshPending: false
+    property var fontRows: []
 
     function transformSearch(search: string): string {
         return search.slice(`${GlobalConfig.launcher.actionPrefix}fonts `.length);
@@ -29,6 +30,7 @@ Searcher {
     Variants {
         id: fonts
 
+        model: root.fontRows.map(font => font.name)
         Font {}
     }
 
@@ -42,13 +44,13 @@ Searcher {
         onExited: exitCode => {
             if (exitCode === 0) {
                 try {
-                    fonts.model = JSON.parse(stdout.text);
+                    root.fontRows = JSON.parse(stdout.text);
                 } catch (error) {
-                    fonts.model = [];
+                    root.fontRows = [];
                     console.warn("Could not parse fonts:", error);
                 }
             } else {
-                fonts.model = [];
+                root.fontRows = [];
                 console.warn("Could not load fonts:", stderr.text);
             }
             if (root.refreshPending) {
@@ -59,11 +61,12 @@ Searcher {
     }
 
     component Font: QtObject {
-        required property var modelData
-        readonly property string name: modelData.name
+        required property string modelData
+        readonly property var row: root.fontRows.find(font => font.name === modelData) ?? ({})
+        readonly property string name: modelData
         readonly property string desc: current ? "Current font" : ""
         readonly property string icon: "font_download"
-        readonly property bool current: modelData.current
+        readonly property bool current: row.current ?? false
 
         function onClicked(list: AppList): void {
             list.screenState.launcher = false;

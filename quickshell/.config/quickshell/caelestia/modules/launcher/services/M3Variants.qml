@@ -142,7 +142,7 @@ Searcher {
     Variants {
         id: aetherPaletteVariants
 
-        model: root.savedAetherPalettes
+        model: root.savedAetherPalettes.map(palette => `${palette.style}/${palette.mode}`)
         AetherPalette {}
     }
 
@@ -208,10 +208,10 @@ Searcher {
     }
 
     component AetherPalette: QtObject {
-        required property var modelData
+        required property string modelData
         readonly property string kind: "aether"
-        readonly property string style: modelData.style
-        readonly property string mode: modelData.mode
+        readonly property string style: modelData.slice(0, modelData.lastIndexOf("/"))
+        readonly property string mode: modelData.slice(modelData.lastIndexOf("/") + 1)
         readonly property string name: `${root.titleCase(style)} · ${root.titleCase(mode)}`
         readonly property string description: Tr.tr("Aether extraction palette")
         readonly property string icon: "palette"

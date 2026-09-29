@@ -13,6 +13,7 @@ Searcher {
     id: root
 
     property bool refreshPending: false
+    property var themeRows: []
 
     function transformSearch(search: string): string {
         return search.slice(`${GlobalConfig.launcher.actionPrefix}theme `.length);
@@ -31,6 +32,7 @@ Searcher {
     Variants {
         id: themes
 
+        model: root.themeRows.map(theme => theme.id)
         Theme {}
     }
 
@@ -44,13 +46,13 @@ Searcher {
         onExited: exitCode => {
             if (exitCode === 0) {
                 try {
-                    themes.model = JSON.parse(stdout.text);
+                    root.themeRows = JSON.parse(stdout.text);
                 } catch (error) {
-                    themes.model = [];
+                    root.themeRows = [];
                     console.warn("Could not parse themes:", error);
                 }
             } else {
-                themes.model = [];
+                root.themeRows = [];
                 console.warn("Could not load themes:", stderr.text);
             }
             if (root.refreshPending) {
@@ -61,14 +63,15 @@ Searcher {
     }
 
     component Theme: QtObject {
-        required property var modelData
-        readonly property string name: modelData.name
-        readonly property string themeId: modelData.id
-        readonly property string icon: modelData.icon
-        readonly property string iconType: modelData.iconType ?? "image"
-        readonly property bool current: modelData.current
-        readonly property bool applied: modelData.applied ?? false
-        readonly property bool dynamic: modelData.dynamic ?? false
+        required property string modelData
+        readonly property var row: root.themeRows.find(theme => theme.id === modelData) ?? ({})
+        readonly property string name: row.name ?? ""
+        readonly property string themeId: modelData
+        readonly property string icon: row.icon ?? ""
+        readonly property string iconType: row.iconType ?? "image"
+        readonly property bool current: row.current ?? false
+        readonly property bool applied: row.applied ?? false
+        readonly property bool dynamic: row.dynamic ?? false
 
         function onClicked(list: AppList): void {
             list.screenState.launcher = false;

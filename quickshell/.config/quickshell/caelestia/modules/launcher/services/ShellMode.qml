@@ -12,6 +12,7 @@ Searcher {
 
     readonly property string modeScript: Quickshell.env("SHELL_MODE_SCRIPT") || `${Quickshell.env("HOME")}/bin/toggle-shell-mode`
     property bool refreshPending: false
+    property var modeRows: []
 
     function transformSearch(search: string): string {
         return search.slice(`${GlobalConfig.launcher.actionPrefix}shell-mode `.length);
@@ -23,24 +24,25 @@ Searcher {
             return;
         }
 
-        modes.model = [{ name: "Reading active shell...", icon: "sync", error: true }];
+        root.modeRows = [{ id: "loading", name: "Reading active shell...", icon: "sync", error: true }];
         getMode.running = true;
     }
 
     function loadRows(exitCode: int): void {
         const current = getMode.stdout.text.trim();
         if (exitCode !== 0 || !["waybar", "caelestia", "noctalia"].includes(current)) {
-            modes.model = [{
+            root.modeRows = [{
+                id: "error",
                 name: "Could not read active shell",
                 description: "toggle-shell-mode --status failed",
                 icon: "error",
                 error: true
             }];
         } else {
-            modes.model = [
-                { name: "Waybar", icon: "view_compact", mode: "waybar", active: current === "waybar" },
-                { name: "Caelestia", icon: "widgets", mode: "caelestia", active: current === "caelestia" },
-                { name: "Noctalia", icon: "dashboard", mode: "noctalia", active: current === "noctalia" }
+            root.modeRows = [
+                { id: "waybar", name: "Waybar", icon: "view_compact", mode: "waybar", active: current === "waybar" },
+                { id: "caelestia", name: "Caelestia", icon: "widgets", mode: "caelestia", active: current === "caelestia" },
+                { id: "noctalia", name: "Noctalia", icon: "dashboard", mode: "noctalia", active: current === "noctalia" }
             ];
         }
 
@@ -55,6 +57,7 @@ Searcher {
 
     Variants {
         id: modes
+        model: root.modeRows.map(mode => mode.id)
         Mode {}
     }
 
@@ -68,18 +71,19 @@ Searcher {
     }
 
     component Mode: QtObject {
-        required property var modelData
-        readonly property string name: modelData.name
-        readonly property string desc: modelData.active ? "Active shell" : (modelData.description ?? "")
-        readonly property string icon: modelData.icon
+        required property string modelData
+        readonly property var row: root.modeRows.find(mode => mode.id === modelData) ?? ({})
+        readonly property string name: row.name ?? ""
+        readonly property string desc: row.active ? "Active shell" : (row.description ?? "")
+        readonly property string icon: row.icon ?? ""
 
         function onClicked(list: AppList): void {
-            if (modelData.error)
+            if (row.error)
                 return;
 
             list.screenState.launcher = false;
-            if (!modelData.active)
-                Quickshell.execDetached([root.modeScript, `--${modelData.mode}`]);
+            if (!row.active)
+                Quickshell.execDetached([root.modeScript, `--${row.mode}`]);
         }
     }
 }
