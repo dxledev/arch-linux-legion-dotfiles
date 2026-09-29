@@ -44,7 +44,7 @@ Searcher {
         const variants = variantSearch.query(trimmed);
         if (!savedAetherPalettes.length)
             return variants;
-        return [...variants, ...aetherMenuSearch.query(trimmed)];
+        return [...aetherMenuSearch.query(trimmed), ...variants];
     }
 
     property list<QtObject> allVariants: [
