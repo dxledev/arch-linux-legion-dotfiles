@@ -196,6 +196,7 @@ ColumnLayout {
                 delegate: EntryWrapper {
                     StatusIcons {
                         objectName: "taskbarStatusIcons"
+                        onPopoutRequested: name => root.pinPopout(name)
                     }
                 }
             }

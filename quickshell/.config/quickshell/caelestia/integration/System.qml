@@ -22,6 +22,15 @@ Singleton {
     property var brightnessMonitors: []
     property int brightnessWriteDelay: 100
     property int aiUsageRefreshIntervalSeconds: 300
+    readonly property var protonVpnDefaults: ({
+        cliPath: "/usr/bin/protonvpn",
+        nmcliPath: "/usr/bin/nmcli",
+        watchIntervalSeconds: 4,
+        refreshIntervalSeconds: 30,
+        panelRefreshIntervalSeconds: 5,
+        signInTerminal: ["/usr/bin/kitty"]
+    })
+    property var protonVpn: protonVpnDefaults
     property int wallpaperSlideshowIntervalSeconds: 300
     property bool hasProfilePicture: false
     property bool syncWindowRounding: true
@@ -61,6 +70,16 @@ Singleton {
                 const number = Number(value);
                 return Number.isFinite(number) ? Math.max(minimum, number) : fallback;
             };
+            const protonVpn = Object.assign({}, root.protonVpnDefaults, config.protonVpn || {});
+            for (const key of ["cliPath", "nmcliPath"])
+                if (typeof protonVpn[key] !== "string" || !protonVpn[key].startsWith("/"))
+                    protonVpn[key] = root.protonVpnDefaults[key];
+            if (!Array.isArray(protonVpn.signInTerminal) || protonVpn.signInTerminal.length === 0 || !protonVpn.signInTerminal.every(argument => typeof argument === "string") || !protonVpn.signInTerminal[0].startsWith("/"))
+                protonVpn.signInTerminal = root.protonVpnDefaults.signInTerminal;
+            protonVpn.watchIntervalSeconds = numberOr(protonVpn.watchIntervalSeconds, 4, 2);
+            protonVpn.refreshIntervalSeconds = numberOr(protonVpn.refreshIntervalSeconds, 30, 5);
+            protonVpn.panelRefreshIntervalSeconds = numberOr(protonVpn.panelRefreshIntervalSeconds, 5, 5);
+            root.protonVpn = protonVpn;
             root.clipboard = {
                 width: numberOr(clipboard.width, 1100, 1),
                 height: numberOr(clipboard.height, 700, 1),

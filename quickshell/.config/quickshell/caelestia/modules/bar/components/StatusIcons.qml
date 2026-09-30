@@ -14,6 +14,7 @@ StyledRect {
 
     property color colour: Colours.palette.m3secondary
     readonly property alias items: iconColumn
+    signal popoutRequested(name: string)
 
     readonly property int spacing: Tokens.spacing.medium / 2
 
@@ -155,6 +156,15 @@ StyledRect {
                     delegate: EntryWrapper {
                         AIUsageStatus {
                             colour: root.colour
+                        }
+                    }
+                }
+                DelegateChoice {
+                    roleValue: "protonVpn"
+                    delegate: EntryWrapper {
+                        ProtonVpnStatus {
+                            colour: root.colour
+                            onActivated: root.popoutRequested("protonvpn")
                         }
                     }
                 }

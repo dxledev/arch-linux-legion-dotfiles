@@ -74,6 +74,8 @@ local bindings = {
     { "SUPER + D", "Utilities", "drawers toggle utilities" },
     { "SUPER + SHIFT + B", "Session", "drawers toggle session" },
     { "SUPER + SHIFT + C", "Chromack Color Panel", "chromack toggle" },
+    { "SUPER + SHIFT + ALT + V", "Proton VPN", "popouts openProtonVpn" },
+    { "SUPER + ALT + B", "Battery", "popouts openBattery" },
 }
 
 for _, binding in ipairs(bindings) do

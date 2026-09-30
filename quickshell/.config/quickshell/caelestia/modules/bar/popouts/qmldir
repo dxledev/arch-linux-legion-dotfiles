@@ -15,6 +15,9 @@ Network 1.0 Network.qml
 NexusMenu 1.0 NexusMenu.qml
 ObsidianMenu 1.0 ObsidianMenu.qml
 PopoutState 1.0 PopoutState.qml
+ProtonVpnLocations 1.0 ProtonVpnLocations.qml
+ProtonVpnPopout 1.0 ProtonVpnPopout.qml
+ProtonVpnProtections 1.0 ProtonVpnProtections.qml
 RecordingControls 1.0 RecordingControls.qml
 SunshinePopout 1.0 SunshinePopout.qml
 TrayMenu 1.0 TrayMenu.qml

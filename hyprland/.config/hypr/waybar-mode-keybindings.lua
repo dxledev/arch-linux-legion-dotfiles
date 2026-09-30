@@ -1,4 +1,5 @@
 local bindings = {
+  { "SUPER + SHIFT + ALT + V", "Proton VPN", "~/bin/launch-vpn" },
   { "SUPER + SHIFT + CTRL + C", "Config", "~/bin/menu-config" },
   { "SUPER + ALT + V", "Audio Menu", "~/bin/menu-audio" },
   { "SUPER + ALT + N", "Share Menu", "~/bin/menu-share" },
@@ -53,6 +54,7 @@ local bindings = {
 hl.unbind("SUPER + SPACE")
 
 local mode_owned_keys = {
+  "SUPER + SHIFT + ALT + V",
   "SUPER + SHIFT + CTRL + C",
   "SUPER + SHIFT + CTRL + A",
   "SUPER + ALT + V",

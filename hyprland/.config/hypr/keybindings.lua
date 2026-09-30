@@ -107,7 +107,6 @@ local simple_binds = {
   { mainMod .. " SHIFT ALT", "F", "Launch File Explorer", "nemo" },
   { mainMod, "B", "Launch Browser", "brave" },
   { mainMod .. " SHIFT CTRL ALT", "B", "Launch Alt Browser", "chromium" },
-  { mainMod .. " SHIFT ALT", "V", "Launch VPN Service", "~/bin/launch-vpn" },
 }
 
 for _, item in ipairs(simple_binds) do

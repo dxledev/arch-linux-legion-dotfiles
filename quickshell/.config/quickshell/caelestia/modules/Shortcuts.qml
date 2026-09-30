@@ -131,6 +131,14 @@ Scope {
         function openAudio(): void {
             ShellState.componentsForActive()?.bar?.pinPopout("audio");
         }
+
+        function openBattery(): void {
+            ShellState.componentsForActive()?.bar?.pinPopout("battery");
+        }
+
+        function openProtonVpn(): void {
+            ShellState.componentsForActive()?.bar?.pinPopout("protonvpn");
+        }
     }
 
     IpcHandler {

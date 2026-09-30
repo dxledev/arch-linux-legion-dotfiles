@@ -64,7 +64,8 @@
         },
         "persistent": true,
         "popouts": {
-            "activeWindow": true
+            "activeWindow": true,
+            "statusIcons": true
         },
         "showOnHover": true,
         "statusIcons": [
@@ -79,6 +80,10 @@
             {
                 "enabled": true,
                 "id": "sunshine"
+            },
+            {
+                "enabled": true,
+                "id": "protonVpn"
             },
             {
                 "enabled": true,

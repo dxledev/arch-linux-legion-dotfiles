@@ -1,3 +1,40 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-protonvpn-app
+mode_script="${SHELL_MODE_SCRIPT:-$HOME/bin/toggle-shell-mode}"
+vpn_app="${PROTONVPN_APP_BIN:-/usr/bin/protonvpn-app}"
+notify_send="${NOTIFY_SEND_BIN:-/usr/bin/notify-send}"
+dry_run=0
+
+usage() {
+    printf '%s\n' 'Usage: launch-vpn [--dry-run]'
+}
+
+case "${1:-}" in
+    --help|-h) usage; exit 0 ;;
+    --dry-run) dry_run=1; shift ;;
+esac
+(( $# == 0 )) || { usage >&2; exit 2; }
+[[ "$mode_script" == /* && -x "$mode_script" ]] || exit 1
+[[ "$vpn_app" == /* && -x "$vpn_app" ]] || exit 1
+[[ "$notify_send" == /* ]] || exit 1
+
+mode="$("$mode_script" --status)" || exit 1
+case "$mode" in
+    caelestia)
+        if (( dry_run )); then
+            printf '%s\n' 'Blocked: Proton VPN desktop app is disabled in Caelestia; use SUPER+SHIFT+ALT+V for the native panel.'
+        elif [[ -x "$notify_send" ]]; then
+            "$notify_send" -t 2500 'Proton VPN' 'Use SUPER+SHIFT+ALT+V for the Caelestia VPN panel.' >/dev/null 2>&1 || true
+        fi
+        exit 0
+        ;;
+    waybar|noctalia) ;;
+    *) exit 1 ;;
+esac
+
+if (( dry_run )); then
+    printf 'Launch: %s\n' "$vpn_app"
+else
+    exec "$vpn_app"
+fi

@@ -131,6 +131,13 @@ Item {
         }
 
         Popout {
+            name: "protonvpn"
+            sourceComponent: ProtonVpnPopout {
+                popouts: root.popouts
+            }
+        }
+
+        Popout {
             name: "sunshine"
             sourceComponent: SunshinePopout {
                 popouts: root.popouts

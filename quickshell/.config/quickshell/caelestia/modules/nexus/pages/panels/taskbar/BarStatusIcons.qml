@@ -18,6 +18,7 @@ PageBase {
             battery: Tr.tr("Battery"),
             hymission: Tr.tr("Hymission"),
             aiUsage: Tr.tr("AI Usage"),
+            protonVpn: Tr.tr("Proton VPN"),
             sunshine: Tr.tr("Sunshine")
         })
 

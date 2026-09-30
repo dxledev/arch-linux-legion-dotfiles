@@ -100,6 +100,10 @@ Item {
         id: popoutState
 
         onDetachRequested: mode => root.detach(mode)
+        onPinRequested: {
+            root.pinned = true;
+            root.forceActiveFocus();
+        }
         onWifiQrRequested: (ssid, iface) => {
             root.close();
             wifiQrModal.open(ssid, iface);

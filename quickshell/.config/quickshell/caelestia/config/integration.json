@@ -5,6 +5,14 @@
     {"connector": "DP-1", "label": "Secondary"}
   ],
   "aiUsageRefreshIntervalSeconds": 300,
+  "protonVpn": {
+    "cliPath": "/usr/bin/protonvpn",
+    "nmcliPath": "/usr/bin/nmcli",
+    "watchIntervalSeconds": 4,
+    "refreshIntervalSeconds": 30,
+    "panelRefreshIntervalSeconds": 5,
+    "signInTerminal": ["/usr/bin/kitty"]
+  },
   "wallpaperSlideshowIntervalSeconds": 300,
   "chromack": {"width": 520, "height": 610, "inputFontSize": 13, "duration": 220},
   "clipboard": {

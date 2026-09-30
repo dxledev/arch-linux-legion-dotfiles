@@ -7,6 +7,7 @@ local knob_press = home .. "/bin/knob-press"
 local knob_release = home .. "/bin/knob-release"
 
 local shell_bindings = {
+  "SUPER + SHIFT + ALT + V",
   "SUPER + SHIFT + CTRL + C",
   "SUPER + SHIFT + CTRL + A",
   "SUPER + ALT + V",
@@ -82,6 +83,8 @@ local function bind_message(key, description, message, options)
   hl.unbind(key)
   hl.bind(key, hl.dsp.exec_cmd(command(message)), options or { description = description })
 end
+
+bind_panel("SUPER + SHIFT + ALT + V", "NoctaProton VPN", "riversyx/noctaproton-vpn:panel")
 
 bind_message("SUPER + SHIFT + CTRL + C", "Settings", "settings-toggle")
 bind_panel("SUPER + ALT + V", "Audio Menu", "control-center audio")
