@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell
-import Quickshell.Widgets
 import Caelestia.Config
 import qs.components
+import qs.components.effects
 import qs.services
 import qs.utils
 import qs.modules.launcher.services
@@ -36,10 +36,12 @@ Item {
         anchors.rightMargin: Tokens.padding.medium
         anchors.margins: Tokens.padding.small
 
-        IconImage {
+        ColouredAppIcon {
             id: icon
 
-            asynchronous: true
+            colorize: Config.launcher.colorizeIcons
+            colour: Colours.light ? Colours.palette.m3onSurface : Colours.palette.m3onSurfaceVariant
+            light: Colours.light
             source: root.modelData?.icon?.startsWith("/")
                 ? Qt.resolvedUrl(root.modelData.icon)
                 : Quickshell.iconPath(root.modelData?.icon, "image-missing")

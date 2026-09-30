@@ -84,6 +84,13 @@ PageBase {
             onMoved: v => GlobalConfig.launcher.maxWallpapers = v
         }
 
+        ToggleRow {
+            text: Tr.tr("Colorize app icons")
+            subtext: Tr.tr("Tint launcher app icons with the theme foreground colour")
+            checked: Config.launcher.colorizeIcons
+            onToggled: GlobalConfig.launcher.colorizeIcons = checked
+        }
+
         StepperRow {
             last: true
             label: Tr.tr("Drag threshold")

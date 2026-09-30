@@ -483,7 +483,9 @@
                 "icon": "view_week",
                 "name": "Workspace Icons"
             }
-        ]
+        ],
+        "colorizeIcons": true,
+        "vimKeybinds": false
     },
     "osd": {
         "enabled": true

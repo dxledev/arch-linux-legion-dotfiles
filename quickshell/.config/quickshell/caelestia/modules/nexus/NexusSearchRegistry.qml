@@ -103,6 +103,7 @@ Searcher {
         setting(Tr.tr("Fuzzy search"), Tr.tr("Configure launcher fuzzy search categories"), Tr.tr("Panels › Launcher"), "search", 4, [3], "launcher"),
         setting(Tr.tr("Max items shown"), Tr.tr("Maximum launcher results"), Tr.tr("Panels › Launcher"), "format_list_numbered", 4, [3], "launcher"),
         setting(Tr.tr("Max wallpapers"), Tr.tr("Maximum wallpaper results"), Tr.tr("Panels › Launcher"), "wallpaper", 4, [3], "launcher"),
+        setting(Tr.tr("Colorize app icons"), Tr.tr("Tint launcher app icons with the theme foreground colour"), Tr.tr("Panels › Launcher"), "palette", 4, [3], "launcher color colour icons"),
         setting(Tr.tr("Drag threshold"), Tr.tr("Pixels dragged before the launcher opens"), Tr.tr("Panels › Launcher"), "drag_handle", 4, [3], "gesture"),
         setting(Tr.tr("Vim keybinds"), Tr.tr("Navigate results with Ctrl+hjkl"), Tr.tr("Panels › Launcher"), "keyboard", 4, [3]),
         setting(Tr.tr("Enable dangerous actions"), Tr.tr("Allow actions that shut down or log out"), Tr.tr("Panels › Launcher"), "warning", 4, [3]),

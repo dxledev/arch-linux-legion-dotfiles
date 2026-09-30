@@ -18,10 +18,21 @@ for source in caelestia libcava m3shapes caelestia-cli; do
     [[ -d "$sources/$source" ]] || { printf 'Missing clone: %s\n' "$sources/$source" >&2; exit 1; }
 done
 run() { if (( dry_run )); then printf '%q ' "$@"; printf '\n'; else "$@"; fi; }
+prepare_caelestia() {
+    local source_dir="$1"
+    run /usr/bin/mkdir -p -- "$source_dir"
+    run /usr/bin/cp -a -- "$sources/caelestia/." "$source_dir/"
+    run /usr/bin/git -C "$source_dir" apply "$root/scripts/patches/caelestia-launcher-icon-colorization.patch"
+}
 build_cmake() {
     local project="$1"
     shift
-    run /usr/bin/cmake -S "$sources/$project" -B "$build_dir/$project" -G Ninja \
+    local source_dir="$sources/$project"
+    if [[ "$project" == caelestia ]]; then
+        source_dir="$build_dir/caelestia-source"
+        prepare_caelestia "$source_dir"
+    fi
+    run /usr/bin/cmake -S "$source_dir" -B "$build_dir/$project" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$runtime" -DINSTALL_QMLDIR=qml \
         -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON "-DCMAKE_INSTALL_RPATH=\$ORIGIN;$runtime/lib" "$@"
     run /usr/bin/cmake --build "$build_dir/$project" -j "$jobs"
@@ -42,5 +53,6 @@ build_cmake caelestia -DINSTALL_LIBDIR=lib/caelestia '-DENABLE_MODULES=extras;pl
 run /usr/bin/bash "$root/scripts/build-integration"
 run /usr/bin/bash "$root/scripts/build-chromack"
 run /usr/bin/bash "$root/scripts/build-clipboard"
+run /usr/bin/bash "$root/scripts/build-app-icons"
 run /usr/bin/python -m venv "$runtime/cli"
 run "$runtime/cli/bin/pip" install "$sources/caelestia-cli"

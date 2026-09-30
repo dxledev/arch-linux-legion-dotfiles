@@ -2,6 +2,12 @@ termshark() {
   env -u COLORTERM /usr/bin/termshark "$@"
 }
 
+unalias firefox 2>/dev/null || true
+firefox() {
+  command nohup firefox --private-window "$@" </dev/null >/dev/null 2>&1 &
+  disown %%
+}
+
 codex() {
   if (( $+functions[load-nvm] )); then
     load-nvm
