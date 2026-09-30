@@ -16,5 +16,8 @@ QtObject {
     readonly property color onError: Services.Colours.palette.m3onError
     readonly property int padding: Tokens.padding.large
     readonly property int gap: Tokens.spacing.medium
-    readonly property int rowHeight: 82
+    readonly property int rowHeight: Math.max(56, ClipboardState.options.rowHeight ?? 64)
+    readonly property int rowPadding: 10
+    readonly property int rowGap: 4
+    readonly property int thumbnailSize: 40
 }

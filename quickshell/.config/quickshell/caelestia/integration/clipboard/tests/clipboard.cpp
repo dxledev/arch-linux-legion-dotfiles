@@ -595,15 +595,64 @@ cat > "$root/copied-payload"
         QVERIFY(multiline.searchableText.contains("fourth searchable tail"));
     }
 
+    void richTextClassificationAndPreview()
+    {
+        const QString path = QDir(m_data).filePath("rich-preview");
+        const QString thumbs = QDir(m_data).filePath("rich-thumbnails");
+        const QList<QPair<QByteArray, QString>> cases = {
+            {"https://example.com/path?q=1", "link"},
+            {"file:///tmp/example.txt", "files"},
+            {"#7aa2f7", "color"},
+            {"{\"name\": \"clipboard\", \"count\": 2}", "json"},
+            {"function pasteEntry(id) {\n  return id;\n}", "code"},
+            {"The quick brown fox\nfull preview tail", "text"},
+            {"prefix https://example.com/ is prose", "text"},
+            {"{invalid json}", "text"}
+        };
+        for (const auto &test : cases) {
+            QVERIFY(writeFile(path, test.first));
+            const auto description = PayloadClassifier::inspect(path, thumbs);
+            QCOMPARE(description.payloadKind, test.second);
+            QCOMPARE(description.contentText, QString::fromUtf8(test.first));
+        }
+        QVERIFY(writeFile(path, QByteArray(140 * 1024, 'x')));
+        const auto bounded = PayloadClassifier::inspect(path, thumbs);
+        QVERIFY(bounded.contentText.size() < 129 * 1024);
+        QVERIFY(bounded.contentText.endsWith("copying preserves the full payload."));
+        QCOMPARE(bounded.size, 140 * 1024);
+    }
+
+    void qrImagePreview()
+    {
+        const QString encoder = QStandardPaths::findExecutable("qrencode");
+        if (encoder.isEmpty())
+            QSKIP("qrencode is not available for the QR fixture");
+        const QString path = QDir(m_data).filePath("qr-preview.png");
+        QProcess process;
+        process.start(encoder, {"-o", path, "https://example.com/clipboard-qr"});
+        QVERIFY(process.waitForFinished(3000));
+        QCOMPARE(process.exitCode(), 0);
+        const auto description = PayloadClassifier::inspect(path, QDir(m_data).filePath("qr-thumbnails"));
+        QCOMPARE(description.payloadKind, "image");
+        QVERIFY(!description.imageUrl.isEmpty());
+#ifdef CLIPBOARD_TEST_HAS_ZXING
+        QCOMPARE(description.qrText, "https://example.com/clipboard-qr");
+        QVERIFY(description.searchableText.contains(description.qrText));
+#endif
+    }
+
     void filterRetainsSourceOrderAndMatchesDecodedText()
     {
         ClipboardListModel source(false);
         ClipboardEntry newest;
         newest.key = "newest";
         newest.searchableText = "URL https://example.com/clip";
+        newest.payloadKind = "link";
         ClipboardEntry older;
         older.key = "older";
         older.searchableText = "Unicode string: café";
+        older.payloadKind = "text";
+        older.contentText = "Unicode string: café";
         source.replace({newest, older});
         ClipboardFilterModel filtered;
         filtered.setSourceModel(&source);
@@ -613,6 +662,55 @@ cat > "$root/copied-payload"
         filtered.setQuery("");
         QCOMPARE(filtered.rowCount(), 2);
         QCOMPARE(filtered.keyAt(0), "newest");
+        filtered.setKind("text");
+        QCOMPARE(filtered.count(), 1);
+        QCOMPARE(filtered.keyAt(0), "older");
+        QCOMPARE(filtered.entryAt(0).value("contentText").toString(), older.contentText);
+        QVERIFY(filtered.entryAt(-1).isEmpty());
+        QVERIFY(filtered.entryAt(1).isEmpty());
+        filtered.setQuery("example");
+        QCOMPARE(filtered.count(), 0);
+        filtered.setKind("link");
+        QCOMPARE(filtered.count(), 1);
+        QCOMPARE(filtered.keyAt(0), "newest");
+        newest.payloadKind = "text";
+        source.upsert(newest);
+        QCOMPARE(filtered.count(), 0);
+    }
+
+    void copiedContentIdentitySurvivesNewHistoryKey()
+    {
+        const QByteArray payload = "Keep the selection attached to copied content";
+        QVERIFY(writeFile(QDir(m_payloads).filePath("copy-before"), payload));
+        QVERIFY(writeFile(QDir(m_payloads).filePath("copy-after"), payload));
+        QVERIFY(writeFile(QDir(m_payloads).filePath("copy-other"), "Other entry"));
+        QVERIFY(writeListing({{"copy-other", "Other entry"}, {"copy-before", "Copied entry"}}));
+        ClipboardController shell;
+        configure(shell, QDir(m_data).filePath("favorites-copy-identity"));
+        shell.refresh();
+        QTRY_VERIFY_WITH_TIMEOUT(!shell.loading(), 5000);
+        ClipboardFilterModel filtered;
+        filtered.setSourceModel(shell.historyModel());
+        const QString hash = filtered.entryAt(1).value("contentHash").toString();
+        QCOMPARE(hash, QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex()));
+
+        QSignalSpy copied(&shell, &ClipboardController::copyCompleted);
+        shell.copyEntry("copy-before");
+        QTRY_COMPARE_WITH_TIMEOUT(copied.count(), 1, 3000);
+        QVERIFY(copied.at(0).at(1).toBool());
+        bool publishedUndecoded = false;
+        connect(shell.historyModel(), &QAbstractItemModel::rowsInserted, this,
+                [&](const QModelIndex &, int first, int last) {
+            for (int row = first; row <= last; ++row)
+                publishedUndecoded |= role(shell.historyModel(), row, "loading").toBool();
+        });
+        QVERIFY(writeListing({{"copy-after", "Copied entry"}, {"copy-other", "Other entry"}}));
+        shell.refresh();
+        QTRY_VERIFY_WITH_TIMEOUT(!shell.loading(), 5000);
+        QCOMPARE(filtered.keyAt(0), "copy-after");
+        QCOMPARE(filtered.entryAt(0).value("contentHash").toString(), hash);
+        QVERIFY(filtered.entryAt(1).value("contentHash").toString() != hash);
+        QVERIFY(!publishedUndecoded);
     }
 
     void refreshPreservesStableRowsWithoutResettingModel()

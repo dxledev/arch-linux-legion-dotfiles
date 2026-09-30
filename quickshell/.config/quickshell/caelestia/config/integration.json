@@ -8,8 +8,10 @@
   "wallpaperSlideshowIntervalSeconds": 300,
   "chromack": {"width": 520, "height": 610, "inputFontSize": 13, "duration": 220},
   "clipboard": {
-    "width": 640,
-    "height": 610,
+    "width": 1100,
+    "height": 700,
+    "rowHeight": 64,
+    "listRatio": 0.48,
     "durationMs": 220,
     "searchDebounceMs": 150,
     "historyRefreshMs": 2000,

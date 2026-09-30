@@ -18,6 +18,11 @@ qt_add_qml_module(shellclipboard
         clipboardcontroller.h clipboardcontroller.cpp
 )
 target_link_libraries(shellclipboard PRIVATE Qt6::Concurrent Qt6::Core Qt6::Gui)
+find_package(ZXing QUIET)
+if(ZXing_FOUND)
+    target_link_libraries(shellclipboard PRIVATE ZXing::ZXing)
+    target_compile_definitions(shellclipboard PRIVATE CLIPBOARD_HAS_ZXING)
+endif()
 set_target_properties(shellclipboard shellclipboardplugin PROPERTIES INSTALL_RPATH "$ORIGIN")
 install(TARGETS shellclipboard shellclipboardplugin LIBRARY DESTINATION qml/Shell/Clipboard)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/Shell/Clipboard/qmldir"
@@ -31,6 +36,9 @@ if(BUILD_TESTING)
         HINTS "${Qt6Core_DIR}/../../qt6/bin" "${Qt6Core_DIR}/../../bin" /usr/lib/qt6/bin
         NO_DEFAULT_PATH REQUIRED)
     add_executable(test-clipboard tests/clipboard.cpp)
+    if(ZXing_FOUND)
+        target_compile_definitions(test-clipboard PRIVATE CLIPBOARD_TEST_HAS_ZXING)
+    endif()
     target_link_libraries(test-clipboard PRIVATE shellclipboard Qt6::Core Qt6::Gui Qt6::Test Qt6::Concurrent Qt6::Qml)
     target_include_directories(test-clipboard PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME clipboard COMMAND test-clipboard)

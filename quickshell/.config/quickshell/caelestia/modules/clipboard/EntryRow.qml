@@ -7,6 +7,7 @@ import Caelestia.Config
 import qs.components
 import qs.components.controls
 import qs.services
+import "Format.js" as Format
 
 Item {
     id: root
@@ -28,6 +29,7 @@ Item {
     required property var controller
     property bool rowHovered: false
 
+    signal selectRequested
     signal copyRequested
     signal favoriteRequested(bool enabled)
     signal deleteRequested
@@ -36,18 +38,8 @@ Item {
     signal dragEnded
     signal dragCancelled
 
-    readonly property int rowHeight: kind === "image" ? 110 : 96
-    implicitHeight: rowHeight
+    implicitHeight: Style.rowHeight
     clip: true
-
-    function escapeHtml(value: string): string {
-        return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
-    }
-
-    function richPreview(value: string): string {
-        const safe = escapeHtml(value).replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, "<br/>");
-        return safe.replace(/https?:\/\/[^\s<>]+/gi, link => `<a href="${link}">${link}</a>`);
-    }
 
     StyledRect {
         anchors.fill: parent
@@ -72,16 +64,17 @@ Item {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton
-        onClicked: root.copyRequested()
+        onClicked: root.selectRequested()
+        onDoubleClicked: root.copyRequested()
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.topMargin: Tokens.padding.small
-        anchors.bottomMargin: Tokens.padding.small
-        anchors.leftMargin: Tokens.padding.medium
-        anchors.rightMargin: Tokens.padding.medium
-        spacing: Tokens.spacing.medium
+        anchors.topMargin: Style.rowPadding
+        anchors.bottomMargin: Style.rowPadding
+        anchors.leftMargin: Style.rowPadding
+        anchors.rightMargin: Style.rowPadding
+        spacing: Style.rowPadding
         z: 2
 
         Item {
@@ -125,98 +118,50 @@ Item {
             }
         }
 
-        Image {
-            Layout.preferredWidth: 76
-            Layout.preferredHeight: 66
-            visible: root.kind === "image" && root.thumbnail.length > 0
-            source: root.thumbnail
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            cache: true
-        }
-
         Rectangle {
-            Layout.preferredWidth: 76
-            Layout.preferredHeight: 66
-            visible: root.kind === "image" && root.thumbnail.length === 0
-            radius: Tokens.rounding.medium
-            color: Colours.palette.m3surfaceContainerHighest
+            Layout.preferredWidth: Style.thumbnailSize
+            Layout.preferredHeight: Style.thumbnailSize
+            radius: Tokens.rounding.small
+            color: root.kind === "color" ? root.preview.trim() : Colours.palette.m3surfaceContainerHighest
+
+            Image {
+                anchors.fill: parent
+                visible: root.kind === "image" && root.thumbnail.length > 0
+                source: root.thumbnail
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+            }
 
             MaterialIcon {
                 anchors.centerIn: parent
-                text: "image"
+                visible: root.kind !== "color" && !(root.kind === "image" && root.thumbnail.length > 0)
+                text: ({image: "image", files: "folder", link: "link", code: "code", json: "data_object", binary: "memory"})[root.kind] || "description"
                 color: Style.muted
-                fontStyle: Tokens.font.icon.large
+                fontStyle: Tokens.font.icon.medium
             }
-        }
-
-        MaterialIcon {
-            Layout.preferredWidth: root.kind === "files" ? 28 : 0
-            Layout.preferredHeight: 30
-            visible: root.kind === "files"
-            text: "folder"
-            color: Style.accent
-            fontStyle: Tokens.font.icon.medium
-        }
-
-        MaterialIcon {
-            Layout.preferredWidth: root.kind === "binary" ? 28 : 0
-            Layout.preferredHeight: 30
-            visible: root.kind === "binary"
-            text: "data_object"
-            color: Style.muted
-            fontStyle: Tokens.font.icon.medium
         }
 
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: 2
+            spacing: 3
 
             Text {
-                id: previewText
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.preferredHeight: 54
-                Layout.maximumHeight: 54
-                text: root.richPreview(root.preview)
-                textFormat: Text.RichText
-                color: Style.text
-                linkColor: Style.accent
-                wrapMode: Text.Wrap
-                maximumLineCount: 3
+                text: root.preview.replace(/[\r\n\t]+/g, " ")
+                textFormat: Text.PlainText
+                color: root.selected ? Style.accent : Style.text
+                maximumLineCount: 1
                 elide: Text.ElideRight
                 font: Tokens.font.body.small
-                clip: true
-
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.LeftButton
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: function(mouse) {
-                        const link = previewText.linkAt(mouse.x, mouse.y);
-                        if (link.length > 0) {
-                            if (/^https?:\/\//i.test(link))
-                                Qt.openUrlExternally(link);
-                        } else {
-                            root.copyRequested();
-                        }
-                    }
-                }
             }
 
-            RowLayout {
+            Text {
                 Layout.fillWidth: true
-                spacing: Tokens.spacing.small
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.isLoading ? "Decoding…" : root.error.length ? root.error : `${root.kind || "clipboard"} · ${root.mime || "type unknown"} · ${root.byteSize} bytes`
-                    color: root.error.length ? Style.error : Style.muted
-                    elide: Text.ElideRight
-                    font: Tokens.font.label.small
-                }
+                text: root.isLoading ? "Decoding…" : root.error.length ? root.error
+                    : `${root.kind || "clipboard"} · ${root.mime || "type unknown"} · ${Format.bytes(root.byteSize)}`
+                color: root.error.length ? Style.error : Style.muted
+                elide: Text.ElideRight
+                font: Tokens.font.label.small
             }
         }
 
@@ -225,7 +170,7 @@ Item {
             type: IconButton.Text
             isToggle: true
             checked: root.isFavorite
-            Accessible.name: root.isFavorite ? "Remove from favorites" : "Add to favorites"
+            Accessible.name: root.isFavorite ? "Unpin entry" : "Pin entry"
             activeFocusOnTab: true
             stateLayer.manualHoverOverride: activeFocus
             onClicked: root.favoriteRequested(!root.isFavorite)
@@ -238,7 +183,7 @@ Item {
             isRound: true
             icon: "delete"
             inactiveOnColour: Style.error
-            Accessible.name: root.favoritesTab ? "Delete favorite and matching history entries" : "Delete history entry"
+            Accessible.name: root.favoritesTab ? "Delete pinned entry and matching history entries" : "Delete history entry"
             activeFocusOnTab: true
             enabled: !root.controller.deleting
             stateLayer.manualHoverOverride: activeFocus
@@ -252,8 +197,8 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.leftMargin: Tokens.padding.medium
-        anchors.rightMargin: Tokens.padding.medium
+        anchors.leftMargin: Style.rowPadding
+        anchors.rightMargin: Style.rowPadding
         height: 2
         z: 2.5
         color: Style.accent

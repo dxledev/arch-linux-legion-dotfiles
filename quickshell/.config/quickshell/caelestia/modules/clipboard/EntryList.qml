@@ -13,7 +13,13 @@ Item {
     required property bool favorites
     required property string query
     required property string searchText
+    property string kindFilter: ""
+    property var selectedEntry: ({})
+    readonly property int count: filterModel.count
     property string selectedKey: ""
+    property string selectedHash: ""
+    property bool refreshing: false
+    property real refreshScroll: 0
     property string insertionKey: ""
     property bool dropAtEnd: false
     property string draggingKey: ""
@@ -24,33 +30,71 @@ Item {
 
     signal deleteFavoriteRequested(string key)
 
+    function refreshPreview(): void {
+        if (refreshing)
+            return;
+        selectedEntry = filterModel.entryAt(list.currentIndex);
+        const key = selectedEntry.key || "";
+        selectedKey = key;
+        selectedHash = selectedEntry.contentHash || "";
+        if (!favorites && key.length > 0)
+            controller.prioritizeHistory([key]);
+    }
+
+    function selectIndex(index: int): void {
+        list.currentIndex = index;
+        const wasRefreshing = refreshing;
+        refreshing = false;
+        refreshPreview();
+        refreshing = wasRefreshing;
+        refreshScroll = list.contentY;
+    }
+
     function copySelected(): void {
         const key = filterModel.keyAt(list.currentIndex);
         if (key.length > 0)
-            controller.copyEntry(key);
+            ClipboardState.copyEntry(key, true);
     }
 
     function selectRelative(offset: int): void {
         if (list.count === 0)
             return;
         const next = list.currentIndex < 0 ? 0 : Math.max(0, Math.min(list.count - 1, list.currentIndex + offset));
-        list.currentIndex = next;
+        selectIndex(next);
         list.positionViewAtIndex(next, ListView.Contain);
-        selectedKey = filterModel.keyAt(next);
+        refreshScroll = list.contentY;
+    }
+
+    function selectionIndex(): int {
+        for (let row = 0; row < filterModel.count; row++) {
+            if (filterModel.keyAt(row) === selectedKey)
+                return row;
+        }
+        if (selectedHash.length > 0) {
+            for (let row = 0; row < filterModel.count; row++) {
+                if (filterModel.entryAt(row).contentHash === selectedHash)
+                    return row;
+            }
+        }
+        return filterModel.count > 0 ? 0 : -1;
     }
 
     function restoreSelection(): void {
-        if (!selectedKey.length)
+        if (refreshing)
             return;
-        for (let row = 0; row < filterModel.count; row++) {
-            if (filterModel.keyAt(row) === selectedKey) {
-                list.currentIndex = row;
-                return;
-            }
-        }
-        list.currentIndex = filterModel.count > 0 ? 0 : -1;
-        if (filterModel.count > 0)
-            selectedKey = filterModel.keyAt(0);
+        list.currentIndex = selectionIndex();
+        refreshPreview();
+    }
+
+    function finishRefresh(): void {
+        if (!refreshing || controller.loading)
+            return;
+        list.forceLayout();
+        list.currentIndex = selectionIndex();
+        list.forceLayout();
+        refreshing = false;
+        refreshPreview();
+        list.contentY = Math.max(list.originY, Math.min(refreshScroll, list.originY + Math.max(0, list.contentHeight - list.height)));
     }
 
     function prioritizeVisible(): void {
@@ -98,6 +142,7 @@ Item {
         id: filterModel
         sourceModel: root.sourceModel
         query: root.query
+        kind: root.kindFilter
     }
 
     ListView {
@@ -105,7 +150,7 @@ Item {
 
         anchors.fill: parent
         clip: true
-        spacing: Tokens.spacing.small
+        spacing: Style.rowGap
         model: filterModel
         currentIndex: -1
         boundsBehavior: Flickable.StopAtBounds
@@ -140,9 +185,10 @@ Item {
             insertionBefore: root.insertionKey === key
             controller: root.controller
 
+            onSelectRequested: root.selectIndex(index)
             onCopyRequested: {
-                list.currentIndex = index;
-                root.controller.copyEntry(entryKey);
+                root.selectIndex(index);
+                ClipboardState.copyEntry(entryKey, true);
             }
             onFavoriteRequested: enabled => root.controller.setFavorite(entryKey, enabled)
             onDeleteRequested: {
@@ -187,11 +233,7 @@ Item {
             }
         }
 
-        onCurrentIndexChanged: {
-            const key = filterModel.keyAt(currentIndex);
-            if (key.length > 0)
-                root.selectedKey = key;
-        }
+        onCurrentIndexChanged: root.refreshPreview()
         onContentYChanged: {
             priorityDelay.restart();
             if (root.dragActive)
@@ -233,11 +275,11 @@ Item {
             font: Tokens.font.body.medium
             text: root.query.trim().length > 0 && (root.sourceModel.processing || ClipboardState.controller.loading) ? "Searching clipboard entries…"
                 : root.query.trim().length > 0 && ClipboardState.controller.errorMessage.length > 0 ? "Clipboard search is unavailable."
-                : root.query.trim().length > 0 ? "No matching clipboard entries."
-                : root.sourceModel.processing ? (root.favorites ? "Loading favorites…" : "Loading clipboard entries…")
-                : ClipboardState.controller.loading && root.sourceModel.count === 0 ? (root.favorites ? "Loading favorites…" : "Loading clipboard history…")
-                : ClipboardState.controller.errorMessage.length > 0 ? (root.favorites ? "Favorites are unavailable." : "Clipboard history is unavailable.")
-                : root.favorites ? "No favorites yet. Star a history entry to keep it here."
+                : root.query.trim().length > 0 || root.kindFilter.length > 0 ? "No matching clipboard entries."
+                : root.sourceModel.processing ? (root.favorites ? "Loading pinned entries…" : "Loading clipboard entries…")
+                : ClipboardState.controller.loading && root.sourceModel.count === 0 ? (root.favorites ? "Loading pinned entries…" : "Loading clipboard history…")
+                : ClipboardState.controller.errorMessage.length > 0 ? (root.favorites ? "Pinned entries are unavailable." : "Clipboard history is unavailable.")
+                : root.favorites ? "No pinned entries yet. Star a history entry to keep it here."
                 : ClipboardState.controller.loading ? "Loading clipboard history…"
                 : "No clipboard history yet."
         }
@@ -245,6 +287,12 @@ Item {
 
     Connections {
         target: filterModel
+        function onDataChanged(): void {
+            root.refreshPreview();
+        }
+        function onRowsMoved(): void {
+            Qt.callLater(root.restoreSelection);
+        }
         function onCountChanged(): void {
             Qt.callLater(() => {
                 root.restoreSelection();
@@ -256,8 +304,15 @@ Item {
     Connections {
         target: ClipboardState.controller
         function onLoadingChanged(): void {
-            if (!root.favorites && ClipboardState.controller.loading)
-                root.selectedKey = filterModel.keyAt(list.currentIndex) || root.selectedKey;
+            if (root.favorites)
+                return;
+            if (ClipboardState.controller.loading) {
+                if (!root.refreshing)
+                    root.refreshScroll = list.contentY;
+                root.refreshing = root.selectedKey.length > 0;
+            } else if (root.refreshing) {
+                Qt.callLater(root.finishRefresh);
+            }
         }
     }
 }

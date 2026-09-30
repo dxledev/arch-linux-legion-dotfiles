@@ -10,6 +10,9 @@ bool sameEntry(const ClipboardEntry &left, const ClipboardEntry &right)
     return left.key == right.key
         && left.previewText == right.previewText
         && left.searchableText == right.searchableText
+        && left.contentText == right.contentText
+        && left.qrText == right.qrText
+        && left.imageUrl == right.imageUrl
         && left.payloadKind == right.payloadKind
         && left.mimeType == right.mimeType
         && left.thumbnailUrl == right.thumbnailUrl
@@ -51,6 +54,10 @@ QVariant ClipboardListModel::data(const QModelIndex &index, int role) const
     case FavoriteRole: return entry.favorite;
     case LoadingRole: return entry.loading;
     case ErrorTextRole: return entry.errorText;
+    case ContentTextRole: return entry.contentText;
+    case QrTextRole: return entry.qrText;
+    case ImageUrlRole: return entry.imageUrl;
+    case ContentHashRole: return entry.contentHash;
     default: return {};
     }
 }
@@ -61,7 +68,9 @@ QHash<int, QByteArray> ClipboardListModel::roleNames() const
             {SearchableTextRole, "searchableText"}, {PayloadKindRole, "payloadKind"},
             {MimeTypeRole, "mimeType"}, {SizeRole, "size"},
             {ThumbnailUrlRole, "thumbnailUrl"}, {FavoriteRole, "favorite"},
-            {LoadingRole, "loading"}, {ErrorTextRole, "errorText"}};
+            {LoadingRole, "loading"}, {ErrorTextRole, "errorText"},
+            {ContentTextRole, "contentText"}, {QrTextRole, "qrText"}, {ImageUrlRole, "imageUrl"},
+            {ContentHashRole, "contentHash"}};
 }
 
 bool ClipboardListModel::favorites() const

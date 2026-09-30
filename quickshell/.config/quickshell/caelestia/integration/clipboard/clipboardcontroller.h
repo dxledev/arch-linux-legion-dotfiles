@@ -73,6 +73,7 @@ private:
     void setLoading(bool loading);
     void acceptListing(quint64 generation, const QStringList &keys, const QStringList &previews, bool success);
     void rebuildHistoryModel();
+    void updateHistoryEntry(const ClipboardEntry &entry);
     void enqueueDecode(const QString &key, bool prioritize);
     void startDecodeQueue();
     void acceptDecoded(const QString &key, quint64 generation, const QString &path, const QString &errorText);
@@ -124,6 +125,7 @@ private:
     bool m_initialized = false;
     bool m_refreshInFlight = false;
     bool m_refreshQueued = false;
+    bool m_historyUpdatePending = false;
     bool m_decodeQueuePending = false;
     bool m_loading = false;
     bool m_clearingHistory = false;

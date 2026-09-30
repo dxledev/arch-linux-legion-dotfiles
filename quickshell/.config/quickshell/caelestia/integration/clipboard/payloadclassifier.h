@@ -8,6 +8,9 @@ struct PayloadDescription
 {
     QString previewText;
     QString searchableText;
+    QString contentText;
+    QString qrText;
+    QString imageUrl;
     QString payloadKind;
     QString mimeType;
     QString thumbnailPath;

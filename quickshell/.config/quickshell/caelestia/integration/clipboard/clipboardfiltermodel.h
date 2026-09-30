@@ -8,6 +8,7 @@ class ClipboardFilterModel : public QSortFilterProxyModel
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
+    Q_PROPERTY(QString kind READ kind WRITE setKind NOTIFY kindChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
 
 public:
@@ -16,10 +17,14 @@ public:
     QString query() const;
     void setQuery(QString query);
     int count() const;
+    QString kind() const;
+    void setKind(QString kind);
     Q_INVOKABLE QString keyAt(int row) const;
+    Q_INVOKABLE QVariantMap entryAt(int row) const;
 
 signals:
     void queryChanged();
+    void kindChanged();
     void countChanged();
 
 protected:
@@ -27,4 +32,5 @@ protected:
 
 private:
     QString m_query;
+    QString m_kind;
 };

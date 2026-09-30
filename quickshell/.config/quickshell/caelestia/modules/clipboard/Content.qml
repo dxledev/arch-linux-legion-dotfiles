@@ -12,8 +12,9 @@ FocusScope {
     objectName: "clipboardContent"
     readonly property alias searchField: search
     property int tab: 0
-    property string historyQuery: ""
-    property string favoritesQuery: ""
+    property string activeFilter: "all"
+    readonly property var activeList: tab === 0 ? historyList : favoritesList
+
     property string appliedQuery: ""
     property real historyScroll: 0
     property real favoritesScroll: 0
@@ -26,6 +27,14 @@ FocusScope {
     property string pendingFavoriteKey: ""
     property bool deletePending: false
     readonly property real confirmationHeight: clearConfirmationOpen || deleteConfirmationOpen ? clearConfirmation.height + Style.gap : 0
+
+    function switchFilter(value: string): void {
+        if (ClipboardState.controller.clearingHistory || deletePending)
+            return;
+        switchTab(value === "pinned" ? 1 : 0);
+        activeFilter = value;
+        Qt.callLater(() => activeList.restoreSelection());
+    }
 
     function focusSearch(): void {
         search.forceActiveFocus();
@@ -43,9 +52,6 @@ FocusScope {
         pendingFavoriteKey = "";
         saveCurrentTab();
         tab = next;
-        search.text = tab === 0 ? historyQuery : favoritesQuery;
-        appliedQuery = search.text;
-        searchDelay.restart();
         Qt.callLater(() => {
             const target = tab === 0 ? historyList : favoritesList;
             target.listView.contentY = tab === 0 ? historyScroll : favoritesScroll;
@@ -55,11 +61,9 @@ FocusScope {
 
     function saveCurrentTab(): void {
         if (tab === 0) {
-            historyQuery = search.text;
             historyScroll = historyList.listView.contentY;
             historySelection = historyList.selectedKey;
         } else {
-            favoritesQuery = search.text;
             favoritesScroll = favoritesList.listView.contentY;
             favoritesSelection = favoritesList.selectedKey;
         }
@@ -67,10 +71,6 @@ FocusScope {
 
     function applySearch(): void {
         appliedQuery = search.text;
-        if (tab === 0)
-            historyQuery = search.text;
-        else
-            favoritesQuery = search.text;
     }
 
     function resetForOpen(): void {
@@ -81,8 +81,7 @@ FocusScope {
         pendingFavoriteKey = "";
         deletePending = false;
         tab = 0;
-        historyQuery = "";
-        favoritesQuery = "";
+        activeFilter = "all";
         appliedQuery = "";
         historyScroll = 0;
         favoritesScroll = 0;
@@ -211,42 +210,9 @@ FocusScope {
                 onClicked: ClipboardState.close()
                 activeFocusOnTab: true
                 stateLayer.manualHoverOverride: activeFocus
-                KeyNavigation.tab: historyButton
+                KeyNavigation.tab: search
                 Keys.onReturnPressed: ClipboardState.close()
                 Keys.onSpacePressed: ClipboardState.close()
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 0
-
-            TextButton {
-                id: historyButton
-                Layout.fillWidth: true
-                text: "History"
-                isToggle: true
-                checked: root.tab === 0
-                onClicked: root.switchTab(0)
-                activeFocusOnTab: true
-                stateLayer.manualHoverOverride: activeFocus
-                KeyNavigation.tab: favoritesButton
-                Keys.onReturnPressed: root.switchTab(0)
-                Keys.onSpacePressed: root.switchTab(0)
-            }
-
-            TextButton {
-                id: favoritesButton
-                Layout.fillWidth: true
-                text: "Favorites"
-                isToggle: true
-                checked: root.tab === 1
-                onClicked: root.switchTab(1)
-                activeFocusOnTab: true
-                stateLayer.manualHoverOverride: activeFocus
-                KeyNavigation.tab: search
-                Keys.onReturnPressed: root.switchTab(1)
-                Keys.onSpacePressed: root.switchTab(1)
             }
         }
 
@@ -255,8 +221,8 @@ FocusScope {
 
             objectName: "clipboardSearch"
             Layout.fillWidth: true
-            placeholderText: root.tab === 0 ? "Search clipboard history" : "Search favorites"
-            KeyNavigation.tab: search.text.length > 0 ? search.clearIcon : clearButton
+            placeholderText: "Search clipboard…"
+            KeyNavigation.tab: search.text.length > 0 ? search.clearIcon : filterButtons.itemAt(0)
             onTextChanged: searchDelay.restart()
 
             Keys.onEscapePressed: event => {
@@ -280,14 +246,53 @@ FocusScope {
 
             Component.onCompleted: {
                 search.clearIcon.activeFocusOnTab = true;
-                search.clearIcon.KeyNavigation.tab = clearButton;
+                search.clearIcon.KeyNavigation.tab = filterButtons.itemAt(0);
+            }
+        }
+
+        Flow {
+            Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
+            spacing: 6
+
+            Repeater {
+                id: filterButtons
+                model: [
+                    {value: "all", label: "All", icon: "view_list"},
+                    {value: "pinned", label: "Pinned", icon: "star"},
+                    {value: "text", label: "Text", icon: "description"},
+                    {value: "link", label: "Links", icon: "link"},
+                    {value: "image", label: "Images", icon: "image"},
+                    {value: "files", label: "Files", icon: "folder"},
+                    {value: "code", label: "Code", icon: "code"},
+                    {value: "json", label: "JSON", icon: "data_object"},
+                    {value: "color", label: "Colors", icon: "palette"}
+                ]
+
+                IconTextButton {
+                    required property var modelData
+                    text: modelData.label
+                    icon: modelData.icon
+                    font: Tokens.font.label.small
+                    verticalPadding: 5
+                    horizontalPadding: 12
+                    isToggle: true
+                    checked: root.activeFilter === modelData.value
+                    activeFocusOnTab: true
+                    onClicked: {
+                        root.switchFilter(modelData.value);
+                        internalChecked = checked;
+                    }
+                    Keys.onReturnPressed: root.switchFilter(modelData.value)
+                    Keys.onSpacePressed: root.switchFilter(modelData.value)
+                }
             }
         }
 
         Text {
             Layout.fillWidth: true
             visible: root.tab === 1 && search.text.trim().length > 0
-            text: "Clear search to reorder favorites."
+            text: "Clear search to reorder pinned entries."
             color: Style.muted
             font: Tokens.font.label.small
         }
@@ -301,38 +306,68 @@ FocusScope {
             font: Tokens.font.label.small
         }
 
-        Item {
-            id: listArea
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
+            spacing: Style.gap
 
-            EntryList {
-                id: historyList
-                anchors.fill: parent
-                visible: root.tab === 0
-                favorites: false
-                sourceModel: ClipboardState.controller.historyModel
-                controller: ClipboardState.controller
-                query: root.tab === 0 ? root.appliedQuery : root.historyQuery
-                searchText: root.tab === 0 ? search.text : root.historyQuery
-                selectedKey: root.historySelection
-                onSelectedKeyChanged: if (root.tab === 0) root.historySelection = selectedKey
+            Item {
+                id: listArea
+                Layout.fillWidth: true
+                Layout.preferredWidth: root.width * (ClipboardState.options.listRatio ?? 0.48)
+                Layout.fillHeight: true
+                clip: true
+
+                EntryList {
+                    id: historyList
+                    anchors.fill: parent
+                    visible: root.tab === 0
+                    favorites: false
+                    sourceModel: ClipboardState.controller.historyModel
+                    controller: ClipboardState.controller
+                    query: root.appliedQuery
+                    searchText: search.text
+                    kindFilter: root.activeFilter === "all" || root.activeFilter === "pinned" ? "" : root.activeFilter
+                    selectedKey: root.historySelection
+                    onSelectedKeyChanged: if (root.tab === 0) root.historySelection = selectedKey
+                }
+
+                EntryList {
+                    id: favoritesList
+                    anchors.fill: parent
+                    visible: root.tab === 1
+                    favorites: true
+                    sourceModel: ClipboardState.controller.favoritesModel
+                    controller: ClipboardState.controller
+                    query: root.appliedQuery
+                    searchText: search.text
+                    selectedKey: root.favoritesSelection
+                    onSelectedKeyChanged: if (root.tab === 1) root.favoritesSelection = selectedKey
+                    onDeleteFavoriteRequested: key => root.requestFavoriteDelete(key)
+                }
             }
 
-            EntryList {
-                id: favoritesList
-                anchors.fill: parent
-                visible: root.tab === 1
-                favorites: true
-                sourceModel: ClipboardState.controller.favoritesModel
-                controller: ClipboardState.controller
-                query: root.tab === 1 ? root.appliedQuery : root.favoritesQuery
-                searchText: root.tab === 1 ? search.text : root.favoritesQuery
-                selectedKey: root.favoritesSelection
-                onSelectedKeyChanged: if (root.tab === 1) root.favoritesSelection = selectedKey
-                onDeleteFavoriteRequested: key => root.requestFavoriteDelete(key)
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 1
+                color: Style.outline
             }
+
+            PreviewPane {
+                Layout.fillWidth: true
+                Layout.preferredWidth: root.width * (1 - (ClipboardState.options.listRatio ?? 0.48))
+                Layout.fillHeight: true
+                entry: root.activeList.selectedEntry
+                controller: ClipboardState.controller
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: `${root.activeList.count} items · ↑/↓ select · Enter copy & close · Double-click copy · Esc close`
+            color: Style.muted
+            font: Tokens.font.label.small
+            elide: Text.ElideRight
         }
     }
 
@@ -382,14 +417,14 @@ FocusScope {
         anchors.bottom: root.top
         anchors.bottomMargin: visible ? Style.gap : 0
         visible: root.clearConfirmationOpen || root.deleteConfirmationOpen
-        title: root.deleteConfirmationOpen ? "Delete favorite and history entries?"
-            : root.tab === 0 ? "Clear clipboard history?" : "Remove all favorites?"
+        title: root.deleteConfirmationOpen ? "Delete pinned entry and history entries?"
+            : root.tab === 0 ? "Clear clipboard history?" : "Remove all pinned entries?"
         description: root.deleteConfirmationOpen
-            ? "This removes the saved favorite and permanently deletes all matching history entries."
+            ? "This removes the pinned entry and permanently deletes all matching history entries."
             : root.tab === 0
             ? "This permanently removes every item from cliphist."
-            : "This removes every saved favorite and its stored payload."
-        confirmText: root.deleteConfirmationOpen ? "Delete entry" : root.tab === 0 ? "Clear history" : "Clear favorites"
+            : "This removes every pinned entry and its stored payload."
+        confirmText: root.deleteConfirmationOpen ? "Delete entry" : root.tab === 0 ? "Clear history" : "Clear pinned"
         errorText: root.deleteConfirmationOpen ? root.deleteError : root.clearError
         busy: ClipboardState.controller.clearingHistory || root.deletePending
         busyText: root.deleteConfirmationOpen ? "Deleting…" : "Clearing…"

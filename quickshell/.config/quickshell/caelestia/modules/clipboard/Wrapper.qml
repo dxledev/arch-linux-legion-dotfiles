@@ -13,8 +13,8 @@ Item {
     readonly property real confirmationHeight: confirmationVisible ? content.item?.confirmationHeight ?? 0 : 0
     property real offsetScale: shouldBeActive ? 0 : 1
 
-    implicitWidth: Math.max(1, Math.min(ClipboardState.options.width ?? 640, parent.width - Tokens.padding.large * 2))
-    implicitHeight: Math.max(1, Math.min(ClipboardState.options.height ?? 610, parent.height - 100))
+    implicitWidth: Math.max(1, Math.min(ClipboardState.options.width ?? 1100, parent.width - Tokens.padding.large * 2))
+    implicitHeight: Math.max(1, Math.min(ClipboardState.options.height ?? 700, parent.height - 100))
     visible: offsetScale < 1 && ClipboardState.screen === screen
     opacity: 1 - offsetScale
     anchors.bottomMargin: -(implicitHeight + 5) * offsetScale

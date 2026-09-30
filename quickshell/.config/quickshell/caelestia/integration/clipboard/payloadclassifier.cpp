@@ -6,16 +6,58 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QJsonDocument>
+#include <QRegularExpression>
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QSaveFile>
 #include <QStringDecoder>
 #include <QUrl>
 
+#ifdef CLIPBOARD_HAS_ZXING
+#include <ZXing/ReadBarcode.h>
+#endif
+
 namespace {
 constexpr qint64 MaxBufferedPayloadBytes = 8 * 1024 * 1024;
 constexpr qint64 MaxImagePixels = 64 * 1024 * 1024;
 constexpr int ThumbnailExtent = 360;
+
+void inspectImageContent(PayloadDescription &result, const QString &path)
+{
+    result.imageUrl = QUrl::fromLocalFile(path).toString();
+#ifdef CLIPBOARD_HAS_ZXING
+    QImageReader reader(path);
+    reader.setScaledSize(reader.size().scaled(1600, 1600, Qt::KeepAspectRatio));
+    const QImage image = reader.read().convertToFormat(QImage::Format_Grayscale8);
+    if (image.isNull())
+        return;
+    const ZXing::ImageView view(image.constBits(), image.width(), image.height(), ZXing::ImageFormat::Lum, image.bytesPerLine());
+    const auto barcode = ZXing::ReadBarcode(view, ZXing::ReaderOptions().setFormats(ZXing::BarcodeFormat::QRCode));
+    if (barcode.isValid()) {
+        result.qrText = QString::fromStdString(barcode.text());
+        result.previewText = result.qrText.left(160);
+        result.searchableText += "\nQR code\n" + result.qrText;
+    }
+#endif
+}
+
+QString textKind(const QString &text)
+{
+    const QString trimmed = text.trimmed();
+    const QUrl url(trimmed);
+    if ((url.scheme() == "http" || url.scheme() == "https") && !url.host().isEmpty()
+        && !trimmed.contains(QRegularExpression("\\s")))
+        return "link";
+    if (QRegularExpression("^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$").match(trimmed).hasMatch())
+        return "color";
+    if (trimmed.size() <= 1024 * 1024 && (trimmed.startsWith('{') || trimmed.startsWith('['))
+        && !QJsonDocument::fromJson(trimmed.toUtf8()).isNull())
+        return "json";
+    if (QRegularExpression("(?:^|\\n)\\s*(?:#include\\s*[<\"]|(?:export\\s+)?(?:function|class|const|let|import|def|fn)\\s+\\w+|(?:int|void|auto)\\s+\\w+\\s*\\()").match(trimmed).hasMatch())
+        return "code";
+    return "text";
+}
 
 QString imageMime(const QByteArray &format)
 {
@@ -131,7 +173,7 @@ bool uriPayload(const QString &text, QStringList *uris)
         if (trimmed.startsWith('#'))
             continue;
         const QUrl url(trimmed);
-        if (!url.isValid() || url.scheme().isEmpty())
+        if (!url.isValid() || !url.isLocalFile())
             return false;
         uris->append(trimmed);
     }
@@ -140,6 +182,10 @@ bool uriPayload(const QString &text, QStringList *uris)
 
 void classifyText(PayloadDescription &result, const QString &text)
 {
+    constexpr qsizetype PreviewLimit = 128 * 1024;
+    result.contentText = text.left(PreviewLimit);
+    if (text.size() > PreviewLimit)
+        result.contentText += "\n… Preview truncated; copying preserves the full payload.";
     QStringList uris;
     if (uriPayload(text, &uris)) {
         result.payloadKind = "files";
@@ -148,10 +194,10 @@ void classifyText(PayloadDescription &result, const QString &text)
         result.searchableText = text + "\n" + result.previewText + "\nfile reference";
         return;
     }
-    result.payloadKind = "text";
+    result.payloadKind = textKind(text);
     result.mimeType = "text/plain;charset=utf-8";
     result.previewText = text.trimmed().isEmpty() ? "Empty text" : boundedPreview(text);
-    result.searchableText = text + "\ntext plain";
+    result.searchableText = text + "\ntext plain " + result.payloadKind;
 }
 }
 
@@ -235,6 +281,8 @@ PayloadDescription PayloadClassifier::inspect(const QString &payloadPath, const 
                 return result;
             }
         }
+        if (result.payloadKind == "image" && !result.thumbnailPath.isEmpty())
+            inspectImageContent(result, payloadPath);
         return result;
     }
 
@@ -267,6 +315,7 @@ PayloadDescription PayloadClassifier::inspect(const QString &payloadPath, const 
             }
             result.previewText = QString("Image · %1 × %2 · %3").arg(dimensions.width()).arg(dimensions.height()).arg(result.mimeType);
             result.searchableText = result.previewText + " image " + result.mimeType;
+            inspectImageContent(result, payloadPath);
             return result;
         }
     }

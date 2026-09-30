@@ -114,6 +114,7 @@ void ClipboardController::refresh()
         return;
     }
     m_refreshInFlight = true;
+    m_historyUpdatePending = m_historyModel.count() > 0;
     m_decodeQueuePending = false;
     setLoading(true);
     m_backend.refresh(++m_generation);
@@ -274,11 +275,19 @@ void ClipboardController::acceptListing(quint64 generation, const QStringList &k
 
 void ClipboardController::rebuildHistoryModel()
 {
+    if (m_historyUpdatePending)
+        return;
     QVector<ClipboardEntry> entries;
     entries.reserve(m_historyOrder.size());
     for (const auto &key : m_historyOrder)
         entries.append(m_history.value(key));
     m_historyModel.replace(entries);
+}
+
+void ClipboardController::updateHistoryEntry(const ClipboardEntry &entry)
+{
+    if (!m_historyUpdatePending)
+        m_historyModel.upsert(entry);
 }
 
 void ClipboardController::enqueueDecode(const QString &key, bool prioritize)
@@ -313,7 +322,7 @@ void ClipboardController::startDecodeQueue()
             entry.loading = false;
             entry.errorText = "Could not create a private clipboard payload file.";
             m_history.insert(key, entry);
-            m_historyModel.upsert(entry);
+            updateHistoryEntry(entry);
             applyPendingOperations(key);
             continue;
         }
@@ -332,6 +341,7 @@ void ClipboardController::acceptDecoded(const QString &key, quint64 generation, 
         m_decoding.remove(key);
         QFile::remove(path);
         startDecodeQueue();
+        finishRefreshIfReady();
         return;
     }
     if (!errorText.isEmpty()) {
@@ -340,7 +350,7 @@ void ClipboardController::acceptDecoded(const QString &key, quint64 generation, 
         entry.loading = false;
         entry.errorText = errorText;
         m_history.insert(key, entry);
-        m_historyModel.upsert(entry);
+        updateHistoryEntry(entry);
         m_decoding.remove(key);
         setError(errorText);
         applyPendingOperations(key);
@@ -371,7 +381,7 @@ void ClipboardController::classifyHistory(const QString &key, quint64 generation
                     entry.loading = true;
                     entry.errorText.clear();
                     m_history.insert(key, entry);
-                    m_historyModel.upsert(entry);
+                    updateHistoryEntry(entry);
                 }
             }
             QFile::remove(path);
@@ -384,7 +394,7 @@ void ClipboardController::classifyHistory(const QString &key, quint64 generation
         applyDescription(entry, description);
         entry.favorite = !entry.contentHash.isEmpty() && m_store.hashes().contains(entry.contentHash);
         m_history.insert(key, entry);
-        m_historyModel.upsert(entry);
+        updateHistoryEntry(entry);
         rebuildFavorites();
         applyPendingOperations(key);
         startDecodeQueue();
@@ -472,6 +482,9 @@ void ClipboardController::applyDescription(ClipboardEntry &entry, const PayloadD
 {
     entry.previewText = description.previewText;
     entry.searchableText = description.searchableText;
+    entry.contentText = description.contentText;
+    entry.qrText = description.qrText;
+    entry.imageUrl = description.imageUrl;
     entry.payloadKind = description.payloadKind;
     entry.mimeType = description.mimeType.isEmpty() ? "application/octet-stream" : description.mimeType;
     entry.thumbnailUrl = description.thumbnailPath.isEmpty() ? QString() : QUrl::fromLocalFile(description.thumbnailPath).toString();
@@ -533,7 +546,7 @@ void ClipboardController::rebuildFavorites()
     m_favoritesModel.replace(entries);
     for (auto it = m_history.begin(); it != m_history.end(); ++it) {
         it->favorite = !it->contentHash.isEmpty() && hashes.contains(it->contentHash);
-        m_historyModel.upsert(it.value());
+        updateHistoryEntry(it.value());
     }
 }
 
@@ -651,6 +664,10 @@ void ClipboardController::finishRefreshIfReady()
 {
     if (m_refreshInFlight || m_decodeQueuePending || !m_decoding.isEmpty())
         return;
+    if (m_historyUpdatePending) {
+        m_historyUpdatePending = false;
+        rebuildHistoryModel();
+    }
     setLoading(false);
     const auto deferredDeletes = m_deferredFavoriteDeletes;
     m_deferredFavoriteDeletes.clear();

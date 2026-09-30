@@ -14,6 +14,8 @@ Singleton {
     property ShellScreen screen: null
     property bool isOpen: false
     property int openingId: 0
+    property string pendingCopyKey: ""
+    property bool dismissAfterCopy: true
     readonly property var options: System.clipboard
     readonly property alias controller: controller
     signal focusRequested
@@ -33,6 +35,7 @@ Singleton {
             Chromack.ChromackState.close(false);
 
         screen = target;
+        pendingCopyKey = "";
         openingId++;
         isOpen = true;
         controller.refresh();
@@ -40,7 +43,16 @@ Singleton {
     }
 
     function close(): void {
+        pendingCopyKey = "";
         isOpen = false;
+    }
+
+    function copyEntry(key: string, closeAfterCopy: bool): void {
+        if (key.length === 0)
+            return;
+        pendingCopyKey = key;
+        dismissAfterCopy = closeAfterCopy;
+        controller.copyEntry(key);
     }
 
     function toggle(): void {
@@ -76,7 +88,10 @@ Singleton {
     Connections {
         target: controller
         function onCopyCompleted(key: string, success: bool, message: string): void {
-            if (success) {
+            if (key !== root.pendingCopyKey)
+                return;
+            root.pendingCopyKey = "";
+            if (success && root.dismissAfterCopy) {
                 Quickshell.execDetached(["notify-send", "-a", "Caelestia Clipboard", "-i", "edit-copy", "-t", "2000", "Clipboard", "Copied to clipboard"]);
                 root.close();
             }

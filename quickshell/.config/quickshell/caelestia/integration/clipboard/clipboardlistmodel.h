@@ -24,7 +24,11 @@ public:
         ThumbnailUrlRole,
         FavoriteRole,
         LoadingRole,
-        ErrorTextRole
+        ErrorTextRole,
+        ContentTextRole,
+        QrTextRole,
+        ImageUrlRole,
+        ContentHashRole
     };
     Q_ENUM(Role)
 
