@@ -13,6 +13,7 @@ Singleton {
 
     property ShellScreen screen: null
     property bool isOpen: false
+    property bool historyRefreshCompleted: false
     property int openingId: 0
     property string pendingCopyKey: ""
     property bool dismissAfterCopy: true
@@ -87,6 +88,10 @@ Singleton {
 
     Connections {
         target: controller
+        function onLoadingChanged(): void {
+            if (!controller.loading)
+                root.historyRefreshCompleted = true;
+        }
         function onCopyCompleted(key: string, success: bool, message: string): void {
             if (key !== root.pendingCopyKey)
                 return;

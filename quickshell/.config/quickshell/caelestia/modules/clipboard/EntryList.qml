@@ -16,6 +16,7 @@ Item {
     property string kindFilter: ""
     property var selectedEntry: ({})
     readonly property int count: filterModel.count
+    readonly property bool initialLoading: ClipboardState.controller.loading && !ClipboardState.historyRefreshCompleted
     property string selectedKey: ""
     property string selectedHash: ""
     property bool refreshing: false
@@ -273,14 +274,13 @@ Item {
             wrapMode: Text.WordWrap
             color: Style.muted
             font: Tokens.font.body.medium
-            text: root.query.trim().length > 0 && (root.sourceModel.processing || ClipboardState.controller.loading) ? "Searching clipboard entries…"
+            text: root.query.trim().length > 0 && (root.sourceModel.processing || root.initialLoading) ? "Searching clipboard entries…"
                 : root.query.trim().length > 0 && ClipboardState.controller.errorMessage.length > 0 ? "Clipboard search is unavailable."
                 : root.query.trim().length > 0 || root.kindFilter.length > 0 ? "No matching clipboard entries."
                 : root.sourceModel.processing ? (root.favorites ? "Loading pinned entries…" : "Loading clipboard entries…")
-                : ClipboardState.controller.loading && root.sourceModel.count === 0 ? (root.favorites ? "Loading pinned entries…" : "Loading clipboard history…")
+                : root.initialLoading && root.sourceModel.count === 0 ? (root.favorites ? "Loading pinned entries…" : "Loading clipboard history…")
                 : ClipboardState.controller.errorMessage.length > 0 ? (root.favorites ? "Pinned entries are unavailable." : "Clipboard history is unavailable.")
                 : root.favorites ? "No pinned entries yet. Star a history entry to keep it here."
-                : ClipboardState.controller.loading ? "Loading clipboard history…"
                 : "No clipboard history yet."
         }
     }
