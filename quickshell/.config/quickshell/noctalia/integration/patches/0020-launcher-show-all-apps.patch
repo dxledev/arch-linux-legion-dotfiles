@@ -1,0 +1,211 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+index d55384dde..67bbb0631 100644
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -2485,6 +2485,10 @@
+           "description": "Display category filters in the launcher; reveal with F6, then cycle with F6 and Shift+F6",
+           "label": "Show Categories"
+         },
++        "launcher-show-all-apps": {
++          "description": "Show every installed application; turn off to show only desktop entries listed in ~/.config/apps.list",
++          "label": "Show All Apps"
++        },
+         "launcher-compact": {
+           "description": "Use smaller icons and tighter result rows",
+           "label": "Compact Rows"
+diff --git a/example.toml b/example.toml
+index 230942d2d..0bde0c0b2 100644
+--- a/example.toml
++++ b/example.toml
+@@ -77,6 +77,7 @@ open_near_click_session        = false # for attached/floating placement, follow
+ 
+ [shell.launcher]
+ categories    = true                    # show category filters in the launcher
++show_all_apps = true                    # false shows only desktop entries from ~/.config/apps.list
+ show_icons    = true                    # show application icons in launcher results
+ show_app_origin_indicator = true        # show package origin indicators on application results
+ compact       = false                   # use smaller icons and tighter result rows
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+index afece6010..89f398f5f 100644
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -997,6 +997,7 @@ struct ShellConfig {
+   // parallel to every other surface.
+   struct LauncherConfig {
+     bool categories = true;
++    bool showAllApps = true;
+     bool showIcons = true;
+     bool showAppOriginIndicator = true;
+     bool compact = false;
+diff --git a/src/config/schema/config_schema.cpp b/src/config/schema/config_schema.cpp
+index b6dbb38bb..9c47c013f 100644
+--- a/src/config/schema/config_schema.cpp
++++ b/src/config/schema/config_schema.cpp
+@@ -1372,6 +1372,7 @@ namespace noctalia::config::schema {
+     const Schema<ShellConfig::LauncherConfig>& shellLauncherSchema() {
+       static const Schema<ShellConfig::LauncherConfig> s = {
+           field(&ShellConfig::LauncherConfig::categories, "categories"),
++          field(&ShellConfig::LauncherConfig::showAllApps, "show_all_apps"),
+           field(&ShellConfig::LauncherConfig::showIcons, "show_icons"),
+           field(&ShellConfig::LauncherConfig::showAppOriginIndicator, "show_app_origin_indicator"),
+           field(&ShellConfig::LauncherConfig::compact, "compact"),
+diff --git a/src/launcher/app_provider.cpp b/src/launcher/app_provider.cpp
+index 0dba5a643..50b2e42e1 100644
+--- a/src/launcher/app_provider.cpp
++++ b/src/launcher/app_provider.cpp
+@@ -12,10 +12,13 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <cstdlib>
++#include <fstream>
+ #include <optional>
+ #include <string>
+ #include <string_view>
+ #include <unordered_map>
++#include <unordered_set>
+ 
+ namespace {
+ 
+@@ -25,6 +28,34 @@ namespace {
+   constexpr double kNameMatchPriority = 3'000.0;
+   constexpr double kLocalizedNameMatchPriority = 1'500.0;
+ 
++  std::unordered_set<std::string> listedAppIds() {
++    const char* home = std::getenv("HOME");
++    if (home == nullptr || *home == '\0') {
++      return {};
++    }
++
++    std::ifstream file(std::string(home) + "/.config/apps.list");
++    std::unordered_set<std::string> ids;
++    std::string line;
++    while (std::getline(file, line)) {
++      const auto separator = line.find('|');
++      std::string_view id(line.data(), separator == std::string::npos ? line.size() : separator);
++      const auto start = id.find_first_not_of(" \t\r");
++      if (start == std::string_view::npos) {
++        continue;
++      }
++      id = id.substr(start, id.find_last_not_of(" \t\r") - start + 1);
++      if (id.starts_with('#') || id.find('=') != std::string_view::npos) {
++        continue;
++      }
++      if (id.ends_with(".desktop")) {
++        id.remove_suffix(std::string_view(".desktop").size());
++      }
++      ids.emplace(id);
++    }
++    return ids;
++  }
++
+   double scoreEntry(std::string_view pattern, const DesktopEntry& entry) {
+     if (pattern.empty()) {
+       return 0.0;
+@@ -212,6 +243,9 @@ void AppProvider::initialize() { refreshEntriesIfNeeded(); }
+ std::string AppProvider::displayName() const { return i18n::tr("launcher.providers.applications.title"); }
+ 
+ std::vector<LauncherCategory> AppProvider::categories() const {
++  if (m_config != nullptr && !m_config->config().shell.launcher.showAllApps) {
++    return {};
++  }
+   refreshEntriesIfNeeded();
+ 
+   std::array<bool, kAppCategories.size()> populated{};
+@@ -243,6 +277,11 @@ void AppProvider::refreshEntriesIfNeeded() const {
+ 
+ std::vector<LauncherResult> AppProvider::query(std::string_view text) const {
+   refreshEntriesIfNeeded();
++  const bool showAllApps = m_config == nullptr || m_config->config().shell.launcher.showAllApps;
++  const auto allowedIds = showAllApps ? std::unordered_set<std::string>{} : listedAppIds();
++  const auto allowed = [&](const DesktopEntry& entry) {
++    return showAllApps || allowedIds.contains(entry.id);
++  };
+   const std::string normalizedText = StringUtils::toLower(text);
+   const std::string_view pattern = normalizedText;
+ 
+@@ -278,12 +317,17 @@ std::vector<LauncherResult> AppProvider::query(std::string_view text) const {
+     std::vector<LauncherResult> results;
+     results.reserve(m_entries.size());
+     for (const auto& entry : m_entries) {
+-      results.push_back(buildResult(entry, 0));
++      if (allowed(entry)) {
++        results.push_back(buildResult(entry, 0));
++      }
+     }
+     return results;
+   }
+ 
+   for (const auto& entry : m_entries) {
++    if (!allowed(entry)) {
++      continue;
++    }
+     const double s = scoreEntry(pattern, entry);
+     if (FuzzyMatch::isMatch(s)) {
+       scored.emplace_back(s, std::make_pair(&entry, nullptr));
+diff --git a/src/shell/launcher/launcher_panel.cpp b/src/shell/launcher/launcher_panel.cpp
+index 86f3209ab..7cbf633d4 100644
+--- a/src/shell/launcher/launcher_panel.cpp
++++ b/src/shell/launcher/launcher_panel.cpp
+@@ -1381,7 +1381,8 @@ void LauncherPanel::onOpen(std::string_view context) {
+   // inotify cannot observe). Cheap stat-only check; only rescans on real change.
+   refreshDesktopEntriesIfSourcesChanged();
+ 
+-  m_categoryFilterVisible = m_config != nullptr && m_config->config().shell.launcher.categories;
++  m_categoryFilterVisible = m_config != nullptr && m_config->config().shell.launcher.categories
++      && m_config->config().shell.launcher.showAllApps;
+   m_activeCategoryType = All;
+   m_activeCategory.clear();
+   m_currentCategories.clear();
+@@ -1830,6 +1831,9 @@ void LauncherPanel::rebuildCategoryFilter(const std::vector<LauncherCategory>& c
+ }
+ 
+ void LauncherPanel::setActiveCategorySlot(std::size_t slotIndex) {
++  if (m_config != nullptr && !m_config->config().shell.launcher.showAllApps) {
++    return;
++  }
+   if (slotIndex >= m_categoryFilterSlots.size()) {
+     return;
+   }
+@@ -1848,7 +1852,8 @@ void LauncherPanel::setCategoryFilterVisible(bool visible) {
+   if (m_categoryFilter == nullptr) {
+     return;
+   }
+-  const bool show = visible && !m_categoryFilterSlots.empty();
++  const bool show = visible && !m_categoryFilterSlots.empty()
++      && (m_config == nullptr || m_config->config().shell.launcher.showAllApps);
+   m_categoryFilter->setVisible(show);
+   m_categoryFilter->setParticipatesInLayout(show);
+   if (m_container != nullptr) {
+@@ -2235,6 +2240,9 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
+   };
+ 
+   const auto cycleCategory = [this](bool reverse) {
++    if (m_config != nullptr && !m_config->config().shell.launcher.showAllApps) {
++      return true;
++    }
+     if (m_categoryFilter == nullptr) {
+       return false;
+     }
+diff --git a/src/shell/settings/settings_registry.cpp b/src/shell/settings/settings_registry.cpp
+index 8ff20aa92..8cb15c44d 100644
+--- a/src/shell/settings/settings_registry.cpp
++++ b/src/shell/settings/settings_registry.cpp
+@@ -1238,10 +1238,16 @@ namespace settings {
+         "settings.schema.panels.open-near-click-launcher.description", cfg.shell.panel.openNearClickLauncher,
+         &ShellConfig::PanelConfig::launcherPlacement, &ShellConfig::PanelConfig::launcherPosition
+     ));
++    entries.push_back(makeEntry(
++        SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-show-all-apps.label"),
++        tr("settings.schema.panels.launcher-show-all-apps.description"), {"shell", "launcher", "show_all_apps"},
++        ToggleSetting{cfg.shell.launcher.showAllApps}, "launcher all applications apps list"
++    ));
+     entries.push_back(makeEntry(
+         SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-categories.label"),
+         tr("settings.schema.panels.launcher-categories.description"), {"shell", "launcher", "categories"},
+-        ToggleSetting{cfg.shell.launcher.categories}, "launcher categories filter"
++        ToggleSetting{cfg.shell.launcher.showAllApps && cfg.shell.launcher.categories, cfg.shell.launcher.showAllApps},
++        "launcher categories filter"
+     ));
+     entries.push_back(makeEntry(
+         SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-show-icons.label"),
