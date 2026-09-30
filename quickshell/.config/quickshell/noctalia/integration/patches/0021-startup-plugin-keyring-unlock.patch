@@ -1,0 +1,57 @@
+--- a/src/app/application.cpp
++++ b/src/app/application.cpp
+@@ -227,12 +227,16 @@
+     if (m_syncScriptApiOutputs) {
+       m_syncScriptApiOutputs();
+     }
+-    m_pluginServiceHost.start(m_configService.config().plugins.pluginSettings);
++    if (m_secretConsumersInitialized) {
++      m_pluginServiceHost.start(m_configService.config().plugins.pluginSettings);
++    }
+     // Reconcile services when plugin settings change (start new, stop removed, re-seed
+     // changed). Guarded by the plugins change flag so unrelated reloads don't churn.
+     m_configService.addReloadCallback([this]() {
+       if (m_configService.lastChange().plugins) {
+-        m_pluginServiceHost.refresh(m_configService.config().plugins.pluginSettings);
++        if (m_secretConsumersInitialized) {
++          m_pluginServiceHost.refresh(m_configService.config().plugins.pluginSettings);
++        }
+         reloadPluginLauncherProviders();
+         reloadPluginPanels();
+         m_settingsWindow.onPluginsChanged();
+@@ -243,7 +247,9 @@
+     // path. reload() rebuilds the bar widget tree against the now-populated registry —
+     // refresh() only repaints, leaving newly available plugin widgets uncreated.
+     m_pluginManager.setOnChanged([this]() {
+-      m_pluginServiceHost.refresh(m_configService.config().plugins.pluginSettings);
++      if (m_secretConsumersInitialized) {
++        m_pluginServiceHost.refresh(m_configService.config().plugins.pluginSettings);
++      }
+       m_bar.reload();
+       reloadPluginLauncherProviders();
+       reloadPluginPanels();
+@@ -255,7 +261,11 @@
+     m_pluginManager.setOnSourceUpdated([this](const std::string& sourceName) {
+       m_settingsWindow.invalidatePluginSourceCache(sourceName);
+     });
+-    m_pluginManager.setOnEnabled([this](std::string_view pluginId) { m_pluginServiceHost.enablePlugin(pluginId); });
++    m_pluginManager.setOnEnabled([this](std::string_view pluginId) {
++      if (m_secretConsumersInitialized) {
++        m_pluginServiceHost.enablePlugin(pluginId);
++      }
++    });
+   });
+   runStartupPhase("initIpc", [this]() { initIpc(); });
+   runStartupPhase("buildPollSources", [this]() { (void)buildPollSources(); });
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -546,6 +546,9 @@
+   m_calendarService.initialize();
+   m_secretConsumersInitialized = true;
+   m_clipboardService.syncPersistence();
++  if (noctalia::runtime::startLocked()) {
++    m_pluginServiceHost.start(m_configService.config().plugins.pluginSettings);
++  }
+ }
+ 
+ void Application::initServices() {

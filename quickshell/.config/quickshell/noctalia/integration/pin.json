@@ -21,7 +21,8 @@
     "0017-attached-panel-frame-pacing.patch",
     "0018-startup-keyring-unlock.patch",
     "0019-attached-panel-blur-cache.patch",
-    "0020-launcher-show-all-apps.patch"
+    "0020-launcher-show-all-apps.patch",
+    "0021-startup-plugin-keyring-unlock.patch"
   ],
   "schemes": [
     "m3-tonal-spot",
