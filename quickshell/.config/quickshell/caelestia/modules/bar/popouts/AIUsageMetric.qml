@@ -85,7 +85,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        visible: root.metric.resetAtMs !== null || root.metric.detail.length > 0
+        visible: root.metric.resetAtMs !== null
         spacing: Tokens.spacing.small
 
         StyledText {
@@ -98,7 +98,7 @@ ColumnLayout {
 
         StyledText {
             visible: root.metric.resetAtMs !== null
-            text: Qt.formatDateTime(new Date(root.metric.resetAtMs), GlobalConfig.services.useTwelveHourClock ? "h:mm AP" : "HH:mm")
+            text: Qt.formatDateTime(new Date(root.metric.resetAtMs), GlobalConfig.services.useTwelveHourClock ? "MMM dd, hh:mm AP" : "MMM dd, HH:mm")
             color: Colours.palette.m3onSurfaceVariant
             font: Tokens.font.label.small
         }
@@ -106,7 +106,7 @@ ColumnLayout {
 
     StyledText {
         Layout.fillWidth: true
-        visible: root.metric.detail.length > 0
+        visible: root.metric.resetAtMs === null && root.metric.detail.length > 0
         text: root.metric.detail
         color: Colours.palette.m3onSurfaceVariant
         font: Tokens.font.label.small
@@ -123,11 +123,11 @@ ColumnLayout {
         const minutes = Math.floor(remaining / 60) % 60;
         const parts = [];
         if (days > 0)
-            parts.push(Tr.trN("%n day", "%n days", days));
+            parts.push(Tr.tr("%1d").arg(days));
         if (hours > 0)
-            parts.push(Tr.trN("%n hour", "%n hours", hours));
+            parts.push(Tr.tr("%1h").arg(hours));
         if (minutes > 0 || parts.length === 0)
-            parts.push(Tr.trN("%n min", "%n mins", minutes));
+            parts.push(Tr.tr("%1m").arg(minutes));
         return parts.join(" ");
     }
 
