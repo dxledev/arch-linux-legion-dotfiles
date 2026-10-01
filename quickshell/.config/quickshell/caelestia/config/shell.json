@@ -490,6 +490,10 @@
             }
         ],
         "colorizeIcons": true,
+        "maxWallpapers": 7,
+        "useFuzzy": {
+            "wallpapers": false
+        },
         "vimKeybinds": false
     },
     "osd": {

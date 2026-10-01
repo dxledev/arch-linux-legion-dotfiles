@@ -35,9 +35,10 @@ Singleton {
     property string server: ""
     readonly property var settings: System.protonVpn
     property bool signedIn: false
+    readonly property bool startupReady: StartupState.secretConsumersReady
 
     function action(label: string, args: list<string>): void {
-        if (busy || !installed)
+        if (!startupReady || busy || !installed)
             return;
         pendingAction = label;
         lastError = "";
@@ -121,7 +122,7 @@ Singleton {
         }
     }
     function refresh(): void {
-        if (!enabled || busy)
+        if (!startupReady || !enabled || busy)
             return;
         watchLink();
         enqueue("status", ["status"]);
@@ -133,7 +134,7 @@ Singleton {
         }
     }
     function runNext(): void {
-        if (currentJob || jobs.length === 0)
+        if (!startupReady || currentJob || jobs.length === 0)
             return;
         const job = jobs[0];
         jobs = jobs.slice(1);
@@ -171,6 +172,12 @@ Singleton {
     }
 
     Component.onCompleted: refresh()
+    onStartupReadyChanged: {
+        if (startupReady) {
+            refresh();
+            runNext();
+        }
+    }
     onEnabledChanged: {
         if (enabled)
             refresh();
@@ -232,7 +239,7 @@ Singleton {
     Timer {
         interval: Math.max(5000, (root.panelOpen ? root.settings.panelRefreshIntervalSeconds : root.settings.refreshIntervalSeconds) * 1000)
         repeat: true
-        running: root.enabled
+        running: root.startupReady && root.enabled
 
         onTriggered: root.refresh()
     }

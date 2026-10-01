@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.components.misc
+import qs.integration
 
 Scope {
     id: root
@@ -22,8 +23,11 @@ Scope {
         signal unlock
 
         onLockedChanged: {
-            if (!locked)
+            if (!locked) {
+                if (root.startLocked)
+                    Qt.callLater(() => StartupState.secretConsumersReady = true);
                 root.startLocked = false;
+            }
         }
 
         LockSurface {
