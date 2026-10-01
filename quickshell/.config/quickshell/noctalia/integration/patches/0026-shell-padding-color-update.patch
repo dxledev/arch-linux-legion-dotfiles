@@ -1,0 +1,636 @@
+diff --git a/src/app/application_ui.cpp b/src/app/application_ui.cpp
+index 2538ff4ad..05f511c68 100644
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -213,7 +213,12 @@ void Application::initUiRenderSurfacesAndSettings() {
+     );
+   });
+   if (!noctalia::runtime::isLockProvider()) {
+-    m_shellPadding.initialize(m_wayland, &m_configService, &m_renderContext);
++    m_shellPadding.initialize(m_wayland, &m_configService, &m_renderContext, [this](wl_output* output) {
++      return shell::SurfaceRevisions{
++          .bar = m_bar.surfaceRevisionForOutput(output),
++          .dock = m_dock.surfaceRevisionForOutput(output),
++      };
++    });
+   }
+ }
+ 
+@@ -1180,7 +1185,12 @@ void Application::initWidgetControllersAndCallbacks() {
+   // stacking order live entirely in reconcileOutputSurfaces(): screen corners and
+   // the hot-corner trigger zones are built after the bar and dock so they are
+   // never occluded by shell chrome on their shared layer.
+-  m_screenCorners.initialize(m_wayland, &m_configService, &m_renderContext);
++  m_screenCorners.initialize(m_wayland, &m_configService, &m_renderContext, [this](wl_output* output) {
++    return shell::SurfaceRevisions{
++        .bar = m_bar.surfaceRevisionForOutput(output),
++        .dock = m_dock.surfaceRevisionForOutput(output),
++    };
++  });
+   m_hotCorners.initialize(m_wayland, &m_configService, &m_renderContext);
+   m_configService.addReloadCallback([this]() { m_shellPadding.onVisualsConfigReload(); }, "shell-padding-visuals");
+   m_configService.addReloadCallback([this]() { m_screenCorners.onConfigReload(); });
+diff --git a/src/shell/bar/bar.cpp b/src/shell/bar/bar.cpp
+index b954a75dc..5442c7885 100644
+--- a/src/shell/bar/bar.cpp
++++ b/src/shell/bar/bar.cpp
+@@ -1681,7 +1681,20 @@ void Bar::closeAllInstances() {
+   m_instances.clear();
+ }
+ 
+-void Bar::onOutputChange() { syncInstances(); }
++void Bar::onOutputChange() {
++  syncInstances();
++  const auto& outputs = m_platform->outputs();
++  std::erase_if(m_topSurfaceRevisions, [&outputs](const auto& revision) {
++    return std::ranges::none_of(outputs, [&revision](const WaylandOutput& output) {
++      return output.output == revision.first;
++    });
++  });
++}
++
++std::uint64_t Bar::surfaceRevisionForOutput(wl_output* output) const {
++  const auto found = m_topSurfaceRevisions.find(output);
++  return found == m_topSurfaceRevisions.end() ? 0 : found->second;
++}
+ 
+ void Bar::onWorkspaceChanged() {
+   if (m_platform == nullptr || m_overlayDisplaySuppressed) {
+@@ -2439,6 +2452,7 @@ void Bar::createInstance(const WaylandOutput& output, std::size_t barIndex, cons
+   instance->barIndex = barIndex;
+ 
+   const auto anchor = positionToAnchor(barConfig.position);
++  const auto layer = layerShellLayerFromConfig(barConfig.layer);
+   const auto surfaceSpec = computeBarSurfaceSpec(barConfig, m_config->config().shell.shadow, instance->shellPadding);
+ 
+   kLog.info(
+@@ -2449,7 +2463,7 @@ void Bar::createInstance(const WaylandOutput& output, std::size_t barIndex, cons
+ 
+   auto surfaceConfig = LayerSurfaceConfig{
+       .nameSpace = "noctalia-bar-" + barConfig.name,
+-      .layer = layerShellLayerFromConfig(barConfig.layer),
++      .layer = layer,
+       .anchor = anchor,
+       .width = surfaceSpec.surfaceWidth,
+       .height = surfaceSpec.surfaceHeight,
+@@ -2484,6 +2498,9 @@ void Bar::createInstance(const WaylandOutput& output, std::size_t barIndex, cons
+     kLog.warn("failed to initialize surface for output {}", output.name);
+     return;
+   }
++  if (layer == LayerShellLayer::Top) {
++    ++m_topSurfaceRevisions[output.output];
++  }
+ 
+   m_surfaceMap[instance->surface->wlSurface()] = instance.get();
+   m_instances.push_back(std::move(instance));
+diff --git a/src/shell/bar/bar.h b/src/shell/bar/bar.h
+index fe1a13fdb..60da53c90 100644
+--- a/src/shell/bar/bar.h
++++ b/src/shell/bar/bar.h
+@@ -70,6 +70,7 @@ public:
+   void unsuppressDisplay();
+   [[nodiscard]] bool isVisible() const noexcept;
+   void onOutputChange();
++  [[nodiscard]] std::uint64_t surfaceRevisionForOutput(wl_output* output) const;
+   void onWorkspaceChanged();
+   void scheduleSmartAutoHideReevaluation();
+   void onSecondTick();
+@@ -198,6 +199,7 @@ private:
+   scripting::ScriptApiContext* m_scriptApi = nullptr;
+   std::unique_ptr<WidgetFactory> m_widgetFactory;
+   std::vector<std::unique_ptr<BarInstance>> m_instances;
++  std::unordered_map<wl_output*, std::uint64_t> m_topSurfaceRevisions;
+ 
+   // Snapshot of the config fields the bar depends on. Used to skip reloads
+   // triggered by unrelated config changes (theme, weather, idle, etc.).
+diff --git a/src/shell/dock/dock.cpp b/src/shell/dock/dock.cpp
+index f5fe7951a..efc973916 100644
+--- a/src/shell/dock/dock.cpp
++++ b/src/shell/dock/dock.cpp
+@@ -434,10 +434,23 @@ void Dock::detachInstanceState(shell::dock::DockInstance& inst) {
+ }
+ 
+ void Dock::onOutputChange() {
+-  if (!m_config->config().dock.enabled) {
++  if (m_config == nullptr || m_platform == nullptr) {
+     return;
+   }
+-  syncInstances();
++  if (m_config->config().dock.enabled) {
++    syncInstances();
++  }
++  const auto& outputs = m_platform->outputs();
++  std::erase_if(m_topSurfaceRevisions, [&outputs](const auto& revision) {
++    return std::ranges::none_of(outputs, [&revision](const WaylandOutput& output) {
++      return output.output == revision.first;
++    });
++  });
++}
++
++std::uint64_t Dock::surfaceRevisionForOutput(wl_output* output) const {
++  const auto found = m_topSurfaceRevisions.find(output);
++  return found == m_topSurfaceRevisions.end() ? 0 : found->second;
+ }
+ 
+ void Dock::refresh() {
+@@ -804,6 +817,7 @@ void Dock::createInstance(const WaylandOutput& output) {
+       cfg, shadowConfig, cfg.pinned.size() + shell::dock::dockLauncherButtonCount(cfg), instance->fractionalScale,
+       instance->shellPadding
+   );
++  const bool topLayer = lsCfg.layer == LayerShellLayer::Top;
+ 
+   instance->surface = std::make_unique<LayerSurface>(m_platform->wayland(), std::move(lsCfg));
+   instance->surface->setRenderContext(m_renderContext);
+@@ -845,6 +859,9 @@ void Dock::createInstance(const WaylandOutput& output) {
+     kLog.warn("failed to init dock surface for output {}", output.name);
+     return;
+   }
++  if (topLayer) {
++    ++m_topSurfaceRevisions[output.output];
++  }
+ 
+   m_surfaceMap[instance->surface->wlSurface()] = instance.get();
+   m_instances.push_back(std::move(instance));
+diff --git a/src/shell/dock/dock.h b/src/shell/dock/dock.h
+index 1d93869cc..965cde834 100644
+--- a/src/shell/dock/dock.h
++++ b/src/shell/dock/dock.h
+@@ -45,6 +45,7 @@ public:
+   void scheduleSmartAutoHideReevaluation();
+   void closeAllInstances();
+   void onOutputChange();
++  [[nodiscard]] std::uint64_t surfaceRevisionForOutput(wl_output* output) const;
+   void refresh();
+   void toggleVisibility();
+   void requestLayout();
+@@ -101,6 +102,7 @@ private:
+   std::unordered_map<std::string, std::string> m_lastActiveIdentifierByAppIdLower;
+   std::optional<PendingLaunchFocus> m_pendingLaunchFocus;
+   std::vector<std::unique_ptr<shell::dock::DockInstance>> m_instances;
++  std::unordered_map<wl_output*, std::uint64_t> m_topSurfaceRevisions;
+   std::unordered_map<wl_surface*, shell::dock::DockInstance*> m_surfaceMap;
+   shell::dock::DockInstance* m_hoveredInstance = nullptr;
+   shell::dock::DockInstance* m_popupOwnerInstance = nullptr; // instance that owns the current open popup
+diff --git a/src/shell/screen_corners/screen_corners.cpp b/src/shell/screen_corners/screen_corners.cpp
+index 7ada2dc8d..ac15528bc 100644
+--- a/src/shell/screen_corners/screen_corners.cpp
++++ b/src/shell/screen_corners/screen_corners.cpp
+@@ -8,6 +8,7 @@
+ #include "wayland/wayland_connection.h"
+ 
+ #include <algorithm>
++#include <utility>
+ 
+ namespace {
+ 
+@@ -37,73 +38,22 @@ namespace {
+     return output.done && output.output != nullptr && output.hasUsableGeometry();
+   }
+ 
+-  std::size_t eligibleOutputCount(const WaylandConnection& wayland) {
+-    return static_cast<std::size_t>(std::ranges::count_if(wayland.outputs(), outputEligible));
+-  }
+-
+ } // namespace
+ 
+-void ScreenCorners::initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext) {
++void ScreenCorners::initialize(
++    WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext,
++    shell::SurfaceRevisionProvider surfaceRevisionProvider
++) {
+   m_wayland = &wayland;
+   m_config = config;
+   m_renderContext = renderContext;
++  m_surfaceRevisionProvider = std::move(surfaceRevisionProvider);
+   m_paletteConn = paletteChanged().connect([this]() { updateColors(); });
+ }
+ 
+-void ScreenCorners::onConfigReload() {
+-  if (m_config == nullptr) {
+-    return;
+-  }
++void ScreenCorners::onConfigReload() { reconcileSurfaces(); }
+ 
+-  const auto& cfg = m_config->config().shell.screenCorners;
+-  const auto padding = shell::screen_geometry::padding(cfg);
+-  if (!cfg.enabled) {
+-    if (m_lastEnabled) {
+-      destroySurfaces();
+-      m_lastEnabled = false;
+-    }
+-    m_lastPadding = padding;
+-    return;
+-  }
+-
+-  // The bar and dock share the Top layer with the corners, and wlr-layer-shell stacks
+-  // same-layer surfaces by creation order with no way to restack afterwards. A config
+-  // change that makes either recreate its surfaces (a bar corner radius resizes the
+-  // surface, or a shadow change alters bar/dock surface metrics, for instance) puts
+-  // them above the corners, which then get clipped away wherever the bar sits.
+-  // Recreate ours too so they climb back on top; this callback is registered after
+-  // the bar's, so the rebuild lands last.
+-  const auto& changed = m_config->lastChange();
+-  const bool stackingMayHaveChanged = changed.bars || changed.widgets || changed.dock || changed.shell;
+-
+-  if (cfg.enabled != m_lastEnabled
+-      || cfg.size != m_lastSize
+-      || padding != m_lastPadding
+-      || m_instances.size() != eligibleOutputCount(*m_wayland)
+-      || stackingMayHaveChanged) {
+-    destroySurfaces();
+-    m_lastEnabled = cfg.enabled;
+-    m_lastSize = cfg.size;
+-    m_lastPadding = padding;
+-    ensureSurfaces();
+-  }
+-}
+-
+-void ScreenCorners::onOutputChange() {
+-  if (m_config == nullptr) {
+-    return;
+-  }
+-  const auto& cfg = m_config->config().shell.screenCorners;
+-  m_lastEnabled = cfg.enabled;
+-  m_lastSize = cfg.size;
+-  m_lastPadding = shell::screen_geometry::padding(cfg);
+-
+-  destroySurfaces();
+-  if (!cfg.enabled) {
+-    return;
+-  }
+-  ensureSurfaces();
+-}
++void ScreenCorners::onOutputChange() { reconcileSurfaces(); }
+ 
+ void ScreenCorners::updateColors() {
+   const auto color = colorForRole(ColorRole::Surface, 1.0F);
+@@ -127,25 +77,53 @@ void ScreenCorners::requestRedraw() {
+   }
+ }
+ 
+-void ScreenCorners::ensureSurfaces() {
++void ScreenCorners::reconcileSurfaces() {
+   if (m_wayland == nullptr || m_renderContext == nullptr || m_config == nullptr) {
+     return;
+   }
+ 
+   const auto& cfg = m_config->config().shell.screenCorners;
+-  if (!cfg.enabled || !m_instances.empty()) {
++  if (!cfg.enabled) {
++    destroySurfaces();
+     return;
+   }
+ 
+   const auto size = static_cast<std::uint32_t>(std::clamp(cfg.size, 1, 100));
+-  for (const auto& output : m_wayland->outputs()) {
++  const auto& outputs = m_wayland->outputs();
++  std::erase_if(m_instances, [&outputs](const auto& instance) {
++    return std::ranges::none_of(outputs, [&instance](const WaylandOutput& output) {
++      return output.output == instance->output && outputEligible(output);
++    });
++  });
++
++  for (const auto& output : outputs) {
+     if (!outputEligible(output)) {
+       continue;
+     }
+ 
++    const auto insets = shell::screen_geometry::paddingInsetsForOutput(*m_config, output);
++    const auto revisions =
++        m_surfaceRevisionProvider ? m_surfaceRevisionProvider(output.output) : shell::SurfaceRevisions{};
++    auto found = std::ranges::find(m_instances, output.output, [](const auto& instance) { return instance->output; });
++    if (found != m_instances.end()) {
++      const auto& instance = **found;
++      const bool geometryChanged = instance.size != size
++          || instance.insets != insets
++          || instance.scale != output.scale
++          || instance.scaleNumerator != output.configuredScaleNumerator;
++      if (!geometryChanged && instance.surfaceRevisions == revisions) {
++        continue;
++      }
++      m_instances.erase(found);
++    }
++
+     auto inst = std::make_unique<OutputInstance>();
+     inst->output = output.output;
+-    const auto insets = shell::screen_geometry::paddingInsetsForOutput(*m_config, output);
++    inst->scale = output.scale;
++    inst->scaleNumerator = output.configuredScaleNumerator;
++    inst->size = size;
++    inst->insets = insets;
++    inst->surfaceRevisions = revisions;
+ 
+     bool ok = true;
+     for (int i = 0; i < 4; ++i) {
+diff --git a/src/shell/screen_corners/screen_corners.h b/src/shell/screen_corners/screen_corners.h
+index 4e68c75c2..95bb3b034 100644
+--- a/src/shell/screen_corners/screen_corners.h
++++ b/src/shell/screen_corners/screen_corners.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "shell/screen_geometry.h"
++#include "shell/shell_surface_revisions.h"
+ #include "ui/signal.h"
+ #include "wayland/layer_surface.h"
+ 
+@@ -19,7 +21,10 @@ public:
+   ScreenCorners(const ScreenCorners&) = delete;
+   ScreenCorners& operator=(const ScreenCorners&) = delete;
+ 
+-  void initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext);
++  void initialize(
++      WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext,
++      shell::SurfaceRevisionProvider surfaceRevisionProvider
++  );
+   void onOutputChange();
+   void onConfigReload();
+   void requestRedraw();
+@@ -34,10 +39,15 @@ private:
+ 
+   struct OutputInstance {
+     wl_output* output = nullptr;
++    std::int32_t scale = 0;
++    std::int32_t scaleNumerator = 0;
++    std::uint32_t size = 0;
++    shell::screen_geometry::Insets insets;
++    shell::SurfaceRevisions surfaceRevisions;
+     Corner corners[4];
+   };
+ 
+-  void ensureSurfaces();
++  void reconcileSurfaces();
+   void destroySurfaces();
+   void buildCornerScene(Corner& corner, std::uint32_t width, std::uint32_t height, int cornerIndex);
+   void updateColors();
+@@ -45,9 +55,7 @@ private:
+   WaylandConnection* m_wayland = nullptr;
+   ConfigService* m_config = nullptr;
+   RenderContext* m_renderContext = nullptr;
+-  bool m_lastEnabled = false;
+-  std::int32_t m_lastSize = 0;
+-  std::int32_t m_lastPadding = 0;
++  shell::SurfaceRevisionProvider m_surfaceRevisionProvider;
+   std::vector<std::unique_ptr<OutputInstance>> m_instances;
+   Signal<>::ScopedConnection m_paletteConn;
+ };
+diff --git a/src/shell/shell_padding.cpp b/src/shell/shell_padding.cpp
+index db398df55..933a65c51 100644
+--- a/src/shell/shell_padding.cpp
++++ b/src/shell/shell_padding.cpp
+@@ -10,6 +10,7 @@
+ 
+ #include <algorithm>
+ #include <ranges>
++#include <utility>
+ 
+ namespace {
+ 
+@@ -57,14 +58,16 @@ namespace {
+ 
+ } // namespace
+ 
+-void ShellPadding::initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext) {
++void ShellPadding::initialize(
++    WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext,
++    shell::SurfaceRevisionProvider surfaceRevisionProvider
++) {
+   m_wayland = &wayland;
+   m_config = config;
+   m_renderContext = renderContext;
++  m_surfaceRevisionProvider = std::move(surfaceRevisionProvider);
+   m_paletteConn = paletteChanged().connect([this]() { updatePalette(); });
+   if (m_config != nullptr) {
+-    m_visualPadding = currentPadding();
+-    m_lastShadow = m_config->config().shell.shadow;
+     m_config->addReloadCallback(
+         [this]() {
+           if (m_config != nullptr && (m_config->lastChange().shell || m_config->lastChange().bars)) {
+@@ -76,13 +79,6 @@ void ShellPadding::initialize(WaylandConnection& wayland, ConfigService* config,
+   }
+ }
+ 
+-std::int32_t ShellPadding::currentPadding() const noexcept {
+-  if (m_config == nullptr) {
+-    return 0;
+-  }
+-  return shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+-}
+-
+ void ShellPadding::reconcileOutputs() {
+   if (m_wayland == nullptr || m_config == nullptr || m_renderContext == nullptr) {
+     return;
+@@ -105,17 +101,30 @@ void ShellPadding::reconcileOutputs() {
+       instance->output = output.output;
+       instance->scale = output.scale;
+       instance->scaleNumerator = output.configuredScaleNumerator;
++      instance->logicalWidth = output.effectiveLogicalWidth();
++      instance->logicalHeight = output.effectiveLogicalHeight();
+       m_instances.push_back(std::move(instance));
+       continue;
+     }
+ 
+     auto& instance = **found;
+-    if (instance.scale != output.scale || instance.scaleNumerator != output.configuredScaleNumerator) {
++    const bool scaleChanged =
++        instance.scale != output.scale || instance.scaleNumerator != output.configuredScaleNumerator;
++    const bool outputSizeChanged = instance.logicalWidth != output.effectiveLogicalWidth()
++        || instance.logicalHeight != output.effectiveLogicalHeight();
++    if (scaleChanged) {
+       destroyReservations(instance);
+       destroyStrips(instance);
+-      instance.scale = output.scale;
+-      instance.scaleNumerator = output.configuredScaleNumerator;
++    } else if (outputSizeChanged) {
++      destroyStrips(instance);
+     }
++    if (scaleChanged || outputSizeChanged) {
++      instance.visualGeometryValid = false;
++    }
++    instance.scale = output.scale;
++    instance.scaleNumerator = output.configuredScaleNumerator;
++    instance.logicalWidth = output.effectiveLogicalWidth();
++    instance.logicalHeight = output.effectiveLogicalHeight();
+   }
+ }
+ 
+@@ -138,56 +147,27 @@ void ShellPadding::onReservationsOutputChange() {
+ void ShellPadding::onVisualsOutputChange() {
+   reconcileOutputs();
+   for (auto& instance : m_instances) {
+-    destroyStrips(*instance);
+     const auto* output = m_wayland != nullptr ? m_wayland->findOutputByWl(instance->output) : nullptr;
+     if (output != nullptr) {
+-      const auto insets = shell::screen_geometry::paddingInsetsForOutput(*m_config, *output);
+-      ensureStrips(*instance, insets);
++      reconcileVisuals(*instance, *output);
+     }
+   }
+-  m_visualPadding = currentPadding();
+-  if (m_config != nullptr) {
+-    m_lastShadow = m_config->config().shell.shadow;
+-  }
+ }
+ 
+ void ShellPadding::onVisualsConfigReload() {
+-  if (m_config == nullptr) {
+-    return;
+-  }
+-  const auto padding = currentPadding();
+-  const auto& change = m_config->lastChange();
+-  const auto& shadow = m_config->config().shell.shadow;
+-  const bool stackingMayHaveChanged = change.bars
+-      || change.widgets
+-      || change.dock
+-      || change.plugins
+-      || padding != m_visualPadding
+-      || shadow != m_lastShadow;
++  reconcileOutputs();
+   for (auto& instance : m_instances) {
+     const auto* output = m_wayland != nullptr ? m_wayland->findOutputByWl(instance->output) : nullptr;
+-    if (output == nullptr) {
+-      destroyStrips(*instance);
+-      continue;
+-    }
+-    const auto insets = shell::screen_geometry::paddingInsetsForOutput(*m_config, *output);
+-    if (insets == shell::screen_geometry::Insets{}) {
+-      destroyStrips(*instance);
+-    } else {
+-      if (stackingMayHaveChanged) {
+-        destroyStrips(*instance);
+-      }
+-      ensureStrips(*instance, insets);
++    if (output != nullptr) {
++      reconcileVisuals(*instance, *output);
+     }
+   }
+-  m_visualPadding = padding;
+-  m_lastShadow = shadow;
+ }
+ 
+ void ShellPadding::shutdown() {
+   m_paletteConn.disconnect();
+   m_instances.clear();
+-  m_visualPadding = 0;
++  m_surfaceRevisionProvider = {};
+ }
+ 
+ void ShellPadding::ensureReservations(OutputInstance& instance, const shell::screen_geometry::Insets& insets) {
+@@ -219,6 +199,30 @@ void ShellPadding::ensureStrips(OutputInstance& instance, const shell::screen_ge
+ 
+ void ShellPadding::destroyStrips(OutputInstance& instance) { instance.strips = {}; }
+ 
++void ShellPadding::reconcileVisuals(OutputInstance& instance, const WaylandOutput& output) {
++  const auto insets = shell::screen_geometry::paddingInsetsForOutput(*m_config, output);
++  const auto revisions =
++      m_surfaceRevisionProvider ? m_surfaceRevisionProvider(instance.output) : shell::SurfaceRevisions{};
++  const bool geometryChanged = !instance.visualGeometryValid
++      || instance.visualWidth != output.effectiveLogicalWidth()
++      || instance.visualHeight != output.effectiveLogicalHeight()
++      || instance.visualInsets != insets;
++  const bool stackingChanged = instance.visualRevisions != revisions;
++  if (geometryChanged || stackingChanged) {
++    destroyStrips(instance);
++  }
++  if (insets == shell::screen_geometry::Insets{}) {
++    destroyStrips(instance);
++  } else {
++    ensureStrips(instance, insets);
++  }
++  instance.visualWidth = output.effectiveLogicalWidth();
++  instance.visualHeight = output.effectiveLogicalHeight();
++  instance.visualInsets = insets;
++  instance.visualRevisions = revisions;
++  instance.visualGeometryValid = true;
++}
++
+ void ShellPadding::createReservation(OutputInstance& instance, std::size_t edge, std::int32_t padding) {
+   LayerSurfaceConfig config{
+       .nameSpace = "noctalia-shell-padding-reservation",
+diff --git a/src/shell/shell_padding.h b/src/shell/shell_padding.h
+index 51a8d294b..5cd9d1f62 100644
+--- a/src/shell/shell_padding.h
++++ b/src/shell/shell_padding.h
+@@ -2,6 +2,7 @@
+ 
+ #include "config/config_types.h"
+ #include "shell/screen_geometry.h"
++#include "shell/shell_surface_revisions.h"
+ #include "ui/signal.h"
+ #include "wayland/layer_surface.h"
+ 
+@@ -14,6 +15,7 @@
+ class ConfigService;
+ class RenderContext;
+ class WaylandConnection;
++struct WaylandOutput;
+ 
+ class ShellPadding {
+ public:
+@@ -23,7 +25,10 @@ public:
+   ShellPadding(const ShellPadding&) = delete;
+   ShellPadding& operator=(const ShellPadding&) = delete;
+ 
+-  void initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext);
++  void initialize(
++      WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext,
++      shell::SurfaceRevisionProvider surfaceRevisionProvider
++  );
+   void onReservationsOutputChange();
+   void onVisualsOutputChange();
+   void onVisualsConfigReload();
+@@ -41,13 +46,20 @@ private:
+     wl_output* output = nullptr;
+     std::int32_t scale = 0;
+     std::int32_t scaleNumerator = 0;
++    std::int32_t logicalWidth = 0;
++    std::int32_t logicalHeight = 0;
++    std::int32_t visualWidth = 0;
++    std::int32_t visualHeight = 0;
++    shell::screen_geometry::Insets visualInsets;
++    shell::SurfaceRevisions visualRevisions;
++    bool visualGeometryValid = false;
+     std::array<std::unique_ptr<Node>, 4> reservationRoots;
+     std::array<std::unique_ptr<LayerSurface>, 4> reservations;
+     std::array<Strip, 4> strips;
+   };
+ 
+-  [[nodiscard]] std::int32_t currentPadding() const noexcept;
+   void reconcileOutputs();
++  void reconcileVisuals(OutputInstance& instance, const WaylandOutput& output);
+   void ensureReservations(OutputInstance& instance, const shell::screen_geometry::Insets& insets);
+   void destroyReservations(OutputInstance& instance);
+   void ensureStrips(OutputInstance& instance, const shell::screen_geometry::Insets& insets);
+@@ -59,8 +71,7 @@ private:
+   WaylandConnection* m_wayland = nullptr;
+   ConfigService* m_config = nullptr;
+   RenderContext* m_renderContext = nullptr;
+-  std::int32_t m_visualPadding = 0;
+-  ShellConfig::ShadowConfig m_lastShadow;
++  shell::SurfaceRevisionProvider m_surfaceRevisionProvider;
+   std::vector<std::unique_ptr<OutputInstance>> m_instances;
+   Signal<>::ScopedConnection m_paletteConn;
+ };
+diff --git a/src/shell/shell_surface_revisions.h b/src/shell/shell_surface_revisions.h
+new file mode 100644
+index 000000000..25e33ae01
+--- /dev/null
++++ b/src/shell/shell_surface_revisions.h
+@@ -0,0 +1,17 @@
++#pragma once
++
++#include <cstdint>
++#include <functional>
++
++struct wl_output;
++
++namespace shell {
++  struct SurfaceRevisions {
++    std::uint64_t bar = 0;
++    std::uint64_t dock = 0;
++
++    bool operator==(const SurfaceRevisions&) const = default;
++  };
++
++  using SurfaceRevisionProvider = std::function<SurfaceRevisions(wl_output*)>;
++} // namespace shell

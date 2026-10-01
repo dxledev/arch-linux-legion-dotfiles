@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
 
@@ -21,6 +21,9 @@ handoff_file="${NOCTALIA_THEME_SYNC_DEFER_FILE:-$state_home/toggle-shell-mode/no
 active_palette_file="${NOCTALIA_ACTIVE_PALETTE_FILE:-$state_home/noctalia/active-dynamic-palette}"
 applied_wallpaper_file="${NOCTALIA_APPLIED_WALLPAPER_FILE:-$state_home/noctalia/applied-wallpaper}"
 pending_wallpaper_file="${NOCTALIA_PENDING_WALLPAPER_FILE:-$state_home/toggle-shell-mode/noctalia-wallpaper-pending}"
+worker_log_file="${NOCTALIA_THEME_WORKER_LOG_FILE:-$state_home/toggle-shell-mode/noctalia-theme-worker.log}"
+worker_generation=""
+worker_expected=""
 trace_file="${NOCTALIA_SWITCH_TRACE_FILE:-$state_home/toggle-shell-mode/noctalia-switch-timings.tsv}"
 template_hash_cache=""
 prewarm_enabled="${NOCTALIA_THEME_PREWARM:-1}"
@@ -91,7 +94,7 @@ cleanup_worker_file() {
     local expected="$1" current
     [[ -r "$worker_file" ]] || return 0
     IFS= read -r current < "$worker_file"
-    [[ "$current" == "$expected" ]] && /usr/bin/rm -f -- "$worker_file"
+    if [[ "$current" == "$expected" ]]; then /usr/bin/rm -f -- "$worker_file"; fi
 }
 
 cancel_reload_worker() {
@@ -192,7 +195,7 @@ cleanup_pending_wallpaper() {
     state="$(pending_wallpaper_state 2>/dev/null || true)"
     [[ -n "$state" ]] || return 0
     IFS=$'\t' read -r generation identity <<< "$state"
-    [[ "$generation" == "$expected" ]] && /usr/bin/rm -f -- "$pending_wallpaper_file"
+    if [[ "$generation" == "$expected" ]]; then /usr/bin/rm -f -- "$pending_wallpaper_file"; fi
 }
 
 state_matches() {
@@ -328,10 +331,22 @@ prewarm() {
     done
 }
 
+static_wallpaper() {
+    local theme_root="$1" name="$2" saved_link resolved target
+    saved_link="$theme_root/$name/wallpaper.png"
+    target="$(/usr/bin/readlink -- "$saved_link" 2>/dev/null || true)"
+    if [[ "$target" == "$themes_dir/current/"* ]]; then
+        saved_link="$theme_root/$name/${target#"$themes_dir/current/"}"
+    fi
+    resolved="$(/usr/bin/readlink -e -- "$saved_link" 2>/dev/null || true)"
+    [[ -n "$resolved" && -f "$resolved" ]] || return 1
+    printf '%s\n' "$resolved"
+}
+
 reassert_static_wallpaper() {
     local theme_root="$1" name="$2" saved_link saved_wallpaper current_wallpaper
     saved_link="$theme_root/$name/wallpaper.png"
-    saved_wallpaper="$(/usr/bin/readlink -e -- "$saved_link" 2>/dev/null || true)"
+    saved_wallpaper="$(static_wallpaper "$theme_root" "$name" || true)"
     [[ -n "$saved_wallpaper" && -f "$saved_wallpaper" ]] ||
         fail "Saved wallpaper for static theme '$name' is missing or invalid: $saved_link"
     current_wallpaper="$("$noctalia_bin" msg wallpaper-get 2>/dev/null || true)"
@@ -357,7 +372,7 @@ sync_static_theme() {
     if [[ "$source" == custom ]]; then
         [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || name="$(noctalia_setting custom_palette 2>/dev/null || true)"
         valid_theme_name "$name" || fail "Noctalia's saved custom theme name is invalid: $name"
-        [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" && -f "$theme_root/$name/wallpaper.png" ]] ||
+        [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" ]] && static_wallpaper "$theme_root" "$name" >/dev/null ||
             fail "Noctalia's saved static theme is missing or incomplete: $theme_root/$name"
         current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
         selector_theme="$(/usr/bin/readlink -f -- "$themes_dir/.caelestia-use" 2>/dev/null || true)"
@@ -367,7 +382,7 @@ sync_static_theme() {
                 (( reload_apps == 0 )) || printf 'App sync: reload themed apps for %s\n' "$name"
                 return 0
             fi
-            NOCTALIA_THEME_SYNC=1 THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_ACTIVATE_ONLY=1 "$theme_script" "$name"
+            NOCTALIA_THEME_SYNC=1 THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_ACTIVATE_ONLY=1 "$theme_script" "$name" || fail "Static theme activation failed: $name"
         fi
         (( prestart )) || reassert_static_wallpaper "$theme_root" "$name"
         if (( reload_apps )); then
@@ -383,7 +398,7 @@ sync_static_theme() {
     name="$(noctalia_setting custom_palette 2>/dev/null || true)"
     if [[ -n "$name" ]]; then
         valid_theme_name "$name" || fail "Noctalia's remembered static theme name is invalid: $name"
-        [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" && -f "$theme_root/$name/wallpaper.png" ]] ||
+        [[ -d "$theme_root/$name" && -r "$theme_root/$name/noctalia.json" ]] ||
             fail "Noctalia's remembered static theme is missing or incomplete: $theme_root/$name"
         current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
         if [[ "$current" != "$name" ]]; then
@@ -409,7 +424,7 @@ sync_state_is_current() {
         [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || name="$(noctalia_setting custom_palette 2>/dev/null || true)"
         valid_theme_name "$name" || return 1
         current="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current" 2>/dev/null || true)")"
-        saved_wallpaper="$(/usr/bin/readlink -e -- "$theme_root/$name/wallpaper.png" 2>/dev/null || true)"
+        saved_wallpaper="$(static_wallpaper "$theme_root" "$name" || true)"
         current_wallpaper="$("$noctalia_bin" msg wallpaper-get 2>/dev/null || true)"
         [[ "$current" == "$name" && "$selector_target" == "$theme_root/$name" && "$current_wallpaper" == "$saved_wallpaper" ]]
         return
@@ -447,15 +462,15 @@ run_sync() {
         if [[ ! -r "$native_file" ]]; then
             native_temporary="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/noctalia-native-palette.XXXXXX")"
             native_file="$native_temporary"
-            native_for_selected_state "$wallpaper" "$scheme" "$native_file"
+            native_for_selected_state "$wallpaper" "$scheme" "$native_file" || fail "Palette generation failed: $wallpaper"
         fi
     else
         /usr/bin/mkdir -p -- "${native_file%/*}"
     fi
     if [[ ! -r "$native_file" ]]; then
-        native_for_selected_state "$wallpaper" "$scheme" "$native_file"
+        native_for_selected_state "$wallpaper" "$scheme" "$native_file" || fail "Palette generation failed: $wallpaper"
     fi
-    convert_palette "$native_file" "$mode" "$converted_file"
+    convert_palette "$native_file" "$mode" "$converted_file" || fail "Palette conversion failed: $native_file"
     if (( dry_run )); then
         printf 'Provider: noctalia\nWallpaper: %s\nScheme: %s\nMode: %s\nCache: %s\n' "$wallpaper" "$scheme" "$mode" "$native_file"
         if (( reload_apps )); then printf 'App sync: reload themed apps in background\n'; fi
@@ -469,13 +484,13 @@ run_sync() {
     dynamic_path="$(/usr/bin/readlink -f -- "$themes_dir/.dynamic/noctalia" 2>/dev/null || true)"
     state_key="$(/usr/bin/cat -- "$active_palette_file" 2>/dev/null || true)"
     if [[ "$selected" != "$dynamic_path" || "$state_key" != "$key" || ! -r "$dynamic_path/.noctalia-generated" ]]; then
-        "$renderer" --provider noctalia "$converted_file" "$wallpaper" >/dev/null
+        "$renderer" --provider noctalia "$converted_file" "$wallpaper" || fail "Theme rendering failed: $wallpaper"
     fi
     if ! state_matches "$wallpaper" "$scheme" "$mode"; then
         trace_timing palette-activation-stale
         return 75
     fi
-    THEME_APPLY_ACTIVATE_ONLY=1 "$theme_apply" --activate-only dynamic noctalia >/dev/null
+    THEME_APPLY_ACTIVATE_ONLY=1 "$theme_apply" --activate-only dynamic noctalia || fail "Dynamic theme activation failed."
     if ! state_matches "$wallpaper" "$scheme" "$mode"; then
         trace_timing palette-activation-state-changed
         return 75
@@ -523,14 +538,49 @@ run_sync_until_current() {
     done
 }
 
+worker_failed() {
+    local status="$1" line="$2" command="$3"
+    printf 'noctalia-theme-sync: generation=%s pid=%s status=%s line=%s command=%s\n' \
+        "$worker_generation" "$$" "$status" "$line" "$command" >&2
+}
+
+worker_exited() {
+    local status="$?"
+    trap - EXIT ERR
+    if (( status != 0 )); then worker_failed "$status" exit "worker exited"; fi
+    cleanup_pending_wallpaper "$worker_generation" || true
+    cleanup_worker_file "$worker_expected" || true
+    exit "$status"
+}
+
+prepare_worker() {
+    worker_generation="$1"
+    worker_expected="$$:$1"
+    trap 'worker_failed "$?" "$LINENO" "$BASH_COMMAND"' ERR
+    trap worker_exited EXIT
+    exec 8>"$lock_file"
+    /usr/bin/flock 8
+    exec 8>&-
+}
+
+handoff_is_active() {
+    local entry pid command_line
+    [[ -r "$handoff_file" ]] || return 1
+    IFS= read -r entry < "$handoff_file" || return 1
+    pid="${entry%%-*}"
+    [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/$pid/cmdline" ]] || return 1
+    command_line="$(/usr/bin/tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    [[ "$command_line" == *'toggle-shell-mode'* ]]
+}
+
 launch_reload_worker() {
     local generation="$1" mode="$2" wallpaper="$3" temporary pid
-    /usr/bin/mkdir -p -- "${worker_file%/*}"
+    /usr/bin/mkdir -p -- "${worker_file%/*}" "${worker_log_file%/*}"
     trace_timing app-reloads-start
     (
         exec 8>&-
         /usr/bin/setsid --wait /usr/bin/bash "$0" --reload-worker "$generation" "$mode" "$wallpaper"
-    ) >/dev/null 2>&1 9>&- &
+    ) >>"$worker_log_file" 2>&1 9>&- &
     pid="$!"
     temporary="$(/usr/bin/mktemp "${worker_file}.XXXXXX")"
     printf '%s:%s\n' "$pid" "$generation" > "$temporary"
@@ -540,13 +590,13 @@ launch_reload_worker() {
 launch_wallpaper_worker() {
     local generation="$1" wallpaper="$2" identity="$3" temporary pid
     write_pending_wallpaper "$generation" "$identity"
-    /usr/bin/mkdir -p -- "${worker_file%/*}"
+    /usr/bin/mkdir -p -- "${worker_file%/*}" "${worker_log_file%/*}"
     trace_timing wallpaper-app-sync-queued
     (
         exec 8>&-
         trap '' HUP
         /usr/bin/setsid --wait /usr/bin/bash "$0" --wallpaper-worker "$generation" "$wallpaper"
-    ) >/dev/null 2>&1 9>&- &
+    ) >>"$worker_log_file" 2>&1 9>&- &
     pid="$!"
     temporary="$(/usr/bin/mktemp "${worker_file}.XXXXXX")"
     printf '%s:%s\n' "$pid" "$generation" > "$temporary"
@@ -623,12 +673,14 @@ main() {
     if [[ "${1:-}" == --reload-worker ]]; then
         shift
         [[ $# == 3 && "$1" =~ ^[0-9]+$ && ( "$2" == system || "$2" == dynamic ) ]] || fail 'Invalid reload worker arguments.'
+        prepare_worker "$1"
         reload_worker "$@"
         return
     fi
     if [[ "${1:-}" == --wallpaper-worker ]]; then
         shift
         [[ $# == 2 && "$1" =~ ^[0-9]+$ && "$2" == /* ]] || fail 'Invalid wallpaper worker arguments.'
+        prepare_worker "$1"
         wallpaper_worker "$@"
         return
     fi
@@ -660,8 +712,11 @@ main() {
         return 0
     fi
     if [[ "${NOCTALIA_THEME_SYNC_DEFER:-0}" == 1 && -e "$handoff_file" && "$explicit_sync" == 0 && "$dry_run" == 0 ]]; then
-        trace_timing theme-hook-coalesced
-        return 0
+        if handoff_is_active; then
+            trace_timing theme-hook-coalesced
+            return 0
+        fi
+        trace_timing theme-handoff-stale
     fi
     require_absolute_executable "$noctalia_bin"
     require_absolute_executable "$renderer"
