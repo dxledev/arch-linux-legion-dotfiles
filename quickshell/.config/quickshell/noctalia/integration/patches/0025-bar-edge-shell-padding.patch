@@ -355,7 +355,7 @@ index 000000000..7bcd5c6db
 +    }
 +    for (const auto& bar : config.config().bars) {
 +      const auto resolved = ConfigService::resolveForOutput(bar, output);
-+      clearAttachedBarEdge(insets, resolved.position, resolved.enabled, resolved.marginEdge);
++      clearAttachedBarEdge(insets, resolved.position, resolved.enabled, resolved.marginEdge, resolved.marginEnds);
 +    }
 +    return insets;
 +  }
@@ -392,7 +392,7 @@ index cd75de3eb..64637f4c4 100644
    [[nodiscard]] inline std::int32_t clampPadding(std::int32_t padding) noexcept {
      return std::clamp(padding, kMinPadding, kMaxPadding);
    }
-@@ -31,23 +44,78 @@ namespace shell::screen_geometry {
+@@ -31,23 +44,80 @@ namespace shell::screen_geometry {
      return config.paddingEnabled ? clampPadding(config.paddingSize) : 0;
    }
  
@@ -402,8 +402,10 @@ index cd75de3eb..64637f4c4 100644
 +    return Insets{.top = inset, .right = inset, .bottom = inset, .left = inset};
 +  }
 +
-+  inline void clearAttachedBarEdge(Insets& insets, std::string_view position, bool enabled, std::int32_t marginEdge) {
-+    if (!enabled || marginEdge > 0) {
++  inline void clearAttachedBarEdge(
++      Insets& insets, std::string_view position, bool enabled, std::int32_t marginEdge, std::int32_t marginEnds
++  ) {
++    if (!enabled || marginEdge != 0 || marginEnds != 0) {
 +      return;
 +    }
 +    if (position == "top") {

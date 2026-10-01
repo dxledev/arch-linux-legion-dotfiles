@@ -1,0 +1,523 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+index 5d336aeb4..91611ca50 100644
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -2024,6 +2024,10 @@
+           "description": "Reserve space around the screen for a solid shell frame",
+           "label": "Shell Padding"
+         },
++        "screen-padding-opacity": {
++          "description": "Attached bars use their background opacity and override this value",
++          "label": "Shell Padding Opacity"
++        },
+         "screen-padding-size": {
+           "description": "Thickness of the shell frame in logical pixels",
+           "label": "Padding Size"
+diff --git a/example.toml b/example.toml
+index 8c78f346d..9fa7e1b28 100644
+--- a/example.toml
++++ b/example.toml
+@@ -45,6 +45,7 @@ enabled = false
+ size = 32
+ padding_enabled = false
+ padding_size = 10
++padding_opacity = 1.0
+ 
+ [shell.screenshot]
+ skip_annotate_on_copy_save = false  # Ctrl+C / Ctrl+S in the region overlay skip the annotation editor
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+index 89adfc6bc..dcf85e978 100644
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -1042,6 +1042,7 @@ struct ShellConfig {
+     std::int32_t size = 32;
+     bool paddingEnabled = false;
+     std::int32_t paddingSize = 10;
++    float paddingOpacity = 1.0F;
+ 
+     bool operator==(const ScreenCornersConfig&) const = default;
+   };
+diff --git a/src/config/schema/config_schema.cpp b/src/config/schema/config_schema.cpp
+index 222db5ae5..debca5135 100644
+--- a/src/config/schema/config_schema.cpp
++++ b/src/config/schema/config_schema.cpp
+@@ -1416,6 +1416,7 @@ namespace noctalia::config::schema {
+           field(&ShellConfig::ScreenCornersConfig::size, "size", kScreenCornersSizeRange),
+           field(&ShellConfig::ScreenCornersConfig::paddingEnabled, "padding_enabled"),
+           field(&ShellConfig::ScreenCornersConfig::paddingSize, "padding_size", kShellPaddingSizeRange),
++          field(&ShellConfig::ScreenCornersConfig::paddingOpacity, "padding_opacity", kUnitRange),
+       };
+       return s;
+     }
+diff --git a/src/shell/screen_corners/screen_corners.cpp b/src/shell/screen_corners/screen_corners.cpp
+index ac15528bc..0293486bc 100644
+--- a/src/shell/screen_corners/screen_corners.cpp
++++ b/src/shell/screen_corners/screen_corners.cpp
+@@ -38,6 +38,14 @@ namespace {
+     return output.done && output.output != nullptr && output.hasUsableGeometry();
+   }
+ 
++  float outputPaddingOpacity(ConfigService* config, WaylandConnection* wayland, wl_output* output) {
++    const auto* waylandOutput = wayland != nullptr ? wayland->findOutputByWl(output) : nullptr;
++    if (config == nullptr) {
++      return 1.0F;
++    }
++    return shell::screen_geometry::paddingOpacityForOutput(config->config(), waylandOutput);
++  }
++
+ } // namespace
+ 
+ void ScreenCorners::initialize(
+@@ -51,13 +59,19 @@ void ScreenCorners::initialize(
+   m_paletteConn = paletteChanged().connect([this]() { updateColors(); });
+ }
+ 
+-void ScreenCorners::onConfigReload() { reconcileSurfaces(); }
++void ScreenCorners::onConfigReload() {
++  reconcileSurfaces();
++  updateColors();
++}
+ 
+-void ScreenCorners::onOutputChange() { reconcileSurfaces(); }
++void ScreenCorners::onOutputChange() {
++  reconcileSurfaces();
++  updateColors();
++}
+ 
+ void ScreenCorners::updateColors() {
+-  const auto color = colorForRole(ColorRole::Surface, 1.0F);
+   for (auto& inst : m_instances) {
++    const auto color = colorForRole(ColorRole::Surface, outputPaddingOpacity(m_config, m_wayland, inst->output));
+     for (auto& corner : inst->corners) {
+       if (corner.sceneRoot != nullptr && corner.surface != nullptr) {
+         static_cast<ScreenCorner*>(corner.sceneRoot.get())->setColor(color);
+@@ -153,13 +167,14 @@ void ScreenCorners::reconcileSurfaces() {
+       corner.surface->setConfigureCallback([cornerPtr](std::uint32_t, std::uint32_t) {
+         cornerPtr->surface->requestLayout();
+       });
+-      corner.surface->setPrepareFrameCallback([this, cornerPtr, size, cornerIndex](bool, bool) {
++      corner.surface->setPrepareFrameCallback([this, cornerPtr, size, cornerIndex,
++                                               outputWl = output.output](bool, bool) {
+         auto& target = cornerPtr->surface->renderTarget();
+         const auto width = target.logicalWidth() == 0 ? size : target.logicalWidth();
+         const auto height = target.logicalHeight() == 0 ? size : target.logicalHeight();
+         if (cornerPtr->sceneRoot == nullptr || cornerPtr->builtWidth != width || cornerPtr->builtHeight != height) {
+           UiPhaseScope layoutPhase(UiPhase::Layout);
+-          buildCornerScene(*cornerPtr, width, height, cornerIndex);
++          buildCornerScene(*cornerPtr, width, height, cornerIndex, outputPaddingOpacity(m_config, m_wayland, outputWl));
+         }
+       });
+ 
+@@ -178,13 +193,15 @@ void ScreenCorners::reconcileSurfaces() {
+ 
+ void ScreenCorners::destroySurfaces() { m_instances.clear(); }
+ 
+-void ScreenCorners::buildCornerScene(Corner& corner, std::uint32_t width, std::uint32_t height, int cornerIndex) {
++void ScreenCorners::buildCornerScene(
++    Corner& corner, std::uint32_t width, std::uint32_t height, int cornerIndex, float opacity
++) {
+   const float logicalWidth = static_cast<float>(std::max<std::uint32_t>(1, width));
+   const float logicalHeight = static_cast<float>(std::max<std::uint32_t>(1, height));
+ 
+   auto root = std::make_unique<ScreenCorner>();
+   root->setSize(logicalWidth, logicalHeight);
+-  root->setColor(colorForRole(ColorRole::Surface, 1.0F));
++  root->setColor(colorForRole(ColorRole::Surface, opacity));
+   root->setCorner(cornerPosition(cornerIndex));
+   root->setExponent(4.0F);
+ 
+diff --git a/src/shell/screen_corners/screen_corners.h b/src/shell/screen_corners/screen_corners.h
+index 95bb3b034..da37258ac 100644
+--- a/src/shell/screen_corners/screen_corners.h
++++ b/src/shell/screen_corners/screen_corners.h
+@@ -49,7 +49,7 @@ private:
+ 
+   void reconcileSurfaces();
+   void destroySurfaces();
+-  void buildCornerScene(Corner& corner, std::uint32_t width, std::uint32_t height, int cornerIndex);
++  void buildCornerScene(Corner& corner, std::uint32_t width, std::uint32_t height, int cornerIndex, float opacity);
+   void updateColors();
+ 
+   WaylandConnection* m_wayland = nullptr;
+diff --git a/src/shell/screen_geometry.cpp b/src/shell/screen_geometry.cpp
+index fc05aa727..9930d43bf 100644
+--- a/src/shell/screen_geometry.cpp
++++ b/src/shell/screen_geometry.cpp
+@@ -5,6 +5,28 @@
+ 
+ namespace shell::screen_geometry {
+ 
++  float paddingOpacityForOutput(const Config& config, const WaylandOutput* output) {
++    const float fallback = std::clamp(config.shell.screenCorners.paddingOpacity, 0.0F, 1.0F);
++    if (output == nullptr) {
++      return fallback;
++    }
++
++    float opacity = fallback;
++    bool foundAttachedBar = false;
++    for (const auto& bar : config.bars) {
++      const auto resolved = ConfigService::resolveForOutput(bar, *output);
++      if (!resolved.enabled || resolved.marginEdge != 0) {
++        continue;
++      }
++      const float barOpacity = std::clamp(resolved.backgroundOpacity, 0.0F, 1.0F);
++      if (!foundAttachedBar || barOpacity < opacity) {
++        opacity = barOpacity;
++      }
++      foundAttachedBar = true;
++    }
++    return opacity;
++  }
++
+   Insets paddingInsetsForOutput(const ConfigService& config, const WaylandOutput& output) {
+     auto insets = paddingInsets(padding(config.config().shell.screenCorners));
+     if (insets == Insets{}) {
+diff --git a/src/shell/screen_geometry.h b/src/shell/screen_geometry.h
+index f60f6b493..118c3f70e 100644
+--- a/src/shell/screen_geometry.h
++++ b/src/shell/screen_geometry.h
+@@ -67,6 +67,7 @@ namespace shell::screen_geometry {
+   }
+ 
+   [[nodiscard]] Insets paddingInsetsForOutput(const ConfigService& config, const WaylandOutput& output);
++  [[nodiscard]] float paddingOpacityForOutput(const Config& config, const WaylandOutput* output);
+ 
+   [[nodiscard]] inline std::int32_t edgePadding(const Insets& insets, std::string_view position) noexcept {
+     if (position == "top") {
+diff --git a/src/shell/settings/settings_registry.cpp b/src/shell/settings/settings_registry.cpp
+index 0e46614ac..88d9b0093 100644
+--- a/src/shell/settings/settings_registry.cpp
++++ b/src/shell/settings/settings_registry.cpp
+@@ -1485,6 +1485,17 @@ namespace settings {
+         {"shell", "screen_corners", "padding_enabled"}, ToggleSetting{cfg.shell.screenCorners.paddingEnabled},
+         "shell padding frame border window gap screen edge"
+     ));
++    auto paddingOpacity = makeEntry(
++        SettingsSection::Desktop, "screen-corners", tr("settings.schema.desktop.screen-padding-opacity.label"),
++        tr("settings.schema.desktop.screen-padding-opacity.description"),
++        {"shell", "screen_corners", "padding_opacity"},
++        sliderFor(cfg.shell.screenCorners.paddingOpacity, noctalia::config::schema::kUnitRange, false),
++        "shell padding frame opacity transparency alpha"
++    );
++    paddingOpacity.visibleWhen = [](const Config& config) {
++      return config.shell.screenCorners.paddingEnabled || config.shell.screenCorners.enabled;
++    };
++    entries.push_back(std::move(paddingOpacity));
+     auto paddingSize = makeEntry(
+         SettingsSection::Desktop, "screen-corners", tr("settings.schema.desktop.screen-padding-size.label"),
+         tr("settings.schema.desktop.screen-padding-size.description"), {"shell", "screen_corners", "padding_size"},
+diff --git a/src/shell/shell_padding.cpp b/src/shell/shell_padding.cpp
+index 933a65c51..0bf8fa041 100644
+--- a/src/shell/shell_padding.cpp
++++ b/src/shell/shell_padding.cpp
+@@ -47,9 +47,9 @@ namespace {
+     return output.done && output.output != nullptr && output.hasUsableGeometry();
+   }
+ 
+-  std::unique_ptr<Box> makeBox(std::uint32_t width, std::uint32_t height, bool visible) {
++  std::unique_ptr<Box> makeBox(std::uint32_t width, std::uint32_t height, bool visible, float opacity) {
+     auto box = std::make_unique<Box>();
+-    box->setFill(visible ? ColorSpec{.role = ColorRole::Surface, .alpha = 1.0F} : clearColorSpec());
++    box->setFill(visible ? colorSpecFromRole(ColorRole::Surface, opacity) : clearColorSpec());
+     box->setSize(
+         static_cast<float>(std::max<std::uint32_t>(1, width)), static_cast<float>(std::max<std::uint32_t>(1, height))
+     );
+@@ -199,8 +199,20 @@ void ShellPadding::ensureStrips(OutputInstance& instance, const shell::screen_ge
+ 
+ void ShellPadding::destroyStrips(OutputInstance& instance) { instance.strips = {}; }
+ 
++void ShellPadding::refreshFills(OutputInstance& instance, float opacity) {
++  for (auto& strip : instance.strips) {
++    if (strip.surface == nullptr || strip.sceneRoot == nullptr) {
++      continue;
++    }
++    static_cast<Box*>(strip.sceneRoot.get())->setFill(colorSpecFromRole(ColorRole::Surface, opacity));
++    strip.surface->requestRedraw();
++  }
++}
++
+ void ShellPadding::reconcileVisuals(OutputInstance& instance, const WaylandOutput& output) {
+   const auto insets = shell::screen_geometry::paddingInsetsForOutput(*m_config, output);
++  const auto opacity = shell::screen_geometry::paddingOpacityForOutput(m_config->config(), &output);
++  const bool opacityChanged = !instance.visualOpacityValid || instance.visualOpacity != opacity;
+   const auto revisions =
+       m_surfaceRevisionProvider ? m_surfaceRevisionProvider(instance.output) : shell::SurfaceRevisions{};
+   const bool geometryChanged = !instance.visualGeometryValid
+@@ -216,6 +228,11 @@ void ShellPadding::reconcileVisuals(OutputInstance& instance, const WaylandOutpu
+   } else {
+     ensureStrips(instance, insets);
+   }
++  if (opacityChanged) {
++    refreshFills(instance, opacity);
++  }
++  instance.visualOpacity = opacity;
++  instance.visualOpacityValid = true;
+   instance.visualWidth = output.effectiveLogicalWidth();
+   instance.visualHeight = output.effectiveLogicalHeight();
+   instance.visualInsets = insets;
+@@ -244,7 +261,7 @@ void ShellPadding::createReservation(OutputInstance& instance, std::size_t edge,
+     auto& target = surfacePtr->renderTarget();
+     if (*root == nullptr) {
+       UiPhaseScope layoutPhase(UiPhase::Layout);
+-      *root = makeBox(target.logicalWidth(), target.logicalHeight(), false);
++      *root = makeBox(target.logicalWidth(), target.logicalHeight(), false, 1.0F);
+       surfacePtr->setSceneRoot(root->get());
+     }
+   });
+@@ -282,7 +299,8 @@ void ShellPadding::createStrip(
+   auto* strip = &instance.strips[edge];
+   strip->surface = std::move(surface);
+   strip->surface->setConfigureCallback([strip](std::uint32_t, std::uint32_t) { strip->surface->requestLayout(); });
+-  strip->surface->setPrepareFrameCallback([this, strip, edge, padding](bool, bool) {
++  const auto outputWl = instance.output;
++  strip->surface->setPrepareFrameCallback([this, strip, edge, padding, outputWl](bool, bool) {
+     auto& target = strip->surface->renderTarget();
+     const std::uint32_t width =
+         target.logicalWidth() == 0 ? (edge == 1 || edge == 3 ? padding : 1U) : target.logicalWidth();
+@@ -290,7 +308,10 @@ void ShellPadding::createStrip(
+         target.logicalHeight() == 0 ? (edge == 0 || edge == 2 ? padding : 1U) : target.logicalHeight();
+     if (strip->sceneRoot == nullptr || strip->builtWidth != width || strip->builtHeight != height) {
+       UiPhaseScope layoutPhase(UiPhase::Layout);
+-      strip->sceneRoot = makeBox(width, height, true);
++      const auto* resolvedOutput = m_wayland != nullptr ? m_wayland->findOutputByWl(outputWl) : nullptr;
++      const float opacity =
++          m_config != nullptr ? shell::screen_geometry::paddingOpacityForOutput(m_config->config(), resolvedOutput) : 1.0F;
++      strip->sceneRoot = makeBox(width, height, true, opacity);
+       strip->builtWidth = width;
+       strip->builtHeight = height;
+       strip->surface->setSceneRoot(strip->sceneRoot.get());
+@@ -304,11 +325,14 @@ void ShellPadding::createStrip(
+ }
+ 
+ void ShellPadding::updatePalette() {
++  if (m_config == nullptr) {
++    return;
++  }
+   for (auto& instance : m_instances) {
+-    for (auto& strip : instance->strips) {
+-      if (strip.surface != nullptr) {
+-        strip.surface->requestRedraw();
+-      }
+-    }
++    const auto* output = m_wayland != nullptr ? m_wayland->findOutputByWl(instance->output) : nullptr;
++    const float opacity = shell::screen_geometry::paddingOpacityForOutput(m_config->config(), output);
++    refreshFills(*instance, opacity);
++    instance->visualOpacity = opacity;
++    instance->visualOpacityValid = true;
+   }
+ }
+diff --git a/src/shell/shell_padding.h b/src/shell/shell_padding.h
+index 5cd9d1f62..95f64ec6f 100644
+--- a/src/shell/shell_padding.h
++++ b/src/shell/shell_padding.h
+@@ -53,6 +53,8 @@ private:
+     shell::screen_geometry::Insets visualInsets;
+     shell::SurfaceRevisions visualRevisions;
+     bool visualGeometryValid = false;
++    float visualOpacity = 1.0F;
++    bool visualOpacityValid = false;
+     std::array<std::unique_ptr<Node>, 4> reservationRoots;
+     std::array<std::unique_ptr<LayerSurface>, 4> reservations;
+     std::array<Strip, 4> strips;
+@@ -64,6 +66,7 @@ private:
+   void destroyReservations(OutputInstance& instance);
+   void ensureStrips(OutputInstance& instance, const shell::screen_geometry::Insets& insets);
+   void destroyStrips(OutputInstance& instance);
++  void refreshFills(OutputInstance& instance, float opacity);
+   void createReservation(OutputInstance& instance, std::size_t edge, std::int32_t padding);
+   void createStrip(OutputInstance& instance, std::size_t edge, const shell::screen_geometry::Insets& insets);
+   void updatePalette();
+diff --git a/tests/config_schema_roundtrip_test.cpp b/tests/config_schema_roundtrip_test.cpp
+index b51eb1fe5..56734e73d 100644
+--- a/tests/config_schema_roundtrip_test.cpp
++++ b/tests/config_schema_roundtrip_test.cpp
+@@ -644,21 +644,50 @@ location = "https://example.invalid/bad"
+         fail("shell.screen_corners padding upper clamp: expected size 16");
+       }
+     }
++    {
++      auto t = toml::parse("[screen_corners]\npadding_opacity = -0.5");
++      ShellConfig shell{};
++      Diagnostics d;
++      readInto(t, shell, shellSchema(), "shell", d);
++      if (shell.screenCorners.paddingOpacity != 0.0F) {
++        fail("shell.screen_corners padding opacity lower clamp: expected 0");
++      }
++    }
++    {
++      auto t = toml::parse("[screen_corners]\npadding_opacity = 1.5");
++      ShellConfig shell{};
++      Diagnostics d;
++      readInto(t, shell, shellSchema(), "shell", d);
++      if (shell.screenCorners.paddingOpacity != 1.0F) {
++        fail("shell.screen_corners padding opacity upper clamp: expected 1");
++      }
++    }
+   }
+ 
+   void checkScreenPaddingDefaultsAndPersistence() {
+     const ShellConfig::ScreenCornersConfig defaults{};
+-    if (defaults.paddingEnabled || defaults.paddingSize != 10) {
+-      fail("shell.screen_corners padding defaults: expected disabled and size 10");
++    if (defaults.paddingEnabled || defaults.paddingSize != 10 || defaults.paddingOpacity != 1.0F) {
++      fail("shell.screen_corners padding defaults: expected disabled, size 10, and opacity 1");
++    }
++    auto legacy = toml::parse("[screen_corners]\npadding_enabled = true");
++    ShellConfig legacyShell{};
++    Diagnostics legacyDiagnostics;
++    readInto(legacy, legacyShell, shellSchema(), "shell", legacyDiagnostics);
++    if (legacyShell.screenCorners.paddingOpacity != 1.0F) {
++      fail("shell.screen_corners missing opacity: expected backward-compatible default 1");
+     }
+ 
+     Config config;
+     config.shell.screenCorners.paddingEnabled = true;
+     config.shell.screenCorners.paddingSize = 13;
++    config.shell.screenCorners.paddingOpacity = 0.5F;
+     const toml::table serialized = config_export::serialize(config);
+     const auto* shellTable = serialized.get_as<toml::table>("shell");
+     const auto* corners = shellTable != nullptr ? shellTable->get_as<toml::table>("screen_corners") : nullptr;
+-    if (corners == nullptr || corners->get("padding_enabled") == nullptr || corners->get("padding_size") == nullptr) {
++    if (corners == nullptr
++        || corners->get("padding_enabled") == nullptr
++        || corners->get("padding_size") == nullptr
++        || corners->get("padding_opacity") == nullptr) {
+       fail("shell.screen_corners padding: serialize omitted persisted settings");
+       return;
+     }
+@@ -666,7 +695,9 @@ location = "https://example.invalid/bad"
+     ShellConfig restored;
+     Diagnostics diagnostics;
+     readInto(*shellTable, restored, shellSchema(), "shell", diagnostics);
+-    if (!restored.screenCorners.paddingEnabled || restored.screenCorners.paddingSize != 13) {
++    if (!restored.screenCorners.paddingEnabled
++        || restored.screenCorners.paddingSize != 13
++        || restored.screenCorners.paddingOpacity != 0.5F) {
+       fail("shell.screen_corners padding: serialized settings did not persist");
+     }
+   }
+diff --git a/tests/screen_padding_geometry_test.cpp b/tests/screen_padding_geometry_test.cpp
+index 66dcde01b..5b5e696ea 100644
+--- a/tests/screen_padding_geometry_test.cpp
++++ b/tests/screen_padding_geometry_test.cpp
+@@ -4,6 +4,7 @@
+ #include "shell/screen_geometry.h"
+ #include "tests/test_check.h"
+ #include "wayland/surface.h"
++#include "wayland/wayland_connection.h"
+ 
+ #include <algorithm>
+ #include <array>
+@@ -74,24 +75,36 @@ namespace {
+ 
+     for (const auto position : kBarPositions) {
+       auto edgeInsets = paddingInsets(kPadding);
+-      clearAttachedBarEdge(edgeInsets, position, true, 0);
++      clearAttachedBarEdge(edgeInsets, position, true, 0, 0);
+       TEST_CHECK(edgePadding(edgeInsets, position) == 0);
+       TEST_CHECK(edgeInsets.top + edgeInsets.right + edgeInsets.bottom + edgeInsets.left == 3 * kPadding);
+ 
+       auto floatingInsets = paddingInsets(kPadding);
+-      clearAttachedBarEdge(floatingInsets, position, true, 5);
++      clearAttachedBarEdge(floatingInsets, position, true, 5, 0);
+       TEST_CHECK((floatingInsets == paddingInsets(kPadding)));
++
++      auto endsInset = paddingInsets(kPadding);
++      clearAttachedBarEdge(endsInset, position, true, 0, 8);
++      TEST_CHECK((endsInset == paddingInsets(kPadding)));
++
++      auto bothInset = paddingInsets(kPadding);
++      clearAttachedBarEdge(bothInset, position, true, 5, 8);
++      TEST_CHECK((bothInset == paddingInsets(kPadding)));
++
++      auto disabledInsets = paddingInsets(kPadding);
++      clearAttachedBarEdge(disabledInsets, position, false, 0, 0);
++      TEST_CHECK((disabledInsets == paddingInsets(kPadding)));
+     }
+ 
+     auto insets = paddingInsets(kPadding);
+-    clearAttachedBarEdge(insets, "top", true, 0);
++    clearAttachedBarEdge(insets, "top", true, 0, 0);
+     TEST_CHECK((insets == Insets{.top = 0, .right = kPadding, .bottom = kPadding, .left = kPadding}));
+     TEST_CHECK((usableBounds(1920, 1080, insets) == Rect{.x = kPadding, .y = 0, .width = 1900, .height = 1070}));
+-    clearAttachedBarEdge(insets, "left", true, 12);
++    clearAttachedBarEdge(insets, "left", true, 12, 0);
+     TEST_CHECK(insets.left == kPadding);
+-    clearAttachedBarEdge(insets, "right", false, 0);
++    clearAttachedBarEdge(insets, "right", false, 0, 0);
+     TEST_CHECK(insets.right == kPadding);
+-    clearAttachedBarEdge(insets, "bottom", true, 0);
++    clearAttachedBarEdge(insets, "bottom", true, 0, 0);
+     TEST_CHECK((insets == Insets{.top = 0, .right = kPadding, .bottom = 0, .left = kPadding}));
+ 
+     TEST_CHECK(exclusiveZone(true, 36, kPadding) == 46);
+@@ -101,6 +114,61 @@ namespace {
+     TEST_CHECK(autoHideLayerMargin(999) == -16);
+   }
+ 
++  void checkPaddingOpacity() {
++    Config config;
++    config.shell.screenCorners.paddingOpacity = 0.5F;
++    WaylandOutput output;
++    output.connectorName = "DP-1";
++    using shell::screen_geometry::paddingOpacityForOutput;
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.5F);
++    config.shell.screenCorners.paddingOpacity = 0.0F;
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.0F);
++    config.shell.screenCorners.paddingOpacity = 1.0F;
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 1.0F);
++    config.shell.screenCorners.paddingOpacity = 0.3F;
++
++    BarConfig attached;
++    attached.marginEdge = 0;
++    attached.marginEnds = 40;
++    attached.backgroundOpacity = 0.5F;
++    BarConfig attachedWithEnds;
++    attachedWithEnds.marginEdge = 0;
++    attachedWithEnds.marginEnds = 0;
++    attachedWithEnds.backgroundOpacity = 0.7F;
++    BarConfig detached;
++    detached.marginEdge = 8;
++    detached.backgroundOpacity = 0.0F;
++    BarConfig disabled;
++    disabled.enabled = false;
++    disabled.backgroundOpacity = 0.0F;
++    config.bars = {attached, attachedWithEnds, detached, disabled};
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.5F);
++    config.bars[0].backgroundOpacity = 0.0F;
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.0F);
++    config.bars[0].backgroundOpacity = 1.0F;
++    config.bars[1].backgroundOpacity = 1.0F;
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 1.0F);
++    config.bars[0].backgroundOpacity = 0.5F;
++    config.bars[1].backgroundOpacity = 0.7F;
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.5F);
++    config.bars[0].monitorOverrides.push_back(BarMonitorOverride{.match = "DP-1", .backgroundOpacity = 0.25F});
++    config.bars[1].monitorOverrides.push_back(BarMonitorOverride{.match = "DP-1", .backgroundOpacity = 0.8F});
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.25F);
++    WaylandOutput otherOutput;
++    otherOutput.connectorName = "DP-2";
++    TEST_CHECK(paddingOpacityForOutput(config, &otherOutput) == 0.5F);
++    config.bars[0].monitorOverrides.push_back(
++        BarMonitorOverride{.match = "DP-2", .enabled = false, .backgroundOpacity = 0.1F}
++    );
++    config.bars[1].monitorOverrides.push_back(
++        BarMonitorOverride{.match = "DP-2", .backgroundOpacity = 0.6F, .marginEdge = 5}
++    );
++    TEST_CHECK(paddingOpacityForOutput(config, &otherOutput) == 0.3F);
++    config.bars.clear();
++    TEST_CHECK(paddingOpacityForOutput(config, &output) == 0.3F);
++    TEST_CHECK(config.shell.screenCorners.paddingOpacity == 0.3F);
++  }
++
+   void checkBarReservations() {
+     const ShellConfig::ShadowConfig shadow;
+     for (std::size_t i = 0; i < kBarPositions.size(); ++i) {
+@@ -250,6 +318,7 @@ namespace {
+ 
+ int main() {
+   checkSharedScreenGeometry();
++  checkPaddingOpacity();
+   checkBarReservations();
+   checkDockEdgesAndReservations();
+   checkDockShadowsAndConcavity();

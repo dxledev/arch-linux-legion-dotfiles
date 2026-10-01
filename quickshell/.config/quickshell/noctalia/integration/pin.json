@@ -27,7 +27,8 @@
     "0023-screen-corner-theme-color.patch",
     "0024-shell-padding.patch",
     "0025-bar-edge-shell-padding.patch",
-    "0026-shell-padding-color-update.patch"
+    "0026-shell-padding-color-update.patch",
+    "0027-shell-padding-opacity.patch"
   ],
   "schemes": [
     "m3-tonal-spot",
