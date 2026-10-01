@@ -22,7 +22,11 @@
     "0018-startup-keyring-unlock.patch",
     "0019-attached-panel-blur-cache.patch",
     "0020-launcher-show-all-apps.patch",
-    "0021-startup-plugin-keyring-unlock.patch"
+    "0021-startup-plugin-keyring-unlock.patch",
+    "0022-window-rounding-sync.patch",
+    "0023-screen-corner-theme-color.patch",
+    "0024-shell-padding.patch",
+    "0025-bar-edge-shell-padding.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

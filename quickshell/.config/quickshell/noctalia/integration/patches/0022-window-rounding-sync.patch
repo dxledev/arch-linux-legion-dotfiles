@@ -1,0 +1,610 @@
+diff --git a/meson.build b/meson.build
+index 43f4e71..3736884 100644
+--- a/meson.build
++++ b/meson.build
+@@ -691,6 +691,7 @@ _noctalia_sources = files(
+   'src/shell/tooltip/tooltip_manager.cpp',
+   'src/shell/hot_corners/hot_corners.cpp',
+   'src/shell/screen_corners/screen_corners.cpp',
++  'src/shell/window_rounding/window_rounding.cpp',
+   'src/shell/panel/panel_click_shield.cpp',
+   'src/wayland/hyprland/focus_grab_service.cpp',
+   'src/shell/panel/panel_manager.cpp',
+@@ -1262,6 +1263,7 @@ if build_tests
+     'widget_definition',
+     'widget_settings_schema',
+     'workspace_alert_service',
++    'window_rounding',
+   ]
+ 
+   foreach test_name : _cpp_test_names
+diff --git a/src/app/application.cpp b/src/app/application.cpp
+index 6c48d3a..971593b 100644
+--- a/src/app/application.cpp
++++ b/src/app/application.cpp
+@@ -182,6 +182,7 @@ Application::Application()
+ }
+ 
+ Application::~Application() {
++  m_windowRounding.reset();
+   ColorPickerDialog::setPresenter(nullptr);
+   GlyphPickerDialog::setPresenter(nullptr);
+   FileDialog::setPresenter(nullptr);
+@@ -303,5 +304,8 @@ void Application::run(std::function<void()> startupReadyCallback) {
+     startupReadyCallback();
+   }
+   m_mainLoop->run();
++  if (m_windowRounding) {
++    m_windowRounding->shutdown();
++  }
+   kLog.info("shutdown");
+ }
+diff --git a/src/app/application.h b/src/app/application.h
+index 0ace48f..47d7db5 100644
+--- a/src/app/application.h
++++ b/src/app/application.h
+@@ -53,6 +53,7 @@
+ #include "shell/overview/overview_launcher_capture.h"
+ #include "shell/panel/panel_manager.h"
+ #include "shell/screen_corners/screen_corners.h"
++#include "shell/window_rounding/window_rounding.h"
+ #include "shell/session/session_action_runner.h"
+ #include "shell/settings/settings_window.h"
+ #include "shell/switcher/window_switcher.h"
+@@ -348,6 +349,7 @@ private:
+   OsdOverlay m_osdOverlay;
+   HotCorners m_hotCorners{this};
+   ScreenCorners m_screenCorners;
++  std::unique_ptr<WindowRounding> m_windowRounding;
+   TrayMenu m_trayMenu;
+   Wallpaper m_wallpaper;
+   Backdrop m_backdrop;
+diff --git a/src/app/application_services.cpp b/src/app/application_services.cpp
+index be5f66b..6d3a09f 100644
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -807,6 +807,12 @@ void Application::initStyleThemeAndWayland() {
+     throw std::runtime_error("failed to connect to Wayland display");
+   }
+   m_compositorPlatform.initialize();
++  if (compositors::isHyprland() && !noctalia::runtime::isLockProvider()) {
++    m_windowRounding = std::make_unique<WindowRounding>(
++        m_compositorPlatform.hyprlandRuntime(), m_fileWatcher,
++        [this]() { return m_configService.config().shell.screenCorners; }, true);
++    m_configService.addReloadCallback([this]() { m_windowRounding->onConfigReload(); });
++  }
+   m_screenTimeService.initialize(&m_wayland);
+   syncScreenTimeService();
+   m_screenTimeService.setChangeCallback([this]() {
+diff --git a/src/compositors/compositor_platform.cpp b/src/compositors/compositor_platform.cpp
+index 2340c12..4772232 100644
+--- a/src/compositors/compositor_platform.cpp
++++ b/src/compositors/compositor_platform.cpp
+@@ -668,6 +668,10 @@ void CompositorPlatform::cleanup() {
+ 
+ wl_display* CompositorPlatform::display() const noexcept { return m_wayland.display(); }
+ 
++compositors::hyprland::HyprlandRuntime& CompositorPlatform::hyprlandRuntime() noexcept {
++  return m_runtimeRegistry->hyprland();
++}
++
+ compositors::niri::NiriRuntime& CompositorPlatform::niriRuntime() noexcept { return m_runtimeRegistry->niri(); }
+ 
+ const compositors::niri::NiriRuntime& CompositorPlatform::niriRuntime() const noexcept {
+diff --git a/src/compositors/compositor_platform.h b/src/compositors/compositor_platform.h
+index c8988c9..4f2cba1 100644
+--- a/src/compositors/compositor_platform.h
++++ b/src/compositors/compositor_platform.h
+@@ -33,6 +33,7 @@ namespace compositors::kde {
+ 
+ namespace compositors::hyprland {
+   class HyprlandToplevelMapping;
++  class HyprlandRuntime;
+ }
+ 
+ namespace compositors {
+@@ -185,6 +186,8 @@ public:
+   [[nodiscard]] bool hasOverviewState() const noexcept;
+   [[nodiscard]] bool isOverviewOpen() const noexcept;
+ 
++  [[nodiscard]] compositors::hyprland::HyprlandRuntime& hyprlandRuntime() noexcept;
++
+   [[nodiscard]] compositors::niri::NiriRuntime& niriRuntime() noexcept;
+   [[nodiscard]] const compositors::niri::NiriRuntime& niriRuntime() const noexcept;
+ 
+diff --git a/src/shell/window_rounding/window_rounding.cpp b/src/shell/window_rounding/window_rounding.cpp
+new file mode 100644
+index 0000000..63f56ea
+--- /dev/null
++++ b/src/shell/window_rounding/window_rounding.cpp
+@@ -0,0 +1,162 @@
++#include "shell/window_rounding/window_rounding.h"
++
++#include "core/deferred_call.h"
++#include "core/log.h"
++
++#include <cmath>
++#include <cstdlib>
++#include <format>
++
++namespace {
++  constexpr Logger kLog("window_rounding");
++
++  std::string environment(const char* name, std::string fallback = {}) {
++    const char* value = std::getenv(name);
++    return value != nullptr && *value != '\0' ? value : fallback;
++  }
++
++  bool noctaliaMode(const process::RunResult& result) {
++    if (!result || result.outTruncated) {
++      return false;
++    }
++    const auto first = result.out.find_first_not_of(" \t\r\n");
++    const auto last = result.out.find_last_not_of(" \t\r\n");
++    return first != std::string::npos && result.out.substr(first, last - first + 1) == "noctalia";
++  }
++} // namespace
++
++WindowRoundingOptions WindowRoundingOptions::fromEnvironment() {
++  const auto home = environment("HOME");
++  const auto configHome = environment("XDG_CONFIG_HOME", home + "/.config");
++  return {
++      .hyprConfig = environment("HYPR_CONFIG", configHome + "/hypr/hyprland.lua"),
++      .modeCommand = home + "/bin/toggle-shell-mode"
++  };
++}
++
++WindowRounding::WindowRounding(
++    compositors::hyprland::HyprlandRuntime& runtime, FileWatcher& watcher, ReadCorners readCorners, bool fullProfile,
++    WindowRoundingOptions options
++)
++    : HyprlandEventHandler(runtime), m_watcher(watcher), m_readCorners(std::move(readCorners)),
++      m_options(std::move(options)), m_lastCorners(m_readCorners()),
++      m_lifetime(std::make_shared<Lifetime>(Lifetime{this})),
++      m_enabled(fullProfile && environment("NOCTALIA_SYNC_WINDOW_ROUNDING") != "0") {
++  if (m_enabled) {
++    watchConfig();
++    requestSync();
++  }
++}
++
++WindowRounding::~WindowRounding() { shutdown(); }
++
++void WindowRounding::shutdown() {
++  m_enabled = false;
++  m_pending = false;
++  m_lifetime->owner = nullptr;
++  m_debounce.stop();
++  if (m_cancel) {
++    m_cancel->store(true);
++  }
++  m_watcher.unwatch(m_configWatch);
++  m_configWatch = 0;
++}
++
++void WindowRounding::watchConfig() {
++  std::error_code error;
++  auto resolved = std::filesystem::weakly_canonical(m_options.hyprConfig, error);
++  if (error || resolved == m_resolvedConfig) {
++    return;
++  }
++  m_watcher.unwatch(m_configWatch);
++  m_resolvedConfig = resolved;
++  m_configWatch = m_watcher.watch(resolved, [this]() { requestSync(); });
++}
++
++void WindowRounding::requestSync() {
++  if (!m_enabled) {
++    return;
++  }
++  ++m_generation;
++  m_pending = true;
++  if (m_cancel) {
++    m_cancel->store(true);
++  }
++  m_debounce.start(m_options.debounce, [this]() { synchronize(); });
++}
++
++void WindowRounding::onConfigReload() {
++  const auto corners = m_readCorners();
++  if (corners != m_lastCorners) {
++    m_lastCorners = corners;
++    requestSync();
++  }
++}
++
++void WindowRounding::handleEvent(std::string_view event, std::string_view /*data*/) {
++  if (event == "configreloaded" && m_enabled) {
++    watchConfig();
++    requestSync();
++  }
++}
++
++void WindowRounding::synchronize() {
++  if (!m_enabled || !m_pending || m_busy) {
++    return;
++  }
++  m_pending = false;
++  const auto corners = m_readCorners();
++  if (corners.size < 0) {
++    return;
++  }
++  const int radius = corners.enabled ? static_cast<int>(std::round(corners.size / 2.0)) : 0;
++  const auto generation = m_generation;
++  run({m_options.modeCommand, "--status"},
++      [this, generation, radius](process::RunResult result) { modeQueried(generation, radius, std::move(result)); });
++}
++
++void WindowRounding::run(const std::vector<std::string>& command, std::function<void(process::RunResult)> completed) {
++  m_busy = true;
++  m_cancel = std::make_shared<std::atomic<bool>>(false);
++  const std::weak_ptr<Lifetime> lifetime = m_lifetime;
++  const bool started = process::runAsync(
++      command,
++      {.onExit =
++           [lifetime, completed = std::move(completed)](process::RunResult result) mutable {
++             // Process callbacks run on workers; ownership and generations belong to the main loop.
++             DeferredCall::callLater([lifetime, completed = std::move(completed),
++                                      result = std::move(result)]() mutable {
++               auto alive = lifetime.lock();
++               if (!alive || alive->owner == nullptr) {
++                 return;
++               }
++               auto& owner = *alive->owner;
++               owner.m_busy = false;
++               completed(std::move(result));
++               if (!owner.m_debounce.active()) {
++                 owner.synchronize();
++               }
++             });
++           }},
++      {.timeout = m_options.timeout,
++       .maxOutputBytes = 4096,
++       .cancel = m_cancel,
++       .env = {{"HYPR_CONFIG", m_options.hyprConfig.string()}}}
++  );
++  if (!started) {
++    m_busy = false;
++    kLog.warn("could not start rounding synchronization process");
++  }
++}
++
++void WindowRounding::modeQueried(std::uint64_t generation, int radius, process::RunResult result) {
++  if (!m_enabled || generation != m_generation || !noctaliaMode(result)) {
++    return;
++  }
++  const auto config = std::format("hl.config({{ decoration = {{ rounding = {}, rounding_power = 4 }} }})", radius);
++  run({m_options.hyprctl, "eval", config}, [this, generation](process::RunResult applied) {
++    if (generation == m_generation && !applied) {
++      kLog.warn("could not synchronize Hyprland window rounding");
++    }
++  });
++}
+diff --git a/src/shell/window_rounding/window_rounding.h b/src/shell/window_rounding/window_rounding.h
+new file mode 100644
+index 0000000..4b06262
+--- /dev/null
++++ b/src/shell/window_rounding/window_rounding.h
+@@ -0,0 +1,59 @@
++#pragma once
++
++#include "compositors/hyprland/hyprland_event_handler.h"
++#include "config/config_types.h"
++#include "core/files/file_watcher.h"
++#include "core/process/process.h"
++#include "core/timer_manager.h"
++
++#include <functional>
++#include <memory>
++
++struct WindowRoundingOptions {
++  std::filesystem::path hyprConfig;
++  std::string modeCommand;
++  std::string hyprctl = "/usr/bin/hyprctl";
++  std::chrono::milliseconds debounce{80};
++  std::chrono::milliseconds timeout{1500};
++
++  static WindowRoundingOptions fromEnvironment();
++};
++
++class WindowRounding final : public compositors::hyprland::HyprlandEventHandler {
++public:
++  using ReadCorners = std::function<ShellConfig::ScreenCornersConfig()>;
++
++  WindowRounding(
++      compositors::hyprland::HyprlandRuntime& runtime, FileWatcher& watcher, ReadCorners readCorners, bool fullProfile,
++      WindowRoundingOptions options = WindowRoundingOptions::fromEnvironment()
++  );
++  ~WindowRounding() override;
++
++  void requestSync();
++  void onConfigReload();
++  void shutdown();
++  void handleEvent(std::string_view event, std::string_view data) override;
++
++private:
++  struct Lifetime {
++    WindowRounding* owner;
++  };
++  void watchConfig();
++  void synchronize();
++  void run(const std::vector<std::string>& command, std::function<void(process::RunResult)> completed);
++  void modeQueried(std::uint64_t generation, int radius, process::RunResult result);
++
++  FileWatcher& m_watcher;
++  ReadCorners m_readCorners;
++  WindowRoundingOptions m_options;
++  ShellConfig::ScreenCornersConfig m_lastCorners;
++  std::shared_ptr<Lifetime> m_lifetime;
++  std::shared_ptr<std::atomic<bool>> m_cancel;
++  Timer m_debounce;
++  FileWatcher::WatchId m_configWatch = 0;
++  std::filesystem::path m_resolvedConfig;
++  std::uint64_t m_generation = 0;
++  bool m_enabled = false;
++  bool m_pending = false;
++  bool m_busy = false;
++};
+diff --git a/tests/window_rounding_test.cpp b/tests/window_rounding_test.cpp
+new file mode 100644
+index 0000000..a855165
+--- /dev/null
++++ b/tests/window_rounding_test.cpp
+@@ -0,0 +1,257 @@
++#include "compositors/hyprland/hyprland_runtime.h"
++#include "config/config_service.h"
++#include "core/deferred_call.h"
++#include "shell/window_rounding/window_rounding.h"
++#include "tests/test_check.h"
++
++#include <filesystem>
++#include <format>
++#include <fstream>
++#include <thread>
++#include <unistd.h>
++
++using namespace std::chrono_literals;
++
++namespace {
++  void write(const std::filesystem::path& path, std::string_view content) {
++    std::filesystem::create_directories(path.parent_path());
++    std::ofstream(path) << content;
++  }
++
++  std::vector<std::string> lines(const std::filesystem::path& path) {
++    std::vector<std::string> result;
++    std::ifstream stream(path);
++    for (std::string line; std::getline(stream, line);) {
++      result.push_back(line);
++    }
++    return result;
++  }
++
++  void pump(FileWatcher& watcher, std::chrono::milliseconds duration = 200ms) {
++    const auto until = std::chrono::steady_clock::now() + duration;
++    while (std::chrono::steady_clock::now() < until) {
++      watcher.dispatch();
++      TimerManager::instance().tick();
++      DeferredCall::drainWakeFd();
++      for (auto& callback : DeferredCall::takePending()) {
++        callback();
++      }
++      std::this_thread::sleep_for(2ms);
++    }
++  }
++
++  void waitForProcess(FileWatcher& watcher, const std::filesystem::path& marker, std::size_t previous) {
++    const auto deadline = std::chrono::steady_clock::now() + 500ms;
++    while (lines(marker).size() == previous && std::chrono::steady_clock::now() < deadline) {
++      pump(watcher, 2ms);
++    }
++    TEST_CHECK(lines(marker).size() > previous);
++  }
++
++  void expectRadius(const std::filesystem::path& log, int radius) {
++    const auto writes = lines(log);
++    TEST_CHECK(!writes.empty());
++    TEST_CHECK(
++        writes.back()
++        == std::format("eval hl.config({{ decoration = {{ rounding = {}, rounding_power = 4 }} }})", radius)
++    );
++  }
++} // namespace
++
++int main() {
++  char temporary[] = "/tmp/noctalia-rounding-test.XXXXXX";
++  const char* directory = ::mkdtemp(temporary);
++  TEST_CHECK(directory != nullptr);
++  const std::filesystem::path root(directory);
++  const auto target = root / "hypr" / "hyprland.lua";
++  const auto link = root / "hyprland.lua";
++  const auto log = root / "writes";
++  write(target, "noctalia\n");
++  std::filesystem::create_symlink(target, link);
++  write(root / "mode", R"bash(#!/usr/bin/env bash
++set -euo pipefail
++[[ "$1" == --status ]]
++root="${HYPR_CONFIG%/*}"
++printf 'query\n' >> "$root/queries"
++[[ ! -f "$root/delay" ]] || /usr/bin/sleep "$(/usr/bin/cat "$root/delay")"
++[[ ! -f "$root/fail" ]] || exit 1
++/usr/bin/cat "$HYPR_CONFIG"
++)bash");
++  write(root / "hyprctl", R"bash(#!/usr/bin/env bash
++set -euo pipefail
++root="${HYPR_CONFIG%/*}"
++printf 'apply\n' >> "$root/apply-started"
++[[ ! -f "$root/apply-delay" ]] || /usr/bin/sleep "$(/usr/bin/cat "$root/apply-delay")"
++printf '%s %s\n' "$1" "$2" >> "$root/writes"
++)bash");
++  for (const auto name : {"mode", "hyprctl"}) {
++    std::filesystem::permissions(root / name, std::filesystem::perms::owner_all);
++  }
++  write(root / "config" / "noctalia" / "config.toml", "[shell.screen_corners]\nenabled = true\nsize = 32\n");
++  ::setenv("NOCTALIA_CONFIG_HOME", (root / "config").c_str(), 1);
++  ::setenv("XDG_STATE_HOME", (root / "state").c_str(), 1);
++  ::unsetenv("NOCTALIA_SYNC_WINDOW_ROUNDING");
++
++  ConfigService config;
++  FileWatcher watcher;
++  compositors::hyprland::HyprlandRuntime runtime;
++  const WindowRoundingOptions options{
++      .hyprConfig = link,
++      .modeCommand = (root / "mode").string(),
++      .hyprctl = (root / "hyprctl").string(),
++      .debounce = 20ms,
++      .timeout = 150ms
++  };
++  const auto readCorners = [&]() { return config.config().shell.screenCorners; };
++  auto sync = std::make_unique<WindowRounding>(runtime, watcher, readCorners, true, options);
++  config.addReloadCallback([&]() {
++    if (sync)
++      sync->onConfigReload();
++  });
++  const std::vector<std::string> sizePath{"shell", "screen_corners", "size"};
++  const std::vector<std::string> enabledPath{"shell", "screen_corners", "enabled"};
++
++  pump(watcher);
++  expectRadius(log, 16);
++  TEST_CHECK(config.setOverride(sizePath, std::int64_t(64)));
++  pump(watcher);
++  expectRadius(log, 32);
++  TEST_CHECK(config.setOverride(sizePath, std::int64_t(33)));
++  pump(watcher);
++  expectRadius(log, 17);
++  TEST_CHECK(config.setOverride(sizePath, std::int64_t(63)));
++  pump(watcher);
++  expectRadius(log, 32);
++  TEST_CHECK(config.setOverride(enabledPath, false));
++  pump(watcher);
++  expectRadius(log, 0);
++  TEST_CHECK(config.config().shell.screenCorners.size == 63);
++  TEST_CHECK(config.setOverride(enabledPath, true));
++  pump(watcher);
++  expectRadius(log, 32);
++  TEST_CHECK(config.clearOverride(sizePath));
++  pump(watcher);
++  expectRadius(log, 16);
++  TEST_CHECK(!config.hasOverride(enabledPath));
++  pump(watcher);
++
++  auto count = lines(log).size();
++  sync->handleEvent("configreloaded", "");
++  pump(watcher);
++  TEST_CHECK(lines(log).size() == count + 1);
++  expectRadius(log, 16);
++
++  for (const auto mode : {"waybar\n", "caelestia\n"}) {
++    count = lines(log).size();
++    write(target, mode);
++    pump(watcher);
++    sync->handleEvent("configreloaded", "");
++    TEST_CHECK(config.setOverride(sizePath, std::int64_t(64)));
++    pump(watcher);
++    TEST_CHECK(lines(log).size() == count);
++    write(root / "hypr" / "replacement", "noctalia\n");
++    std::filesystem::rename(root / "hypr" / "replacement", target);
++    pump(watcher);
++    expectRadius(log, 32);
++    TEST_CHECK(lines(log).size() == count + 1);
++    TEST_CHECK(config.clearOverride(sizePath));
++    pump(watcher);
++  }
++
++  count = lines(log).size();
++  for (int size = 32; size <= 64; ++size) {
++    TEST_CHECK(config.setOverride(sizePath, std::int64_t(size)));
++  }
++  pump(watcher);
++  TEST_CHECK(lines(log).size() == count + 1);
++  expectRadius(log, 32);
++
++  write(root / "delay", "0.1");
++  const auto pendingQueries = lines(root / "queries").size();
++  sync->requestSync();
++  waitForProcess(watcher, root / "queries", pendingQueries);
++  TEST_CHECK(config.setOverride(sizePath, std::int64_t(33)));
++  pump(watcher, 300ms);
++  TEST_CHECK(lines(log).size() == count + 2);
++  expectRadius(log, 17);
++  std::filesystem::remove(root / "delay");
++
++  count = lines(log).size();
++  write(root / "fail", "yes");
++  sync->requestSync();
++  pump(watcher);
++  TEST_CHECK(lines(log).size() == count);
++  std::filesystem::remove(root / "fail");
++  write(root / "delay", "1");
++  sync->requestSync();
++  pump(watcher, 300ms);
++  TEST_CHECK(lines(log).size() == count);
++  std::filesystem::remove(root / "delay");
++
++  write(root / "delay", "0.1");
++  const auto switchingQueries = lines(root / "queries").size();
++  sync->requestSync();
++  waitForProcess(watcher, root / "queries", switchingQueries);
++  write(target, "waybar\n");
++  pump(watcher, 300ms);
++  TEST_CHECK(lines(log).size() == count);
++  std::filesystem::remove(root / "delay");
++  write(target, "noctalia\n");
++  pump(watcher);
++
++  count = lines(log).size();
++  write(root / "apply-delay", "1");
++  const auto pendingApplies = lines(root / "apply-started").size();
++  sync->requestSync();
++  waitForProcess(watcher, root / "apply-started", pendingApplies);
++  sync.reset();
++  pump(watcher, 300ms);
++  TEST_CHECK(lines(log).size() == count);
++  std::filesystem::remove(root / "apply-delay");
++
++  for (const bool fullProfile : {false, true}) {
++    if (fullProfile)
++      ::setenv("NOCTALIA_SYNC_WINDOW_ROUNDING", "0", 1);
++    const auto queries = lines(root / "queries").size();
++    WindowRounding inactive(runtime, watcher, readCorners, fullProfile, options);
++    inactive.requestSync();
++    inactive.handleEvent("configreloaded", "");
++    pump(watcher);
++    TEST_CHECK(lines(log).size() == count);
++    TEST_CHECK(lines(root / "queries").size() == queries);
++  }
++  ::unsetenv("NOCTALIA_SYNC_WINDOW_ROUNDING");
++
++  for (const auto mode : {"waybar\n", "caelestia\n", "noctalia garbage\n"}) {
++    write(target, mode);
++    WindowRounding inactive(runtime, watcher, readCorners, true, options);
++    pump(watcher);
++    TEST_CHECK(lines(log).size() == count);
++  }
++
++  write(target, "noctalia\n");
++  write(root / "delay", "0.1");
++  const auto shutdownQueries = lines(root / "queries").size();
++  sync = std::make_unique<WindowRounding>(runtime, watcher, readCorners, true, options);
++  waitForProcess(watcher, root / "queries", shutdownQueries);
++  sync.reset();
++  pump(watcher, 300ms);
++  TEST_CHECK(lines(log).size() == count);
++  std::filesystem::remove(root / "delay");
++  sync = std::make_unique<WindowRounding>(runtime, watcher, readCorners, true, options);
++  pump(watcher);
++  expectRadius(log, 17);
++  TEST_CHECK(lines(log).size() == count + 1);
++  sync.reset();
++  TEST_CHECK(config.setOverride(enabledPath, false));
++  sync = std::make_unique<WindowRounding>(runtime, watcher, readCorners, true, options);
++  pump(watcher);
++  expectRadius(log, 0);
++  sync.reset();
++  sync = std::make_unique<WindowRounding>(runtime, watcher, readCorners, true, options);
++  sync.reset();
++  count = lines(log).size();
++  pump(watcher);
++  TEST_CHECK(lines(log).size() == count);
++  std::filesystem::remove_all(root);
++}

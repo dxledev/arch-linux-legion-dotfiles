@@ -1,0 +1,2287 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+index 67bbb0631..5d336aeb4 100644
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -2020,6 +2020,14 @@
+           "description": "Radius of the rounded screen corners in pixels",
+           "label": "Corner Size"
+         },
++        "screen-padding-enabled": {
++          "description": "Reserve space around the screen for a solid shell frame",
++          "label": "Shell Padding"
++        },
++        "screen-padding-size": {
++          "description": "Thickness of the shell frame in logical pixels",
++          "label": "Padding Size"
++        },
+         "widgets": {
+           "description": "Show widgets on the desktop",
+           "label": "Desktop Widgets"
+diff --git a/example.toml b/example.toml
+index 0bde0c0b2..8c78f346d 100644
+--- a/example.toml
++++ b/example.toml
+@@ -40,6 +40,12 @@ shared_gl_context     = true         # startup-only; false isolates GPU contexts
+ # lang                = "en"
+ # avatar_path         = "~/Pictures/avatar.png"
+ 
++[shell.screen_corners]
++enabled = false
++size = 32
++padding_enabled = false
++padding_size = 10
++
+ [shell.screenshot]
+ skip_annotate_on_copy_save = false  # Ctrl+C / Ctrl+S in the region overlay skip the annotation editor
+ close_on_copy = true                # close the annotation editor after Copy or Ctrl+C succeeds
+diff --git a/meson.build b/meson.build
+index 3736884a8..dedd6d4bf 100644
+--- a/meson.build
++++ b/meson.build
+@@ -691,6 +691,7 @@ _noctalia_sources = files(
+   'src/shell/tooltip/tooltip_manager.cpp',
+   'src/shell/hot_corners/hot_corners.cpp',
+   'src/shell/screen_corners/screen_corners.cpp',
++  'src/shell/shell_padding.cpp',
+   'src/shell/window_rounding/window_rounding.cpp',
+   'src/shell/panel/panel_click_shield.cpp',
+   'src/wayland/hyprland/focus_grab_service.cpp',
+@@ -1234,6 +1235,7 @@ if build_tests
+     'plugin_source_paths',
+     'process',
+     'scheme',
++    'screen_padding_geometry',
+     'scrollbar_geometry',
+     'secret_store',
+     'security_primitives',
+diff --git a/src/app/application.cpp b/src/app/application.cpp
+index 971593b65..f59483933 100644
+--- a/src/app/application.cpp
++++ b/src/app/application.cpp
+@@ -182,6 +182,7 @@ Application::Application()
+ }
+ 
+ Application::~Application() {
++  m_shellPadding.shutdown();
+   m_windowRounding.reset();
+   ColorPickerDialog::setPresenter(nullptr);
+   GlyphPickerDialog::setPresenter(nullptr);
+diff --git a/src/app/application.h b/src/app/application.h
+index 47d7db5ed..ae74ef7b8 100644
+--- a/src/app/application.h
++++ b/src/app/application.h
+@@ -53,13 +53,14 @@
+ #include "shell/overview/overview_launcher_capture.h"
+ #include "shell/panel/panel_manager.h"
+ #include "shell/screen_corners/screen_corners.h"
+-#include "shell/window_rounding/window_rounding.h"
+ #include "shell/session/session_action_runner.h"
+ #include "shell/settings/settings_window.h"
++#include "shell/shell_padding.h"
+ #include "shell/switcher/window_switcher.h"
+ #include "shell/tray/tray_menu.h"
+ #include "shell/wallpaper/panel/wallpaper_scanner.h"
+ #include "shell/wallpaper/wallpaper.h"
++#include "shell/window_rounding/window_rounding.h"
+ #include "system/battery_warning_monitor.h"
+ #include "system/dependency_service.h"
+ #include "system/desktop_entry_poll_source.h"
+@@ -349,6 +350,7 @@ private:
+   OsdOverlay m_osdOverlay;
+   HotCorners m_hotCorners{this};
+   ScreenCorners m_screenCorners;
++  ShellPadding m_shellPadding;
+   std::unique_ptr<WindowRounding> m_windowRounding;
+   TrayMenu m_trayMenu;
+   Wallpaper m_wallpaper;
+diff --git a/src/app/application_services.cpp b/src/app/application_services.cpp
+index 6d3a09f47..4bad49143 100644
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -810,7 +810,8 @@ void Application::initStyleThemeAndWayland() {
+   if (compositors::isHyprland() && !noctalia::runtime::isLockProvider()) {
+     m_windowRounding = std::make_unique<WindowRounding>(
+         m_compositorPlatform.hyprlandRuntime(), m_fileWatcher,
+-        [this]() { return m_configService.config().shell.screenCorners; }, true);
++        [this]() { return m_configService.config().shell.screenCorners; }, true
++    );
+     m_configService.addReloadCallback([this]() { m_windowRounding->onConfigReload(); });
+   }
+   m_screenTimeService.initialize(&m_wayland);
+@@ -868,8 +869,10 @@ void Application::reconcileOutputSurfaces() {
+   }
+   m_backdrop.onOutputChange();
+   m_wallpaper.onOutputChange();
++  m_shellPadding.onReservationsOutputChange();
+   m_bar.onOutputChange();
+   m_dock.onOutputChange();
++  m_shellPadding.onVisualsOutputChange();
+   m_desktopWidgetsController.onOutputChange();
+   m_lockscreenWidgetsController.onOutputChange();
+   m_screenCorners.onOutputChange();
+diff --git a/src/app/application_ui.cpp b/src/app/application_ui.cpp
+index 2c23952eb..2538ff4ad 100644
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -212,6 +212,9 @@ void Application::initUiRenderSurfacesAndSettings() {
+         i18n::tr("notifications.internal.wallpaper-palette-export-success", "name", paletteName)
+     );
+   });
++  if (!noctalia::runtime::isLockProvider()) {
++    m_shellPadding.initialize(m_wayland, &m_configService, &m_renderContext);
++  }
+ }
+ 
+ void Application::performGreeterSync(bool quiet) {
+@@ -955,7 +958,6 @@ void Application::initBarDockAndLayout() {
+       reloadDmenuProviders();
+     }
+   });
+-  m_configService.addReloadCallback([this]() { m_screenCorners.onConfigReload(); });
+   m_configService.addReloadCallback([this]() { m_hotCorners.onConfigReload(); });
+ 
+   m_layerPopupHosts.registerHost(
+@@ -1180,4 +1182,6 @@ void Application::initWidgetControllersAndCallbacks() {
+   // never occluded by shell chrome on their shared layer.
+   m_screenCorners.initialize(m_wayland, &m_configService, &m_renderContext);
+   m_hotCorners.initialize(m_wayland, &m_configService, &m_renderContext);
++  m_configService.addReloadCallback([this]() { m_shellPadding.onVisualsConfigReload(); }, "shell-padding-visuals");
++  m_configService.addReloadCallback([this]() { m_screenCorners.onConfigReload(); });
+ }
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+index 89f398f5f..89adfc6bc 100644
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -1040,6 +1040,8 @@ struct ShellConfig {
+   struct ScreenCornersConfig {
+     bool enabled = false;
+     std::int32_t size = 32;
++    bool paddingEnabled = false;
++    std::int32_t paddingSize = 10;
+ 
+     bool operator==(const ScreenCornersConfig&) const = default;
+   };
+diff --git a/src/config/schema/config_schema.cpp b/src/config/schema/config_schema.cpp
+index 9c47c013f..222db5ae5 100644
+--- a/src/config/schema/config_schema.cpp
++++ b/src/config/schema/config_schema.cpp
+@@ -1414,6 +1414,8 @@ namespace noctalia::config::schema {
+       static const Schema<ShellConfig::ScreenCornersConfig> s = {
+           field(&ShellConfig::ScreenCornersConfig::enabled, "enabled"),
+           field(&ShellConfig::ScreenCornersConfig::size, "size", kScreenCornersSizeRange),
++          field(&ShellConfig::ScreenCornersConfig::paddingEnabled, "padding_enabled"),
++          field(&ShellConfig::ScreenCornersConfig::paddingSize, "padding_size", kShellPaddingSizeRange),
+       };
+       return s;
+     }
+diff --git a/src/config/schema/ranges.h b/src/config/schema/ranges.h
+index 91c12f073..5db5ff6fc 100644
+--- a/src/config/schema/ranges.h
++++ b/src/config/schema/ranges.h
+@@ -19,6 +19,7 @@ namespace noctalia::config::schema {
+   inline constexpr Range<float> kCornerRadiusScaleRange{0.0F, 2.0F, 0.05F};
+   inline constexpr Range<std::int64_t> kControlCenterWidthRange{600, 1200, 10};
+   inline constexpr Range<std::int64_t> kScreenCornersSizeRange{1, 100, 1};
++  inline constexpr Range<std::int64_t> kShellPaddingSizeRange{1, 16, 1};
+   inline constexpr Range<std::int64_t> kHotCornersDelayMsRange{0, 2000, 50};
+   inline constexpr Range<std::int64_t> kClipboardHistoryMaxEntriesRange{
+       noctalia::config::kClipboardHistoryMinEntries,
+diff --git a/src/shell/bar/bar.cpp b/src/shell/bar/bar.cpp
+index 024c4dc9b..232e7c8f9 100644
+--- a/src/shell/bar/bar.cpp
++++ b/src/shell/bar/bar.cpp
+@@ -21,6 +21,7 @@
+ #include "shell/bar/widgets/taskbar_widget.h"
+ #include "shell/bar/widgets/tray_widget.h"
+ #include "shell/panel/panel_manager.h"
++#include "shell/screen_geometry.h"
+ #include "shell/surface/shadow.h"
+ #include "shell/tooltip/tooltip_manager.h"
+ #include "ui/builders.h"
+@@ -59,8 +60,11 @@ namespace {
+     }
+ 
+     const auto same = [](float lhs, float rhs) { return std::abs(lhs - rhs) <= kAttachedPanelGeometryEpsilon; };
+-    return same(current->x, next->x) && same(current->y, next->y) && same(current->width, next->width)
+-        && same(current->height, next->height) && same(current->cornerRadius, next->cornerRadius)
++    return same(current->x, next->x)
++        && same(current->y, next->y)
++        && same(current->width, next->width)
++        && same(current->height, next->height)
++        && same(current->cornerRadius, next->cornerRadius)
+         && same(current->bulgeRadius, next->bulgeRadius);
+   }
+ 
+@@ -138,11 +142,12 @@ namespace {
+     return !activeWorkspaceHasWindows(platform, output);
+   }
+ 
+-  [[nodiscard]] int barAutoHideEdgeGutter(const BarConfig& cfg) noexcept {
+-    if (!barConfigUsesSlideSurface(cfg) || cfg.marginEdge <= 0) {
++  [[nodiscard]] int barAutoHideEdgeGutter(const BarConfig& cfg, std::int32_t shellPadding) noexcept {
++    const auto padding = shell::screen_geometry::effectivePadding(shellPadding);
++    if (!barConfigUsesSlideSurface(cfg) || (cfg.marginEdge <= 0 && padding <= 0)) {
+       return 0;
+     }
+-    return cfg.marginEdge;
++    return std::max(0, cfg.marginEdge) + padding;
+   }
+ 
+   [[nodiscard]] std::vector<InputRect>
+@@ -281,25 +286,30 @@ namespace {
+     const auto mLeft = static_cast<float>(surface->marginLeft());
+     const auto surfW = static_cast<float>(surface->width());
+     const auto surfH = static_cast<float>(surface->height());
+-    const auto outputW = static_cast<float>(outputInfo.effectiveLogicalWidth());
+-    const auto outputH = static_cast<float>(outputInfo.effectiveLogicalHeight());
++    const auto bounds = shell::screen_geometry::usableBounds(
++        outputInfo.effectiveLogicalWidth(), outputInfo.effectiveLogicalHeight(), instance.shellPadding
++    );
++    const auto outputX = static_cast<float>(bounds.x);
++    const auto outputY = static_cast<float>(bounds.y);
++    const auto outputW = static_cast<float>(bounds.width);
++    const auto outputH = static_cast<float>(bounds.height);
+ 
+     float x = 0.0F;
+     float y = 0.0F;
+     if (aLeft && aRight) {
+-      x = mLeft;
++      x = outputX + mLeft;
+     } else if (aRight) {
+-      x = std::max(0.0F, outputW - mRight - surfW);
++      x = outputX + std::max(0.0F, outputW - mRight - surfW);
+     } else {
+-      x = mLeft;
++      x = outputX + mLeft;
+     }
+ 
+     if (aTop && aBottom) {
+-      y = mTop;
++      y = outputY + mTop;
+     } else if (aBottom) {
+-      y = std::max(0.0F, outputH - mBottom - surfH);
++      y = outputY + std::max(0.0F, outputH - mBottom - surfH);
+     } else {
+-      y = mTop;
++      y = outputY + mTop;
+     }
+     return {x, y};
+   }
+@@ -675,15 +685,16 @@ namespace {
+     std::int32_t exclusiveZone = 0;
+   };
+ 
+-  [[nodiscard]] BarSurfaceSpec
+-  computeBarSurfaceSpec(const BarConfig& barConfig, const ShellConfig::ShadowConfig& shadowConfig) {
++  [[nodiscard]] BarSurfaceSpec computeBarSurfaceSpec(
++      const BarConfig& barConfig, const ShellConfig::ShadowConfig& shadowConfig, std::int32_t shellPadding
++  ) {
+     const bool vertical = (barConfig.position == "left" || barConfig.position == "right");
+     const bool isBottom = barConfig.position == "bottom";
+     const bool isRight = barConfig.position == "right";
+     const std::int32_t mEnds = barConfig.marginEnds;
+     const std::int32_t mEdge = barConfig.marginEdge;
+     const auto sb = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+-    const int edgeGutter = barAutoHideEdgeGutter(barConfig);
++    const int edgeGutter = barAutoHideEdgeGutter(barConfig, shellPadding);
+     const auto concave = barConcaveShape(barConfig);
+     const int insetL = static_cast<int>(std::ceil(std::max(0.0F, concave.logicalInset.left)));
+     const int insetT = static_cast<int>(std::ceil(std::max(0.0F, concave.logicalInset.top)));
+@@ -705,6 +716,7 @@ namespace {
+           // into the surface as a gutter on the edge side. Do not add the edge-side
+           // bleed here — it lives inside the gutter, not beyond it.
+           spec.surfaceHeight = static_cast<std::uint32_t>(sb.up + concaveBulge + barConfig.thickness + edgeGutter);
++          spec.marginBottom = shell::screen_geometry::autoHideLayerMargin(shellPadding);
+         } else {
+           spec.marginBottom = edgeMargin;
+           spec.surfaceHeight =
+@@ -713,6 +725,7 @@ namespace {
+       } else {
+         if (edgeGutter > 0) {
+           spec.surfaceHeight = static_cast<std::uint32_t>(sb.down + concaveBulge + barConfig.thickness + edgeGutter);
++          spec.marginTop = shell::screen_geometry::autoHideLayerMargin(shellPadding);
+         } else {
+           spec.marginTop = edgeMargin;
+           spec.surfaceHeight =
+@@ -725,6 +738,7 @@ namespace {
+       if (isRight) {
+         if (edgeGutter > 0) {
+           spec.surfaceWidth = static_cast<std::uint32_t>(sb.left + concaveBulge + barConfig.thickness + edgeGutter);
++          spec.marginRight = shell::screen_geometry::autoHideLayerMargin(shellPadding);
+         } else {
+           spec.marginRight = edgeMargin;
+           spec.surfaceWidth =
+@@ -733,6 +747,7 @@ namespace {
+       } else {
+         if (edgeGutter > 0) {
+           spec.surfaceWidth = static_cast<std::uint32_t>(sb.right + concaveBulge + barConfig.thickness + edgeGutter);
++          spec.marginLeft = shell::screen_geometry::autoHideLayerMargin(shellPadding);
+         } else {
+           spec.marginLeft = edgeMargin;
+           spec.surfaceWidth =
+@@ -741,14 +756,15 @@ namespace {
+       }
+     }
+ 
+-    spec.exclusiveZone = barConfig.reserveSpace ? reservedBarExclusiveZone(barConfig, shadowConfig) : 0;
++    spec.exclusiveZone = reservedBarExclusiveZone(barConfig, shadowConfig);
+     return spec;
+   }
+ 
+   [[nodiscard]] float barInnerSurfaceExtension(
+-      const BarConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceWidth, float surfaceHeight
++      const BarConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::int32_t shellPadding, float surfaceWidth,
++      float surfaceHeight
+   ) {
+-    const auto base = computeBarSurfaceSpec(cfg, shadow);
++    const auto base = computeBarSurfaceSpec(cfg, shadow, shellPadding);
+     const bool isVertical = (cfg.position == "left" || cfg.position == "right");
+     const float current = isVertical ? surfaceWidth : surfaceHeight;
+     const auto normal = static_cast<float>(isVertical ? base.surfaceWidth : base.surfaceHeight);
+@@ -762,7 +778,7 @@ namespace {
+   // the exclusive zone.
+   bool barConfigSurfaceFieldsEqual(
+       const BarConfig& a, const BarConfig& b, const ShellConfig::ShadowConfig& previousShadow,
+-      const ShellConfig::ShadowConfig& nextShadow
++      const ShellConfig::ShadowConfig& nextShadow, std::int32_t previousPadding, std::int32_t nextPadding
+   ) {
+     const bool sameShadowSurface =
+         (!a.shadow && !b.shadow) || shell::surface_shadow::sameSurfaceMetrics(previousShadow, nextShadow);
+@@ -784,6 +800,7 @@ namespace {
+         && a.marginEdge == b.marginEdge
+         && a.shadow == b.shadow
+         && sameShadowSurface
++        && previousPadding == nextPadding
+         && a.monitorOverrides == b.monitorOverrides;
+   }
+ 
+@@ -810,7 +827,7 @@ namespace {
+ 
+   BarVisualGeometry computeBarVisualGeometry(
+       const BarConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceWidth, float surfaceHeight,
+-      float innerSurfaceExtension = 0.0F
++      std::int32_t shellPadding, float innerSurfaceExtension = 0.0F
+   ) {
+     const auto barThickness = static_cast<float>(cfg.thickness);
+     const auto marginEnds = static_cast<float>(cfg.marginEnds);
+@@ -838,7 +855,7 @@ namespace {
+       // Vertical bar: edge gap is left/right, ends inset is top/bottom.
+       const float y = std::min(marginEnds, bleedUp) + insetT;
+       float x = isRight ? (bleedLeft + concaveBulge) : std::min(marginEdge, bleedLeft);
+-      if (const int gutter = barAutoHideEdgeGutter(cfg); gutter > 0) {
++      if (const int gutter = barAutoHideEdgeGutter(cfg, shellPadding); gutter > 0) {
+         // The gutter equals marginEdge and sits between the screen edge and the bar.
+         // Position the bar exactly marginEdge from the edge so it matches the
+         // non-auto-hide placement; the edge-side shadow bleeds into the gutter.
+@@ -861,7 +878,7 @@ namespace {
+     // Horizontal bar: edge gap is top/bottom, ends inset is left/right.
+     const float x = std::min(marginEnds, bleedLeft) + insetL;
+     float y = isBottom ? (bleedUp + concaveBulge) : std::min(marginEdge, bleedUp);
+-    if (const int gutter = barAutoHideEdgeGutter(cfg); gutter > 0) {
++    if (const int gutter = barAutoHideEdgeGutter(cfg, shellPadding); gutter > 0) {
+       if (isBottom) {
+         y = surfaceHeight - static_cast<float>(gutter) - barThickness;
+       } else {
+@@ -878,12 +895,13 @@ namespace {
+     };
+   }
+ 
+-  [[nodiscard]] InputRect
+-  barContentInputRegion(const BarConfig& cfg, const ShellConfig::ShadowConfig& shadow, int surfW, int surfH) {
++  [[nodiscard]] InputRect barContentInputRegion(
++      const BarConfig& cfg, const ShellConfig::ShadowConfig& shadow, int surfW, int surfH, std::int32_t shellPadding
++  ) {
+     const float innerSurfaceExtension =
+-        barInnerSurfaceExtension(cfg, shadow, static_cast<float>(surfW), static_cast<float>(surfH));
++        barInnerSurfaceExtension(cfg, shadow, shellPadding, static_cast<float>(surfW), static_cast<float>(surfH));
+     const auto barVisual = computeBarVisualGeometry(
+-        cfg, shadow, static_cast<float>(surfW), static_cast<float>(surfH), innerSurfaceExtension
++        cfg, shadow, static_cast<float>(surfW), static_cast<float>(surfH), shellPadding, innerSurfaceExtension
+     );
+     return InputRect{
+         static_cast<int>(barVisual.x), static_cast<int>(barVisual.y), static_cast<int>(barVisual.width),
+@@ -909,7 +927,8 @@ namespace {
+   }
+ 
+   void applyBarShadowStyle(
+-      BarInstance& instance, const ShellConfig::ShadowConfig& shadowConfig, float surfaceWidth, float surfaceHeight
++      BarInstance& instance, const ShellConfig::ShadowConfig& shadowConfig, float surfaceWidth, float surfaceHeight,
++      std::int32_t shellPadding
+   ) {
+     if (instance.shadow == nullptr) {
+       return;
+@@ -917,9 +936,10 @@ namespace {
+ 
+     const auto concave = barConcaveShape(instance.barConfig);
+     const float innerSurfaceExtension =
+-        barInnerSurfaceExtension(instance.barConfig, shadowConfig, surfaceWidth, surfaceHeight);
+-    const auto barVisual =
+-        computeBarVisualGeometry(instance.barConfig, shadowConfig, surfaceWidth, surfaceHeight, innerSurfaceExtension);
++        barInnerSurfaceExtension(instance.barConfig, shadowConfig, shellPadding, surfaceWidth, surfaceHeight);
++    const auto barVisual = computeBarVisualGeometry(
++        instance.barConfig, shadowConfig, surfaceWidth, surfaceHeight, shellPadding, innerSurfaceExtension
++    );
+     // Shadow follows the same shape as the background: the body expanded outward by
+     // the concave inset into the visual rect, so concave spikes cast a matching shadow.
+     const float barAreaW = barVisual.width + concave.logicalInset.left + concave.logicalInset.right;
+@@ -1471,6 +1491,7 @@ bool Bar::initialize(const BarServices& services) {
+   m_lastBars = m_config->config().bars;
+   m_lastWidgets = m_config->config().widgets;
+   m_lastShadow = m_config->config().shell.shadow;
++  m_lastShellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+   m_lastPlugins = m_config->config().plugins;
+   m_config->addReloadCallback(
+       [this]() {
+@@ -1478,6 +1499,7 @@ bool Bar::initialize(const BarServices& services) {
+         if (cfg.bars == m_lastBars
+             && cfg.widgets == m_lastWidgets
+             && cfg.shell.shadow == m_lastShadow
++            && shell::screen_geometry::padding(cfg.shell.screenCorners) == m_lastShellPadding
+             && cfg.plugins == m_lastPlugins) {
+           return;
+         }
+@@ -1534,10 +1556,12 @@ void Bar::reload() {
+   kLog.info("reloading config");
+   const auto previousBars = m_lastBars;
+   const auto previousShadow = m_lastShadow;
++  const auto previousShellPadding = m_lastShellPadding;
+   const bool recreateForOrder = barSurfaceOrderRequiresRecreate(previousBars, m_config->config().bars);
+   m_lastBars = m_config->config().bars;
+   m_lastWidgets = m_config->config().widgets;
+   m_lastShadow = m_config->config().shell.shadow;
++  m_lastShellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+   m_lastPlugins = m_config->config().plugins;
+   m_widgetFactory = std::make_unique<WidgetFactory>(services());
+ 
+@@ -1583,7 +1607,9 @@ void Bar::reload() {
+     if (!resolved.enabled) {
+       return true;
+     }
+-    return !barConfigSurfaceFieldsEqual(inst.barConfig, resolved, previousShadow, m_lastShadow);
++    return !barConfigSurfaceFieldsEqual(
++        inst.barConfig, resolved, previousShadow, m_lastShadow, previousShellPadding, m_lastShellPadding
++    );
+   };
+   std::unordered_set<std::uint32_t> outputsNeedingRecreate;
+   for (const auto& instUp : m_instances) {
+@@ -2050,8 +2076,14 @@ std::vector<InputRect> Bar::surfaceRectsForOutput(wl_output* output) const {
+   if (!wlOutput->hasUsableGeometry()) {
+     return rects;
+   }
+-  const std::int32_t outputW = wlOutput->effectiveLogicalWidth();
+-  const std::int32_t outputH = wlOutput->effectiveLogicalHeight();
++  const auto bounds = shell::screen_geometry::usableBounds(
++      wlOutput->effectiveLogicalWidth(), wlOutput->effectiveLogicalHeight(),
++      shell::screen_geometry::padding(m_config->config().shell.screenCorners)
++  );
++  const std::int32_t outputX = bounds.x;
++  const std::int32_t outputY = bounds.y;
++  const std::int32_t outputW = bounds.width;
++  const std::int32_t outputH = bounds.height;
+ 
+   for (const auto& instance : m_instances) {
+     if (instance == nullptr || instance->output != output || instance->surface == nullptr) {
+@@ -2082,20 +2114,20 @@ std::vector<InputRect> Bar::surfaceRectsForOutput(wl_output* output) const {
+ 
+     if (aLeft && aRight) {
+       rectW = std::max(0, outputW - mLeft - mRight);
+-      rectX = mLeft;
++      rectX = outputX + mLeft;
+     } else if (aRight) {
+-      rectX = std::max(0, outputW - mRight - rectW);
++      rectX = outputX + std::max(0, outputW - mRight - rectW);
+     } else {
+-      rectX = mLeft;
++      rectX = outputX + mLeft;
+     }
+ 
+     if (aTop && aBottom) {
+       rectH = std::max(0, outputH - mTop - mBottom);
+-      rectY = mTop;
++      rectY = outputY + mTop;
+     } else if (aBottom) {
+-      rectY = std::max(0, outputH - mBottom - rectH);
++      rectY = outputY + std::max(0, outputH - mBottom - rectH);
+     } else {
+-      rectY = mTop;
++      rectY = outputY + mTop;
+     }
+ 
+     if (rectW > 0 && rectH > 0) {
+@@ -2198,7 +2230,8 @@ void Bar::setAttachedPanelGeometry(
+   if (instance->surface != nullptr && instance->surface->width() > 0 && instance->surface->height() > 0) {
+     applyBarShadowStyle(
+         *instance, m_config->config().shell.shadow, static_cast<float>(instance->surface->width()),
+-        static_cast<float>(instance->surface->height())
++        static_cast<float>(instance->surface->height()),
++        shell::screen_geometry::padding(m_config->config().shell.screenCorners)
+     );
+     instance->surface->requestRedraw();
+   }
+@@ -2400,11 +2433,15 @@ void Bar::createInstance(const WaylandOutput& output, std::size_t barIndex, cons
+   instance->outputLogicalY = output.logicalY;
+   instance->outputLogicalWidth = output.effectiveLogicalWidth();
+   instance->outputLogicalHeight = output.effectiveLogicalHeight();
++  instance->shellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+   instance->barConfig = barConfig;
+   instance->barIndex = barIndex;
+ 
+   const auto anchor = positionToAnchor(barConfig.position);
+-  const auto surfaceSpec = computeBarSurfaceSpec(barConfig, m_config->config().shell.shadow);
++  const auto surfaceSpec = computeBarSurfaceSpec(
++      barConfig, m_config->config().shell.shadow,
++      shell::screen_geometry::padding(m_config->config().shell.screenCorners)
++  );
+ 
+   kLog.info(
+       "creating #{} \"{}\" on {} ({}), thickness={} position={} reserve_space={} exclusive_zone={}", barIndex,
+@@ -3122,9 +3159,10 @@ void Bar::syncBarAutoHideInputRegion(BarInstance& instance) const {
+     instance.surface->setInputRegion(barAutoHideSurfaceInputRegion(instance.barConfig, surfW, surfH, fullSurface));
+     return;
+   }
+-  instance.surface->setInputRegion(
+-      {barContentInputRegion(instance.barConfig, m_config->config().shell.shadow, surfW, surfH)}
+-  );
++  instance.surface->setInputRegion({barContentInputRegion(
++      instance.barConfig, m_config->config().shell.shadow, surfW, surfH,
++      shell::screen_geometry::padding(m_config->config().shell.screenCorners)
++  )});
+ }
+ 
+ void Bar::revealAutoHideBar(BarInstance& instance) {
+@@ -3271,8 +3309,10 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
+   const bool isVertical = (instance.barConfig.position == "left" || instance.barConfig.position == "right");
+   const auto concave = barConcaveShape(instance.barConfig);
+ 
+-  const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, w, h);
+-  const auto barVisual = computeBarVisualGeometry(instance.barConfig, shadowConfig, w, h, innerSurfaceExtension);
++  const auto shellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
++  const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, shellPadding, w, h);
++  const auto barVisual =
++      computeBarVisualGeometry(instance.barConfig, shadowConfig, w, h, shellPadding, innerSurfaceExtension);
+   const float barAreaX = barVisual.x;
+   const float barAreaY = barVisual.y;
+   const float barAreaW = barVisual.width;
+@@ -3423,7 +3463,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
+     instance.contentClip->setSize(barAreaW, barAreaH);
+   }
+ 
+-  applyBarShadowStyle(instance, shadowConfig, w, h);
++  applyBarShadowStyle(instance, shadowConfig, w, h, shellPadding);
+ 
+   layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
+ 
+@@ -3467,8 +3507,10 @@ void Bar::updateWidgets(BarInstance& instance) {
+   const auto padding = static_cast<float>(instance.barConfig.padding);
+   const bool isVertical = (instance.barConfig.position == "left" || instance.barConfig.position == "right");
+   const auto& shadowConfig = m_config->config().shell.shadow;
+-  const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, w, h);
+-  const auto barVisual = computeBarVisualGeometry(instance.barConfig, shadowConfig, w, h, innerSurfaceExtension);
++  const auto shellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
++  const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, shellPadding, w, h);
++  const auto barVisual =
++      computeBarVisualGeometry(instance.barConfig, shadowConfig, w, h, shellPadding, innerSurfaceExtension);
+   const float barAreaW = barVisual.width;
+   const float barAreaH = barVisual.height;
+ 
+@@ -3511,8 +3553,10 @@ void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout
+   const auto padding = static_cast<float>(instance.barConfig.padding);
+   const bool isVertical = (instance.barConfig.position == "left" || instance.barConfig.position == "right");
+   const auto& shadowConfig = m_config->config().shell.shadow;
+-  const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, w, h);
+-  const auto barVisual = computeBarVisualGeometry(instance.barConfig, shadowConfig, w, h, innerSurfaceExtension);
++  const auto shellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
++  const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, shellPadding, w, h);
++  const auto barVisual =
++      computeBarVisualGeometry(instance.barConfig, shadowConfig, w, h, shellPadding, innerSurfaceExtension);
+   const float barAreaW = barVisual.width;
+   const float barAreaH = barVisual.height;
+ 
+@@ -3998,7 +4042,10 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
+       if (inst.surface == nullptr) {
+         return;
+       }
+-      const auto spec = computeBarSurfaceSpec(inst.barConfig, m_config->config().shell.shadow);
++      const auto spec = computeBarSurfaceSpec(
++          inst.barConfig, m_config->config().shell.shadow,
++          shell::screen_geometry::padding(m_config->config().shell.screenCorners)
++      );
+       inst.surface->setMargins(spec.marginTop, spec.marginRight, spec.marginBottom, spec.marginLeft);
+       inst.surface->requestSize(spec.surfaceWidth, spec.surfaceHeight);
+     };
+diff --git a/src/shell/bar/bar.h b/src/shell/bar/bar.h
+index 65075d4eb..fe1a13fdb 100644
+--- a/src/shell/bar/bar.h
++++ b/src/shell/bar/bar.h
+@@ -9,6 +9,7 @@
+ #include "ui/dialogs/layer_popup_host.h"
+ #include "wayland/surface.h"
+ 
++#include <cstdint>
+ #include <functional>
+ #include <memory>
+ #include <optional>
+@@ -203,6 +204,7 @@ private:
+   std::vector<BarConfig> m_lastBars;
+   std::unordered_map<std::string, WidgetConfig> m_lastWidgets;
+   ShellConfig::ShadowConfig m_lastShadow;
++  std::int32_t m_lastShellPadding = 0;
+   // Plugin enable/disable changes which widget types resolve, so a plugins-only
+   // config change must also rebuild widgets.
+   PluginsConfig m_lastPlugins;
+diff --git a/src/shell/bar/bar_instance.h b/src/shell/bar/bar_instance.h
+index 0d68a7774..669cc36a8 100644
+--- a/src/shell/bar/bar_instance.h
++++ b/src/shell/bar/bar_instance.h
+@@ -50,6 +50,7 @@ struct BarInstance {
+   std::int32_t outputLogicalY = 0;
+   std::int32_t outputLogicalWidth = 0;
+   std::int32_t outputLogicalHeight = 0;
++  std::int32_t shellPadding = 0;
+   std::size_t barIndex = 0;
+   BarConfig barConfig;
+   std::unique_ptr<LayerSurface> surface;
+diff --git a/src/shell/bar/bar_reserved_zone.h b/src/shell/bar/bar_reserved_zone.h
+index 781cd2c60..a911ec738 100644
+--- a/src/shell/bar/bar_reserved_zone.h
++++ b/src/shell/bar/bar_reserved_zone.h
+@@ -1,38 +1,42 @@
+ #pragma once
+ 
++#include "shell/screen_geometry.h"
+ #include "shell/surface/shadow.h"
+ 
+ #include <algorithm>
+ #include <cstdint>
+ 
+-/// Layer-shell exclusive zone the bar reserves on its anchored screen edge.
+-/// Canonical definition shared by the bar surface and attached panels so a panel
+-/// can anchor against the same reserved edge the compositor places the bar on.
++/// Layer-shell exclusive zone reserved by the bar itself. Shell padding is owned
++/// by its separate background-layer reservation surfaces.
+ [[nodiscard]] inline std::int32_t
+ reservedBarExclusiveZone(const BarConfig& barConfig, const ShellConfig::ShadowConfig& shadowConfig) {
++  if (!barConfig.reserveSpace) {
++    return 0;
++  }
+   const std::int32_t mEdge = barConfig.marginEdge;
+   const std::int32_t mOpposite = std::max<std::int32_t>(0, barConfig.marginOppositeEdge);
+   // Auto-hide folds the edge margin into the surface as a gutter and sets the
+   // layer margin to 0, so the compositor adds no margin to the exclusive zone.
+   // The zone must then cover the full edge gap itself (thickness + edge margin);
+   // the edge-side shadow is allowed to bleed beyond, matching the layer-margin path.
++  std::int32_t zone = 0;
+   if ((barConfig.autoHide || barConfig.smartAutoHide) && mEdge > 0) {
+-    return barConfig.thickness + mEdge + mOpposite;
++    zone = barConfig.thickness + mEdge + mOpposite;
++  } else {
++    const auto sb = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
++    if (barConfig.position == "bottom") {
++      zone = barConfig.thickness + std::min(mEdge, sb.down) + mOpposite;
++    } else if (barConfig.position == "top") {
++      zone = std::min(mEdge, sb.up) + barConfig.thickness + mOpposite;
++    } else if (barConfig.position == "right") {
++      zone = barConfig.thickness + std::min(mEdge, sb.right) + mOpposite;
++    } else if (barConfig.position == "left") {
++      zone = std::min(mEdge, sb.left) + barConfig.thickness + mOpposite;
++    } else {
++      zone = barConfig.thickness + mOpposite;
++    }
+   }
+-  const auto sb = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+-  if (barConfig.position == "bottom") {
+-    return barConfig.thickness + std::min(mEdge, sb.down) + mOpposite;
+-  }
+-  if (barConfig.position == "top") {
+-    return std::min(mEdge, sb.up) + barConfig.thickness + mOpposite;
+-  }
+-  if (barConfig.position == "right") {
+-    return barConfig.thickness + std::min(mEdge, sb.right) + mOpposite;
+-  }
+-  if (barConfig.position == "left") {
+-    return std::min(mEdge, sb.left) + barConfig.thickness + mOpposite;
+-  }
+-  return barConfig.thickness + mOpposite;
++  return shell::screen_geometry::exclusiveZone(true, zone, 0);
+ }
+ 
+ /// Layer-shell margin the bar applies on its anchored screen edge. The edge gap
+@@ -61,12 +65,12 @@ barEdgeLayerMargin(const BarConfig& barConfig, const ShellConfig::ShadowConfig&
+   return 0;
+ }
+ 
+-/// Total distance the compositor reserves from the screen edge for the bar:
+-/// the exclusive zone plus the layer margin. Surfaces that anchor against the
+-/// bar's edge with exclusive_zone = 0 must subtract this (not just the exclusive
+-/// zone) to track the bar's real inner edge — otherwise a floating bar whose
+-/// shadow bleed is smaller than its edge margin leaves the margin uncounted.
+-[[nodiscard]] inline std::int32_t
+-reservedBarEdgeDistance(const BarConfig& barConfig, const ShellConfig::ShadowConfig& shadowConfig) {
+-  return reservedBarExclusiveZone(barConfig, shadowConfig) + barEdgeLayerMargin(barConfig, shadowConfig);
++/// Total distance from the physical screen edge to the bar's reserved inner
++/// edge, including the separate shell-padding reservation and layer margin.
++[[nodiscard]] inline std::int32_t reservedBarEdgeDistance(
++    const BarConfig& barConfig, const ShellConfig::ShadowConfig& shadowConfig, std::int32_t shellPadding = 0
++) {
++  return shell::screen_geometry::effectivePadding(shellPadding)
++      + reservedBarExclusiveZone(barConfig, shadowConfig)
++      + barEdgeLayerMargin(barConfig, shadowConfig);
+ }
+diff --git a/src/shell/dock/dock.cpp b/src/shell/dock/dock.cpp
+index 941089628..d01c8579c 100644
+--- a/src/shell/dock/dock.cpp
++++ b/src/shell/dock/dock.cpp
+@@ -14,6 +14,7 @@
+ #include "shell/dock/dock_model.h"
+ #include "shell/dock/pinned_apps.h"
+ #include "shell/panel/panel_manager.h"
++#include "shell/screen_geometry.h"
+ #include "system/desktop_entry.h"
+ #include "system/desktop_entry_launch.h"
+ #include "ui/app_icon_colorization.h"
+@@ -290,8 +291,12 @@ bool Dock::initialize(CompositorPlatform& platform, ConfigService* config, Rende
+       [this]() {
+         const auto& newCfg = m_config->config().dock;
+         const auto& newShadow = m_config->config().shell.shadow;
++        const auto newShellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+         const auto newBarLayerStack = barLayerStackSignature(m_config->config());
+-        if (newCfg == m_lastDockConfig && newShadow == m_lastShadow && newBarLayerStack == m_lastBarLayerStack) {
++        if (newCfg == m_lastDockConfig
++            && newShadow == m_lastShadow
++            && newShellPadding == m_lastShellPadding
++            && newBarLayerStack == m_lastBarLayerStack) {
+           return;
+         }
+         if (newBarLayerStack != m_lastBarLayerStack && newCfg == m_lastDockConfig && newShadow == m_lastShadow) {
+@@ -316,6 +321,7 @@ bool Dock::initialize(CompositorPlatform& platform, ConfigService* config, Rende
+ 
+   m_lastDockConfig = cfg;
+   m_lastShadow = m_config->config().shell.shadow;
++  m_lastShellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+   m_lastPinnedConfig = cfg.pinned;
+   m_lastBarLayerStack = barLayerStackSignature(m_config->config());
+ 
+@@ -333,6 +339,7 @@ void Dock::reload() {
+   const auto& cfg = m_config->config().dock;
+   m_lastDockConfig = cfg;
+   m_lastShadow = m_config->config().shell.shadow;
++  m_lastShellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+   m_lastBarLayerStack = barLayerStackSignature(m_config->config());
+ 
+   if (!cfg.enabled) {
+@@ -792,7 +799,8 @@ void Dock::createInstance(const WaylandOutput& output) {
+ 
+   const auto& shadowConfig = m_config->config().shell.shadow;
+   LayerSurfaceConfig lsCfg = shell::dock::makeLayerSurfaceConfig(
+-      cfg, shadowConfig, cfg.pinned.size() + shell::dock::dockLauncherButtonCount(cfg), instance->fractionalScale
++      cfg, shadowConfig, cfg.pinned.size() + shell::dock::dockLauncherButtonCount(cfg), instance->fractionalScale,
++      shell::screen_geometry::padding(m_config->config().shell.screenCorners)
+   );
+ 
+   instance->surface = std::make_unique<LayerSurface>(m_platform->wayland(), std::move(lsCfg));
+diff --git a/src/shell/dock/dock.h b/src/shell/dock/dock.h
+index b97f542be..1d93869cc 100644
+--- a/src/shell/dock/dock.h
++++ b/src/shell/dock/dock.h
+@@ -81,6 +81,7 @@ private:
+   RenderContext* m_renderContext = nullptr;
+   DockConfig m_lastDockConfig{};
+   ShellConfig::ShadowConfig m_lastShadow;
++  std::int32_t m_lastShellPadding = 0;
+   std::vector<std::string> m_lastPinnedConfig;
+   std::vector<std::string> m_lastBarLayerStack;
+   std::vector<DesktopEntry> m_pinnedEntries;
+diff --git a/src/shell/dock/dock_geometry.cpp b/src/shell/dock/dock_geometry.cpp
+index 7245e48b0..cfa9303ee 100644
+--- a/src/shell/dock/dock_geometry.cpp
++++ b/src/shell/dock/dock_geometry.cpp
+@@ -1,5 +1,6 @@
+ #include "shell/dock/dock_geometry.h"
+ 
++#include "shell/screen_geometry.h"
+ #include "shell/surface/shadow.h"
+ #include "wayland/layer_surface.h"
+ 
+@@ -22,15 +23,16 @@ namespace shell::dock {
+     // Badge hangs past the icon's top and right by this fraction of badge diameter.
+     constexpr float kBadgeCornerOverhang = 0.45F;
+ 
+-    [[nodiscard]] int dockAutoHideEdgeGutter(const DockConfig& cfg) noexcept {
+-      if ((!cfg.autoHide && !cfg.smartAutoHide) || cfg.marginEdge <= 0) {
++    [[nodiscard]] int dockAutoHideEdgeGutter(const DockConfig& cfg, std::int32_t shellPadding) noexcept {
++      const auto padding = shell::screen_geometry::effectivePadding(shellPadding);
++      if ((!cfg.autoHide && !cfg.smartAutoHide) || (cfg.marginEdge <= 0 && padding <= 0)) {
+         return 0;
+       }
+-      return cfg.marginEdge;
++      return std::max(0, cfg.marginEdge) + padding;
+     }
+ 
+     [[nodiscard]] std::int32_t dockScreenEdgeOverlap(const DockConfig& cfg, bool fractionalScale) noexcept {
+-      const bool flush = cfg.marginEdge <= 0 && dockAutoHideEdgeGutter(cfg) == 0;
++      const bool flush = cfg.marginEdge <= 0;
+       return flush && fractionalScale ? kScreenEdgeOverlapPx : 0;
+     }
+ 
+@@ -184,8 +186,10 @@ namespace shell::dock {
+   std::size_t dockLauncherButtonCount(const DockConfig& cfg) { return dockLauncherButtonCount(cfg.launcherPosition); }
+ 
+   DockSurfaceGeometry computeSurfaceGeometry(
+-      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale
++      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
++      std::int32_t shellPadding
+   ) {
++    shellPadding = shell::screen_geometry::effectivePadding(shellPadding);
+     const DockEdge edge = cfg.position;
+     const bool vertical = isVerticalEdge(edge);
+     const auto sb = shell::surface_shadow::bleed(cfg.shadow, shadow);
+@@ -202,7 +206,7 @@ namespace shell::dock {
+     const bool isBottom = edge == DockEdge::Bottom;
+     const bool isRight = edge == DockEdge::Right;
+     const std::int32_t mEdge = cfg.marginEdge;
+-    const int edgeGutter = dockAutoHideEdgeGutter(cfg);
++    const int edgeGutter = dockAutoHideEdgeGutter(cfg, shellPadding);
+     const std::int32_t edgeOverlap = dockScreenEdgeOverlap(cfg, fractionalScale);
+ 
+     DockSurfaceGeometry geometry;
+@@ -218,6 +222,9 @@ namespace shell::dock {
+           geometry.surfaceH = static_cast<std::uint32_t>(sb.up + panelH + std::min(mEdge, sb.down) + zoomPad);
+         }
+         geometry.exclusiveZone = cfg.reserveSpace ? (panelH + std::min(mEdge, sb.down)) : 0;
++        if (shellPadding > 0 && edgeGutter > 0) {
++          geometry.marginBottom = shell::screen_geometry::autoHideLayerMargin(shellPadding) - edgeOverlap;
++        }
+       } else {
+         if (edgeGutter > 0) {
+           geometry.surfaceH = static_cast<std::uint32_t>(edgeBadgePad + sb.down + panelH + edgeGutter + zoomPad);
+@@ -227,7 +234,11 @@ namespace shell::dock {
+               static_cast<std::uint32_t>(edgeBadgePad + std::min(mEdge, sb.up) + panelH + sb.down + zoomPad);
+         }
+         geometry.exclusiveZone = cfg.reserveSpace ? (std::min(mEdge, sb.up) + panelH) : 0;
++        if (shellPadding > 0 && edgeGutter > 0) {
++          geometry.marginTop = shell::screen_geometry::autoHideLayerMargin(shellPadding) - edgeOverlap;
++        }
+       }
++      geometry.exclusiveZone = shell::screen_geometry::exclusiveZone(cfg.reserveSpace, geometry.exclusiveZone, 0);
+       return geometry;
+     }
+ 
+@@ -242,6 +253,9 @@ namespace shell::dock {
+         geometry.surfaceW = static_cast<std::uint32_t>(sb.left + panelH + std::min(mEdge, sb.right) + zoomPad);
+       }
+       geometry.exclusiveZone = cfg.reserveSpace ? (panelH + std::min(mEdge, sb.right)) : 0;
++      if (shellPadding > 0 && edgeGutter > 0) {
++        geometry.marginRight = shell::screen_geometry::autoHideLayerMargin(shellPadding) - edgeOverlap;
++      }
+     } else {
+       if (edgeGutter > 0) {
+         geometry.surfaceW = static_cast<std::uint32_t>(sb.right + panelH + edgeGutter + zoomPad);
+@@ -250,14 +264,19 @@ namespace shell::dock {
+         geometry.surfaceW = static_cast<std::uint32_t>(std::min(mEdge, sb.left) + panelH + sb.right + zoomPad);
+       }
+       geometry.exclusiveZone = cfg.reserveSpace ? (std::min(mEdge, sb.left) + panelH) : 0;
++      if (shellPadding > 0 && edgeGutter > 0) {
++        geometry.marginLeft = shell::screen_geometry::autoHideLayerMargin(shellPadding) - edgeOverlap;
++      }
+     }
++    geometry.exclusiveZone = shell::screen_geometry::exclusiveZone(cfg.reserveSpace, geometry.exclusiveZone, 0);
+     return geometry;
+   }
+ 
+   LayerSurfaceConfig makeLayerSurfaceConfig(
+-      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale
++      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
++      std::int32_t shellPadding
+   ) {
+-    const auto geometry = computeSurfaceGeometry(cfg, shadow, itemCount, fractionalScale);
++    const auto geometry = computeSurfaceGeometry(cfg, shadow, itemCount, fractionalScale, shellPadding);
+     return LayerSurfaceConfig{
+         .nameSpace = "noctalia-dock",
+         .layer = layerShellLayerFromConfig(cfg.layer),
+@@ -274,8 +293,11 @@ namespace shell::dock {
+     };
+   }
+ 
+-  DockPanelGeometry
+-  computePanelGeometry(const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH) {
++  DockPanelGeometry computePanelGeometry(
++      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH,
++      std::int32_t shellPadding
++  ) {
++    shellPadding = shell::screen_geometry::effectivePadding(shellPadding);
+     const DockEdge edge = cfg.position;
+     const bool vertical = isVerticalEdge(edge);
+     const auto sb = shell::surface_shadow::bleed(cfg.shadow, shadow);
+@@ -297,7 +319,7 @@ namespace shell::dock {
+ 
+     if (!vertical) {
+       float y = isBottom ? surfaceH - std::min(mEdge, bleedD) - panelThickness : edgeBadgePad + std::min(mEdge, bleedU);
+-      if (const int gutter = dockAutoHideEdgeGutter(cfg); gutter > 0) {
++      if (const int gutter = dockAutoHideEdgeGutter(cfg, shellPadding); gutter > 0) {
+         if (isBottom) {
+           y = surfaceH - static_cast<float>(gutter) - panelThickness;
+         } else {
+@@ -313,7 +335,7 @@ namespace shell::dock {
+     }
+ 
+     float x = isRight ? surfaceW - std::min(mEdge, bleedR) - panelThickness : std::min(mEdge, bleedL);
+-    if (const int gutter = dockAutoHideEdgeGutter(cfg); gutter > 0) {
++    if (const int gutter = dockAutoHideEdgeGutter(cfg, shellPadding); gutter > 0) {
+       if (isRight) {
+         x = surfaceW - static_cast<float>(gutter) - panelThickness;
+       } else {
+diff --git a/src/shell/dock/dock_geometry.h b/src/shell/dock/dock_geometry.h
+index 9b1ea06b9..d92124e23 100644
+--- a/src/shell/dock/dock_geometry.h
++++ b/src/shell/dock/dock_geometry.h
+@@ -53,13 +53,17 @@ namespace shell::dock {
+   // screen edge by a logical pixel there, because the compositor can otherwise round the edge a
+   // device pixel short and leave a gap.
+   [[nodiscard]] DockSurfaceGeometry computeSurfaceGeometry(
+-      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale
++      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
++      std::int32_t shellPadding = 0
+   );
+   [[nodiscard]] LayerSurfaceConfig makeLayerSurfaceConfig(
+-      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale
++      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
++      std::int32_t shellPadding = 0
++  );
++  [[nodiscard]] DockPanelGeometry computePanelGeometry(
++      const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH,
++      std::int32_t shellPadding = 0
+   );
+-  [[nodiscard]] DockPanelGeometry
+-  computePanelGeometry(const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH);
+   [[nodiscard]] std::pair<float, float> computeHiddenSlideDelta(
+       const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH,
+       const DockPanelGeometry& panel
+diff --git a/src/shell/dock/dock_instance.cpp b/src/shell/dock/dock_instance.cpp
+index f72c45548..e61a97ea1 100644
+--- a/src/shell/dock/dock_instance.cpp
++++ b/src/shell/dock/dock_instance.cpp
+@@ -8,6 +8,7 @@
+ #include "render/scene/node.h"
+ #include "shell/dock/dock_geometry.h"
+ #include "shell/dock/dock_items.h"
++#include "shell/screen_geometry.h"
+ #include "shell/surface/shadow.h"
+ #include "shell/tooltip/tooltip_manager.h"
+ #include "ui/builders.h"
+@@ -208,7 +209,9 @@ namespace shell::dock {
+     const auto h = static_cast<float>(instance.surface->height());
+ 
+     const auto& shadowConfig = deps.config.config().shell.shadow;
+-    const auto panelGeometry = shell::dock::computePanelGeometry(cfg, shadowConfig, w, h);
++    const auto panelGeometry = shell::dock::computePanelGeometry(
++        cfg, shadowConfig, w, h, shell::screen_geometry::padding(deps.config.config().shell.screenCorners)
++    );
+     const auto concave = shell::dock::dockConcaveShape(cfg);
+ 
+     if (instance.sceneRoot == nullptr) {
+diff --git a/src/shell/panel/panel_manager.cpp b/src/shell/panel/panel_manager.cpp
+index 0c2927d7c..a2d335d16 100644
+--- a/src/shell/panel/panel_manager.cpp
++++ b/src/shell/panel/panel_manager.cpp
+@@ -16,6 +16,7 @@
+ #include "shell/bar/bar_reserved_zone.h"
+ #include "shell/panel/panel.h"
+ #include "shell/panel/panel_surface_style.h"
++#include "shell/screen_geometry.h"
+ #include "shell/screen_position.h"
+ #include "shell/surface/shadow.h"
+ #include "shell/tooltip/tooltip_manager.h"
+@@ -88,8 +89,7 @@ namespace {
+     std::int32_t bottom = 0;
+   };
+ 
+-  BarVisibleRect
+-  resolveBarVisibleRect(const BarConfig& barConfig, std::int32_t outputWidth, std::int32_t outputHeight) {
++  BarVisibleRect resolveBarVisibleRect(const BarConfig& barConfig, const shell::screen_geometry::Rect& bounds) {
+     const bool barIsBottom = barConfig.position == "bottom";
+     const bool barIsLeft = barConfig.position == "left";
+     const bool barIsRight = barConfig.position == "right";
+@@ -98,12 +98,12 @@ namespace {
+     const std::int32_t mEnds = std::max(0, barConfig.marginEnds);
+     const std::int32_t thickness = std::max(0, barConfig.thickness);
+ 
+-    const std::int32_t left =
+-        barIsRight ? std::max(0, outputWidth - mEdge - thickness) : (barIsVertical ? mEdge : mEnds);
+-    const std::int32_t top =
+-        barIsBottom ? std::max(0, outputHeight - mEdge - thickness) : (barIsVertical ? mEnds : mEdge);
+-    const std::int32_t right = barIsVertical ? left + thickness : std::max(left, outputWidth - mEnds);
+-    const std::int32_t bottom = barIsVertical ? std::max(top, outputHeight - mEnds) : top + thickness;
++    const std::int32_t left = barIsRight ? bounds.x + std::max(0, bounds.width - mEdge - thickness)
++                                         : (barIsVertical ? bounds.x + mEdge : bounds.x + mEnds);
++    const std::int32_t top = barIsBottom ? bounds.y + std::max(0, bounds.height - mEdge - thickness)
++                                         : (barIsVertical ? bounds.y + mEnds : bounds.y + mEdge);
++    const std::int32_t right = barIsVertical ? left + thickness : std::max(left, bounds.x + bounds.width - mEnds);
++    const std::int32_t bottom = barIsVertical ? std::max(top, bounds.y + bounds.height - mEnds) : top + thickness;
+ 
+     return BarVisibleRect{
+         .left = left,
+@@ -115,30 +115,30 @@ namespace {
+ 
+   std::int32_t anchoredSurfaceOrigin(
+       std::uint32_t anchor, std::uint32_t startAnchor, std::uint32_t endAnchor, std::int32_t startMargin,
+-      std::int32_t endMargin, std::int32_t outputExtent, std::int32_t surfaceExtent
++      std::int32_t endMargin, std::int32_t boundsStart, std::int32_t boundsExtent, std::int32_t surfaceExtent
+   ) {
+     const bool anchoredStart = (anchor & startAnchor) != 0;
+     const bool anchoredEnd = (anchor & endAnchor) != 0;
+     if (anchoredStart != anchoredEnd) {
+-      return anchoredStart ? startMargin : outputExtent - surfaceExtent - endMargin;
++      return anchoredStart ? boundsStart + startMargin : boundsStart + boundsExtent - surfaceExtent - endMargin;
+     }
+-    return (outputExtent - surfaceExtent) / 2;
++    return boundsStart + (boundsExtent - surfaceExtent) / 2;
+   }
+ 
+   InputRect panelInputRectForSurface(
+       std::uint32_t anchor, std::int32_t marginTop, std::int32_t marginRight, std::int32_t marginBottom,
+-      std::int32_t marginLeft, std::int32_t outputWidth, std::int32_t outputHeight, std::uint32_t surfaceWidth,
+-      std::uint32_t surfaceHeight, std::int32_t insetX, std::int32_t insetY, std::uint32_t panelWidth,
+-      std::uint32_t panelHeight
++      std::int32_t marginLeft, std::uint32_t surfaceWidth, std::uint32_t surfaceHeight, std::int32_t insetX,
++      std::int32_t insetY, std::uint32_t panelWidth, std::uint32_t panelHeight,
++      const shell::screen_geometry::Rect& bounds
+   ) {
+     const auto resolvedSurfaceWidth = static_cast<std::int32_t>(surfaceWidth);
+     const auto resolvedSurfaceHeight = static_cast<std::int32_t>(surfaceHeight);
+     const auto surfaceX = anchoredSurfaceOrigin(
+-        anchor, LayerShellAnchor::Left, LayerShellAnchor::Right, marginLeft, marginRight, outputWidth,
++        anchor, LayerShellAnchor::Left, LayerShellAnchor::Right, marginLeft, marginRight, bounds.x, bounds.width,
+         resolvedSurfaceWidth
+     );
+     const auto surfaceY = anchoredSurfaceOrigin(
+-        anchor, LayerShellAnchor::Top, LayerShellAnchor::Bottom, marginTop, marginBottom, outputHeight,
++        anchor, LayerShellAnchor::Top, LayerShellAnchor::Bottom, marginTop, marginBottom, bounds.y, bounds.height,
+         resolvedSurfaceHeight
+     );
+     return InputRect{surfaceX + insetX, surfaceY + insetY, static_cast<int>(panelWidth), static_cast<int>(panelHeight)};
+@@ -605,7 +605,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+   const bool isLeft = barConfig.position == "left";
+   const bool isRight = barConfig.position == "right";
+   const std::int32_t panelGap = m_config->config().shell.panel.floatingOffset;
+-  const auto screenPadding = static_cast<std::int32_t>(Style::spaceSm);
++  const auto panelScreenPadding = static_cast<std::int32_t>(Style::spaceSm);
++  const auto shellPadding = shell::screen_geometry::padding(m_config->config().shell.screenCorners);
+ 
+   std::int32_t resolvedOutputWidth = 0;
+   std::int32_t resolvedOutputHeight = 0;
+@@ -618,26 +619,27 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+       resolvedOutputHeight = wlOutput->effectiveLogicalHeight();
+     }
+   }
+-  // Backstop clamp: never request a surface larger than the output — the
+-  // compositor renders such a surface broken. This is sanity capping, not
+-  // work-area layout; if the compositor still configures smaller (exclusive
+-  // zones), buildScene lays out at the configured size.
+-  if (resolvedOutputWidth > 0) {
+-    panelWidth = std::min(panelWidth, static_cast<std::uint32_t>(std::max(1, resolvedOutputWidth - screenPadding * 2)));
+-  }
+-  if (resolvedOutputHeight > 0) {
+-    panelHeight =
+-        std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, resolvedOutputHeight - screenPadding * 2)));
+-  }
+   const std::int32_t outputWidth =
+       resolvedOutputWidth > 0 ? resolvedOutputWidth : static_cast<std::int32_t>(panelWidth);
+   const std::int32_t outputHeight =
+       resolvedOutputHeight > 0 ? resolvedOutputHeight : static_cast<std::int32_t>(panelHeight);
++  const auto screenBounds = shell::screen_geometry::usableBounds(outputWidth, outputHeight, shellPadding);
+ 
+-  const auto clampMargin = [](float desired, std::int32_t panelSize, std::int32_t outputSize,
+-                              std::int32_t padding) -> std::int32_t {
+-    const std::int32_t maxValue = std::max(padding, outputSize - panelSize - padding);
+-    return static_cast<std::int32_t>(std::clamp(desired, static_cast<float>(padding), static_cast<float>(maxValue)));
++  // Keep panel surfaces within the padded shell bounds before asking layer-shell to configure them.
++  if (resolvedOutputWidth > 0) {
++    panelWidth =
++        std::min(panelWidth, static_cast<std::uint32_t>(std::max(1, screenBounds.width - panelScreenPadding * 2)));
++  }
++  if (resolvedOutputHeight > 0) {
++    panelHeight =
++        std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, screenBounds.height - panelScreenPadding * 2)));
++  }
++
++  const auto clampMargin = [](float desired, std::int32_t panelSize, std::int32_t boundsStart,
++                              std::int32_t boundsExtent, std::int32_t inset) -> std::int32_t {
++    const std::int32_t minValue = boundsStart + inset;
++    const std::int32_t maxValue = std::max(minValue, boundsStart + boundsExtent - panelSize - inset);
++    return static_cast<std::int32_t>(std::clamp(desired, static_cast<float>(minValue), static_cast<float>(maxValue)));
+   };
+ 
+   const PanelPlacement activePlacement = m_activePanel->panelPlacement();
+@@ -674,7 +676,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+       shell::panel_surface::surfaceExtent(panelWidth, detachedShadowBleed.left, detachedShadowBleed.right);
+   const std::uint32_t detachedSurfaceHeight =
+       shell::panel_surface::surfaceExtent(panelHeight, detachedShadowBleed.up, detachedShadowBleed.down);
+-  const auto barRect = resolveBarVisibleRect(barConfig, outputWidth, outputHeight);
++  const auto barRect = resolveBarVisibleRect(barConfig, screenBounds);
+   const bool multipleBarsOnEdge =
+       hasMultipleEnabledBarsOnEdge(m_config, m_platform, request.output, barConfig.position);
+   const bool useReservedEdgePlacement = !useCenterScreenLayout
+@@ -682,14 +684,18 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+       && multipleBarsOnEdge
+       && barConfig.reserveSpace
+       && barConfig.thickness > 0;
+-  const auto marginLeftFromAnchor = clampMargin(
+-      request.anchorX - static_cast<float>(panelWidth) * 0.5F, static_cast<std::int32_t>(panelWidth), outputWidth,
+-      screenPadding
+-  );
+-  const auto marginTopFromAnchor = clampMargin(
+-      request.anchorY - static_cast<float>(panelHeight) * 0.5F, static_cast<std::int32_t>(panelHeight), outputHeight,
+-      screenPadding
+-  );
++  const auto marginLeftFromAnchor =
++      clampMargin(
++          request.anchorX - static_cast<float>(panelWidth) * 0.5F, static_cast<std::int32_t>(panelWidth),
++          screenBounds.x, screenBounds.width, panelScreenPadding
++      )
++      - screenBounds.x;
++  const auto marginTopFromAnchor =
++      clampMargin(
++          request.anchorY - static_cast<float>(panelHeight) * 0.5F, static_cast<std::int32_t>(panelHeight),
++          screenBounds.y, screenBounds.height, panelScreenPadding
++      )
++      - screenBounds.y;
+ 
+   std::uint32_t standaloneAnchor = 0;
+   std::int32_t standaloneMarginTop = 0;
+@@ -699,14 +705,18 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+   if (!useCenterScreenLayout) {
+     const std::int32_t barWidth = std::max(0, barRect.right - barRect.left);
+     const std::int32_t barHeight = std::max(0, barRect.bottom - barRect.top);
+-    const auto centeredAlongBarX = clampMargin(
+-        static_cast<float>(barRect.left) + (static_cast<float>(barWidth) - static_cast<float>(panelWidth)) * 0.5F,
+-        static_cast<std::int32_t>(panelWidth), outputWidth, screenPadding
+-    );
+-    const auto centeredAlongBarY = clampMargin(
+-        static_cast<float>(barRect.top) + (static_cast<float>(barHeight) - static_cast<float>(panelHeight)) * 0.5F,
+-        static_cast<std::int32_t>(panelHeight), outputHeight, screenPadding
+-    );
++    const auto centeredAlongBarX =
++        clampMargin(
++            static_cast<float>(barRect.left) + (static_cast<float>(barWidth) - static_cast<float>(panelWidth)) * 0.5F,
++            static_cast<std::int32_t>(panelWidth), screenBounds.x, screenBounds.width, panelScreenPadding
++        )
++        - screenBounds.x;
++    const auto centeredAlongBarY =
++        clampMargin(
++            static_cast<float>(barRect.top) + (static_cast<float>(barHeight) - static_cast<float>(panelHeight)) * 0.5F,
++            static_cast<std::int32_t>(panelHeight), screenBounds.y, screenBounds.height, panelScreenPadding
++        )
++        - screenBounds.y;
+ 
+     if (useScreenPosition) {
+       // Pinned to a screen edge/corner, independent of the bar.
+@@ -738,27 +748,33 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+       standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
+       if (isLeft) {
+         standaloneMarginLeft = clampMargin(
+-            static_cast<float>(barRect.right + panelGap), static_cast<std::int32_t>(panelWidth), outputWidth,
+-            screenPadding
+-        );
++                                   static_cast<float>(barRect.right + panelGap), static_cast<std::int32_t>(panelWidth),
++                                   screenBounds.x, screenBounds.width, panelScreenPadding
++                               )
++            - screenBounds.x;
+         standaloneMarginTop = useFloatingAnchor ? marginTopFromAnchor : centeredAlongBarY;
+       } else if (isRight) {
+-        standaloneMarginLeft = clampMargin(
+-            static_cast<float>(barRect.left - static_cast<std::int32_t>(panelWidth) - panelGap),
+-            static_cast<std::int32_t>(panelWidth), outputWidth, screenPadding
+-        );
++        standaloneMarginLeft =
++            clampMargin(
++                static_cast<float>(barRect.left - static_cast<std::int32_t>(panelWidth) - panelGap),
++                static_cast<std::int32_t>(panelWidth), screenBounds.x, screenBounds.width, panelScreenPadding
++            )
++            - screenBounds.x;
+         standaloneMarginTop = useFloatingAnchor ? marginTopFromAnchor : centeredAlongBarY;
+       } else if (isBottom) {
+-        standaloneMarginTop = clampMargin(
+-            static_cast<float>(barRect.top - static_cast<std::int32_t>(panelHeight) - panelGap),
+-            static_cast<std::int32_t>(panelHeight), outputHeight, screenPadding
+-        );
++        standaloneMarginTop =
++            clampMargin(
++                static_cast<float>(barRect.top - static_cast<std::int32_t>(panelHeight) - panelGap),
++                static_cast<std::int32_t>(panelHeight), screenBounds.y, screenBounds.height, panelScreenPadding
++            )
++            - screenBounds.y;
+         standaloneMarginLeft = useFloatingAnchor ? marginLeftFromAnchor : centeredAlongBarX;
+       } else {
+         standaloneMarginTop = clampMargin(
+-            static_cast<float>(barRect.bottom + panelGap), static_cast<std::int32_t>(panelHeight), outputHeight,
+-            screenPadding
+-        );
++                                  static_cast<float>(barRect.bottom + panelGap), static_cast<std::int32_t>(panelHeight),
++                                  screenBounds.y, screenBounds.height, panelScreenPadding
++                              )
++            - screenBounds.y;
+         standaloneMarginLeft = useFloatingAnchor ? marginLeftFromAnchor : centeredAlongBarX;
+       }
+     }
+@@ -766,8 +782,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+ 
+   if (useCenterScreenLayout) {
+     standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
+-    standaloneMarginLeft = (outputWidth - static_cast<std::int32_t>(panelWidth)) / 2 - detachedShadowBleed.left;
+-    standaloneMarginTop = (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2 - detachedShadowBleed.up;
++    standaloneMarginLeft = (screenBounds.width - static_cast<std::int32_t>(panelWidth)) / 2 - detachedShadowBleed.left;
++    standaloneMarginTop = (screenBounds.height - static_cast<std::int32_t>(panelHeight)) / 2 - detachedShadowBleed.up;
+   } else {
+     if ((standaloneAnchor & LayerShellAnchor::Left) != 0) {
+       standaloneMarginLeft -= detachedShadowBleed.left;
+@@ -783,8 +799,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+ 
+   InputRect detachedPanelInputRect = panelInputRectForSurface(
+       standaloneAnchor, standaloneMarginTop, standaloneMarginRight, standaloneMarginBottom, standaloneMarginLeft,
+-      outputWidth, outputHeight, detachedSurfaceWidth, detachedSurfaceHeight, detachedShadowBleed.left,
+-      detachedShadowBleed.up, panelWidth, panelHeight
++      detachedSurfaceWidth, detachedSurfaceHeight, detachedShadowBleed.left, detachedShadowBleed.up, panelWidth,
++      panelHeight, screenBounds
+   );
+ 
+   // Single-bar detached panels are placed relative to the bar's config edge. Honor
+@@ -795,21 +811,24 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+   const bool useBarRelativeDetached = !useCenterScreenLayout && !useScreenPosition && !useReservedEdgePlacement;
+   if (useBarRelativeDetached) {
+     const std::int32_t barReserved =
+-        barConfig.reserveSpace ? reservedBarEdgeDistance(barConfig, m_config->config().shell.shadow) : 0;
++        barConfig.reserveSpace ? reservedBarEdgeDistance(barConfig, m_config->config().shell.shadow, shellPadding) : 0;
++    const std::int32_t edgeReservation = std::max(shellPadding, barReserved);
+     const auto sw = static_cast<std::int32_t>(detachedSurfaceWidth);
+     const auto sh = static_cast<std::int32_t>(detachedSurfaceHeight);
++    const std::int32_t absoluteX = screenBounds.x + standaloneMarginLeft;
++    const std::int32_t absoluteY = screenBounds.y + standaloneMarginTop;
+     if (isBottom) {
+       standaloneAnchor = LayerShellAnchor::Bottom | LayerShellAnchor::Left;
+-      standaloneMarginBottom = outputHeight - sh - standaloneMarginTop - barReserved;
++      standaloneMarginBottom = outputHeight - sh - absoluteY - edgeReservation;
+       standaloneMarginTop = 0;
+     } else if (isRight) {
+       standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Right;
+-      standaloneMarginRight = outputWidth - sw - standaloneMarginLeft - barReserved;
++      standaloneMarginRight = outputWidth - sw - absoluteX - edgeReservation;
+       standaloneMarginLeft = 0;
+     } else if (isLeft) {
+-      standaloneMarginLeft -= barReserved;
++      standaloneMarginLeft = absoluteX - edgeReservation;
+     } else {
+-      standaloneMarginTop -= barReserved;
++      standaloneMarginTop = absoluteY - edgeReservation;
+     }
+   }
+ 
+@@ -826,23 +845,23 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+   std::uint32_t fallbackSurfaceHeight = detachedSurfaceHeight;
+   if (fillWidth) {
+     standaloneAnchor |= LayerShellAnchor::Left | LayerShellAnchor::Right;
+-    standaloneMarginLeft = screenPadding - detachedShadowBleed.left;
+-    standaloneMarginRight = screenPadding - detachedShadowBleed.right;
++    standaloneMarginLeft = panelScreenPadding - detachedShadowBleed.left;
++    standaloneMarginRight = panelScreenPadding - detachedShadowBleed.right;
+     requestedSurfaceWidth = 0;
+     fallbackSurfaceWidth =
+-        static_cast<std::uint32_t>(std::max(1, outputWidth - standaloneMarginLeft - standaloneMarginRight));
+-    detachedPanelInputRect.x = screenPadding;
+-    detachedPanelInputRect.width = std::max(1, outputWidth - screenPadding * 2);
++        static_cast<std::uint32_t>(std::max(1, screenBounds.width - standaloneMarginLeft - standaloneMarginRight));
++    detachedPanelInputRect.x = screenBounds.x + panelScreenPadding;
++    detachedPanelInputRect.width = std::max(1, screenBounds.width - panelScreenPadding * 2);
+   }
+   if (fillHeight) {
+     standaloneAnchor |= LayerShellAnchor::Top | LayerShellAnchor::Bottom;
+-    standaloneMarginTop = screenPadding - detachedShadowBleed.up;
+-    standaloneMarginBottom = screenPadding - detachedShadowBleed.down;
++    standaloneMarginTop = panelScreenPadding - detachedShadowBleed.up;
++    standaloneMarginBottom = panelScreenPadding - detachedShadowBleed.down;
+     requestedSurfaceHeight = 0;
+     fallbackSurfaceHeight =
+-        static_cast<std::uint32_t>(std::max(1, outputHeight - standaloneMarginTop - standaloneMarginBottom));
+-    detachedPanelInputRect.y = screenPadding;
+-    detachedPanelInputRect.height = std::max(1, outputHeight - screenPadding * 2);
++        static_cast<std::uint32_t>(std::max(1, screenBounds.height - standaloneMarginTop - standaloneMarginBottom));
++    detachedPanelInputRect.y = screenBounds.y + panelScreenPadding;
++    detachedPanelInputRect.height = std::max(1, screenBounds.height - panelScreenPadding * 2);
+   }
+ 
+   const bool useAttachedPlacement = activePlacement == PanelPlacement::Attached
+@@ -1058,6 +1077,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+     // margin. Omitting it here drifts the exclusion rect along the main axis.
+     const auto barShadowBleed = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+     const auto barConcave = barConcaveShape(barConfig);
++    const std::int32_t barConcaveBulge = static_cast<std::int32_t>(std::lround(barConcave.innerBulge));
++    const bool barAutoHide = barConfig.autoHide || barConfig.smartAutoHide;
+     const auto concaveStartInset = static_cast<std::int32_t>(
+         std::ceil(std::max(0.0F, barIsVertical ? barConcave.logicalInset.top : barConcave.logicalInset.left))
+     );
+@@ -1065,13 +1086,19 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+     std::int32_t barSurfaceLocalVisualY;
+     if (barIsVertical) {
+       barSurfaceLocalVisualY = visualY - (barTop - std::min(mEnds, barShadowBleed.up + concaveStartInset));
+-      const std::int32_t barSurfaceOriginX =
+-          barIsLeft ? std::max(0, barLeft - barShadowBleed.left) : barLeft - barShadowBleed.left;
++      const std::int32_t barSurfaceOriginX = barIsLeft
++          ? (barAutoHide && (barConfig.marginEdge > 0 || shellPadding > 0)
++                 ? 0
++                 : screenBounds.x + std::max(0, barConfig.marginEdge - barShadowBleed.left))
++          : barLeft - barShadowBleed.left - barConcaveBulge;
+       barSurfaceLocalVisualX = visualX - barSurfaceOriginX;
+     } else {
+       barSurfaceLocalVisualX = visualX - (barLeft - std::min(mEnds, barShadowBleed.left + concaveStartInset));
+-      const std::int32_t barSurfaceOriginY =
+-          barIsBottom ? barTop - barShadowBleed.up : std::max(0, barTop - barShadowBleed.up);
++      const std::int32_t barSurfaceOriginY = barIsBottom
++          ? barTop - barShadowBleed.up - barConcaveBulge
++          : (barAutoHide && (barConfig.marginEdge > 0 || shellPadding > 0)
++                 ? 0
++                 : screenBounds.y + std::max(0, barConfig.marginEdge - barShadowBleed.up));
+       barSurfaceLocalVisualY = visualY - barSurfaceOriginY;
+     }
+ 
+@@ -1100,24 +1127,27 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
+     // config edge; subtracting the bar's own reservation on the main axis avoids
+     // double-counting it. With no other reservation this matches the old absolute
+     // placement; it self-corrects by the external reservation when one exists.
+-    const std::int32_t barReserved = barConfig.reserveSpace ? reservedBarEdgeDistance(barConfig, shadowConfig) : 0;
++    const std::int32_t barReserved =
++        barConfig.reserveSpace ? reservedBarEdgeDistance(barConfig, shadowConfig, shellPadding) : 0;
++    const std::int32_t edgeReservation = std::max(shellPadding, barReserved);
+     std::uint32_t attachedAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
+-    std::int32_t attachedMarginTop = surfaceY;
+-    std::int32_t attachedMarginRight = 0;
+-    std::int32_t attachedMarginBottom = 0;
+-    std::int32_t attachedMarginLeft = surfaceX;
++    std::int32_t attachedMarginTop = surfaceY - shellPadding;
++    std::int32_t attachedMarginRight = outputWidth - shellPadding - static_cast<std::int32_t>(surfaceWidth) - surfaceX;
++    std::int32_t attachedMarginBottom =
++        outputHeight - shellPadding - static_cast<std::int32_t>(surfaceHeight) - surfaceY;
++    std::int32_t attachedMarginLeft = surfaceX - shellPadding;
+     if (barIsBottom) {
+       attachedAnchor = LayerShellAnchor::Bottom | LayerShellAnchor::Left;
+       attachedMarginTop = 0;
+-      attachedMarginBottom = outputHeight - static_cast<std::int32_t>(surfaceHeight) - surfaceY - barReserved;
++      attachedMarginBottom = outputHeight - static_cast<std::int32_t>(surfaceHeight) - surfaceY - edgeReservation;
+     } else if (barIsRight) {
+       attachedAnchor = LayerShellAnchor::Top | LayerShellAnchor::Right;
+       attachedMarginLeft = 0;
+-      attachedMarginRight = outputWidth - static_cast<std::int32_t>(surfaceWidth) - surfaceX - barReserved;
++      attachedMarginRight = outputWidth - static_cast<std::int32_t>(surfaceWidth) - surfaceX - edgeReservation;
+     } else if (barIsLeft) {
+-      attachedMarginLeft = surfaceX - barReserved;
++      attachedMarginLeft = surfaceX - edgeReservation;
+     } else {
+-      attachedMarginTop = surfaceY - barReserved;
++      attachedMarginTop = surfaceY - edgeReservation;
+     }
+ 
+     auto attachedConfig = LayerSurfaceConfig{
+@@ -1754,18 +1784,23 @@ void PanelManager::relayoutActivePanelPreferredSize() {
+     return;
+   }
+ 
+-  const auto screenPadding = static_cast<std::int32_t>(Style::spaceSm);
++  const auto panelScreenPadding = static_cast<std::int32_t>(Style::spaceSm);
+   const auto* wlOutput = m_output != nullptr ? m_platform->findOutputByWl(m_output) : nullptr;
+   const std::int32_t outputWidth = wlOutput != nullptr ? wlOutput->effectiveLogicalWidth() : 0;
+   const std::int32_t outputHeight = wlOutput != nullptr ? wlOutput->effectiveLogicalHeight() : 0;
++  const auto screenBounds = shell::screen_geometry::usableBounds(
++      outputWidth, outputHeight, shell::screen_geometry::padding(m_config->config().shell.screenCorners)
++  );
+ 
+   auto panelWidth = static_cast<std::uint32_t>(std::max(1.0F, std::round(m_activePanel->preferredWidth())));
+   auto panelHeight = static_cast<std::uint32_t>(std::max(1.0F, std::round(m_activePanel->preferredHeight())));
+   if (outputWidth > 0) {
+-    panelWidth = std::min(panelWidth, static_cast<std::uint32_t>(std::max(1, outputWidth - screenPadding * 2)));
++    panelWidth =
++        std::min(panelWidth, static_cast<std::uint32_t>(std::max(1, screenBounds.width - panelScreenPadding * 2)));
+   }
+   if (outputHeight > 0) {
+-    panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, outputHeight - screenPadding * 2)));
++    panelHeight =
++        std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, screenBounds.height - panelScreenPadding * 2)));
+   }
+   if (panelWidth == m_panelVisualWidth && panelHeight == m_panelVisualHeight) {
+     return;
+@@ -1789,7 +1824,7 @@ void PanelManager::relayoutActivePanelPreferredSize() {
+       const bool anchoredLeft = (anchor & LayerShellAnchor::Left) != 0;
+       const bool anchoredRight = (anchor & LayerShellAnchor::Right) != 0;
+       if (useCenterScreenLayout && outputWidth > 0) {
+-        rect.x = (outputWidth - static_cast<std::int32_t>(panelWidth)) / 2;
++        rect.x = screenBounds.x + (screenBounds.width - static_cast<std::int32_t>(panelWidth)) / 2;
+       } else if (anchoredRight && !anchoredLeft) {
+         rect.x -= widthDelta;
+       } else if (anchoredLeft == anchoredRight) {
+@@ -1802,7 +1837,7 @@ void PanelManager::relayoutActivePanelPreferredSize() {
+       const bool anchoredTop = (anchor & LayerShellAnchor::Top) != 0;
+       const bool anchoredBottom = (anchor & LayerShellAnchor::Bottom) != 0;
+       if (useCenterScreenLayout && outputHeight > 0) {
+-        rect.y = (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2;
++        rect.y = screenBounds.y + (screenBounds.height - static_cast<std::int32_t>(panelHeight)) / 2;
+       } else if (anchoredBottom && !anchoredTop) {
+         rect.y -= heightDelta;
+       } else if (anchoredTop == anchoredBottom) {
+@@ -1819,8 +1854,9 @@ void PanelManager::relayoutActivePanelPreferredSize() {
+ 
+   if (useCenterScreenLayout && outputWidth > 0 && outputHeight > 0) {
+     const std::int32_t marginLeft =
+-        (outputWidth - static_cast<std::int32_t>(panelWidth)) / 2 - detachedShadowBleed.left;
+-    const std::int32_t marginTop = (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2 - detachedShadowBleed.up;
++        (screenBounds.width - static_cast<std::int32_t>(panelWidth)) / 2 - detachedShadowBleed.left;
++    const std::int32_t marginTop =
++        (screenBounds.height - static_cast<std::int32_t>(panelHeight)) / 2 - detachedShadowBleed.up;
+     m_layerSurface->setMargins(marginTop, m_layerSurface->marginRight(), m_layerSurface->marginBottom(), marginLeft);
+   }
+ 
+@@ -2354,8 +2390,8 @@ void PanelManager::applyPanelCompositorBlur(
+   }
+   if (blurTraceEnabled()) {
+     kLog.debug(
+-        "blur-trace panel-blur-shape-cache result={} body={}x{} strips={}",
+-        shapeCacheHit ? "hit" : "miss", bodyW, bodyH, m_panelBlurShapeRects.size()
++        "blur-trace panel-blur-shape-cache result={} body={}x{} strips={}", shapeCacheHit ? "hit" : "miss", bodyW,
++        bodyH, m_panelBlurShapeRects.size()
+     );
+   }
+ 
+diff --git a/src/shell/screen_corners/screen_corners.cpp b/src/shell/screen_corners/screen_corners.cpp
+index fcc29c139..b8d87b2d1 100644
+--- a/src/shell/screen_corners/screen_corners.cpp
++++ b/src/shell/screen_corners/screen_corners.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "config/config_service.h"
+ #include "core/ui_phase.h"
++#include "shell/screen_geometry.h"
+ #include "ui/controls/screen_corner.h"
+ #include "ui/palette.h"
+ #include "wayland/wayland_connection.h"
+@@ -55,11 +56,13 @@ void ScreenCorners::onConfigReload() {
+   }
+ 
+   const auto& cfg = m_config->config().shell.screenCorners;
++  const auto padding = shell::screen_geometry::padding(cfg);
+   if (!cfg.enabled) {
+     if (m_lastEnabled) {
+       destroySurfaces();
+       m_lastEnabled = false;
+     }
++    m_lastPadding = padding;
+     return;
+   }
+ 
+@@ -75,11 +78,13 @@ void ScreenCorners::onConfigReload() {
+ 
+   if (cfg.enabled != m_lastEnabled
+       || cfg.size != m_lastSize
++      || padding != m_lastPadding
+       || m_instances.size() != eligibleOutputCount(*m_wayland)
+       || stackingMayHaveChanged) {
+     destroySurfaces();
+     m_lastEnabled = cfg.enabled;
+     m_lastSize = cfg.size;
++    m_lastPadding = padding;
+     ensureSurfaces();
+   }
+ }
+@@ -91,6 +96,7 @@ void ScreenCorners::onOutputChange() {
+   const auto& cfg = m_config->config().shell.screenCorners;
+   m_lastEnabled = cfg.enabled;
+   m_lastSize = cfg.size;
++  m_lastPadding = shell::screen_geometry::padding(cfg);
+ 
+   destroySurfaces();
+   if (!cfg.enabled) {
+@@ -132,6 +138,7 @@ void ScreenCorners::ensureSurfaces() {
+   }
+ 
+   const auto size = static_cast<std::uint32_t>(std::clamp(cfg.size, 1, 100));
++  const auto padding = shell::screen_geometry::padding(cfg);
+ 
+   for (const auto& output : m_wayland->outputs()) {
+     if (!outputEligible(output)) {
+@@ -150,6 +157,10 @@ void ScreenCorners::ensureSurfaces() {
+           .width = size,
+           .height = size,
+           .exclusiveZone = -1,
++          .marginTop = i < 2 ? padding : 0,
++          .marginRight = i == 1 || i == 2 ? padding : 0,
++          .marginBottom = i >= 2 ? padding : 0,
++          .marginLeft = i == 0 || i == 3 ? padding : 0,
+           .keyboard = LayerShellKeyboard::None,
+           .defaultWidth = size,
+           .defaultHeight = size,
+diff --git a/src/shell/screen_corners/screen_corners.h b/src/shell/screen_corners/screen_corners.h
+index a24c3c4f0..4e68c75c2 100644
+--- a/src/shell/screen_corners/screen_corners.h
++++ b/src/shell/screen_corners/screen_corners.h
+@@ -47,6 +47,7 @@ private:
+   RenderContext* m_renderContext = nullptr;
+   bool m_lastEnabled = false;
+   std::int32_t m_lastSize = 0;
++  std::int32_t m_lastPadding = 0;
+   std::vector<std::unique_ptr<OutputInstance>> m_instances;
+   Signal<>::ScopedConnection m_paletteConn;
+ };
+diff --git a/src/shell/screen_geometry.h b/src/shell/screen_geometry.h
+new file mode 100644
+index 000000000..cd75de3eb
+--- /dev/null
++++ b/src/shell/screen_geometry.h
+@@ -0,0 +1,62 @@
++#pragma once
++
++#include "config/config_types.h"
++
++#include <algorithm>
++#include <cstdint>
++
++namespace shell::screen_geometry {
++
++  inline constexpr std::int32_t kMinPadding = 1;
++  inline constexpr std::int32_t kMaxPadding = 16;
++
++  struct Rect {
++    std::int32_t x = 0;
++    std::int32_t y = 0;
++    std::int32_t width = 0;
++    std::int32_t height = 0;
++
++    bool operator==(const Rect&) const = default;
++  };
++
++  [[nodiscard]] inline std::int32_t clampPadding(std::int32_t padding) noexcept {
++    return std::clamp(padding, kMinPadding, kMaxPadding);
++  }
++
++  [[nodiscard]] inline std::int32_t effectivePadding(std::int32_t padding) noexcept {
++    return padding > 0 ? clampPadding(padding) : 0;
++  }
++
++  [[nodiscard]] inline std::int32_t padding(const ShellConfig::ScreenCornersConfig& config) noexcept {
++    return config.paddingEnabled ? clampPadding(config.paddingSize) : 0;
++  }
++
++  [[nodiscard]] inline Rect usableBounds(std::int32_t width, std::int32_t height, std::int32_t padding) noexcept {
++    const auto inset = effectivePadding(padding);
++    return Rect{
++        .x = inset,
++        .y = inset,
++        .width = std::max(0, width - inset * 2),
++        .height = std::max(0, height - inset * 2),
++    };
++  }
++
++  [[nodiscard]] inline Rect
++  usableBounds(std::int32_t width, std::int32_t height, const ShellConfig::ScreenCornersConfig& config) noexcept {
++    const auto inset = padding(config);
++    if (inset == 0) {
++      return Rect{.width = std::max(0, width), .height = std::max(0, height)};
++    }
++    return usableBounds(width, height, inset);
++  }
++
++  [[nodiscard]] inline std::int32_t
++  exclusiveZone(bool reserveSpace, std::int32_t componentZone, std::int32_t padding) noexcept {
++    return reserveSpace ? std::max(0, componentZone) + effectivePadding(padding) : 0;
++  }
++
++  [[nodiscard]] inline std::int32_t autoHideLayerMargin(std::int32_t padding) noexcept {
++    return -effectivePadding(padding);
++  }
++
++} // namespace shell::screen_geometry
+diff --git a/src/shell/settings/settings_registry.cpp b/src/shell/settings/settings_registry.cpp
+index 8cb15c44d..0e46614ac 100644
+--- a/src/shell/settings/settings_registry.cpp
++++ b/src/shell/settings/settings_registry.cpp
+@@ -1479,6 +1479,20 @@ namespace settings {
+         sliderFor(cfg.shell.screenCorners.size, noctalia::config::schema::kScreenCornersSizeRange, true),
+         "screen corners radius"
+     ));
++    entries.push_back(makeEntry(
++        SettingsSection::Desktop, "screen-corners", tr("settings.schema.desktop.screen-padding-enabled.label"),
++        tr("settings.schema.desktop.screen-padding-enabled.description"),
++        {"shell", "screen_corners", "padding_enabled"}, ToggleSetting{cfg.shell.screenCorners.paddingEnabled},
++        "shell padding frame border window gap screen edge"
++    ));
++    auto paddingSize = makeEntry(
++        SettingsSection::Desktop, "screen-corners", tr("settings.schema.desktop.screen-padding-size.label"),
++        tr("settings.schema.desktop.screen-padding-size.description"), {"shell", "screen_corners", "padding_size"},
++        sliderFor(cfg.shell.screenCorners.paddingSize, noctalia::config::schema::kShellPaddingSizeRange, true),
++        "shell padding frame thickness size pixels"
++    );
++    paddingSize.visibleWhen = [](const Config& config) { return config.shell.screenCorners.paddingEnabled; };
++    entries.push_back(std::move(paddingSize));
+ 
+     entries.push_back(makeEntry(
+         SettingsSection::Desktop, "hot-corners", tr("settings.schema.desktop.hot-corners-enabled.label"),
+diff --git a/src/shell/shell_padding.cpp b/src/shell/shell_padding.cpp
+new file mode 100644
+index 000000000..deb4c9a9b
+--- /dev/null
++++ b/src/shell/shell_padding.cpp
+@@ -0,0 +1,277 @@
++#include "shell/shell_padding.h"
++
++#include "config/config_service.h"
++#include "core/ui_phase.h"
++#include "render/scene/node.h"
++#include "shell/screen_geometry.h"
++#include "ui/controls/box.h"
++#include "ui/palette.h"
++#include "wayland/wayland_connection.h"
++
++#include <algorithm>
++#include <ranges>
++
++namespace {
++
++  constexpr std::uint32_t kReservationAnchors[4] = {
++      LayerShellAnchor::Top,
++      LayerShellAnchor::Right,
++      LayerShellAnchor::Bottom,
++      LayerShellAnchor::Left,
++  };
++
++  constexpr std::uint32_t kStripAnchors[4] = {
++      LayerShellAnchor::Top | LayerShellAnchor::Left | LayerShellAnchor::Right,
++      LayerShellAnchor::Top | LayerShellAnchor::Bottom | LayerShellAnchor::Right,
++      LayerShellAnchor::Bottom | LayerShellAnchor::Left | LayerShellAnchor::Right,
++      LayerShellAnchor::Top | LayerShellAnchor::Bottom | LayerShellAnchor::Left,
++  };
++
++  bool outputEligible(const WaylandOutput& output) noexcept {
++    return output.done && output.output != nullptr && output.hasUsableGeometry();
++  }
++
++  std::unique_ptr<Box> makeBox(std::uint32_t width, std::uint32_t height, bool visible) {
++    auto box = std::make_unique<Box>();
++    box->setFill(visible ? ColorSpec{.role = ColorRole::Surface, .alpha = 1.0F} : clearColorSpec());
++    box->setSize(
++        static_cast<float>(std::max<std::uint32_t>(1, width)), static_cast<float>(std::max<std::uint32_t>(1, height))
++    );
++    return box;
++  }
++
++} // namespace
++
++void ShellPadding::initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext) {
++  m_wayland = &wayland;
++  m_config = config;
++  m_renderContext = renderContext;
++  m_paletteConn = paletteChanged().connect([this]() { updatePalette(); });
++  if (m_config != nullptr) {
++    m_visualPadding = currentPadding();
++    m_lastShadow = m_config->config().shell.shadow;
++    m_config->addReloadCallback(
++        [this]() {
++          if (m_config != nullptr && m_config->lastChange().shell) {
++            onReservationsOutputChange();
++          }
++        },
++        "shell-padding-reservations"
++    );
++  }
++}
++
++std::int32_t ShellPadding::currentPadding() const noexcept {
++  if (m_config == nullptr) {
++    return 0;
++  }
++  return shell::screen_geometry::padding(m_config->config().shell.screenCorners);
++}
++
++void ShellPadding::reconcileOutputs() {
++  if (m_wayland == nullptr || m_config == nullptr || m_renderContext == nullptr) {
++    return;
++  }
++
++  const auto& outputs = m_wayland->outputs();
++  std::erase_if(m_instances, [&outputs](const auto& instance) {
++    return std::ranges::none_of(outputs, [&instance](const WaylandOutput& output) {
++      return output.output == instance->output && outputEligible(output);
++    });
++  });
++
++  for (const auto& output : outputs) {
++    if (!outputEligible(output)) {
++      continue;
++    }
++    auto found = std::ranges::find(m_instances, output.output, [](const auto& instance) { return instance->output; });
++    if (found == m_instances.end()) {
++      auto instance = std::make_unique<OutputInstance>();
++      instance->output = output.output;
++      instance->scale = output.scale;
++      instance->scaleNumerator = output.configuredScaleNumerator;
++      m_instances.push_back(std::move(instance));
++      continue;
++    }
++
++    auto& instance = **found;
++    if (instance.scale != output.scale || instance.scaleNumerator != output.configuredScaleNumerator) {
++      destroyReservations(instance);
++      destroyStrips(instance);
++      instance.scale = output.scale;
++      instance.scaleNumerator = output.configuredScaleNumerator;
++    }
++  }
++}
++
++void ShellPadding::onReservationsOutputChange() {
++  reconcileOutputs();
++  const auto padding = currentPadding();
++  for (auto& instance : m_instances) {
++    if (padding == 0) {
++      destroyReservations(*instance);
++    } else {
++      ensureReservations(*instance, padding);
++    }
++  }
++}
++
++void ShellPadding::onVisualsOutputChange() {
++  reconcileOutputs();
++  const auto padding = currentPadding();
++  for (auto& instance : m_instances) {
++    destroyStrips(*instance);
++    if (padding > 0) {
++      ensureStrips(*instance, padding);
++    }
++  }
++  m_visualPadding = padding;
++  if (m_config != nullptr) {
++    m_lastShadow = m_config->config().shell.shadow;
++  }
++}
++
++void ShellPadding::onVisualsConfigReload() {
++  if (m_config == nullptr) {
++    return;
++  }
++  const auto padding = currentPadding();
++  const auto& change = m_config->lastChange();
++  const auto& shadow = m_config->config().shell.shadow;
++  const bool stackingMayHaveChanged = change.bars
++      || change.widgets
++      || change.dock
++      || change.plugins
++      || padding != m_visualPadding
++      || shadow != m_lastShadow;
++  for (auto& instance : m_instances) {
++    if (padding == 0) {
++      destroyStrips(*instance);
++    } else {
++      if (stackingMayHaveChanged) {
++        destroyStrips(*instance);
++      }
++      ensureStrips(*instance, padding);
++    }
++  }
++  m_visualPadding = padding;
++  m_lastShadow = shadow;
++}
++
++void ShellPadding::shutdown() {
++  m_paletteConn.disconnect();
++  m_instances.clear();
++  m_visualPadding = 0;
++}
++
++void ShellPadding::ensureReservations(OutputInstance& instance, std::int32_t padding) {
++  for (std::size_t edge = 0; edge < instance.reservations.size(); ++edge) {
++    if (instance.reservations[edge] == nullptr) {
++      createReservation(instance, edge, padding);
++    } else {
++      instance.reservations[edge]->setExclusiveZone(padding);
++    }
++  }
++}
++
++void ShellPadding::destroyReservations(OutputInstance& instance) {
++  instance.reservations = {};
++  instance.reservationRoots = {};
++}
++
++void ShellPadding::ensureStrips(OutputInstance& instance, std::int32_t padding) {
++  for (std::size_t edge = 0; edge < instance.strips.size(); ++edge) {
++    if (instance.strips[edge].surface == nullptr) {
++      createStrip(instance, edge, padding);
++    }
++  }
++}
++
++void ShellPadding::destroyStrips(OutputInstance& instance) { instance.strips = {}; }
++
++void ShellPadding::createReservation(OutputInstance& instance, std::size_t edge, std::int32_t padding) {
++  LayerSurfaceConfig config{
++      .nameSpace = "noctalia-shell-padding-reservation",
++      .layer = LayerShellLayer::Background,
++      .anchor = kReservationAnchors[edge],
++      .width = 1,
++      .height = 1,
++      .exclusiveZone = padding,
++      .keyboard = LayerShellKeyboard::None,
++      .defaultWidth = 1,
++      .defaultHeight = 1,
++  };
++  auto surface = std::make_unique<LayerSurface>(*m_wayland, std::move(config));
++  surface->setRenderContext(m_renderContext);
++  auto* surfacePtr = surface.get();
++  auto* root = &instance.reservationRoots[edge];
++  surface->setConfigureCallback([surfacePtr](std::uint32_t, std::uint32_t) { surfacePtr->requestLayout(); });
++  surface->setPrepareFrameCallback([surfacePtr, root](bool, bool) {
++    auto& target = surfacePtr->renderTarget();
++    if (*root == nullptr) {
++      UiPhaseScope layoutPhase(UiPhase::Layout);
++      *root = makeBox(target.logicalWidth(), target.logicalHeight(), false);
++      surfacePtr->setSceneRoot(root->get());
++    }
++  });
++  if (!surface->initialize(instance.output)) {
++    return;
++  }
++  surface->setInputRegion({});
++  instance.reservations[edge] = std::move(surface);
++}
++
++void ShellPadding::createStrip(OutputInstance& instance, std::size_t edge, std::int32_t padding) {
++  const bool horizontal = edge == 0 || edge == 2;
++  const auto* output = m_wayland->findOutputByWl(instance.output);
++  if (output == nullptr) {
++    return;
++  }
++  LayerSurfaceConfig config{
++      .nameSpace = "noctalia-shell-padding",
++      .layer = LayerShellLayer::Top,
++      .anchor = kStripAnchors[edge],
++      .width = horizontal ? 0U : static_cast<std::uint32_t>(padding),
++      .height = horizontal ? static_cast<std::uint32_t>(padding) : 0U,
++      .exclusiveZone = -1,
++      .marginTop = edge == 1 || edge == 3 ? padding : 0,
++      .marginBottom = edge == 1 || edge == 3 ? padding : 0,
++      .keyboard = LayerShellKeyboard::None,
++      .defaultWidth = static_cast<std::uint32_t>(std::max(1, output->effectiveLogicalWidth())),
++      .defaultHeight = static_cast<std::uint32_t>(std::max(1, output->effectiveLogicalHeight())),
++  };
++  auto surface = std::make_unique<LayerSurface>(*m_wayland, std::move(config));
++  surface->setRenderContext(m_renderContext);
++  auto* strip = &instance.strips[edge];
++  strip->surface = std::move(surface);
++  strip->surface->setConfigureCallback([strip](std::uint32_t, std::uint32_t) { strip->surface->requestLayout(); });
++  strip->surface->setPrepareFrameCallback([this, strip, edge, padding](bool, bool) {
++    auto& target = strip->surface->renderTarget();
++    const std::uint32_t width =
++        target.logicalWidth() == 0 ? (edge == 1 || edge == 3 ? padding : 1U) : target.logicalWidth();
++    const std::uint32_t height =
++        target.logicalHeight() == 0 ? (edge == 0 || edge == 2 ? padding : 1U) : target.logicalHeight();
++    if (strip->sceneRoot == nullptr || strip->builtWidth != width || strip->builtHeight != height) {
++      UiPhaseScope layoutPhase(UiPhase::Layout);
++      strip->sceneRoot = makeBox(width, height, true);
++      strip->builtWidth = width;
++      strip->builtHeight = height;
++      strip->surface->setSceneRoot(strip->sceneRoot.get());
++    }
++  });
++  if (!strip->surface->initialize(instance.output)) {
++    strip->surface.reset();
++    return;
++  }
++  strip->surface->setInputRegion({});
++}
++
++void ShellPadding::updatePalette() {
++  for (auto& instance : m_instances) {
++    for (auto& strip : instance->strips) {
++      if (strip.surface != nullptr) {
++        strip.surface->requestRedraw();
++      }
++    }
++  }
++}
+diff --git a/src/shell/shell_padding.h b/src/shell/shell_padding.h
+new file mode 100644
+index 000000000..5516c9d1e
+--- /dev/null
++++ b/src/shell/shell_padding.h
+@@ -0,0 +1,65 @@
++#pragma once
++
++#include "config/config_types.h"
++#include "ui/signal.h"
++#include "wayland/layer_surface.h"
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <vector>
++
++class ConfigService;
++class RenderContext;
++class WaylandConnection;
++
++class ShellPadding {
++public:
++  ShellPadding() = default;
++  ~ShellPadding() = default;
++
++  ShellPadding(const ShellPadding&) = delete;
++  ShellPadding& operator=(const ShellPadding&) = delete;
++
++  void initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext);
++  void onReservationsOutputChange();
++  void onVisualsOutputChange();
++  void onVisualsConfigReload();
++  void shutdown();
++
++private:
++  struct Strip {
++    std::unique_ptr<Node> sceneRoot;
++    std::unique_ptr<LayerSurface> surface;
++    std::uint32_t builtWidth = 0;
++    std::uint32_t builtHeight = 0;
++  };
++
++  struct OutputInstance {
++    wl_output* output = nullptr;
++    std::int32_t scale = 0;
++    std::int32_t scaleNumerator = 0;
++    std::array<std::unique_ptr<Node>, 4> reservationRoots;
++    std::array<std::unique_ptr<LayerSurface>, 4> reservations;
++    std::array<Strip, 4> strips;
++  };
++
++  [[nodiscard]] std::int32_t currentPadding() const noexcept;
++  void reconcileOutputs();
++  void ensureReservations(OutputInstance& instance, std::int32_t padding);
++  void destroyReservations(OutputInstance& instance);
++  void ensureStrips(OutputInstance& instance, std::int32_t padding);
++  void destroyStrips(OutputInstance& instance);
++  void createReservation(OutputInstance& instance, std::size_t edge, std::int32_t padding);
++  void createStrip(OutputInstance& instance, std::size_t edge, std::int32_t padding);
++  void updatePalette();
++
++  WaylandConnection* m_wayland = nullptr;
++  ConfigService* m_config = nullptr;
++  RenderContext* m_renderContext = nullptr;
++  std::int32_t m_visualPadding = 0;
++  ShellConfig::ShadowConfig m_lastShadow;
++  std::vector<std::unique_ptr<OutputInstance>> m_instances;
++  Signal<>::ScopedConnection m_paletteConn;
++};
+diff --git a/tests/config_schema_roundtrip_test.cpp b/tests/config_schema_roundtrip_test.cpp
+index 83939b3dd..b51eb1fe5 100644
+--- a/tests/config_schema_roundtrip_test.cpp
++++ b/tests/config_schema_roundtrip_test.cpp
+@@ -502,6 +502,8 @@ location = "https://example.invalid/bad"
+     c.shell.keyboardLayout.customLabels = {{"English (US)", "US"}, {"German", "DE"}};
+     c.shell.screenCorners.enabled = true;
+     c.shell.screenCorners.size = 24;
++    c.shell.screenCorners.paddingEnabled = true;
++    c.shell.screenCorners.paddingSize = 13;
+     c.shell.mpris.blacklist = {"firefox"};
+     c.shell.screenshot.directory = "/shots";
+     c.shell.screenshot.pipeToCommand = true;
+@@ -624,6 +626,49 @@ location = "https://example.invalid/bad"
+         fail("shell.clipboard_history_max_entries clamp: expected 10000");
+       }
+     }
++    {
++      auto t = toml::parse("[screen_corners]\npadding_enabled = true\npadding_size = -20");
++      ShellConfig shell{};
++      Diagnostics d;
++      readInto(t, shell, shellSchema(), "shell", d);
++      if (!shell.screenCorners.paddingEnabled || shell.screenCorners.paddingSize != *kShellPaddingSizeRange.min) {
++        fail("shell.screen_corners padding lower clamp: expected enabled and size 1");
++      }
++    }
++    {
++      auto t = toml::parse("[screen_corners]\npadding_size = 500");
++      ShellConfig shell{};
++      Diagnostics d;
++      readInto(t, shell, shellSchema(), "shell", d);
++      if (shell.screenCorners.paddingSize != *kShellPaddingSizeRange.max) {
++        fail("shell.screen_corners padding upper clamp: expected size 16");
++      }
++    }
++  }
++
++  void checkScreenPaddingDefaultsAndPersistence() {
++    const ShellConfig::ScreenCornersConfig defaults{};
++    if (defaults.paddingEnabled || defaults.paddingSize != 10) {
++      fail("shell.screen_corners padding defaults: expected disabled and size 10");
++    }
++
++    Config config;
++    config.shell.screenCorners.paddingEnabled = true;
++    config.shell.screenCorners.paddingSize = 13;
++    const toml::table serialized = config_export::serialize(config);
++    const auto* shellTable = serialized.get_as<toml::table>("shell");
++    const auto* corners = shellTable != nullptr ? shellTable->get_as<toml::table>("screen_corners") : nullptr;
++    if (corners == nullptr || corners->get("padding_enabled") == nullptr || corners->get("padding_size") == nullptr) {
++      fail("shell.screen_corners padding: serialize omitted persisted settings");
++      return;
++    }
++
++    ShellConfig restored;
++    Diagnostics diagnostics;
++    readInto(*shellTable, restored, shellSchema(), "shell", diagnostics);
++    if (!restored.screenCorners.paddingEnabled || restored.screenCorners.paddingSize != 13) {
++      fail("shell.screen_corners padding: serialized settings did not persist");
++    }
+   }
+ 
+   void checkMonitorFontScaleChangeSet() {
+@@ -1226,6 +1271,7 @@ widget_spacing = 8
+   checkStorageKeySourceValidation();
+   checkPanelFloatingLayerValidation();
+   checkClamps();
++  checkScreenPaddingDefaultsAndPersistence();
+   checkMonitorFontScaleChangeSet();
+   checkPluginAutoUpdateMode();
+   checkAutoUpdateScopeSelection();
+diff --git a/tests/screen_padding_geometry_test.cpp b/tests/screen_padding_geometry_test.cpp
+new file mode 100644
+index 000000000..2358bf87d
+--- /dev/null
++++ b/tests/screen_padding_geometry_test.cpp
+@@ -0,0 +1,235 @@
++#include "config/config_types.h"
++#include "shell/bar/bar_reserved_zone.h"
++#include "shell/dock/dock_geometry.h"
++#include "shell/screen_geometry.h"
++#include "tests/test_check.h"
++#include "wayland/surface.h"
++
++#include <algorithm>
++#include <array>
++#include <cstdint>
++#include <string_view>
++
++namespace {
++
++  constexpr std::int32_t kPadding = 10;
++  constexpr std::size_t kItemCount = 4;
++
++  constexpr std::array<DockEdge, 4> kDockEdges = {
++      DockEdge::Top,
++      DockEdge::Right,
++      DockEdge::Bottom,
++      DockEdge::Left,
++  };
++  constexpr std::array<std::string_view, 4> kBarPositions = {"top", "right", "bottom", "left"};
++
++  std::int32_t dockEdgeMargin(const shell::dock::DockSurfaceGeometry& geometry, DockEdge edge) {
++    switch (edge) {
++    case DockEdge::Top:
++      return geometry.marginTop;
++    case DockEdge::Right:
++      return geometry.marginRight;
++    case DockEdge::Bottom:
++      return geometry.marginBottom;
++    case DockEdge::Left:
++      return geometry.marginLeft;
++    }
++    return 0;
++  }
++
++  DockConfig dockFor(DockEdge edge, bool reserveSpace, bool autoHide, std::int32_t margin) {
++    DockConfig config;
++    config.position = edge;
++    config.reserveSpace = reserveSpace;
++    config.autoHide = autoHide;
++    config.marginEdge = margin;
++    config.shadow = false;
++    config.concaveEdgeCorners = false;
++    config.magnification = false;
++    config.showInstanceCount = false;
++    return config;
++  }
++
++  shell::dock::DockSurfaceGeometry dockGeometry(const DockConfig& config, std::int32_t padding) {
++    return shell::dock::computeSurfaceGeometry(config, ShellConfig::ShadowConfig{}, kItemCount, false, padding);
++  }
++
++  void checkSharedScreenGeometry() {
++    using namespace shell::screen_geometry;
++    TEST_CHECK(clampPadding(-8) == 1);
++    TEST_CHECK(clampPadding(10) == 10);
++    TEST_CHECK(clampPadding(80) == 16);
++
++    ShellConfig::ScreenCornersConfig config;
++    TEST_CHECK(padding(config) == 0);
++    TEST_CHECK((usableBounds(1920, 1080, config) == Rect{.width = 1920, .height = 1080}));
++
++    config.paddingEnabled = true;
++    TEST_CHECK(padding(config) == 10);
++    TEST_CHECK((usableBounds(1920, 1080, config) == Rect{.x = 10, .y = 10, .width = 1900, .height = 1060}));
++    config.paddingSize = -8;
++    TEST_CHECK(padding(config) == 1);
++    config.paddingSize = 80;
++    TEST_CHECK(padding(config) == 16);
++
++    TEST_CHECK(exclusiveZone(true, 36, kPadding) == 46);
++    TEST_CHECK(exclusiveZone(true, 36, 999) == 52);
++    TEST_CHECK(exclusiveZone(false, 36, kPadding) == 0);
++    TEST_CHECK(autoHideLayerMargin(kPadding) == -kPadding);
++    TEST_CHECK(autoHideLayerMargin(999) == -16);
++  }
++
++  void checkBarReservations() {
++    const ShellConfig::ShadowConfig shadow;
++    for (std::size_t i = 0; i < kBarPositions.size(); ++i) {
++      BarConfig bar;
++      bar.position = std::string(kBarPositions[i]);
++      bar.thickness = 32;
++      bar.marginEdge = 0;
++      bar.reserveSpace = true;
++      bar.shadow = false;
++      TEST_CHECK(reservedBarExclusiveZone(bar, shadow) == bar.thickness);
++      TEST_CHECK(reservedBarEdgeDistance(bar, shadow, kPadding) == kPadding + bar.thickness);
++
++      bar.marginEdge = 7;
++      TEST_CHECK(reservedBarExclusiveZone(bar, shadow) == bar.thickness);
++      TEST_CHECK(reservedBarEdgeDistance(bar, shadow, kPadding) == kPadding + 7 + bar.thickness);
++
++      bar.autoHide = true;
++      TEST_CHECK(reservedBarExclusiveZone(bar, shadow) == bar.thickness + 7);
++      TEST_CHECK(reservedBarEdgeDistance(bar, shadow, kPadding) == kPadding + 7 + bar.thickness);
++
++      bar.autoHide = false;
++      bar.shadow = true;
++      ShellConfig::ShadowConfig directionalShadow;
++      directionalShadow.direction = ShadowDirection::UpLeft;
++      const auto bleed = shell::surface_shadow::bleed(true, directionalShadow);
++      const auto edgeBleed = bar.position == "top" ? bleed.up
++          : bar.position == "right"                ? bleed.right
++          : bar.position == "bottom"               ? bleed.down
++                                                   : bleed.left;
++      const auto expectedZone = bar.thickness + std::min(bar.marginEdge, edgeBleed);
++      TEST_CHECK(reservedBarExclusiveZone(bar, directionalShadow) == expectedZone);
++      TEST_CHECK(
++          reservedBarEdgeDistance(bar, directionalShadow, kPadding) == kPadding + bar.thickness + bar.marginEdge
++      );
++      TEST_CHECK(reservedBarEdgeDistance(bar, directionalShadow, 999) == 16 + bar.thickness + bar.marginEdge);
++
++      bar.reserveSpace = false;
++      TEST_CHECK(reservedBarExclusiveZone(bar, directionalShadow) == 0);
++      bar.reserveSpace = true;
++    }
++  }
++
++  void checkDockEdgesAndReservations() {
++    for (const DockEdge edge : kDockEdges) {
++      for (const bool reserveSpace : {false, true}) {
++        const DockConfig attached = dockFor(edge, reserveSpace, false, 0);
++        const auto geometry = dockGeometry(attached, kPadding);
++        TEST_CHECK(dockEdgeMargin(geometry, edge) == 0);
++        TEST_CHECK(geometry.exclusiveZone == (reserveSpace ? shell::dock::dockThickness(attached) : 0));
++        const auto fractionalGeometry =
++            shell::dock::computeSurfaceGeometry(attached, ShellConfig::ShadowConfig{}, kItemCount, true, kPadding);
++        TEST_CHECK(dockEdgeMargin(fractionalGeometry, edge) == -1);
++        TEST_CHECK(fractionalGeometry.exclusiveZone == geometry.exclusiveZone);
++
++        DockConfig floating = dockFor(edge, reserveSpace, false, 7);
++        const auto floatingGeometry = dockGeometry(floating, kPadding);
++        TEST_CHECK(dockEdgeMargin(floatingGeometry, edge) == 7);
++        TEST_CHECK(floatingGeometry.exclusiveZone == geometry.exclusiveZone);
++
++        DockConfig autoHide = dockFor(edge, reserveSpace, true, 7);
++        const auto autoHideGeometry = dockGeometry(autoHide, kPadding);
++        TEST_CHECK(dockEdgeMargin(autoHideGeometry, edge) == -kPadding);
++        TEST_CHECK(autoHideGeometry.exclusiveZone == (reserveSpace ? shell::dock::dockThickness(autoHide) : 0));
++        const auto panel = shell::dock::computePanelGeometry(
++            autoHide, ShellConfig::ShadowConfig{}, static_cast<float>(autoHideGeometry.surfaceW),
++            static_cast<float>(autoHideGeometry.surfaceH), kPadding
++        );
++        if (edge == DockEdge::Top) {
++          TEST_CHECK(panel.panelY == kPadding + autoHide.marginEdge);
++        } else if (edge == DockEdge::Right) {
++          TEST_CHECK(
++              static_cast<float>(autoHideGeometry.surfaceW) - panel.panelX - panel.panelW
++              == kPadding + autoHide.marginEdge
++          );
++        } else if (edge == DockEdge::Bottom) {
++          TEST_CHECK(
++              static_cast<float>(autoHideGeometry.surfaceH) - panel.panelY - panel.panelH
++              == kPadding + autoHide.marginEdge
++          );
++        } else {
++          TEST_CHECK(panel.panelX == kPadding + autoHide.marginEdge);
++        }
++
++        const auto hiddenRegion = shell::dock::computeInputRegion(
++            autoHide, panel, static_cast<int>(autoHideGeometry.surfaceW), static_cast<int>(autoHideGeometry.surfaceH),
++            true, false
++        );
++        TEST_CHECK(hiddenRegion.size() == 1);
++        if (edge == DockEdge::Top) {
++          TEST_CHECK(hiddenRegion[0].y == 0);
++        } else if (edge == DockEdge::Right) {
++          TEST_CHECK(hiddenRegion[0].x + hiddenRegion[0].width == static_cast<int>(autoHideGeometry.surfaceW));
++        } else if (edge == DockEdge::Bottom) {
++          TEST_CHECK(hiddenRegion[0].y + hiddenRegion[0].height == static_cast<int>(autoHideGeometry.surfaceH));
++        } else {
++          TEST_CHECK(hiddenRegion[0].x == 0);
++        }
++
++        DockConfig oversizedPadding = dockFor(edge, reserveSpace, true, 0);
++        const auto cappedGeometry =
++            shell::dock::computeSurfaceGeometry(oversizedPadding, ShellConfig::ShadowConfig{}, kItemCount, false, 999);
++        TEST_CHECK(dockEdgeMargin(cappedGeometry, edge) == -16);
++        const auto cappedPanel = shell::dock::computePanelGeometry(
++            oversizedPadding, ShellConfig::ShadowConfig{}, static_cast<float>(cappedGeometry.surfaceW),
++            static_cast<float>(cappedGeometry.surfaceH), 999
++        );
++        if (edge == DockEdge::Top) {
++          TEST_CHECK(cappedPanel.panelY == 16);
++        } else if (edge == DockEdge::Right) {
++          TEST_CHECK(static_cast<float>(cappedGeometry.surfaceW) - cappedPanel.panelX - cappedPanel.panelW == 16);
++        } else if (edge == DockEdge::Bottom) {
++          TEST_CHECK(static_cast<float>(cappedGeometry.surfaceH) - cappedPanel.panelY - cappedPanel.panelH == 16);
++        } else {
++          TEST_CHECK(cappedPanel.panelX == 16);
++        }
++      }
++    }
++  }
++
++  void checkDockShadowsAndConcavity() {
++    for (const DockEdge edge : kDockEdges) {
++      DockConfig plain = dockFor(edge, true, false, 0);
++      DockConfig concave = plain;
++      concave.concaveEdgeCorners = true;
++      concave.radiusTopLeft = 22;
++      concave.radiusTopRight = 22;
++      concave.radiusBottomLeft = 22;
++      concave.radiusBottomRight = 22;
++      const auto plainGeometry = dockGeometry(plain, kPadding);
++      const auto concaveGeometry = dockGeometry(concave, kPadding);
++      TEST_CHECK(
++          concaveGeometry.surfaceW > plainGeometry.surfaceW || concaveGeometry.surfaceH > plainGeometry.surfaceH
++      );
++
++      DockConfig shadowed = plain;
++      shadowed.shadow = true;
++      ShellConfig::ShadowConfig shadow;
++      shadow.direction = ShadowDirection::UpLeft;
++      const auto shadowGeometry = shell::dock::computeSurfaceGeometry(shadowed, shadow, kItemCount, false, kPadding);
++      TEST_CHECK(shadowGeometry.surfaceW > plainGeometry.surfaceW);
++      TEST_CHECK(shadowGeometry.surfaceH > plainGeometry.surfaceH);
++      TEST_CHECK(shadowGeometry.exclusiveZone == plainGeometry.exclusiveZone);
++    }
++  }
++
++} // namespace
++
++int main() {
++  checkSharedScreenGeometry();
++  checkBarReservations();
++  checkDockEdgesAndReservations();
++  checkDockShadowsAndConcavity();
++  return 0;
++}

@@ -1,0 +1,73 @@
+diff --git a/src/shell/screen_corners/screen_corners.cpp b/src/shell/screen_corners/screen_corners.cpp
+index 706141779..fcc29c139 100644
+--- a/src/shell/screen_corners/screen_corners.cpp
++++ b/src/shell/screen_corners/screen_corners.cpp
+@@ -3,6 +3,7 @@
+ #include "config/config_service.h"
+ #include "core/ui_phase.h"
+ #include "ui/controls/screen_corner.h"
++#include "ui/palette.h"
+ #include "wayland/wayland_connection.h"
+ 
+ #include <algorithm>
+@@ -45,6 +46,7 @@ void ScreenCorners::initialize(WaylandConnection& wayland, ConfigService* config
+   m_wayland = &wayland;
+   m_config = config;
+   m_renderContext = renderContext;
++  m_paletteConn = paletteChanged().connect([this]() { updateColors(); });
+ }
+ 
+ void ScreenCorners::onConfigReload() {
+@@ -97,6 +99,18 @@ void ScreenCorners::onOutputChange() {
+   ensureSurfaces();
+ }
+ 
++void ScreenCorners::updateColors() {
++  const auto color = colorForRole(ColorRole::Surface, 1.0F);
++  for (auto& inst : m_instances) {
++    for (auto& corner : inst->corners) {
++      if (corner.sceneRoot != nullptr && corner.surface != nullptr) {
++        static_cast<ScreenCorner*>(corner.sceneRoot.get())->setColor(color);
++        corner.surface->requestRedraw();
++      }
++    }
++  }
++}
++
+ void ScreenCorners::requestRedraw() {
+   for (auto& inst : m_instances) {
+     for (auto& corner : inst->corners) {
+@@ -182,7 +196,7 @@ void ScreenCorners::buildCornerScene(Corner& corner, std::uint32_t width, std::u
+ 
+   auto root = std::make_unique<ScreenCorner>();
+   root->setSize(logicalWidth, logicalHeight);
+-  root->setColor(Color{0.0F, 0.0F, 0.0F, 1.0F});
++  root->setColor(colorForRole(ColorRole::Surface, 1.0F));
+   root->setCorner(cornerPosition(cornerIndex));
+   root->setExponent(4.0F);
+ 
+diff --git a/src/shell/screen_corners/screen_corners.h b/src/shell/screen_corners/screen_corners.h
+index 80641b7b2..a24c3c4f0 100644
+--- a/src/shell/screen_corners/screen_corners.h
++++ b/src/shell/screen_corners/screen_corners.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "ui/signal.h"
+ #include "wayland/layer_surface.h"
+ 
+ #include <cstdint>
+@@ -39,6 +40,7 @@ private:
+   void ensureSurfaces();
+   void destroySurfaces();
+   void buildCornerScene(Corner& corner, std::uint32_t width, std::uint32_t height, int cornerIndex);
++  void updateColors();
+ 
+   WaylandConnection* m_wayland = nullptr;
+   ConfigService* m_config = nullptr;
+@@ -46,4 +48,5 @@ private:
+   bool m_lastEnabled = false;
+   std::int32_t m_lastSize = 0;
+   std::vector<std::unique_ptr<OutputInstance>> m_instances;
++  Signal<>::ScopedConnection m_paletteConn;
+ };
