@@ -1,0 +1,292 @@
+diff --git a/src/config/config_overrides.cpp b/src/config/config_overrides.cpp
+index 0d78905..29c7e7d 100644
+--- a/src/config/config_overrides.cpp
++++ b/src/config/config_overrides.cpp
+@@ -43,6 +43,48 @@ namespace {
+     });
+   }
+ 
++  [[nodiscard]] std::optional<std::string> resolveWallpaperLink(const std::filesystem::path& linkPath) {
++    std::error_code ec;
++    const auto imagePath = std::filesystem::canonical(linkPath, ec);
++    if (ec || !std::filesystem::is_regular_file(imagePath, ec) || ec) {
++      kLog.warn("saved wallpaper path is missing or invalid: {}", linkPath.string());
++      return std::nullopt;
++    }
++    return imagePath.string();
++  }
++
++  [[nodiscard]] std::optional<std::string> wallpaperForTheme(PaletteSource source, std::string_view customPalette) {
++    if (source == PaletteSource::Custom) {
++      if (!safeThemeName(customPalette)) {
++        kLog.warn("cannot restore wallpaper for invalid Static theme name '{}'", customPalette);
++        return std::nullopt;
++      }
++      const std::filesystem::path linkPath =
++          FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/themes/" + std::string(customPalette) + "/wallpaper.png");
++      return resolveWallpaperLink(linkPath);
++    }
++    if (source != PaletteSource::Wallpaper) {
++      return std::nullopt;
++    }
++
++    const std::string stateDir = FileUtils::stateDir();
++    const std::filesystem::path savedLink = stateDir.empty()
++        ? std::filesystem::path{}
++        : std::filesystem::path(stateDir) / "dynamic-wallpaper";
++    std::error_code ec;
++    const auto savedStatus = savedLink.empty() ? std::filesystem::file_status{}
++                                               : std::filesystem::symlink_status(savedLink, ec);
++    const bool noSavedLink = savedLink.empty() || ec == std::errc::no_such_file_or_directory
++        || (!ec && savedStatus.type() == std::filesystem::file_type::not_found);
++    if (!noSavedLink) {
++      return resolveWallpaperLink(savedLink);
++    }
++
++    const std::filesystem::path generatedLink =
++        FileUtils::expandXdgBaseDir("$XDG_STATE_HOME/caelestia/dynamic-wallpaper");
++    return resolveWallpaperLink(generatedLink);
++  }
++
+   [[nodiscard]] bool replaceableWallpaperLink(const std::filesystem::path& link) {
+     std::error_code ec;
+     const auto status = std::filesystem::symlink_status(link, ec);
+@@ -2109,6 +2151,18 @@ bool ConfigService::mutateOverrides(
+   return commitOverrideTable(std::move(next), changed);
+ }
+ 
++bool ConfigService::themeWallpaperNeedsRestore(PaletteSource source, std::string_view customPalette) const {
++  return (source == PaletteSource::Wallpaper && m_config.theme.source != source)
++      || (source == PaletteSource::Custom
++          && (m_config.theme.source != source || m_config.theme.customPalette != customPalette));
++}
++
++std::optional<std::string> ConfigService::savedWallpaperForTheme(
++    PaletteSource source, std::string_view customPalette
++) const {
++  return wallpaperForTheme(source, customPalette);
++}
++
+ bool ConfigService::commitOverrideTable(toml::table next, bool* changed) {
+   if (next == m_overridesTable) {
+     m_lastMutationError.clear();
+@@ -2119,6 +2173,27 @@ bool ConfigService::commitOverrideTable(toml::table next, bool* changed) {
+     return false;
+   }
+ 
++  std::optional<std::string> restoredWallpaper;
++  const auto nextConfig = configForOverrides(next);
++  if (!nextConfig.has_value()) {
++    return false;
++  }
++  const auto& nextTheme = nextConfig->theme;
++  if (themeWallpaperNeedsRestore(nextTheme.source, nextTheme.customPalette)) {
++    restoredWallpaper = savedWallpaperForTheme(nextTheme.source, nextTheme.customPalette);
++    if (!restoredWallpaper.has_value()) {
++      m_lastMutationError = "Saved wallpaper is missing or invalid";
++      return false;
++    }
++    auto* wallpaper = ensureTable(next, "wallpaper");
++    ensureTable(*wallpaper, "default")->insert_or_assign("path", *restoredWallpaper);
++    ensureTable(*wallpaper, "last")->insert_or_assign("path", *restoredWallpaper);
++    auto* monitors = ensureTable(*wallpaper, "monitors");
++    for (const auto& [connector, path] : m_monitorWallpaperPaths) {
++      ensureTable(*monitors, connector)->insert_or_assign("path", *restoredWallpaper);
++    }
++  }
++
+   toml::table previous = std::move(m_overridesTable);
+   m_overridesTable = std::move(next);
+   if (!writeOverridesToFile()) {
+@@ -2132,7 +2207,13 @@ bool ConfigService::commitOverrideTable(toml::table next, bool* changed) {
+     *changed = true;
+   }
+   loadAll();
++  if (restoredWallpaper.has_value()) {
++    rememberWallpaperForTheme(*restoredWallpaper, m_config.theme.source, m_config.theme.customPalette);
++  }
+   fireReloadCallbacks();
++  if (restoredWallpaper.has_value() && m_wallpaperChangeCallback) {
++    m_wallpaperChangeCallback();
++  }
+   return true;
+ }
+ 
+diff --git a/src/config/config_service.h b/src/config/config_service.h
+index 7e57212..96796ad 100644
+--- a/src/config/config_service.h
++++ b/src/config/config_service.h
+@@ -107,6 +107,10 @@ public:
+   void setWallpaperFavoriteThemeMode(std::string_view path, ThemeMode themeMode);
+   void setWallpaperFavoritePaletteSource(std::string_view path, std::optional<PaletteSource> source);
+   void setWallpaperFavoritePaletteSelection(std::string_view path, std::string_view value);
++  [[nodiscard]] bool themeWallpaperNeedsRestore(PaletteSource source, std::string_view customPalette) const;
++  [[nodiscard]] std::optional<std::string> savedWallpaperForTheme(
++      PaletteSource source, std::string_view customPalette
++  ) const;
+   void applyWallpaperSelection(
+       const std::optional<std::string>& connectorName, const std::string& path, const WallpaperFavorite* applyTheme,
+       const std::vector<std::string>& allConnectors
+diff --git a/src/shell/wallpaper/panel/wallpaper_panel.cpp b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+index f18f5c9..62f9ec5 100644
+--- a/src/shell/wallpaper/panel/wallpaper_panel.cpp
++++ b/src/shell/wallpaper/panel/wallpaper_panel.cpp
+@@ -204,48 +204,6 @@ namespace {
+     });
+   }
+ 
+-  [[nodiscard]] std::optional<std::string> resolveWallpaperLink(const std::filesystem::path& linkPath) {
+-    std::error_code ec;
+-    const auto imagePath = std::filesystem::canonical(linkPath, ec);
+-    if (ec || !std::filesystem::is_regular_file(imagePath, ec) || ec) {
+-      kLog.warn("saved wallpaper path is missing or invalid: {}", linkPath.string());
+-      return std::nullopt;
+-    }
+-    return imagePath.string();
+-  }
+-
+-  [[nodiscard]] std::optional<std::string> wallpaperForTheme(const WallpaperFavorite& theme) {
+-    const PaletteSource source = theme.paletteSource.value_or(PaletteSource::Builtin);
+-    if (source == PaletteSource::Custom) {
+-      if (!isSafeStaticThemeName(theme.customPalette)) {
+-        kLog.warn("cannot restore wallpaper for invalid Static theme name '{}'", theme.customPalette);
+-        return std::nullopt;
+-      }
+-      const std::filesystem::path linkPath =
+-          FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/themes/" + theme.customPalette + "/wallpaper.png");
+-      return resolveWallpaperLink(linkPath);
+-    }
+-    if (source != PaletteSource::Wallpaper) {
+-      return std::nullopt;
+-    }
+-
+-    const std::string stateDir = FileUtils::stateDir();
+-    const std::filesystem::path savedLink = stateDir.empty()
+-        ? std::filesystem::path{}
+-        : std::filesystem::path(stateDir) / "dynamic-wallpaper";
+-    std::error_code ec;
+-    const auto savedStatus = savedLink.empty() ? std::filesystem::file_status{}
+-                                               : std::filesystem::symlink_status(savedLink, ec);
+-    const bool noSavedLink = savedLink.empty() || ec == std::errc::no_such_file_or_directory
+-        || (!ec && savedStatus.type() == std::filesystem::file_type::not_found);
+-    if (!noSavedLink) {
+-      return resolveWallpaperLink(savedLink);
+-    }
+-
+-    const std::filesystem::path generatedLink =
+-        FileUtils::expandXdgBaseDir("$XDG_STATE_HOME/caelestia/dynamic-wallpaper");
+-    return resolveWallpaperLink(generatedLink);
+-  }
+   [[nodiscard]] int caseInsensitiveNameOrder(std::string_view a, std::string_view b) {
+     return StringUtils::naturalCaseInsensitiveCompare(a, b);
+   }
+@@ -2095,16 +2053,13 @@ void WallpaperPanel::applyThemeFromControls(bool restoreThemeWallpaper) {
+   }
+   const WallpaperFavorite theme = themeFromControls();
+   const std::string path = selectedWallpaperPath();
+-  const ThemeConfig& currentTheme = m_config->config().theme;
+-  const PaletteSource targetSource = theme.paletteSource.value_or(currentTheme.source);
++  const PaletteSource targetSource = theme.paletteSource.value_or(m_config->config().theme.source);
+   const bool shouldRestoreWallpaper = restoreThemeWallpaper
+-      && ((targetSource == PaletteSource::Wallpaper && currentTheme.source != PaletteSource::Wallpaper)
+-          || (targetSource == PaletteSource::Custom
+-              && (currentTheme.source != PaletteSource::Custom || theme.customPalette != currentTheme.customPalette)));
++      && m_config->themeWallpaperNeedsRestore(targetSource, theme.customPalette);
+   const bool selectedFavorite = !path.empty() && m_config->isWallpaperFavorite(path);
+ 
+   if (shouldRestoreWallpaper) {
+-    const auto restoredPath = wallpaperForTheme(theme);
++    const auto restoredPath = m_config->savedWallpaperForTheme(targetSource, theme.customPalette);
+     if (!restoredPath.has_value()) {
+       syncThemeControls();
+       return;
+diff --git a/tests/config_wallpaper_precedence_test.cpp b/tests/config_wallpaper_precedence_test.cpp
+index 37ea15b..936bd72 100644
+--- a/tests/config_wallpaper_precedence_test.cpp
++++ b/tests/config_wallpaper_precedence_test.cpp
+@@ -124,9 +124,85 @@ namespace {
+     std::filesystem::remove_all(root);
+   }
+ 
++  void checkThemeWallpaperRestoration() {
++    const auto root = std::filesystem::temp_directory_path()
++        / ("noctalia-theme-wallpaper-" + std::to_string(::getpid()));
++    const auto configRoot = root / "config";
++    const auto stateRoot = root / "state";
++    std::filesystem::create_directories(configRoot / "noctalia");
++    std::filesystem::create_directories(stateRoot / "noctalia");
++    std::filesystem::create_directories(stateRoot / "caelestia");
++    std::filesystem::create_directories(configRoot / "themes" / "test-static");
++    std::filesystem::create_directories(configRoot / "themes" / "other-static");
++    ::setenv("NOCTALIA_CONFIG_HOME", configRoot.c_str(), 1);
++    ::setenv("XDG_CONFIG_HOME", configRoot.c_str(), 1);
++    ::setenv("NOCTALIA_STATE_HOME", stateRoot.c_str(), 1);
++    ::setenv("XDG_STATE_HOME", stateRoot.c_str(), 1);
++    const auto dynamicImage = root / "dynamic image.png";
++    const auto staticImage = root / "static image.png";
++    const auto otherImage = root / "other image.png";
++    for (const auto& path : {dynamicImage, staticImage, otherImage}) {
++      std::ofstream(path) << "fixture";
++    }
++    std::filesystem::create_symlink(dynamicImage, stateRoot / "caelestia" / "dynamic-wallpaper");
++    std::filesystem::create_symlink(staticImage, configRoot / "themes" / "test-static" / "wallpaper.png");
++    std::filesystem::create_symlink(otherImage, configRoot / "themes" / "other-static" / "wallpaper.png");
++    {
++      std::ofstream out(configRoot / "noctalia" / "config.toml");
++      out << "[theme]\nsource = \"custom\"\ncustom_palette = \"test-static\"\n";
++    }
++    ConfigService config;
++    config.setWallpaperPath("DP-1", staticImage.string());
++    config.setWallpaperPath("HDMI-A-1", staticImage.string());
++    int reloads = 0;
++    int wallpaperChanges = 0;
++    config.addReloadCallback([&]() {
++      ++reloads;
++      expect(config.getWallpaperPath("DP-1") == config.getDefaultWallpaperPath(), "atomic theme/default/monitor reload");
++    });
++    config.setWallpaperChangeCallback([&]() { ++wallpaperChanges; });
++    expect(config.setOverride({"theme", "source"}, std::string("wallpaper")), "Settings Static to Dynamic succeeds");
++    expect(config.getDefaultWallpaperPath() == dynamicImage.string(), "Caelestia Dynamic fallback restored");
++    expect(config.getLastWallpaperPath() == dynamicImage.string(), "last wallpaper restored");
++    expect(config.getWallpaperPath("HDMI-A-1") == dynamicImage.string(), "all monitor paths restored");
++    expect(reloads == 1 && wallpaperChanges == 1, "one reload and wallpaper notification per transition");
++    expect(config.setOverride({"theme", "source"}, std::string("custom")), "Settings Dynamic to Static succeeds");
++    expect(config.getDefaultWallpaperPath() == staticImage.string(), "selected Static wallpaper restored");
++    expect(config.setOverride({"theme", "custom_palette"}, std::string("other-static")), "Settings Static to Static succeeds");
++    expect(config.getDefaultWallpaperPath() == otherImage.string(), "other Static wallpaper restored");
++    expect(config.setOverride({"theme", "source"}, std::string("wallpaper")), "Noctalia saved Dynamic succeeds");
++    expect(config.getDefaultWallpaperPath() == dynamicImage.string(), "Noctalia saved Dynamic restored");
++    config.forceReload();
++    expect(config.getDefaultWallpaperPath() == dynamicImage.string(), "restoration survives reload");
++    expect(config.getWallpaperPath("DP-1") == dynamicImage.string(), "monitor restoration survives reload");
++    const int beforeScheme = wallpaperChanges;
++    expect(config.setOverride({"theme", "wallpaper_scheme"}, std::string("m3-content")), "Dynamic scheme change succeeds");
++    expect(wallpaperChanges == beforeScheme, "scheme change does not restore wallpaper");
++    expect(config.setOverrides({
++        {{"theme", "source"}, std::string("custom")},
++        {{"theme", "custom_palette"}, std::string("other-static")},
++    }), "grouped Settings theme change restores wallpaper");
++    std::filesystem::remove(stateRoot / "noctalia" / "dynamic-wallpaper");
++    std::filesystem::create_symlink(root / "missing.png", stateRoot / "noctalia" / "dynamic-wallpaper");
++    const int beforeFailure = reloads;
++    expect(!config.setOverride({"theme", "source"}, std::string("wallpaper")), "broken saved Dynamic rejects transition");
++    expect(config.config().theme.source == PaletteSource::Custom, "failed restore preserves theme");
++    expect(config.getDefaultWallpaperPath() == otherImage.string(), "failed restore preserves wallpaper");
++    expect(reloads == beforeFailure, "failed restore has no reload");
++    expect(!config.setOverride({"theme", "custom_palette"}, std::string("missing-static")), "missing Static wallpaper rejects transition");
++    expect(config.config().theme.customPalette == "other-static", "failed Static restore preserves selection");
++    expect(!config.savedWallpaperForTheme(PaletteSource::Custom, "../invalid").has_value(), "invalid Static name rejected");
++    ::unsetenv("NOCTALIA_CONFIG_HOME");
++    ::unsetenv("XDG_CONFIG_HOME");
++    ::unsetenv("NOCTALIA_STATE_HOME");
++    ::unsetenv("XDG_STATE_HOME");
++    std::filesystem::remove_all(root);
++  }
++
+ } // namespace
+ 
+ int main() {
++  checkThemeWallpaperRestoration();
+   checkConfigSurvivesFirstSidecarWrite();
+   checkSidecarPathOutranksConfigFilePath();
+   checkDirectoryExpandsEnvVars();

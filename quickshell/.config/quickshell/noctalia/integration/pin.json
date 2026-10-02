@@ -29,7 +29,8 @@
     "0025-bar-edge-shell-padding.patch",
     "0026-shell-padding-color-update.patch",
     "0027-shell-padding-opacity.patch",
-    "0028-workspaces-pill-gap.patch"
+    "0028-workspaces-pill-gap.patch",
+    "0029-settings-theme-wallpaper-sync.patch"
   ],
   "schemes": [
     "m3-tonal-spot",
