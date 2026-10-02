@@ -9,6 +9,7 @@ pin_file="${NOCTALIA_PIN_FILE:-$script_dir/pin.json}"
 patch_dir="${NOCTALIA_PATCH_DIR:-$script_dir/patches}"
 shell_mode_plugin_source_dir="${NOCTALIA_SHELL_MODE_PLUGIN_SOURCE:-$script_dir/plugins/shell-mode-switcher}"
 chromack_plugin_source_dir="${NOCTALIA_CHROMACK_PLUGIN_SOURCE:-$script_dir/plugins/chromack}"
+terminal_prompt_plugin_source_dir="${NOCTALIA_TERMINAL_PROMPT_PLUGIN_SOURCE:-$script_dir/plugins/terminal-prompt}"
 managed_dir="${NOCTALIA_INTEGRATION_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/integration}"
 runtime_dir="${NOCTALIA_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/noctalia/.runtime}"
 if [[ -n "${NOCTALIA_DATA_HOME:-}" ]]; then
@@ -20,6 +21,7 @@ else
 fi
 shell_mode_plugin_target_dir="${NOCTALIA_SHELL_MODE_PLUGIN_TARGET:-$plugin_data_root/shell-mode-switcher}"
 chromack_plugin_target_dir="${NOCTALIA_CHROMACK_PLUGIN_TARGET:-$plugin_data_root/chromack}"
+terminal_prompt_plugin_target_dir="${NOCTALIA_TERMINAL_PROMPT_PLUGIN_TARGET:-$plugin_data_root/terminal-prompt}"
 work_parent="${NOCTALIA_BUILD_TMPDIR:-/tmp}"
 dry_run=0
 active_work_dir=""
@@ -46,21 +48,22 @@ read_pin() {
 
 validate_paths() {
     local path local_plugin_link local_plugin_source plugin_source plugin_target
-    for path in "$source_repo" "$pin_file" "$patch_dir" "$shell_mode_plugin_source_dir" "$chromack_plugin_source_dir" "$managed_dir" "$runtime_dir" "$plugin_data_root" "$shell_mode_plugin_target_dir" "$chromack_plugin_target_dir" "$work_parent"; do
+    for path in "$source_repo" "$pin_file" "$patch_dir" "$shell_mode_plugin_source_dir" "$chromack_plugin_source_dir" "$terminal_prompt_plugin_source_dir" "$managed_dir" "$runtime_dir" "$plugin_data_root" "$shell_mode_plugin_target_dir" "$chromack_plugin_target_dir" "$terminal_prompt_plugin_target_dir" "$work_parent"; do
         require_absolute "$path" NOCTALIA_PATH
     done
     [[ -r "$pin_file" ]] || fail "Pin metadata not found: $pin_file"
     [[ -d "$patch_dir" ]] || fail "Patch directory not found: $patch_dir"
-    for plugin_source in "$shell_mode_plugin_source_dir" "$chromack_plugin_source_dir"; do
+    for plugin_source in "$shell_mode_plugin_source_dir" "$chromack_plugin_source_dir" "$terminal_prompt_plugin_source_dir"; do
         [[ -r "$plugin_source/plugin.toml" ]] || fail "Local plugin manifest not found: $plugin_source/plugin.toml"
     done
-    for plugin_target in "$shell_mode_plugin_target_dir" "$chromack_plugin_target_dir"; do
+    for plugin_target in "$shell_mode_plugin_target_dir" "$chromack_plugin_target_dir" "$terminal_prompt_plugin_target_dir"; do
         if [[ -e "$plugin_target" || -L "$plugin_target" ]]; then
             [[ -L "$plugin_target" ]] || fail "Refusing to replace an existing local plugin: $plugin_target"
             local_plugin_link="$(/usr/bin/readlink -f -- "$plugin_target" 2>/dev/null || true)"
             case "$plugin_target" in
                 "$shell_mode_plugin_target_dir") local_plugin_source="$(/usr/bin/readlink -f -- "$shell_mode_plugin_source_dir")" ;;
-                *) local_plugin_source="$(/usr/bin/readlink -f -- "$chromack_plugin_source_dir")" ;;
+                "$chromack_plugin_target_dir") local_plugin_source="$(/usr/bin/readlink -f -- "$chromack_plugin_source_dir")" ;;
+                *) local_plugin_source="$(/usr/bin/readlink -f -- "$terminal_prompt_plugin_source_dir")" ;;
             esac
             [[ "$local_plugin_link" == "$local_plugin_source" ]] || fail "Local plugin path points elsewhere: $plugin_target"
         fi
@@ -181,12 +184,14 @@ main() {
         printf 'Build release with Meson and atomically install to %s.\n' "$runtime_dir"
         printf 'Link local shell mode plugin from %s to %s.\n' "$shell_mode_plugin_source_dir" "$shell_mode_plugin_target_dir"
         printf 'Link local Chromack plugin from %s to %s.\n' "$chromack_plugin_source_dir" "$chromack_plugin_target_dir"
+        printf 'Link local terminal prompt plugin from %s to %s.\n' "$terminal_prompt_plugin_source_dir" "$terminal_prompt_plugin_target_dir"
         return 0
     fi
     copy_integration_metadata
     build_runtime "$commit"
     link_local_plugin "$shell_mode_plugin_source_dir" "$shell_mode_plugin_target_dir"
     link_local_plugin "$chromack_plugin_source_dir" "$chromack_plugin_target_dir"
+    link_local_plugin "$terminal_prompt_plugin_source_dir" "$terminal_prompt_plugin_target_dir"
     printf 'Installed Noctalia %s at %s\n' "$commit" "$runtime_dir"
 }
 

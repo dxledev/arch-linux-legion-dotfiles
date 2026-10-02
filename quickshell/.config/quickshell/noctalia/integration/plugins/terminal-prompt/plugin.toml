@@ -1,0 +1,57 @@
+id = "dxle/terminal-prompt"
+name = "Prompt Style"
+version = "1.0.0"
+plugin_api = 26
+author = "dxle"
+license = "MIT"
+icon = "terminal"
+description = "Choose and apply a Starship prompt style."
+tags = ["terminal", "starship", "prompt"]
+dependencies = ["jq"]
+
+[[setting]]
+key = "provider_enabled"
+type = "bool"
+label_key = "settings.provider.enabled"
+description_key = "settings.provider.enabled.description"
+default = true
+
+[[setting]]
+key = "provider_prefix"
+type = "string"
+label_key = "settings.provider.prefix"
+description_key = "settings.provider.prefix.description"
+default = "prompt"
+
+[[setting]]
+key = "provider_global"
+type = "bool"
+label_key = "settings.provider.global"
+description_key = "settings.provider.global.description"
+default = false
+
+[[widget]]
+id = "prompt"
+entry = "widget.luau"
+
+  [widget.actions]
+  left = "panel-toggle launcher >prompt"
+
+  [[widget.setting]]
+  key = "label"
+  type = "string"
+  label_key = "settings.widget.label"
+  default = "Prompt Style"
+
+  [[widget.setting]]
+  key = "glyph"
+  type = "glyph"
+  label_key = "settings.widget.glyph"
+  default = "terminal"
+
+[[launcher_provider]]
+id = "search"
+entry = "provider.luau"
+prefix = "prompt"
+glyph = "terminal"
+debounce_ms = 100

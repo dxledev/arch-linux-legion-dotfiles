@@ -1,0 +1,98 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+index 6b56946..798d108 100644
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -4345,6 +4345,11 @@
+           "description": "Path used by disk statistics",
+           "label": "Path"
+         },
++        "pill-gap": {
++          "description": "Space between workspace pills in logical pixels, from the current 4 px default to 20 px",
++          "label": "Pill Gap",
++          "workspaces-description": "Space between regular workspace pills in logical pixels; minimum 4 px, maximum 20 px"
++        },
+         "pill-scale": {
+           "description": "Adjust the scale of workspace pills",
+           "label": "Pill Scale",
+diff --git a/src/shell/bar/widgets/workspaces_widget.cpp b/src/shell/bar/widgets/workspaces_widget.cpp
+index bef0f94..2745568 100644
+--- a/src/shell/bar/widgets/workspaces_widget.cpp
++++ b/src/shell/bar/widgets/workspaces_widget.cpp
+@@ -75,6 +75,7 @@ WorkspacesWidget::WorkspacesWidget(
+       m_showLabels(options.showLabels), m_maxLabelChars(options.maxLabelChars),
+       m_labelsOnlyWhenOccupied(options.labelsOnlyWhenOccupied), m_showIcons(options.showIcons),
+       m_hideWhenEmpty(options.hideWhenEmpty), m_showAllOutputs(options.showAllOutputs), m_pillScale(options.pillScale),
++      m_pillGap(std::clamp(options.pillGap, pillGapMin, pillGapMax)),
+       m_activePillSize(std::clamp(options.activePillSize, 0.25F, 8.0F)),
+       m_inactivePillSize(std::clamp(options.inactivePillSize, 0.25F, 8.0F)), m_style(options.style),
+       m_focusedOutputOnly(options.focusedOutputOnly), m_changeColorOnHover(options.changeColorOnHover),
+@@ -444,7 +445,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
+     }
+   }
+ 
+-  const float gap = kWorkspaceGap * m_contentScale;
++  const float gap = (m_style == WorkspacesStyle::Regular ? m_pillGap : kWorkspaceGap) * m_contentScale;
+   const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
+   const float pillHeight = std::round(kWorkspacePillDefaultHeight * m_contentScale * m_pillScale);
+   // Active and inactive labels share the configured weight: a heavier weight selects a different
+diff --git a/src/shell/bar/widgets/workspaces_widget.h b/src/shell/bar/widgets/workspaces_widget.h
+index 36827ee..c754295 100644
+--- a/src/shell/bar/widgets/workspaces_widget.h
++++ b/src/shell/bar/widgets/workspaces_widget.h
+@@ -6,6 +6,7 @@
+ #include "system/icon_resolver.h"
+ #include "ui/palette.h"
+ #include "ui/signal.h"
++#include "ui/style.h"
+ 
+ #include <cstdint>
+ #include <optional>
+@@ -33,6 +34,9 @@ enum class WorkspacesLabelSource : std::uint8_t {
+ 
+ class WorkspacesWidget : public Widget {
+ public:
++  static constexpr std::int32_t pillGapMin = static_cast<std::int32_t>(Style::spaceXs);
++  static constexpr std::int32_t pillGapMax = 20;
++
+   struct Options {
+     WorkspacesStyle style = WorkspacesStyle::Regular;
+     WorkspacesLabelSource labelSource = WorkspacesLabelSource::Id;
+@@ -48,6 +52,7 @@ public:
+     bool hideWhenEmpty = false;
+     bool showAllOutputs = false;
+     float pillScale = 1.0F;
++    std::int32_t pillGap = pillGapMin;
+     float activePillSize = 2.2F;
+     float inactivePillSize = 1.0F;
+     bool focusedOutputOnly = false;
+@@ -167,6 +172,7 @@ private:
+   bool m_hideWhenEmpty = false;
+   bool m_showAllOutputs = false;
+   float m_pillScale = 1.0F;
++  std::int32_t m_pillGap = pillGapMin;
+   float m_activePillSize = 2.2F;
+   float m_inactivePillSize = 1.0F;
+   WorkspacesStyle m_style = WorkspacesStyle::Regular;
+diff --git a/src/shell/bar/widgets/workspaces_widget_definition.cpp b/src/shell/bar/widgets/workspaces_widget_definition.cpp
+index 815cee1..27b60e5 100644
+--- a/src/shell/bar/widgets/workspaces_widget_definition.cpp
++++ b/src/shell/bar/widgets/workspaces_widget_definition.cpp
+@@ -179,6 +179,18 @@ const noctalia::bar::WidgetDefinition<WorkspacesWidget::Options>& workspacesWidg
+                           .visibleWhen = regularStyleOnly(),
+                       },
+               }),
++              field<&Options::pillGap>({
++                  .key = "pill_gap",
++                  .minValue = WorkspacesWidget::pillGapMin,
++                  .maxValue = WorkspacesWidget::pillGapMax,
++                  .step = 1.0,
++                  .presentation =
++                      settings::WidgetSettingPresentation{
++                          .descriptionKey = "settings.widgets.settings.pill-gap.workspaces-description",
++                          .group = "workspaces.pills",
++                          .visibleWhen = regularStyleOnly(),
++                      },
++              }),
+               field<&Options::focusedOutputOnly>({
+                   .key = "focused_output_only",
+                   .presentation =

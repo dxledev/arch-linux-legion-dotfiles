@@ -1,0 +1,53 @@
+{
+  "fingerprints": {
+    "inputs": {
+      "Colors.qml": "0a808ebde79f45c0f95d68be9c4bae5b3bdfc6b7d15e977b75f4b8b71c761b12",
+      "alacritty.toml": "67315efc0145db0620fba731936c23ab42cf34c451871a7e91b62d3c2236d23a",
+      "waybar.css": "f79a029ff1edd486c495815805a03984b90f996bbcb26f2a8240d83ab45fe8bd"
+    },
+    "logic": {
+      "generate-palettes": "69f2993e5bdbcc415e7f93462c1e10d1373b1d34c7c0c3cf48110f754eecfbbb",
+      "palette_cache.py": "8bfadb661a04b77f8e012a5b434b86db78793088cd6e7ad9d77341defe8c560d",
+      "palette_colors.py": "7faeaf378b5af8a043dfef148281fa21fd0371a8a93c9cbf19c38eec7dc3c21e"
+    },
+    "settings": {
+      "separation": 0.04,
+      "minimum_contrast": 4.5,
+      "variant_distance": 0.08,
+      "variant_chroma": 0.02
+    },
+    "noctalia": {
+      "path": "/home/dxle/.config/noctalia/.runtime/bin/noctalia",
+      "sha256": "e0f76f91a6f5acbe29d10d877c43981ce0ba27d70b13aea02aac116a4ae2ccdd"
+    }
+  },
+  "output_sha256": "430a9c1abee6996f3ddba876d2ec198e2c9cd39ddeffaad41da04e7dea97a71c",
+  "terminal": {
+    "normal": {
+      "black": "#45475a",
+      "red": "#f38ba8",
+      "green": "#a6e3a1",
+      "yellow": "#fab387",
+      "blue": "#89b4fa",
+      "magenta": "#f5c2e7",
+      "cyan": "#94e2d5",
+      "white": "#bac2de"
+    },
+    "bright": {
+      "black": "#585b70",
+      "red": "#f38ba8",
+      "green": "#a6e3a1",
+      "yellow": "#f9e2af",
+      "blue": "#89b4fa",
+      "magenta": "#f5c2e7",
+      "cyan": "#94e2d5",
+      "white": "#a6adc8"
+    },
+    "foreground": "#cdd6f4",
+    "background": "#181824",
+    "cursor": "#cdd6f4",
+    "cursorText": "#181824",
+    "selectionFg": "#cdd6f4",
+    "selectionBg": "#181824"
+  }
+}

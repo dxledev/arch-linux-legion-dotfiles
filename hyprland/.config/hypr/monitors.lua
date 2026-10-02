@@ -53,7 +53,15 @@ for _, monitor in ipairs(monitor_configs) do
   hl.monitor(monitor)
 end
 
-for workspace = 1, 9 do
+for workspace = 1, 5 do
+  hl.workspace_rule({
+    workspace = tostring(workspace),
+    monitor = "HDMI-A-1",
+    persistent = true,
+  })
+end
+
+for workspace = 6, 9 do
   hl.workspace_rule({
     workspace = tostring(workspace),
     monitor = "HDMI-A-1",

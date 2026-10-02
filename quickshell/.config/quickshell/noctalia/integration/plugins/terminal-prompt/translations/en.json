@@ -1,0 +1,10 @@
+{
+  "settings.widget.label": "Label",
+  "settings.widget.glyph": "Icon",
+  "settings.provider.enabled": "Enable launcher provider",
+  "settings.provider.enabled.description": "Show prompt styles in the launcher.",
+  "settings.provider.prefix": "Launcher provider prefix",
+  "settings.provider.prefix.description": "Trigger word after the common launcher prefix.",
+  "settings.provider.global": "Prompt Style in Global Search",
+  "settings.provider.global.description": "Also show prompt styles in unprefixed launcher searches."
+}
