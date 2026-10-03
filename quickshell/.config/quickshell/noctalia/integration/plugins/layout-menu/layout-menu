@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+scripts_dir="${DESKTOP_SCRIPTS_DIR:-$HOME/bin}"
+layouts=(dwindle scrolling master monocle lua:grid lua:spiral lua:manual lua:centerstack)
+names=(Dwindle Scrolling Master Monocle Grid Spiral Manual Center-Stack)
+
+usage() {
+    printf 'Usage: layout-menu --list | --apply ID | --dry-run ID | --help\n'
+}
+
+fail() {
+    printf 'layout-menu: %s\n' "$*" >&2
+    exit 1
+}
+
+valid_layout() {
+    local layout
+    for layout in "${layouts[@]}"; do
+        [[ "$1" == "$layout" ]] && return 0
+    done
+    return 1
+}
+
+read_current() {
+    [[ "$scripts_dir" == /* ]] || fail 'DESKTOP_SCRIPTS_DIR must be absolute'
+    [[ -r "$scripts_dir/lib-hypr-lua" ]] || fail 'Hyprland config helper unavailable'
+    source "$scripts_dir/lib-hypr-lua"
+    local config current
+    config="$(hypr_config_path "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/decorations.conf")"
+    [[ -r "$config" ]] || fail "Config unavailable: $config"
+    current="$(hypr_lua_unquote "$(hypr_get_config_value "$config" general layout)")"
+    valid_layout "$current" || fail 'Could not detect a supported current layout'
+    printf '%s' "$current"
+}
+
+main() {
+    local current index
+    case "${1:-}" in
+        --help|-h) [[ $# == 1 ]] || fail 'Unexpected arguments'; usage ;;
+        --list)
+            [[ $# == 1 ]] || fail 'Unexpected arguments'
+            current="$(read_current)" || return 1
+            printf '['
+            for index in "${!layouts[@]}"; do
+                (( index == 0 )) || printf ','
+                printf '{"id":"%s","name":"%s","current":%s}' "${layouts[index]}" "${names[index]}" "$([[ "${layouts[index]}" == "$current" ]] && printf true || printf false)"
+            done
+            printf ']\n'
+            ;;
+        --apply|--dry-run)
+            [[ $# == 2 ]] || fail 'Expected one layout ID'
+            valid_layout "$2" || fail "Invalid layout ID: $2"
+            current="$(read_current)" || return 1
+            [[ -x "$scripts_dir/menu-layout" ]] || fail 'menu-layout unavailable'
+            if [[ "$1" == --dry-run ]]; then
+                exec "$scripts_dir/menu-layout" --layout "$2" --dry-run
+            fi
+            exec "$scripts_dir/menu-layout" --layout "$2"
+            ;;
+        *) usage >&2; return 2 ;;
+    esac
+}
+
+main "$@"

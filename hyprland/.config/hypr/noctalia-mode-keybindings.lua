@@ -105,6 +105,7 @@ hl.bind(
 bind_panel("SUPER + SHIFT + D", "Dashboard", "control-center")
 bind_panel("SUPER + SHIFT + N", "Notification Center", "control-center notifications")
 bind_panel("SUPER + SHIFT + C", "Chromack", "dxle/chromack:panel")
+bind_panel("SUPER + ALT + L", "Layout", "launcher '>layout'")
 bind_panel("SUPER + SHIFT + ALT + P", "Prompt Style", "launcher '>prompt'")
 bind_panel("SUPER + ALT + A", "Audio Menu", "control-center audio")
 bind_panel("SUPER + ALT + C", "Clipboard Menu", "clipboard")
