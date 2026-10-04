@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+progress=""
+monitor=""
+while (( $# )); do
+    case "$1" in
+        --monitor) [[ $# -ge 2 ]] || exit 2; monitor="$2"; shift 2 ;;
+        --custom-progress) [[ $# -ge 2 ]] || exit 2; progress="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ "$progress" =~ ^[0-9]+([.][0-9]+)?$ ]] || exit 2
+/usr/bin/awk -v value="$progress" 'BEGIN {exit !(value >= 0 && value <= 1)}' || exit 2
+level="$(/usr/bin/awk -v value="$progress" 'BEGIN {printf "%.0f", value * 100}')"
+script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+connector_type="${ISLAND_BRIGHTNESS_CONNECTOR_TYPE:-}"
+if [[ -n "$connector_type" ]]; then
+    [[ "$connector_type" == DP || "$connector_type" == HDMI-A ]] || exit 2
+    hyprctl_bin="${ISLAND_HYPRCTL_BIN:-/usr/bin/hyprctl}"
+    [[ "$hyprctl_bin" == /* && -x "$hyprctl_bin" ]] || exit 2
+    monitor="$("$hyprctl_bin" -j monitors | /usr/bin/jq -r --arg type "$connector_type" '[.[] | select(.name | startswith($type + "-"))][0].name // empty')"
+fi
+[[ "$monitor" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || exit 2
+exec /usr/bin/bash "$script_dir/../../scripts/publish-brightness-osd.sh" "$level" "$monitor"

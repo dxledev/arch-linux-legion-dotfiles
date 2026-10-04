@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+fail() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+check_settings() {
+    config_home="$test_root/config"
+    settings_file="$test_root/settings.json"
+    dry_run=0
+    source "$test_dir/../theme-functions"
+    read_settings | /usr/bin/jq -e '.notificationWidth == 400 and .notificationStartWidthPercent == 50 and .notificationMargin == 10 and .notificationSlideDistance == 24 and .notificationStackVisible == 3 and .notificationStackSpacing == 8 and .notificationAnimationDuration == 300 and .notificationTimeout == 5000' >/dev/null
+    save_setting notificationWidth 480
+    save_setting notificationStartWidthPercent 25
+    save_setting notificationMargin 20
+    save_setting notificationSlideDistance 40
+    save_setting notificationStackVisible 2
+    save_setting notificationStackSpacing 12
+    save_setting notificationAnimationDuration 150
+    save_setting notificationTimeout 1000
+    read_settings | /usr/bin/jq -e '.notificationWidth == 480 and .notificationStartWidthPercent == 25 and .notificationMargin == 20 and .notificationSlideDistance == 40 and .notificationStackVisible == 2 and .notificationStackSpacing == 12 and .notificationAnimationDuration == 150 and .notificationTimeout == 1000' >/dev/null
+    local before invalid
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting notificationWidth 600 >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
+    dry_run=0
+    for invalid in 'notificationWidth 239' 'notificationWidth 801' 'notificationWidth abc' 'notificationStartWidthPercent 0' 'notificationStartWidthPercent 100' 'notificationMargin -1' 'notificationMargin 101' 'notificationSlideDistance 101' 'notificationStackVisible 0' 'notificationStackVisible 6' 'notificationStackSpacing 25' 'notificationAnimationDuration 1001' 'notificationTimeout 999' 'notificationTimeout 15001'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
+    done
+}
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp -a "$test_dir/../.." "$test_root/island"
+    # Xvfb cannot initialize the Wayland layer-shell attached object.
+    /usr/bin/sed -i '/WlrLayershell\./d' "$test_root/island/windows/NotificationWindow.qml"
+    /usr/bin/sed 's|"../../|"island/|g' "$test_dir/notification-views.qml" > "$test_root/views.qml"
+    cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    ui) printf '%s\n' '{"theme":{"source":"static","mode":"dark","variant":"tonalspot"},"label":"fixture","settings":{"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationAnimationDuration":600,"notificationTimeout":5000,"radius":23,"opacity":1},"wallpaper":"","colors":{"background":"#101010","backgroundGray":"#242424","foreground":"#eeeeee","foregroundInactive":"#8a8a8a","muted":"#606060","primary":"#ffab91","border":"#ffab91","danger":"#ee5555","warning":"#eebb55","success":"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    /usr/bin/chmod +x "$test_root/controller"
+}
+
+ipc() {
+    /usr/bin/quickshell -p "$test_root/views.qml" ipc call notificationTest "$@" 2>/dev/null
+}
+
+snapshot() { ipc snapshot; }
+
+expect() {
+    local data
+    data="$(snapshot)"
+    if ! /usr/bin/jq -e "$1" <<< "$data" >/dev/null; then
+        printf 'Failed assertion: %s\n%s\n' "$1" "$data" >&2
+        fail 'Notification integration check failed.'
+    fi
+}
+
+notify() {
+    /usr/bin/busctl --user call -- org.freedesktop.Notifications /org/freedesktop/Notifications \
+        org.freedesktop.Notifications Notify susssasa{sv}i 'Island Test' "$1" dialog-information "$2" "$3" "${@:4}"
+}
+
+wait_for() {
+    local attempt
+    for (( attempt=0; attempt<60; attempt++ )); do
+        if snapshot | /usr/bin/jq -e "$1" >/dev/null; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    expect "$1"
+}
+
+run_session() {
+    /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
+    fixture_pid=$!
+    trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+    local attempt id
+    for (( attempt=0; attempt<60; attempt++ )); do
+        if ipc ready | /usr/bin/rg -qx true; then break; fi
+        /usr/bin/sleep 0.05
+    done
+    ipc ready | /usr/bin/rg -qx true || fail 'Notification fixture did not become ready.'
+    /usr/bin/busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications org.freedesktop.Notifications GetCapabilities > "$test_root/capabilities"
+    /usr/bin/rg -q 'actions' "$test_root/capabilities"
+    id="$(notify 0 Title '<b>Body</b>' 0 0 2200)"
+    id="${id#u }"
+    /usr/bin/sleep 0.03
+    expect '.history == 1 and .unread == 1 and .popups == 1 and .window.visible and .window.active and .window.top == 10 and .window.zone == 0 and (.window.focusable | not) and .window.regions == 2 and .capsules[0].opacity == 1 and .capsules[0].width >= 80 and .capsules[0].width < 400 and .capsules[0].originY == 0 and .capsules[0].startHeight == 33 and .capsules[0].height < .capsules[0].fullHeight and .capsules[0].y < .window.islandHeight'
+    /usr/bin/sleep 0.65
+    expect '.capsules[0].width == 400 and .capsules[0].y == 67 and .capsules[0].height == .capsules[0].fullHeight and .capsules[0].radius == 23 and .capsules[0].background == "#101010"'
+    ipc hover true
+    /usr/bin/sleep 1.6
+    expect '.entries[0].hovered and (.entries[0].closed | not)'
+    notify "$id" Title '<b>Body</b>' 0 0 2200 >/dev/null
+    /usr/bin/sleep 0.1
+    expect '.history == 1 and .popups == 1 and .entries[0].remaining == 2200 and .entries[0].hovered'
+    ipc hover false
+    notify "$id" Replacement 'Updated body' 0 0 400 >/dev/null
+    /usr/bin/sleep 0.1
+    expect '.history == 1 and .popups == 1 and .entries[0].summary == "Replacement" and .entries[0].body == "Updated body"'
+    wait_for '.entries[0].closed'
+    wait_for '.popups == 0 and (.window.active | not) and .window.height == 1 and .window.regions == 0 and .history == 1'
+    ipc markRead
+    expect '.unread == 0'
+    notify 0 Persistent 'No timeout' 0 0 0 >/dev/null
+    /usr/bin/sleep 0.7
+    expect '.entries[0].remaining == 0 and .popups == 1 and .history == 2'
+    ipc moveAway
+    /usr/bin/sleep 0.05
+    expect '(.window.active | not) and .window.height == 1 and .window.regions == 0'
+    ipc moveBack
+    /usr/bin/sleep 0.05
+    expect '.window.active and .window.regions == 2'
+    ipc expanded
+    ipc settings
+    /usr/bin/sleep 0.2
+    expect '.window.top == 10 and .window.width == 480 and .capsules[0].width == 480 and .capsules[0].y == 250 and .capsules[0].originY == 78.5 and .capsules[0].radius == 18 and .capsules[0].background == "#cc101010"'
+    ipc dismiss
+    wait_for '.popups == 0 and .history == 2'
+    id="$(notify 0 Client 'Close request' 0 0 0)"
+    id="${id#u }"
+    /usr/bin/busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications org.freedesktop.Notifications CloseNotification u "$id"
+    wait_for '.popups == 0 and .history == 3'
+    notify 0 Critical 'Default critical timeout' 0 1 urgency y 2 -1 >/dev/null
+    /usr/bin/sleep 0.2
+    expect '.entries[0].remaining == 0 and .history == 4'
+    ipc dismiss
+    wait_for '.popups == 0'
+    notify 0 Actions 'Choose an action' 4 default Open test Test 1 transient b true 0 >/dev/null
+    /usr/bin/sleep 0.2
+    expect '.history == 4 and .popups == 1 and .entries[0].actions == ["default", "test"]'
+    ipc invoke
+    wait_for '.popups == 0 and .history == 4'
+    notify 0 Resident 'Keep open after action' 2 test Test 1 resident b true 0 >/dev/null
+    /usr/bin/sleep 0.2
+    ipc invoke
+    expect '.popups == 1 and (.entries[0].closed | not)'
+    local resident_id
+    resident_id="$(snapshot | /usr/bin/jq -r '.entries[0].id')"
+    notify 0 Stacked 'Second notification' 0 0 0 >/dev/null
+    /usr/bin/sleep 0.2
+    expect ".popups == 2 and .window.regions == 2 and (.capsules | length) == 2 and ([.capsules[] | select(.id == $resident_id)][0].progress == 1) and .window.front == .entries[0].id"
+    expect '[.capsules[] | select(.depth == 0)][0] as $front | [.capsules[] | select(.depth == 1)][0] as $back | $front.z > $back.z and $back.y == $front.y + 8 and $back.width < $front.width and $back.height == $front.height'
+    ipc dismiss
+    wait_for ".popups == 1 and .window.regions == 2 and .window.front == $resident_id"
+    for attempt in 1 2 3 4 5 6; do
+        notify 0 "Stacked $attempt" 'Keep the notification area compact' 0 0 0 >/dev/null
+    done
+    /usr/bin/sleep 0.25
+    expect '.popups == 7 and ([.capsules[] | select(.visible)] | length) == 3 and .window.front == .entries[0].id and .window.height <= .window.landingY + 180'
+    notify "$resident_id" 'Resident updated' 'Move the replacement to the front' 2 test Test 1 resident b true 0 >/dev/null
+    /usr/bin/sleep 0.2
+    expect ".popups == 7 and .window.front == $resident_id and ([.capsules[] | select(.id == $resident_id)][0].depth == 0)"
+    ipc clear
+    wait_for '.popups == 0 and .history == 0 and .unread == 0'
+}
+
+if [[ "${1:-}" == --session ]]; then
+    test_root="$2"
+    run_session
+else
+    test_root="$(/usr/bin/mktemp -d /tmp/island-notifications.XXXXXX)"
+    check_settings
+    make_fixture
+    if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+        ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a -s '-screen 0 1280x1024x24' /usr/bin/timeout 25s /usr/bin/bash "$test_dir/notifications" --session "$test_root"; then
+        [[ ! -f "$test_root/views.log" ]] || /usr/bin/cat "$test_root/views.log" >&2
+        fail "Notification tests failed; artifacts: $test_root"
+    fi
+    if /usr/bin/rg -q 'ERROR|ReferenceError|TypeError|Cannot assign|Binding loop' "$test_root/views.log"; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail 'Notification fixture logged errors.'
+    fi
+    printf 'PASS: notification settings, dry-run, private D-Bus delivery, animation, monitor routing, stacking, replacements, hover pause, expiry, dismissal, actions, and history\n'
+fi

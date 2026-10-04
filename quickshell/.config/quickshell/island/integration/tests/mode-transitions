@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+integration_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-transitions.XXXXXX)"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+export ISLAND_TEST_ROOT="$test_root" ISLAND_TEST_PID="$$"
+export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state"
+export ISLAND_MODE_FUNCTIONS="$integration_dir/mode-functions"
+export SHELL_MODE_LOG_DIR="$test_root/logs" SHELL_MODE_LOCK_FILE="$test_root/transition.lock"
+export SHELL_HEALTH_DELAY=0 SHELL_HEALTH_TIMEOUT=1 SHELL_MODE_PANEL_CLOSE_DELAY=0
+export HYPR_CONFIG="$XDG_CONFIG_HOME/hypr/hyprland.lua"
+export THEMES_DIR="$XDG_CONFIG_HOME/themes"
+export QUICKSHELL_CONFIG="$XDG_CONFIG_HOME/quickshell/shell.qml"
+export ISLAND_QUICKSHELL_CONFIG="$XDG_CONFIG_HOME/quickshell/island/shell.qml"
+/usr/bin/mkdir -p "$test_root/bin" "$XDG_CONFIG_HOME/hypr" "$XDG_CONFIG_HOME/quickshell/island" "$THEMES_DIR"
+/usr/bin/touch "$QUICKSHELL_CONFIG" "$ISLAND_QUICKSHELL_CONFIG"
+for name in ristretto bauhaus nord dracula; do
+    /usr/bin/mkdir -p "$THEMES_DIR/$name"
+    /usr/bin/touch "$THEMES_DIR/$name/Colors.qml" "$THEMES_DIR/$name/noctalia.json" "$THEMES_DIR/$name/wallpaper.png"
+done
+/usr/bin/ln -s "$THEMES_DIR/ristretto" "$THEMES_DIR/current"
+/usr/bin/ln -s current "$THEMES_DIR/.caelestia-use"
+printf '%s\n' 'require("waybar-mode-keybindings")' '-- require("noctalia-mode-keybindings")' '-- require("island-mode-keybindings")' > "$HYPR_CONFIG"
+/usr/bin/cp "$integration_dir/tests/process-mock.py" "$test_root/bin/process-mock"
+/usr/bin/chmod +x "$test_root/bin/process-mock"
+for name in qs noctalia sync theme-apply shell-theme island-theme wallpaper slideshow aether hyprlock hyprctl pgrep pkill kill systemctl waybar ward wardnc chromack topdash swayosd-server; do
+    /usr/bin/ln -s process-mock "$test_root/bin/$name"
+done
+export QUICKSHELL_BIN="$test_root/bin/qs" NOCTALIA_SHELL_SCRIPT="$test_root/bin/noctalia"
+export NOCTALIA_THEME_SYNC_SCRIPT="$test_root/bin/sync" THEME_APPLY_SCRIPT="$test_root/bin/theme-apply"
+export SHELL_THEME_SCRIPT="$test_root/bin/shell-theme" ISLAND_THEME_SCRIPT="$test_root/bin/island-theme"
+export WALLPAPER_REFRESH_SCRIPT="$test_root/bin/wallpaper" WALLPAPER_SLIDESHOW_SCRIPT="$test_root/bin/slideshow"
+export AETHER_SCRIPT="$test_root/bin/aether" HYPRLOCK_LAUNCHER="$test_root/bin/hyprlock"
+export HYPRCTL_BIN="$test_root/bin/hyprctl" PGREP_BIN="$test_root/bin/pgrep" PKILL_BIN="$test_root/bin/pkill"
+export KILL_BIN="$test_root/bin/kill" SYSTEMCTL_BIN="$test_root/bin/systemctl" NOTIFY_SEND_BIN=/usr/bin/true
+export WAYBAR_BIN="$test_root/bin/waybar" WARD_BIN="$test_root/bin/ward" WARDNC_BIN="$test_root/bin/wardnc"
+export CHROMACK_LAUNCHER="$test_root/bin/chromack" DASHBOARD_BIN="$test_root/bin/topdash" SWAYOSD_SERVER_BIN="$test_root/bin/swayosd-server"
+script="$integration_dir/desktop/toggle-shell-mode"
+
+assert_mode() {
+    local mode="$1" theme="$2" actual
+    actual="$($script --status)"
+    [[ "$actual" == "$mode" ]] || { printf 'Expected %s; got %s\n' "$mode" "$actual" >&2; exit 1; }
+    [[ "$(/usr/bin/basename "$(/usr/bin/readlink -f "$THEMES_DIR/current")")" == "$theme" ]]
+    /usr/bin/python3 "$integration_dir/tests/assert-processes.py" "$test_root/processes.json" "$mode"
+}
+
+for mode in island caelestia island noctalia island waybar noctalia island caelestia waybar island noctalia waybar caelestia noctalia caelestia; do
+    "$script" "--$mode"
+    case "$mode" in waybar) theme=ristretto ;; caelestia) theme=bauhaus ;; noctalia) theme=nord ;; island) theme=dracula ;; esac
+    assert_mode "$mode" "$theme"
+done
+/usr/bin/touch "$test_root/fail-island"
+if "$script" --island > "$test_root/rollback.log" 2>&1; then printf 'Failed Island startup unexpectedly succeeded.\n' >&2; exit 1; fi
+assert_mode caelestia bauhaus
+/usr/bin/grep -q 'attempted to restore caelestia' "$test_root/rollback.log"
+/usr/bin/touch "$test_root/fail-island-health"
+if "$script" --island > "$test_root/health-rollback.log" 2>&1; then printf 'Unready Island unexpectedly succeeded.\n' >&2; exit 1; fi
+assert_mode caelestia bauhaus
+printf 'PASS: all 12 mode pairs, repeated Island restoration, theme retention, and two startup rollback paths\n'

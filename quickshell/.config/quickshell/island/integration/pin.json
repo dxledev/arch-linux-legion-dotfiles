@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/ElhamSadiqi/Luci.git",
+  "commit": "2627227ab797cf7933c5f39925911429e2ccf49b",
+  "name": "Island",
+  "integration": "Vendored Luci with local theme, settings, keybindings, and mode switching integration"
+}

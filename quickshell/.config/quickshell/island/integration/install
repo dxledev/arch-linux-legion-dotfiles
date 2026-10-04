@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+bin_dir="${ISLAND_INSTALL_BIN_DIR:-$HOME/bin}"
+hypr_dir="${ISLAND_INSTALL_HYPR_DIR:-$config_home/hypr}"
+hypr_config="$hypr_dir/hyprland.lua"
+module_target="$hypr_dir/island-mode-keybindings.lua"
+module_source="$script_dir/hyprland.lua"
+backup_dir="${ISLAND_INSTALL_BACKUP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island/install-backups/$(/usr/bin/date +%Y%m%d-%H%M%S)}"
+waybar_theme_state="${WAYBAR_THEME_STATE:-${SHELL_MODE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/toggle-shell-mode}/waybar-theme}"
+dry_run=0
+
+usage() { printf 'Usage: install [--dry-run]\n'; }
+fail() { printf 'island install: %s\n' "$*" >&2; exit 1; }
+
+validate() {
+    local expected name actual staged
+    for path in "$bin_dir" "$hypr_dir" "$backup_dir" "$waybar_theme_state"; do [[ "$path" == /* ]] || fail 'Paths must be absolute.'; done
+    [[ -f "$hypr_config" && -d "$bin_dir" ]] || fail 'Desktop configuration is unavailable.'
+    if [[ -e "$module_target" || -L "$module_target" ]]; then
+        [[ -L "$module_target" && "$(/usr/bin/readlink -f -- "$module_target")" == "$module_source" ]] || fail "Unmanaged module: $module_target"
+    fi
+    while read -r expected name; do
+        [[ "$name" =~ ^[a-z][a-z-]*$ && -f "$bin_dir/$name" ]] || fail "Missing utility: $name"
+        actual="$(/usr/bin/sha256sum "$bin_dir/$name")"; actual="${actual%% *}"
+        staged="$(/usr/bin/sha256sum "$script_dir/desktop/$name")"; staged="${staged%% *}"
+        [[ "$actual" == "$expected" || "$actual" == "$staged" ]] || fail "Utility changed since inspection: $bin_dir/$name"
+        /usr/bin/bash -n "$script_dir/desktop/$name"
+    done < "$script_dir/desktop/original.sha256"
+    /usr/bin/luac -p "$module_source"
+}
+
+install_utilities() {
+    local expected name
+    while read -r expected name; do
+        /usr/bin/cp -a -- "$bin_dir/$name" "$backup_dir/$name"
+        /usr/bin/cat -- "$script_dir/desktop/$name" > "$bin_dir/$name"
+    done < "$script_dir/desktop/original.sha256"
+}
+
+register_module() {
+    local temporary
+    /usr/bin/cp -L --preserve=mode,timestamps -- "$hypr_config" "$backup_dir/hyprland.lua"
+    if ! /usr/bin/grep -Fq 'require("island-mode-keybindings")' "$hypr_config"; then
+        temporary="$(/usr/bin/mktemp)"
+        printf '%s\n' '-- require("island-mode-keybindings")' > "$temporary"
+        /usr/bin/cat -- "$hypr_config" >> "$temporary"
+        /usr/bin/cat -- "$temporary" > "$hypr_config"
+        /usr/bin/rm -f -- "$temporary"
+    fi
+    [[ -L "$module_target" ]] || /usr/bin/ln -s -- "$module_source" "$module_target"
+}
+
+initialize_waybar_theme() {
+    local theme
+    [[ ! -f "$waybar_theme_state" ]] || return 0
+    theme="$(/usr/bin/readlink -f -- "$config_home/themes/current")"
+    [[ -f "$theme/Colors.qml" && "${theme##*/}" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || fail 'Current Waybar theme is unavailable.'
+    /usr/bin/mkdir -p -- "${waybar_theme_state%/*}"
+    printf '%s\n' "${theme##*/}" > "$waybar_theme_state"
+}
+
+main() {
+    [[ $# == 0 || ( $# == 1 && "$1" == --dry-run ) ]] || { usage >&2; exit 2; }
+    [[ "${1:-}" != --dry-run ]] || dry_run=1
+    validate
+    if (( dry_run )); then
+        printf 'Install Island shell utilities in %s\nRegister %s -> %s\nInitialize independent Island theme state\nBackups: %s\n' "$bin_dir" "$module_target" "$module_source" "$backup_dir"
+        return
+    fi
+    /usr/bin/mkdir -p -- "$backup_dir"
+    install_utilities
+    register_module
+    "$script_dir/island-theme" initialize
+    initialize_waybar_theme
+    printf 'Installed Island. Backups: %s\n' "$backup_dir"
+}
+
+main "$@"

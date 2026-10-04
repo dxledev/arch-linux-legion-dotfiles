@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-workspaces.XXXXXX)"
+config_home="$test_root/config"
+settings_file="$test_root/settings.json"
+dry_run=0
+source "$test_dir/../theme-functions"
+
+fail() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+check_settings() {
+    read_settings | /usr/bin/jq -e '.monitor == "all"' >/dev/null
+    save_setting monitor automatic
+    read_settings | /usr/bin/jq -e '.monitor == "all"' >/dev/null
+    save_setting monitor HDMI-A-1
+    read_settings | /usr/bin/jq -e '.monitor == "HDMI-A-1"' >/dev/null
+    save_setting monitor all
+    read_settings | /usr/bin/jq -e '.monitor == "all"' >/dev/null
+    read_settings | /usr/bin/jq -e '.workspaceStyle == "default" and .workspaceDotSize == 8 and .workspacePersistent and (.workspaceShowAllMonitors | not) and .workspaceCount == 11 and .workspaceAnimationDuration == 160' >/dev/null
+    save_setting workspaceDotSize 1
+    save_setting workspaceDotSize 31
+    read_settings | /usr/bin/jq -e '.workspaceDotSize == 31' >/dev/null
+    save_setting workspaceDotSize 12
+    save_setting workspaceStyle dots
+    save_setting workspacePersistent false
+    save_setting workspaceShowAllMonitors true
+    save_setting workspaceCount 8
+    save_setting workspaceAnimationDuration 100
+    read_settings | /usr/bin/jq -e '.workspaceStyle == "dots" and .workspaceDotSize == 12 and (.workspacePersistent | not) and .workspaceShowAllMonitors and .workspaceCount == 8 and .workspaceAnimationDuration == 100' >/dev/null
+    local before
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting workspaceDotSize 20 >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
+    dry_run=0
+    local invalid
+    for invalid in 'workspaceStyle invalid' 'workspaceDotSize 0' 'workspaceDotSize 32' 'workspaceDotSize 8.5' 'workspaceDotSize invalid' 'workspacePersistent yes' 'workspaceShowAllMonitors yes' 'workspaceCount 0' 'workspaceCount 21' 'workspaceAnimationDuration -1' 'workspaceAnimationDuration 501'; do
+        if (save_setting ${invalid%% *} "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
+    done
+}
+
+make_controller() {
+    cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    ui) printf '%s\n' '{"theme":{"source":"static","mode":"dark","variant":"tonalspot"},"label":"fixture","settings":{"workspaceStyle":"default","workspacePersistent":true,"workspaceCount":11,"workspaceAnimationDuration":160},"wallpaper":"","colors":{"background":"#101010","backgroundGray":"#242424","foreground":"#eeeeee","foregroundInactive":"#8a8a8a","muted":"#606060","primary":"#ffab91","border":"#ffab91","danger":"#ee5555","warning":"#eebb55","success":"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    /usr/bin/chmod +x "$test_root/controller"
+}
+
+check_views() {
+    local view_file="$1" pass_message="$2"
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/sed "s|\"../../|\"file:$test_dir/../../|g" "$test_dir/$view_file" > "$test_root/views.qml"
+    if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+        ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        /usr/bin/dbus-run-session -- /usr/bin/timeout 12s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail "Could not run $view_file."
+    fi
+    if ! /usr/bin/rg -q "$pass_message" "$test_root/views.log"; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail "$view_file failed."
+    fi
+    if /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError' "$test_root/views.log"; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail "$view_file errors."
+    fi
+}
+
+check_settings
+make_controller
+check_views panel-toggle-views.qml 'PASS: panel toggles and pending hover cancellation'
+check_views monitor-animation-views.qml 'PASS: normal close animation on both monitors'
+check_views monitor-toggle-views.qml 'PASS: monitor panel transfers'
+check_views workspace-views.qml 'PASS: workspace states'
+check_views monitor-views.qml 'PASS: active monitor panels'
+printf 'PASS: saved workspace settings, defaults, validation, dry-run, dot states, occupancy updates, bidirectional transitions, active monitor panels, panel keybind toggles, monitor close animations, and monitor panel transfers\n'

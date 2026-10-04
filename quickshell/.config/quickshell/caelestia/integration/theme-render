@@ -32,7 +32,7 @@ render_nvim_primary=""
 render_terminal=()
 
 usage() {
-    printf 'Usage: theme-render [--dry-run] [--force] [--provider caelestia|noctalia] PALETTE_JSON ABSOLUTE_WALLPAPER\n'
+    printf 'Usage: theme-render [--dry-run] [--force] [--provider caelestia|noctalia|island] PALETTE_JSON ABSOLUTE_WALLPAPER\n'
     printf 'Thresholds: THEME_RENDER_TEXT_CONTRAST=4.5 THEME_RENDER_COLOR_CONTRAST=3 THEME_RENDER_ROLE_DISTANCE=0.06\n'
 }
 
@@ -57,6 +57,7 @@ configure_provider() {
     case "$provider" in
         caelestia) output_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}" ;;
         noctalia) output_dir="${NOCTALIA_DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/noctalia}" ;;
+        island) output_dir="${ISLAND_DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/island}" ;;
         *) fail "Unknown provider: $provider" ;;
     esac
 }
@@ -70,7 +71,8 @@ validate_paths() {
     require_absolute PALETTE_JSON "$palette_file"
     require_absolute WALLPAPER "$wallpaper"
     [[ "$provider" == caelestia && "$output_dir" == "$themes_dir/.dynamic/caelestia" ||
-       "$provider" == noctalia && "$output_dir" == "$themes_dir/.dynamic/noctalia" ]] ||
+       "$provider" == noctalia && "$output_dir" == "$themes_dir/.dynamic/noctalia" ||
+       "$provider" == island && "$output_dir" == "$themes_dir/.dynamic/island" ]] ||
         fail "Dynamic output is not managed: $output_dir"
     [[ -r "$palette_file" && -f "$palette_file" ]] || fail "Palette not found: $palette_file"
     [[ -f "$wallpaper" ]] || fail "Wallpaper not found: $wallpaper"
@@ -84,7 +86,7 @@ validate_paths() {
     done
     if [[ -e "$output_dir" || -L "$output_dir" ]]; then
         [[ -d "$output_dir" && ! -L "$output_dir" &&
-           ( -f "$output_dir/.caelestia-generated" || -f "$output_dir/.noctalia-generated" ) ]] ||
+           -f "$output_dir/.$provider-generated" ]] ||
             fail "Refusing to replace unmanaged output: $output_dir"
     fi
 }

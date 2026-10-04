@@ -1,0 +1,145 @@
+write_json() {
+    local path="$1" data="$2" temporary
+    /usr/bin/mkdir -p -- "${path%/*}"
+    temporary="$(/usr/bin/mktemp "$path.XXXXXX")"
+    printf '%s\n' "$data" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$path"
+}
+
+read_settings() {
+    local defaults='{"clockFontFamily":"JetBrainsMono Nerd Font","clockFontSize":18,"clockFontBold":true,"clock12Hour":false,"osdFontFamily":"JetBrainsMono Nerd Font","osdFontSize":18,"osdFontBold":true,"osdIconSize":18,"osdSliderWidth":180,"osdSliderHeight":6,"osdSliderRadius":3,"osdSliderAnimationDuration":180,"osdAnimationDuration":120,"osdTimeout":1800,"osdShowPercentage":true,"monitor":"all","topMargin":10,"radius":23,"opacity":1,"hoverDelay":100,"collapseDelay":250,"reservedSpaceBelow":0,"visualizer":true,"scrollAnimationDuration":180,"scrollWheelStep":64,"scrollProgressAlwaysVisible":true,"scrollProgressVisibleDuration":1500,"scrollProgressShowOnNonScrollable":false,"scrollProgressAnimationDuration":180,"workspaceStyle":"default","workspaceDotSize":8,"workspacePersistent":true,"workspaceShowAllMonitors":false,"workspaceCount":11,"workspaceAnimationDuration":160,"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationStackVisible":3,"notificationStackSpacing":8,"notificationAnimationDuration":300,"notificationTimeout":5000,"transition":"grow","transitionDuration":3.2,"transitionFps":120}'
+    if [[ -r "$config_home/background/bg-set.conf" ]]; then
+        local key value
+        while IFS='=' read -r key value; do
+            case "$key" in
+                transition) defaults="$(/usr/bin/jq -c --arg value "$value" '.transition=$value' <<< "$defaults")" ;;
+                transition-duration|transition-fps)
+                    [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || continue
+                    if [[ "$key" == transition-duration ]]; then key=transitionDuration; else key=transitionFps; fi
+                    defaults="$(/usr/bin/jq -c --arg key "$key" --argjson value "$value" '.[$key]=$value' <<< "$defaults")"
+                    ;;
+            esac
+        done < "$config_home/background/bg-set.conf"
+    fi
+    if [[ -r "$settings_file" ]]; then
+        /usr/bin/jq -c --argjson defaults "$defaults" '(.reservedSpaceBelow // .exclusiveZone // $defaults.reservedSpaceBelow) as $space | $defaults * . | .reservedSpaceBelow = $space | if .monitor == "automatic" then .monitor = "all" else . end | del(.exclusiveZone)' "$settings_file"
+    else
+        printf '%s\n' "$defaults"
+    fi
+}
+
+save_setting() {
+    local key="$1" value="$2" settings
+    case "$key" in
+        clockFontFamily|osdFontFamily)
+            [[ -n "$value" && ${#value} -le 160 && "$value" != *$'\n'* && "$value" != *$'\r'* ]] || fail 'Invalid font family.' ;;
+        clockFontSize|osdFontSize|osdIconSize) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 8 && "$value" -le 40 ]] || fail 'Font and icon sizes must be 8-40 px.' ;;
+        osdSliderWidth) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 60 && "$value" -le 500 ]] || fail 'OSD slider width must be 60-500 px.' ;;
+        osdSliderHeight) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 2 && "$value" -le 24 ]] || fail 'OSD slider thickness must be 2-24 px.' ;;
+        osdSliderRadius) [[ "$value" =~ ^[0-9]+$ && "$value" -le 12 ]] || fail 'OSD slider radius must be 0-12 px.' ;;
+        osdSliderAnimationDuration|osdAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'OSD animation duration must be 0-1000 ms.' ;;
+        osdTimeout) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 500 && "$value" -le 10000 ]] || fail 'OSD display duration must be 500-10000 ms.' ;;
+        monitor) [[ "$value" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || fail 'Invalid monitor name.' ;;
+        clockFontBold|clock12Hour|osdFontBold|osdShowPercentage|visualizer|workspacePersistent|workspaceShowAllMonitors|scrollProgressAlwaysVisible|scrollProgressShowOnNonScrollable) [[ "$value" == true || "$value" == false ]] || fail "$key must be true or false." ;;
+        scrollProgressVisibleDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 100 && "$value" -le 10000 ]] || fail 'Scroll indicator display duration must be 100-10000 ms.' ;;
+        scrollProgressAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Scroll indicator animation duration must be 0-1000 ms.' ;;
+        scrollAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Scroll smoothing duration must be 0-1000 ms.' ;;
+        scrollWheelStep) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 16 && "$value" -le 200 ]] || fail 'Scroll wheel distance must be 16-200 px.' ;;
+        workspaceStyle) [[ "$value" == default || "$value" == dots ]] || fail 'Workspace style must be default or dots.' ;;
+        workspaceDotSize) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 1 && "$value" -le 31 ]] || fail 'Workspace dot size must be 1-31 px.' ;;
+        workspaceCount) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 1 && "$value" -le 20 ]] || fail 'Workspace count must be 1-20.' ;;
+        workspaceAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 500 ]] || fail 'Workspace animation duration must be 0-500 ms.' ;;
+        notificationWidth) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 240 && "$value" -le 800 ]] || fail 'Notification width must be 240-800 px.' ;;
+        notificationStartWidthPercent) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 10 && "$value" -le 90 ]] || fail 'Notification starting width must be 10-90 percent of Island.' ;;
+        notificationMargin|notificationSlideDistance) [[ "$value" =~ ^[0-9]+$ && "$value" -le 100 ]] || fail 'Notification spacing must be 0-100 px.' ;;
+        notificationStackVisible) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 1 && "$value" -le 5 ]] || fail 'Visible notification cards must be 1-5.' ;;
+        notificationStackSpacing) [[ "$value" =~ ^[0-9]+$ && "$value" -le 24 ]] || fail 'Notification stack spacing must be 0-24 px.' ;;
+        notificationAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Notification animation duration must be 0-1000 ms.' ;;
+        notificationTimeout) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 1000 && "$value" -le 15000 ]] || fail 'Notification timeout must be 1000-15000 ms.' ;;
+        transition) [[ "$value" =~ ^(none|simple|fade|left|right|top|bottom|wipe|wave|grow|center|outer|random)$ ]] || fail 'Invalid transition.' ;;
+        topMargin|radius|hoverDelay|collapseDelay|reservedSpaceBelow|transitionDuration|transitionFps|opacity)
+            [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'Setting must be numeric.'
+            case "$key" in
+                opacity) /usr/bin/awk -v value="$value" 'BEGIN {exit !(value >= 0.2 && value <= 1)}' || fail 'Opacity must be 0.2-1.' ;;
+                transitionFps) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 1 && "$value" -le 240 ]] || fail 'FPS must be 1-240.' ;;
+                transitionDuration) /usr/bin/awk -v value="$value" 'BEGIN {exit !(value <= 15)}' || fail 'Duration must be at most 15 seconds.' ;;
+                *) [[ "$value" =~ ^[0-9]+$ && "$value" -le 2000 ]] || fail 'Setting must be an integer from 0-2000.' ;;
+            esac
+            ;;
+        *) fail "Unknown setting: $key" ;;
+    esac
+    if [[ "$key" == transition || "$key" == monitor || "$key" == workspaceStyle || "$key" == clockFontFamily || "$key" == osdFontFamily ]]; then value="$(/usr/bin/jq -Rn --arg value "$value" '$value')"; fi
+    settings="$(read_settings | /usr/bin/jq -c --arg key "$key" --argjson value "$value" '.[$key]=$value')"
+    if (( dry_run )); then printf '%s\n' "$settings"; else write_json "$settings_file" "$settings"; fi
+}
+
+scan_wallpapers() {
+    [[ -d "$wallpaper_directory" ]] || return 0
+    /usr/bin/find -L "$wallpaper_directory" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) -print0 | /usr/bin/sort -zV
+}
+
+palette_colors() {
+    local path="$1"
+    /usr/bin/awk '
+        /property color/ {
+            for (i=1; i<=NF; i++) if ($i == "color") {name=$(i+1); sub(/:$/, "", name)}
+            if (match($0, /#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?/)) print name " " substr($0, RSTART, RLENGTH)
+            else if (match($0, /Qt.rgba\([^)]*\)/)) {
+                value=substr($0, RSTART+8, RLENGTH-9)
+                split(value, parts, ",")
+                for (i=1; i<=3; i++) {
+                    gsub(/[[:space:]]/, "", parts[i])
+                    split(parts[i], fraction, "/")
+                    channel[i]=fraction[1] / (fraction[2] ? fraction[2] : 1) * 255
+                }
+                print name " " sprintf("#%02x%02x%02x%02x", parts[4]*255+0.5, channel[1]+0.5, channel[2]+0.5, channel[3]+0.5)
+            }
+        }
+    ' "$path" | /usr/bin/jq -Rn '[inputs | split(" ") | {key: .[0], value: .[1]}] | from_entries'
+}
+
+list_themes() {
+    local path name colors
+    {
+    /usr/bin/jq -cn '{themeId:"dynamic",name:"Dynamic",background:"#202020",color1:"#b5c4ff",color2:"#e3e1e9",color3:"#d0bcff",color4:"#ffb4ab",accent:"#b5c4ff",text:"#ffffff"}'
+    for path in "$themes_dir"/*; do
+        [[ -d "$path" && ! -L "$path" && -r "$path/Colors.qml" ]] || continue
+        name="${path##*/}"
+        colors="$(palette_colors "$path/Colors.qml")"
+        /usr/bin/jq -cn --arg name "$name" --argjson colors "$colors" '{themeId:$name,name:($name | gsub("[-_]";" ")),background:$colors.background,color1:$colors.primary,color2:$colors.secondary,color3:$colors.success,color4:($colors.warning // $colors.foreground),accent:$colors.primary,text:$colors.foreground}'
+    done
+    } | /usr/bin/jq -s .
+}
+
+ui_state() {
+    local path="$themes_dir/$static_theme/Colors.qml" colors
+    if [[ "$theme_key" == dynamic && -r "$themes_dir/.dynamic/island/Colors.qml" ]]; then path="$themes_dir/.dynamic/island/Colors.qml"; fi
+    colors="$(palette_colors "$path")"
+    /usr/bin/jq -cn --argjson theme "$theme_state" --arg label "$theme_key" --argjson colors "$colors" --argjson settings "$(read_settings)" --arg wallpaper "$(selected_wallpaper)" '{theme:$theme,label:$label,colors:$colors,settings:$settings,wallpaper:$wallpaper}'
+}
+
+apply_awww() {
+    local wallpaper="$1" restoring="$2" settings transition duration fps attempt ready=0
+    settings="$(read_settings)"
+    transition="$(/usr/bin/jq -r .transition <<< "$settings")"
+    duration="$(/usr/bin/jq -r .transitionDuration <<< "$settings")"
+    fps="$(/usr/bin/jq -r .transitionFps <<< "$settings")"
+    if (( restoring )); then transition=none; fi
+    if (( dry_run )); then printf 'awww img %s --transition-type %s\n' "$wallpaper" "$transition"; return; fi
+    if ! "$pgrep_bin" -u "$UID" -x awww-daemon >/dev/null; then /usr/bin/nohup "$awww_daemon" >/dev/null 2>&1 8>&- 9>&- & fi
+    for (( attempt=0; attempt<30; attempt++ )); do
+        if /usr/bin/timeout 0.25s "$awww_bin" query >/dev/null 2>&1; then ready=1; break; fi
+        /usr/bin/sleep 0.1
+    done
+    (( ready )) || fail 'awww daemon is unavailable.'
+    local -a extra=()
+    local key value
+    if [[ -r "$config_home/background/bg-set.conf" ]]; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                transition-angle|transition-step|transition-pos|transition-bezier|transition-wave) extra+=("--$key" "$value") ;;
+            esac
+        done < "$config_home/background/bg-set.conf"
+    fi
+    "$awww_bin" img "$wallpaper" --transition-type "$transition" --transition-duration "$duration" --transition-fps "$fps" "${extra[@]}"
+}

@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_dir="${ISLAND_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island}"
+themes_dir="${THEMES_DIR:-$config_home/themes}"
+dynamic_directory="${ISLAND_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpapers/dynamic}"
+settings_file="$state_dir/settings.json"
+wallpapers_file="$state_dir/wallpapers.json"
+shell_theme="${ISLAND_SHELL_THEME_ENGINE:-$script_dir/../../caelestia/integration/shell-theme}"
+awww_bin="${ISLAND_AWWW_BIN:-/usr/bin/awww}"
+awww_daemon="${ISLAND_AWWW_DAEMON:-/usr/bin/awww-daemon}"
+pgrep_bin="${ISLAND_PGREP_BIN:-/usr/bin/pgrep}"
+dry_run=0
+
+source "$script_dir/theme-functions"
+
+usage() {
+    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|next|previous|mode light|dark|variant NAME|setting KEY VALUE\n'
+}
+
+fail() {
+    printf 'island-theme: %s\n' "$*" >&2
+    exit 1
+}
+
+engine() {
+    local args=()
+    (( ! dry_run )) || args+=(--dry-run)
+    SHELL_THEME_DESKTOP_PROVIDER=island SHELL_THEME_STATE_DIR="$state_dir" \
+        SHELL_THEME_PREWARM="${ISLAND_THEME_PREWARM:-1}" \
+        SHELL_THEME_CACHE_DIR="${ISLAND_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/island/theme}" \
+        SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WALLPAPER=1 \
+        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_WAIT_FOR_RELOADS=1 \
+        "$shell_theme" "${args[@]}" "$@" 8>&-
+}
+
+load_state() {
+    theme_state="$(engine status)"
+    source_name="$(/usr/bin/jq -r .source <<< "$theme_state")"
+    static_theme="$(/usr/bin/jq -r .staticTheme <<< "$theme_state")"
+    [[ "$static_theme" =~ ^[a-z0-9][a-z0-9._-]*$ && -f "$themes_dir/$static_theme/Colors.qml" ]] || fail 'Saved static theme is unavailable.'
+    theme_key="$static_theme"
+    [[ "$source_name" != dynamic ]] || theme_key=dynamic
+    wallpaper_directory="$themes_dir/$static_theme/wallpapers"
+    [[ "$theme_key" != dynamic ]] || wallpaper_directory="$dynamic_directory"
+    wallpaper_directory="$(/usr/bin/readlink -f -- "$wallpaper_directory")"
+}
+
+selected_wallpaper() {
+    local saved=""
+    if [[ -r "$wallpapers_file" ]]; then
+        saved="$(/usr/bin/jq -r --arg key "$theme_key" '.[$key] // empty' "$wallpapers_file")"
+    fi
+    if [[ -f "$saved" && "$saved" == "$wallpaper_directory/"* ]]; then
+        printf '%s\n' "$saved"
+    elif [[ "$theme_key" == dynamic ]]; then
+        first_wallpaper
+    else
+        /usr/bin/readlink -f -- "$themes_dir/$static_theme/wallpaper.png"
+    fi
+}
+
+first_wallpaper() {
+    local -a entries=()
+    mapfile -d '' -t entries < <(scan_wallpapers)
+    (( ${#entries[@]} )) || fail "No wallpapers in $wallpaper_directory"
+    printf '%s\n' "${entries[0]}"
+}
+
+save_wallpaper() {
+    local path="$1" data='{}'
+    [[ ! -r "$wallpapers_file" ]] || data="$(/usr/bin/cat -- "$wallpapers_file")"
+    write_json "$wallpapers_file" "$(/usr/bin/jq -c --arg key "$theme_key" --arg path "$path" '.[$key]=$path' <<< "$data")"
+    if [[ "$theme_key" == dynamic ]]; then
+        /usr/bin/ln -sfn -- "$path" "$state_dir/dynamic-wallpaper"
+    fi
+}
+
+apply_selection() {
+    local path="$1"
+    [[ "$path" == /* && -f "$path" ]] || fail "Wallpaper unavailable: $path"
+    path="$(/usr/bin/readlink -f -- "$path")"
+    [[ "$path" == "$wallpaper_directory/"* ]] || fail 'Wallpaper must belong to the active theme directory.'
+    if (( dry_run )); then
+        printf 'Island %s wallpaper: %s\n' "$theme_key" "$path"
+        return
+    fi
+    save_wallpaper "$path"
+    if [[ "$theme_key" == dynamic ]]; then engine refresh-wallpaper; fi
+    apply_awww "$path" 0
+}
+
+restore() {
+    local wallpaper
+    load_state
+    wallpaper="$(selected_wallpaper)"
+    [[ -f "$wallpaper" ]] || fail "Saved wallpaper unavailable: $wallpaper"
+    if (( ! dry_run )); then save_wallpaper "$wallpaper"; fi
+    SHELL_DYNAMIC_WALLPAPER="$wallpaper" engine restore
+    apply_awww "$wallpaper" 1
+}
+
+step_wallpaper() {
+    local direction="$1" current index=0 selected=0 path
+    local -a entries=()
+    mapfile -d '' -t entries < <(scan_wallpapers)
+    (( ${#entries[@]} )) || fail 'No wallpapers available.'
+    current="$(selected_wallpaper)"
+    for path in "${entries[@]}"; do
+        if [[ "$path" == "$current" ]]; then selected="$index"; break; fi
+        index=$((index + 1))
+    done
+    selected=$(((selected + direction + ${#entries[@]}) % ${#entries[@]}))
+    apply_selection "${entries[selected]}"
+}
+
+main() {
+    [[ "$state_dir" == /* && "$themes_dir" == /* && "$dynamic_directory" == /* && "$shell_theme" == /* && "$awww_bin" == /* && "$awww_daemon" == /* && "$pgrep_bin" == /* ]] || fail 'Paths must be absolute.'
+    [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
+    local action="${1:---help}"
+    (( $# == 0 )) || shift
+    if [[ "$action" == --help || "$action" == -h ]]; then usage; return; fi
+    if [[ "$action" != status && "$action" != ui && "$action" != themes && "$action" != wallpapers && "$action" != wallpaper-directory ]] && (( ! dry_run )); then
+        /usr/bin/mkdir -p -- "$state_dir"
+        exec 8>"$state_dir/controller.lock"
+        /usr/bin/flock 8
+    fi
+    load_state
+    case "$action" in
+        status) (( $# == 0 )) || fail 'status accepts no arguments.'; printf '%s\n' "$theme_state" ;;
+        ui) (( $# == 0 )) || fail 'ui accepts no arguments.'; ui_state ;;
+        themes) (( $# == 0 )) || fail 'themes accepts no arguments.'; list_themes ;;
+        wallpapers) (( $# == 0 )) || fail 'wallpapers accepts no arguments.'; scan_wallpapers | /usr/bin/jq -Rs 'split("\u0000") | map(select(length > 0) | {path: .})' ;;
+        wallpaper-directory) (( $# == 0 )) || fail 'wallpaper-directory accepts no arguments.'; printf '%s\n' "$wallpaper_directory" ;;
+        initialize)
+            (( $# == 0 )) || fail 'initialize accepts no arguments.'
+            if (( dry_run )); then printf 'Initialize Island state at %s\n' "$state_dir"; return; fi
+            [[ -f "$state_dir/shell-theme.json" ]] || write_json "$state_dir/shell-theme.json" "$theme_state"
+            [[ -f "$settings_file" ]] || write_json "$settings_file" "$(read_settings)"
+            save_wallpaper "$(selected_wallpaper)"
+            local status_directory="${XDG_CACHE_HOME:-$HOME/.cache}/island/status"
+            /usr/bin/mkdir -p -- "$status_directory"
+            [[ -f "$status_directory/event" ]] || /usr/bin/touch "$status_directory/event"
+            ;;
+        restore) (( $# == 0 )) || fail 'restore accepts no arguments.'; restore ;;
+        theme)
+            (( $# == 1 )) || fail 'theme requires one name.'
+            if [[ "$1" == dynamic ]]; then
+                theme_key=dynamic; wallpaper_directory="$(/usr/bin/readlink -f -- "$dynamic_directory")"
+                local wallpaper
+                wallpaper="$(selected_wallpaper)"
+                if (( ! dry_run )); then save_wallpaper "$wallpaper"; fi
+                SHELL_DYNAMIC_WALLPAPER="$wallpaper" engine set-source dynamic
+            else
+                engine set-static-theme "$1"
+            fi
+            if (( ! dry_run )); then
+                load_state
+                apply_awww "$(selected_wallpaper)" 0
+            fi
+            ;;
+        wallpaper) (( $# == 1 )) || fail 'wallpaper requires one path.'; apply_selection "$1" ;;
+        next|previous) (( $# == 0 )) || fail 'No arguments expected.'; if [[ "$action" == next ]]; then step_wallpaper 1; else step_wallpaper -1; fi ;;
+        mode|variant)
+            (( $# == 1 )) || fail 'One value required.'
+            [[ "$theme_key" == dynamic ]] || fail 'Mode and variant apply to Dynamic themes.'
+            engine "set-$action" "$1"
+            ;;
+        setting) (( $# == 2 )) || fail 'setting requires a key and value.'; save_setting "$1" "$2" ;;
+        *) usage >&2; return 2 ;;
+    esac
+}
+
+main "$@"

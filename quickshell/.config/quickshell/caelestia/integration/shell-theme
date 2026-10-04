@@ -11,11 +11,12 @@ cli_bin="${CAELESTIA_BIN:-$shell_root/.runtime/cli/bin/caelestia}"
 theme_file="${SHELL_THEME_FILE:-$themes_dir/current/Colors.qml}"
 wallpaper_file="${SHELL_WALLPAPER:-$themes_dir/current/wallpaper.png}"
 aether_theme_file="${AETHER_THEME_FILE:-$config_home/aether/theme/colors.toml}"
-state_dir="$state_home/caelestia"
+desktop_provider="${SHELL_THEME_DESKTOP_PROVIDER:-caelestia}"
+state_dir="${SHELL_THEME_STATE_DIR:-$state_home/caelestia}"
 settings_file="$state_dir/shell-theme.json"
 palette_file="$state_dir/shell-theme-palette.json"
 dynamic_wallpaper_file="${SHELL_DYNAMIC_WALLPAPER:-$state_dir/dynamic-wallpaper}"
-cache_dir="$cache_home/caelestia/shell-theme"
+cache_dir="${SHELL_THEME_CACHE_DIR:-$cache_home/caelestia/shell-theme}"
 engine_dir="$cache_dir/engine"
 palette_cache_dir="$cache_dir/palettes"
 aether_palettes_dir="${AETHER_PALETTES_DIR:-$state_dir/aether-palettes}"
@@ -24,7 +25,7 @@ theme_renderer="${THEME_RENDERER:-$script_dir/theme-render}"
 theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
 notify_send_bin="${NOTIFY_SEND_BIN:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/notify-send}"
 application_selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
-dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/caelestia}"
+dynamic_theme_dir="${DYNAMIC_THEME_DIR:-$themes_dir/.dynamic/$desktop_provider}"
 dynamic_generation_notification_marker="$state_dir/dynamic-theme-generation-notified"
 dry_run=0
 static_theme_name=""
@@ -448,7 +449,7 @@ render_dynamic() {
     fi
     printf '%s\n' "$palette" > "$temporary"
     if (( dry_run )); then
-        if ! "$theme_renderer" --dry-run "$temporary" "$wallpaper"; then
+        if ! "$theme_renderer" --provider "$desktop_provider" --dry-run "$temporary" "$wallpaper"; then
             /usr/bin/rm -f -- "$temporary"
             fail 'Dynamic desktop palette validation failed.'
         fi
@@ -457,12 +458,12 @@ render_dynamic() {
         return
     fi
     if (( force_render )); then
-        if ! result="$("$theme_renderer" --force "$temporary" "$wallpaper")"; then
+        if ! result="$("$theme_renderer" --provider "$desktop_provider" --force "$temporary" "$wallpaper")"; then
             /usr/bin/rm -f -- "$temporary"
             fail 'Dynamic desktop palette rendering failed.'
         fi
     else
-        if ! result="$("$theme_renderer" "$temporary" "$wallpaper")"; then
+        if ! result="$("$theme_renderer" --provider "$desktop_provider" "$temporary" "$wallpaper")"; then
             /usr/bin/rm -f -- "$temporary"
             fail 'Dynamic desktop palette rendering failed.'
         fi
@@ -476,11 +477,11 @@ apply_desktop() {
     local source="$1" changed="$2" force_apply="$3"
     require_executable "$theme_apply"
     if (( dry_run )); then
-        "$theme_apply" --dry-run "$source"
+        if [[ "$source" == dynamic ]]; then "$theme_apply" --dry-run "$source" "$desktop_provider"; else "$theme_apply" --dry-run "$source"; fi
         return
     fi
     if [[ "$changed" == changed || "$(selector_source)" != "$source" ]] || (( force_apply )); then
-        "$theme_apply" "$source"
+        if [[ "$source" == dynamic ]]; then "$theme_apply" "$source" "$desktop_provider"; else "$theme_apply" "$source"; fi
     fi
 }
 
@@ -639,6 +640,7 @@ prewarm_palette_combination() {
 }
 
 prewarm_palettes_async() {
+    [[ "${SHELL_THEME_PREWARM:-1}" == 1 ]] || return 0
     local current_mode="$1" current_variant="$2" requested="${3:-}" seed cache_key token alternate_mode
     seed="$(dynamic_seed "$requested")"
     cache_key="$(palette_cache_key "$seed")"
@@ -827,7 +829,7 @@ restore_theme() {
     if [[ "$source_name" == system ]]; then
         apply_settings system "$mode_name" "$variant_name" theme "" 1
     elif (( cached )) && cached_palette_is_current; then
-        [[ -f "$dynamic_theme_dir/.caelestia-generated" ]] || fail "Cached Caelestia theme is missing: $dynamic_theme_dir"
+        [[ -f "$dynamic_theme_dir/.$desktop_provider-generated" ]] || fail "Cached theme is missing: $dynamic_theme_dir"
         apply_desktop dynamic unchanged 1
         selection="$(saved_wallpaper_selection "$(dynamic_seed)" 2>/dev/null || true)"
         if [[ -z "$selection" && "$provider_name" == caelestia ]]; then
@@ -844,6 +846,9 @@ if [[ "${1:-}" == --dry-run ]]; then
     shift
 fi
 
+[[ "$desktop_provider" == caelestia || "$desktop_provider" == island ]] || fail "Invalid desktop provider: $desktop_provider"
+[[ "${SHELL_THEME_PREWARM:-1}" == 0 || "${SHELL_THEME_PREWARM:-1}" == 1 ]] || fail 'SHELL_THEME_PREWARM must be 0 or 1.'
+[[ "$state_dir" == /* && "$cache_dir" == /* ]] || fail 'Theme state and cache paths must be absolute.'
 command_name="${1:---help}"
 (( $# == 0 )) || shift
 load_settings

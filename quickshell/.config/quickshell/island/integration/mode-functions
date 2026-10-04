@@ -1,0 +1,61 @@
+island_config="${ISLAND_QUICKSHELL_CONFIG:-$config_home/quickshell/island/shell.qml}"
+island_theme="${ISLAND_THEME_SCRIPT:-$config_home/quickshell/island/integration/island-theme}"
+waybar_theme_state="${WAYBAR_THEME_STATE:-$process_log_dir/waybar-theme}"
+require_island='require("island-mode-keybindings")'
+
+island_pids() {
+    local quickshell_config="$island_config"
+    quickshell_pids
+}
+
+stop_island() {
+    local quickshell_config="$island_config"
+    stop_quickshell
+}
+
+start_island() {
+    local quickshell_config="$island_config" attempt
+    start_quickshell 0 || return 1
+    for (( attempt = 0; attempt < shell_health_timeout * 10; attempt++ )); do
+        "$quickshell_bin" -p "$island_config" ipc call island ready 2>/dev/null | /usr/bin/grep -qx true && return 0
+        /usr/bin/sleep 0.1
+    done
+    printf 'toggle-shell-mode: Island did not become ready.\n' >&2
+    return 1
+}
+
+verify_island() {
+    [[ -n "$(island_pids)" ]] && verify_quickshell_stopped && verify_noctalia_stopped && verify_waybar_stopped || return 1
+    "$quickshell_bin" -p "$island_config" ipc call island ready 2>/dev/null | /usr/bin/grep -qx true
+}
+
+remember_waybar_theme() {
+    local theme temporary
+    theme="$(/usr/bin/readlink -f -- "$themes_dir/current")"
+    theme="${theme##*/}"
+    [[ "$theme" =~ ^[a-z0-9][a-z0-9._-]*$ && -f "$themes_dir/$theme/Colors.qml" ]] || return 1
+    /usr/bin/mkdir -p -- "${waybar_theme_state%/*}"
+    temporary="$(/usr/bin/mktemp "$waybar_theme_state.XXXXXX")"
+    printf '%s\n' "$theme" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$waybar_theme_state"
+}
+
+restore_waybar_theme() {
+    local theme temporary
+    [[ -f "$waybar_theme_state" ]] || return 0
+    IFS= read -r theme < "$waybar_theme_state"
+    [[ "$theme" =~ ^[a-z0-9][a-z0-9._-]*$ && -f "$themes_dir/$theme/Colors.qml" ]] || return 1
+    temporary="$(/usr/bin/mktemp -d "$themes_dir/.waybar-current.XXXXXX")"
+    /usr/bin/ln -s -- "$(/usr/bin/readlink -f -- "$themes_dir/$theme")" "$temporary/link"
+    /usr/bin/mv -Tf -- "$temporary/link" "$themes_dir/current"
+    /usr/bin/rmdir -- "$temporary"
+}
+
+validate_island_paths() {
+    local path
+    for path in "$island_config" "$island_theme" "$waybar_theme_state"; do
+        require_absolute_path "$path" ISLAND
+    done
+    [[ -f "$island_config" ]] || fail "Island config missing: $island_config"
+    require_executable "$island_theme"
+}

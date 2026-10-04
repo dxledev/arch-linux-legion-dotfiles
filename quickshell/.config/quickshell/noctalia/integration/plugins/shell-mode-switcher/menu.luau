@@ -3,11 +3,13 @@ local modes = {
   { id = "waybar", title = "Waybar", flag = "--waybar" },
   { id = "caelestia", title = "Caelestia", flag = "--caelestia" },
   { id = "noctalia", title = "Noctalia", flag = "--noctalia" },
+  { id = "island", title = "Island", flag = "--island" },
 }
 local validModes = {
   waybar = true,
   caelestia = true,
   noctalia = true,
+  island = true,
 }
 local generation = 0
 local activeMode = nil

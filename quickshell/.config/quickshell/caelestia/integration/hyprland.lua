@@ -5,6 +5,10 @@ local mode_pipe = io.popen(mode_script .. " --status 2>/dev/null", "r")
 local mode = mode_pipe and mode_pipe:read("*l") or nil
 if mode_pipe then mode_pipe:close() end
 
+if mode == "island" then
+    dofile(root .. "/island/integration/hyprland.lua")
+    return
+end
 if mode ~= "caelestia" then return end
 
 hl.window_rule({

@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+check_settings() {
+    local config_home="$test_root/config" settings_file="$test_root/state/settings.json" dry_run=0
+    source "$test_dir/../theme-functions"
+    read_settings | /usr/bin/jq -e '.clockFontSize == 18 and .osdFontSize == 18 and .osdSliderWidth == 180 and .osdTimeout == 1800' >/dev/null
+    read_settings | /usr/bin/jq -e '.scrollProgressAlwaysVisible and .scrollProgressVisibleDuration == 1500 and (.scrollProgressShowOnNonScrollable | not) and .scrollProgressAnimationDuration == 180' >/dev/null
+    save_setting scrollProgressAlwaysVisible false
+    save_setting scrollProgressVisibleDuration 500
+    save_setting scrollProgressShowOnNonScrollable true
+    save_setting scrollProgressAnimationDuration 0
+    read_settings | /usr/bin/jq -e '(.scrollProgressAlwaysVisible | not) and .scrollProgressVisibleDuration == 500 and .scrollProgressShowOnNonScrollable and .scrollProgressAnimationDuration == 0' >/dev/null
+    save_setting scrollProgressAlwaysVisible true
+    save_setting scrollProgressVisibleDuration 1500
+    save_setting scrollProgressShowOnNonScrollable false
+    save_setting scrollProgressAnimationDuration 180
+    read_settings | /usr/bin/jq -e '.scrollAnimationDuration == 180 and .scrollWheelStep == 64' >/dev/null
+    save_setting clockFontFamily 'Noto Sans'
+    save_setting osdFontFamily 'JetBrainsMono Nerd Font'
+    save_setting clockFontSize 24
+    save_setting osdFontSize 20
+    save_setting osdSliderWidth 240
+    save_setting osdSliderHeight 10
+    save_setting osdSliderRadius 5
+    save_setting osdSliderAnimationDuration 0
+    save_setting osdAnimationDuration 80
+    save_setting osdTimeout 1200
+    save_setting clockFontBold false
+    save_setting osdFontBold false
+    read_settings | /usr/bin/jq -e '.clockFontFamily == "Noto Sans" and .clockFontSize == 24 and .osdFontSize == 20 and .osdSliderHeight == 10 and (.clockFontBold | not)' >/dev/null
+    local before invalid
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting osdFontFamily 'Noto Sans' >/dev/null
+    save_setting scrollProgressAlwaysVisible false >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
+    dry_run=0
+    for invalid in 'clockFontSize 7' 'clockFontSize 41' 'clockFontSize 18.5' 'osdFontSize nope' 'osdSliderWidth 59' 'osdSliderWidth 501' 'osdSliderHeight 1' 'osdSliderHeight 25' 'osdSliderRadius 13' 'osdTimeout 499' 'osdTimeout 10001' 'osdAnimationDuration -1' 'osdSliderAnimationDuration 1001' 'osdShowPercentage yes'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
+    done
+    if (save_setting osdFontFamily '') >/dev/null 2>&1; then fail 'Accepted empty font.'; fi
+    if (save_setting osdFontFamily $'bad\nfont') >/dev/null 2>&1; then fail 'Accepted multiline font.'; fi
+    for invalid in 'scrollProgressAlwaysVisible yes' 'scrollProgressShowOnNonScrollable 1' 'scrollProgressVisibleDuration 99' 'scrollProgressVisibleDuration 10001' 'scrollProgressVisibleDuration 100.5' 'scrollProgressAnimationDuration -1' 'scrollProgressAnimationDuration 1001' 'scrollAnimationDuration -1' 'scrollAnimationDuration 1001' 'scrollWheelStep 15' 'scrollWheelStep 201'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
+    done
+}
+
+
+check_publishers() {
+    local publisher="$test_dir/../../scripts/publish-brightness-osd.sh"
+    local osd_adapter="$test_dir/../osd/swayosd-client"
+    cat > "$test_root/hyprctl" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '[{"name":"DP-1"},{"name":"HDMI-A-1"},{"name":"eDP-1"}]\n'
+MOCK
+    cat > "$test_root/brightnessctl" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == -m ]]; then printf 'laptop,backlight,45,45%%,100\n'; fi
+MOCK
+    /usr/bin/chmod +x "$test_root/hyprctl" "$test_root/brightnessctl"
+    export ISLAND_HYPRCTL_BIN="$test_root/hyprctl" ISLAND_BRIGHTNESSCTL_BIN="$test_root/brightnessctl"
+    local cache_home="$test_root/publisher-cache"
+    XDG_CACHE_HOME="$cache_home" /usr/bin/bash "$publisher" 45 DP-1 --dry-run >/dev/null
+    [[ ! -e "$cache_home" ]] || fail 'Publisher dry-run wrote state.'
+    if XDG_CACHE_HOME="$cache_home" /usr/bin/bash "$publisher" 101 DP-1 >/dev/null 2>&1; then fail 'Accepted invalid OSD percentage.'; fi
+    if XDG_CACHE_HOME="$cache_home" /usr/bin/bash "$publisher" 50 '../bad' >/dev/null 2>&1; then fail 'Accepted invalid OSD monitor.'; fi
+    XDG_CACHE_HOME="$cache_home" ISLAND_BRIGHTNESS_CONNECTOR_TYPE=DP /usr/bin/bash "$osd_adapter" --monitor HDMI-A-1 --custom-progress 0.45
+    [[ $(<"$cache_home/island/status/event") == 'brightness|45|DP-1|'* ]] || fail 'DP shortcut followed the shared helper hardcoded monitor.'
+    XDG_CACHE_HOME="$cache_home" /usr/bin/bash "$osd_adapter" --monitor HDMI-A-1 --custom-progress 0.7
+    [[ $(<"$cache_home/island/status/event") == 'brightness|70|HDMI-A-1|'* ]] || fail 'HDMI shortcut lost its monitor.'
+    XDG_CACHE_HOME="$cache_home" /usr/bin/bash "$test_dir/../../scripts/brightness.sh" +5%
+    [[ $(<"$cache_home/island/status/event") == 'brightness|45|eDP-1|'* ]] || fail 'Backlight shortcut lost its monitor.'
+}
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache/island/status"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp -a "$test_dir/../.." "$test_root/island"
+    /usr/bin/sed 's|"../../|"island/|g' "$test_dir/osd-settings-views.qml" > "$test_root/views.qml"
+    /usr/bin/sed -i 's/readonly property var islandScreens: .*/property var islandScreens: [{name: "DP-1"}, {name: "HDMI-A-1"}]/' "$test_root/island/services/ThemeService.qml"
+    /usr/bin/sed -i 's/readonly property var monitor: .*/readonly property var monitor: null/' "$test_root/island/services/WorkspaceService.qml" "$test_root/island/views/WorkspaceView.qml"
+    /usr/bin/sed -i 's/model: Quickshell.screens/model: [{name: "DP-1"}, {name: "HDMI-A-1"}]/' "$test_root/island/services/StatusWatcher.qml"
+    : > "$test_root/cache/island/status/event"
+    cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_ROOT/island/integration/theme-functions"
+case "$1" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    /usr/bin/chmod +x "$test_root/controller"
+}
+
+ipc() { /usr/bin/quickshell -p "$test_root/views.qml" ipc call osdTest "$@" 2>/dev/null; }
+expect() {
+    local data
+    data="$(ipc snapshot)"
+    /usr/bin/jq -e "$1" <<< "$data" >/dev/null || fail "Failed: $1; $data"
+}
+wait_for() {
+    local attempt
+    for ((attempt=0; attempt<100; attempt++)); do
+        if ipc snapshot | /usr/bin/jq -e "$1" >/dev/null 2>&1; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    expect "$1"
+}
+event() { printf '%s\n' "$1" > "$test_root/cache/island/status/event"; }
+
+run_session() {
+    /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
+    fixture_pid=$!
+    trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+    wait_for '.ready and .panel == "Clock" and .choices == 1'
+    expect '.clock.font == "Noto Sans" and .clock.size == 24 and (.clock.bold | not) and .dp.height == 36'
+    expect '(.progress.scrollable | not) and .progress.opacity == 0 and .progress.height == 2'
+    ipc settingsPanel OSD
+    wait_for '.panel == "OSD" and .choices == 1 and .modal'
+    wait_for '.progress.scrollable and .progress.opacity == 1 and .progress.value > 0 and .progress.value < 1 and .progress.fillWidth < .progress.width'
+    local title_geometry
+    title_geometry="$(ipc snapshot | /usr/bin/jq -c '.progress | [.titleX, .titleY, .titleHeight, .headerHeight]')"
+    ipc scrollTo 1
+    wait_for '.progress.value == 1 and (.progress.fillWidth - .progress.width | fabs) < 0.1'
+    ipc scrollTo 0
+    wait_for '.progress.value < 1 and (.progress.fillWidth - .progress.width * .progress.value | fabs) < 0.1'
+    ipc save scrollProgressAnimationDuration 1000
+    wait_for '.settings.scrollProgressAnimationDuration == 1000 and (.busy | not)'
+    ipc scrollTo 1
+    expect '.progress.value == 1 and .progress.fillWidth < .progress.width - 1'
+    wait_for '(.progress.fillWidth - .progress.width | fabs) < 0.1'
+    ipc save scrollProgressAnimationDuration 180
+    wait_for '.settings.scrollProgressAnimationDuration == 180 and (.busy | not)'
+    ipc scrollTo 0
+    wait_for '.scroll.position == 0'
+    ipc save scrollAnimationDuration 500
+    wait_for '.settings.scrollAnimationDuration == 500 and (.busy | not)'
+    ipc wheel 64 false >/dev/null
+    expect '.scroll.animating and .scroll.position >= 0 and .scroll.position < 64'
+    expect '(.progress.fillWidth - .progress.width * .progress.value | fabs) < 0.1'
+    ipc wheel 64 false >/dev/null
+    expect '.scroll.destination == 128'
+    ipc wheel -64 false >/dev/null
+    expect '.scroll.destination == 64'
+    wait_for '(.scroll.animating | not) and (.scroll.position - 64 | fabs) < 0.1'
+    expect '(.progress.fillWidth - .progress.width * .progress.value | fabs) < 0.1'
+    ipc wheel 25 true >/dev/null
+    expect '(.scroll.animating | not) and (.scroll.position - 89 | fabs) < 0.1'
+    ipc wheel 64 false >/dev/null
+    expect '.scroll.animating'
+    ipc scrollTo 0.75
+    expect '(.scroll.animating | not) and (.scroll.position - .scroll.range * 0.75 | fabs) < 0.1'
+    ipc wheel 10000 false >/dev/null
+    wait_for '(.scroll.animating | not) and (.scroll.position - .scroll.range | fabs) < 0.1'
+    expect '.progress.value == 1 and (.progress.fillWidth - .progress.width | fabs) < 0.1'
+    [[ $(ipc wheel 64 false) == false ]] || fail 'Scrolled beyond the bottom.'
+    ipc save scrollAnimationDuration 180
+    wait_for '.settings.scrollAnimationDuration == 180 and (.busy | not)'
+    ipc save scrollProgressVisibleDuration 500
+    wait_for '.settings.scrollProgressVisibleDuration == 500 and (.busy | not)'
+    ipc save scrollProgressAlwaysVisible false
+    wait_for '(.settings.scrollProgressAlwaysVisible | not) and (.busy | not)'
+    wait_for '.progress.opacity == 0'
+    ipc scrollTo 0.5
+    wait_for '.progress.opacity > 0 and .progress.value < 1'
+    wait_for '.progress.opacity == 0'
+    [[ "$title_geometry" == "$(ipc snapshot | /usr/bin/jq -c '.progress | [.titleX, .titleY, .titleHeight, .headerHeight]')" ]] || fail 'Scroll indicator moved the title.'
+    ipc save scrollProgressAlwaysVisible true
+    wait_for '.settings.scrollProgressAlwaysVisible and (.busy | not) and .progress.opacity == 1'
+    ipc settingsPanel Clock
+    wait_for '.panel == "Clock" and (.progress.scrollable | not) and .progress.opacity == 0'
+    ipc save scrollProgressShowOnNonScrollable true
+    wait_for '.settings.scrollProgressShowOnNonScrollable and (.busy | not) and .progress.opacity == 1 and .progress.value == 1'
+    ipc save scrollProgressShowOnNonScrollable false
+    wait_for '(.settings.scrollProgressShowOnNonScrollable | not) and (.busy | not) and .progress.opacity == 0'
+    ipc settingsPanel Settings
+    wait_for '.panel == "Settings"'
+    event 'volume|65'
+    wait_for '.dp.showing and .hdmi.showing and .dp.percentages[0].text == "65%"'
+    expect '.animation == 80 and .dp.percentages[0].size == 20 and (.dp.percentages[0].bold | not) and .dp.sliders[0].width == 240 and .dp.sliders[0].height == 10 and .dp.sliders[0].radius == 5'
+    ipc save osdFontFamily 'Noto Sans'
+    wait_for '.settings.osdFontFamily == "Noto Sans" and (.busy | not)'
+    event 'brightness|25|DP-1'
+    wait_for '.dp.showing and (.hdmi.showing | not) and .dp.percentages[0].text == "25%"'
+    expect '.dp.percentages[0].font == "Noto Sans" and .dp.sliders[0].width == 240 and .dp.sliders[0].height == 10'
+    event 'brightness|80|HDMI-A-1'
+    wait_for '.dp.showing and .hdmi.showing and .hdmi.percentages[0].text == "80%"'
+    ipc screens true
+    wait_for '(.dp.showing | not) and .hdmi.showing and (.hdmi.sliders | length) == 2 and (.hdmi.labels | length) == 2'
+    expect '.hdmi.labels == ["DP-1", "HDMI-A-1"] and .hdmi.percentages[0].text == "25%" and .hdmi.percentages[1].text == "80%" and .hdmi.height > 80'
+    /usr/bin/sleep 0.3
+    event 'brightness|90|HDMI-A-1'
+    wait_for '.hdmi.percentages[1].text == "90%"'
+    wait_for '.hdmi.showing and (.hdmi.sliders | length) == 1 and .hdmi.percentages[0].text == "90%"'
+    wait_for '(.hdmi.showing | not)'
+    /usr/bin/bash "$test_dir/../../scripts/publish-brightness-osd.sh" 45 DP-1 &
+    local first_event=$!
+    /usr/bin/bash "$test_dir/../../scripts/publish-brightness-osd.sh" 75 HDMI-A-1 &
+    local second_event=$!
+    wait "$first_event" "$second_event"
+    wait_for '.hdmi.showing and (.hdmi.sliders | length) == 2 and ([.hdmi.percentages[].text] | sort) == ["45%", "75%"]'
+    wait_for '(.hdmi.showing | not)'
+    ipc save osdShowPercentage false
+    wait_for '(.settings.osdShowPercentage | not) and (.busy | not)'
+    event 'volume|30'
+    wait_for '.hdmi.showing and (.hdmi.percentages[0].visible | not)'
+    event 'volume|-1'
+    wait_for '.hdmi.showing and .hdmi.percentages[0].visible and .hdmi.percentages[0].text == "Muted"'
+    ipc keyboard
+    wait_for '.mode == "keyboard" and .hdmi.showing'
+    expect '.hdmi.text.font == "Noto Sans" and .hdmi.text.size == 20 and (.hdmi.text.bold | not) and .animation == 80'
+    ipc save clockFontSize 40
+    wait_for '.clock.size == 40 and (.busy | not)'
+    wait_for '(.hdmi.showing | not) and .dp.height == 52'
+    expect '.error == ""'
+}
+
+if [[ ${1:-} == --session ]]; then test_root=$2; run_session; exit; fi
+test_root="$(/usr/bin/mktemp -d /tmp/island-osd-settings.XXXXXX)"
+make_fixture
+check_settings
+check_publishers
+export ISLAND_DDCUTIL_BIN=/usr/bin/true
+export TEST_ROOT="$test_root" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller"
+if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a /usr/bin/timeout 25s /usr/bin/bash "$0" --session "$test_root"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    exit 1
+fi
+if /usr/bin/rg -q 'ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then /usr/bin/cat "$test_root/views.log" >&2; exit 1; fi
+printf 'PASS: clock/OSD panels, scroll progress and expiry, fixed title geometry, saved settings, slider styling, per-monitor routing, fallback stacks, percentages, validation and dry-run\n'

@@ -1,0 +1,3 @@
+singleton IslandGeometry 1.0 IslandGeometry.qml
+singleton IslandController 1.0 IslandController.qml
+singleton StatusManager 1.0 StatusManager.qml

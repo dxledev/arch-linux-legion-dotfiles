@@ -1,0 +1,1 @@
+/home/dxle/dotfiles/quickshell/.config/quickshell/island/integration/hyprland.lua

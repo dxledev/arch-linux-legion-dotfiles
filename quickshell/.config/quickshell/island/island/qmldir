@@ -1,0 +1,4 @@
+Island 1.0 Island.qml
+IslandInteraction 1.0 IslandInteraction.qml
+singleton IslandState 1.0 IslandState.qml
+ViewHost 1.0 ViewHost.qml

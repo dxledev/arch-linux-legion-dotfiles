@@ -1,5 +1,6 @@
+require("island-mode-keybindings")
 -- require("waybar-mode-keybindings")
-require("noctalia-mode-keybindings")
+-- require("noctalia-mode-keybindings")
 
 require("autostart")
 require("keybindings")

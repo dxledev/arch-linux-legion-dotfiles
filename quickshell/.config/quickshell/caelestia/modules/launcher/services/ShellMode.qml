@@ -30,7 +30,7 @@ Searcher {
 
     function loadRows(exitCode: int): void {
         const current = getMode.stdout.text.trim();
-        if (exitCode !== 0 || !["waybar", "caelestia", "noctalia"].includes(current)) {
+        if (exitCode !== 0 || !["waybar", "caelestia", "noctalia", "island"].includes(current)) {
             root.modeRows = [{
                 id: "error",
                 name: "Could not read active shell",
@@ -42,7 +42,8 @@ Searcher {
             root.modeRows = [
                 { id: "waybar", name: "Waybar", icon: "view_compact", mode: "waybar", active: current === "waybar" },
                 { id: "caelestia", name: "Caelestia", icon: "widgets", mode: "caelestia", active: current === "caelestia" },
-                { id: "noctalia", name: "Noctalia", icon: "dashboard", mode: "noctalia", active: current === "noctalia" }
+                { id: "noctalia", name: "Noctalia", icon: "dashboard", mode: "noctalia", active: current === "noctalia" },
+                { id: "island", name: "Island", icon: "view_agenda", mode: "island", active: current === "island" }
             ];
         }
 

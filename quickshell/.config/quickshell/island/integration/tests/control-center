@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp -a "$test_dir/../.." "$test_root/island"
+    /usr/bin/sed 's|"../../|"island/|g' "$test_dir/control-center-views.qml" > "$test_root/views.qml"
+    /usr/bin/sed -i "s|/usr/bin/pgrep|$test_root/pgrep|" "$test_root/island/services/NightLightService.qml"
+    printf '15\n' > "$test_root/device-2"
+    printf '30\n' > "$test_root/device-4"
+    printf '50\n' > "$test_root/backlight"
+    printf 'on\n' > "$test_root/runtime/system-toggle-nightlight.state"
+    cat > "$test_root/ddcutil" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $1 == detect ]]; then
+    printf 'Display 1\n   I2C bus: /dev/i2c-2\n   DRM connector: card1-DP-1\n\nDisplay 2\n   I2C bus: /dev/i2c-4\n   DRM connector: card1-HDMI-A-1\n\nInvalid display\n   I2C bus: /dev/i2c-6\n   DRM connector: card2-eDP-1\n'
+    exit
+fi
+bus=${1#--bus=}
+case $2 in
+    getvcp) /usr/bin/sleep 0.1; maximum=100; [[ $bus != 2 ]] || maximum=50; printf 'VCP 10 C %s %s\n' "$(<"$TEST_ROOT/device-$bus")" "$maximum" ;;
+    setvcp) /usr/bin/sleep 0.1; printf '%s %s\n' "$bus" "$4" >> "$TEST_ROOT/writes"; printf '%s\n' "$4" > "$TEST_ROOT/device-$bus" ;;
+    *) exit 2 ;;
+esac
+MOCK
+    cat > "$test_root/brightnessctl" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${3:-} == set ]]; then printf '%s\n' "${4%%%}" > "$TEST_ROOT/backlight"; fi
+value=$(<"$TEST_ROOT/backlight")
+printf 'laptop,backlight,%s,%s%%,100\n' "$value" "$value"
+MOCK
+    cat > "$test_root/pgrep" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -f $TEST_ROOT/daemon ]]
+MOCK
+    cat > "$test_root/nightlight" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+state_file="$XDG_RUNTIME_DIR/system-toggle-nightlight.state"
+state=off
+[[ ! -f $TEST_ROOT/daemon ]] || state=$(<"$state_file")
+if [[ $state == on ]]; then printf 'off\n' > "$state_file"; else : > "$TEST_ROOT/daemon"; printf 'on\n' > "$state_file"; fi
+printf 'toggle\n' >> "$TEST_ROOT/toggles"
+MOCK
+    /usr/bin/chmod +x "$test_root/ddcutil" "$test_root/brightnessctl" "$test_root/pgrep" "$test_root/nightlight"
+}
+
+ipc() { /usr/bin/quickshell -p "$test_root/views.qml" ipc call controlTest "$@" 2>/dev/null; }
+
+expect() {
+    local data
+    data="$(ipc snapshot)"
+    /usr/bin/jq -e "$1" <<< "$data" >/dev/null || fail "Failed: $1; $data"
+}
+
+wait_for() {
+    local attempt
+    for ((attempt=0; attempt<100; attempt++)); do
+        if ipc snapshot | /usr/bin/jq -e "$1" >/dev/null 2>&1; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    expect "$1"
+}
+
+check_helper() {
+    local helper="$test_dir/../monitor-brightness" output invalid
+    output="$(/usr/bin/bash "$helper" --dry-run DP-1 2 set 64)"
+    [[ $output == "$ISLAND_DDCUTIL_BIN --bus=2 setvcp 10 32 --noverify" ]]
+    [[ ! -e $test_root/writes && ! -e $XDG_RUNTIME_DIR/system-brightness-ddc ]] || fail 'Dry-run wrote state.'
+    for invalid in '../DP-1 2 set 30' 'DP-1 invalid get' 'DP-1 2 set 101' 'DP-1 2 set -1' 'DP-1 2 set nope'; do
+        read -r -a arguments <<< "$invalid"
+        if /usr/bin/bash "$helper" "${arguments[@]}" >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
+    done
+}
+
+run_session() {
+    /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
+    fixture_pid=$!
+    trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+    wait_for '.monitors[0].initialized and .monitors[1].initialized and .monitors[2].initialized and .nightlightReady'
+    expect '(.status.visible | not)'
+    expect '.monitors[0].brightness == 30 and .monitors[1].brightness == 30 and .monitors[2].brightness == 50 and (.monitors[3].supported | not) and .height == 180 and .contentHeight > .height and (.nightlight | not)'
+    ipc burst
+    wait_for '.monitors[0].brightness == 64 and (.monitors[0].writing | not) and (.monitors[0].pending | not)'
+    [[ $(<"$test_root/writes") == '2 32' ]] || fail 'Slider burst did not coalesce.'
+    expect '.monitors[1].brightness == 30'
+    ipc set HDMI-A-1 42
+    ipc set eDP-1 75
+    wait_for '.monitors[1].brightness == 42 and (.monitors[1].writing | not) and (.monitors[1].pending | not) and .monitors[2].brightness == 75 and (.monitors[2].writing | not) and (.monitors[2].pending | not)'
+    [[ $(<"$test_root/device-2") == 32 && $(<"$test_root/device-4") == 42 && $(<"$test_root/backlight") == 75 ]]
+    printf -v cache_time '%(%s)T' -1
+    printf '2\n50\n20\n%s\n' "$cache_time" > "$XDG_RUNTIME_DIR/system-brightness-ddc/DP.state"
+    wait_for '.monitors[0].brightness == 20'
+    [[ $(/usr/bin/bash "$test_dir/../monitor-brightness" DP-1 2 get) == 20 ]] || fail 'Read ignored newer shortcut cache.'
+    printf '999\n100\n99\n0\n' > "$XDG_RUNTIME_DIR/system-brightness-ddc/DP.state"
+    /usr/bin/sleep 0.1
+    expect '.monitors[0].brightness == 20'
+    ipc detach
+    wait_for '(.monitors[0].supported | not) and (.monitors[0].initialized | not)'
+    ipc detect
+    wait_for '.monitors[0].supported and .monitors[0].initialized'
+    ipc toggle
+    wait_for '.nightlight and .status.visible and .status.mode == "nightlight" and .status.title == "Nightlight On" and .status.duration == 120'
+    expect '.label.font == "JetBrainsMono Nerd Font" and .label.size == 18 and .label.bold and .label.centered'
+    ipc toggle
+    wait_for '(.nightlight | not) and .status.visible and .status.title == "Nightlight Off"'
+    "$test_root/nightlight"
+    wait_for '.nightlight and .status.visible and .status.title == "Nightlight On"'
+    "$test_root/nightlight"
+    wait_for '(.nightlight | not) and .status.visible and .status.title == "Nightlight Off"'
+    wait_for '(.status.visible | not)'
+    [[ $(/usr/bin/wc -l < "$test_root/toggles") == 4 ]]
+}
+
+if [[ ${1:-} == --session ]]; then test_root=$2; run_session; exit; fi
+test_root="$(/usr/bin/mktemp -d /tmp/island-control-center.XXXXXX)"
+make_fixture
+export TEST_ROOT="$test_root" ISLAND_DDCUTIL_BIN="$test_root/ddcutil" ISLAND_BRIGHTNESSCTL_BIN="$test_root/brightnessctl"
+export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state"
+export ISLAND_NIGHTLIGHT_SCRIPT="$test_root/nightlight"
+check_helper
+if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a /usr/bin/timeout 20s /usr/bin/bash "$0" --session "$test_root"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    exit 1
+fi
+if /usr/bin/rg -q 'ERROR|ReferenceError|TypeError' "$test_root/views.log"; then /usr/bin/cat "$test_root/views.log" >&2; exit 1; fi
+printf 'PASS: per-monitor DDC and backlight, independent writes, drag coalescing, shortcut state, device rediscovery, scroll bounds, nightlight script and external state, centered clock-font OSD, transition duration, expiry, stale daemon state, validation, and dry-run\n'

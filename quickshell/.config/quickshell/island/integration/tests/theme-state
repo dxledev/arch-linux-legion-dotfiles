@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+integration_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+test_root="$(/usr/bin/mktemp -d /tmp/island-theme-state.XXXXXX)"
+cleanup() {
+    local status="$?"
+    if (( status )); then
+        printf 'Theme state test failed; log tail:\n' >&2
+        [[ ! -f "$test_root/dynamic.log" ]] || /usr/bin/tail -35 "$test_root/dynamic.log" >&2
+    fi
+    /usr/bin/rm -rf -- "$test_root"
+}
+trap cleanup EXIT
+export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
+export THEMES_DIR="$XDG_CONFIG_HOME/themes" ISLAND_STATE_DIR="$XDG_STATE_HOME/island"
+export ISLAND_DYNAMIC_WALLPAPERS_DIR="$test_root/dynamic"
+export ISLAND_THEME_PREWARM=0 THEME_APPLY_ACTIVATE_ONLY=1
+export THEME_APPLY="$integration_dir/desktop/theme-apply"
+export SPICETIFY_TEMPLATE_DIR="$source_config/spicetify/Themes/text"
+export ISLAND_PGREP_BIN=/usr/bin/true ISLAND_AWWW_DAEMON=/usr/bin/true
+export ISLAND_AWWW_BIN="$test_root/awww"
+export ISLAND_TEST_AWWW_LOG="$test_root/awww.log"
+/usr/bin/mkdir -p "$THEMES_DIR" "$ISLAND_DYNAMIC_WALLPAPERS_DIR" "$XDG_CONFIG_HOME/spicetify/Themes"
+for name in ristretto nord; do
+    /usr/bin/mkdir -p "$THEMES_DIR/$name" "$test_root/static/$name"
+    /usr/bin/ln -s "$test_root/static/$name" "$THEMES_DIR/$name/wallpapers"
+    for file in "$source_config/themes/$name"/*; do
+        [[ -f "$file" && "${file##*/}" != wallpaper.png ]] || continue
+        /usr/bin/cp -L -- "$file" "$THEMES_DIR/$name/"
+    done
+    /usr/bin/magick -size 8x8 xc:'#81a1c1' "$THEMES_DIR/$name/wallpapers/one.png"
+    /usr/bin/magick -size 8x8 xc:'#a3be8c' "$THEMES_DIR/$name/wallpapers/two space.png"
+    /usr/bin/ln -s wallpapers/one.png "$THEMES_DIR/$name/wallpaper.png"
+done
+/usr/bin/magick -size 8x8 xc:'#a3be8c' "$ISLAND_DYNAMIC_WALLPAPERS_DIR/one.png"
+/usr/bin/magick -size 8x8 xc:'#ebcb8b' "$ISLAND_DYNAMIC_WALLPAPERS_DIR/two space.png"
+/usr/bin/ln -s ristretto "$THEMES_DIR/current"
+/usr/bin/ln -s current "$THEMES_DIR/.caelestia-use"
+cat > "$ISLAND_AWWW_BIN" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" != img ]] || printf '%s\n' "$2" >> "$ISLAND_TEST_AWWW_LOG"
+MOCK
+/usr/bin/chmod +x "$ISLAND_AWWW_BIN"
+controller="$integration_dir/island-theme"
+"$controller" initialize
+"$controller" wallpaper "$THEMES_DIR/ristretto/wallpapers/two space.png"
+"$controller" theme nord
+"$controller" theme ristretto
+[[ "$(/usr/bin/tail -1 "$ISLAND_TEST_AWWW_LOG")" == "$test_root/static/ristretto/two space.png" ]]
+[[ "$(/usr/bin/readlink -f "$THEMES_DIR/ristretto/wallpaper.png")" == "$test_root/static/ristretto/one.png" ]]
+"$controller" theme dynamic > "$test_root/dynamic.log" 2>&1
+"$controller" wallpaper "$ISLAND_DYNAMIC_WALLPAPERS_DIR/two space.png" >> "$test_root/dynamic.log" 2>&1
+"$controller" mode light >> "$test_root/dynamic.log" 2>&1
+"$controller" variant expressive >> "$test_root/dynamic.log" 2>&1
+"$controller" restore >> "$test_root/dynamic.log" 2>&1
+"$controller" ui | /usr/bin/jq -e '.label == "dynamic" and .theme.mode == "light" and .theme.variant == "expressive"' >/dev/null
+[[ "$(/usr/bin/tail -1 "$ISLAND_TEST_AWWW_LOG")" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/two space.png" ]]
+[[ "$(/usr/bin/readlink "$THEMES_DIR/.caelestia-use")" == .dynamic/island ]]
+[[ -f "$THEMES_DIR/.dynamic/island/.island-generated" && ! -e "$THEMES_DIR/.dynamic/caelestia" && ! -e "$THEMES_DIR/.dynamic/noctalia" ]]
+"$controller" theme nord
+"$controller" theme dynamic >> "$test_root/dynamic.log" 2>&1
+"$controller" ui | /usr/bin/jq -e '.theme.mode == "light" and .theme.variant == "expressive"' >/dev/null
+printf '%s\n' '{"exclusiveZone":38,"topMargin":10}' > "$ISLAND_STATE_DIR/settings.json"
+"$controller" ui | /usr/bin/jq -e '.settings.reservedSpaceBelow == 38 and (.settings | has("exclusiveZone") | not)' >/dev/null
+"$controller" setting reservedSpaceBelow 0
+"$controller" ui | /usr/bin/jq -e '.settings.reservedSpaceBelow == 0' >/dev/null
+"$controller" setting reservedSpaceBelow 65
+"$controller" ui | /usr/bin/jq -e '.settings.reservedSpaceBelow == 65' >/dev/null
+if "$controller" setting reservedSpaceBelow -1 > /dev/null 2>&1; then exit 1; fi
+"$controller" setting opacity 0.6
+"$controller" setting visualizer false
+"$controller" ui | /usr/bin/jq -e '.settings.opacity == 0.6 and .settings.visualizer == false' >/dev/null
+before="$(/usr/bin/sha256sum "$ISLAND_STATE_DIR/settings.json")"
+"$controller" --dry-run setting opacity 0.8 >/dev/null
+[[ "$before" == "$(/usr/bin/sha256sum "$ISLAND_STATE_DIR/settings.json")" ]]
+if "$controller" setting opacity 5 > /dev/null 2>&1; then exit 1; fi
+if "$controller" wallpaper "$THEMES_DIR/nord/wallpapers/one.png" > /dev/null 2>&1; then exit 1; fi
+printf 'PASS: real static/dynamic rendering, separate wallpaper memory, mode/variant persistence, settings, input validation, and dry-run preservation\n'
