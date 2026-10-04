@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-launcher.XXXXXX)"
+config_home="$test_root/config"
+settings_file="$test_root/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$test_dir/../theme-functions"
+
+check_settings() {
+    read_settings | /usr/bin/jq -e '.launcherShowAllApps and .launcherMatching == "Fuzzy" and .launcherSearchOrder == "Relevance"' >/dev/null
+    save_setting launcherShowAllApps false
+    save_setting launcherSearchDescriptions true
+    save_setting launcherDefaultOrder 'App list order'
+    save_setting launcherMatching Contains
+    save_setting launcherSearchOrder 'Recently used'
+    local before
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting launcherShowAllApps true >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
+    dry_run=0
+    for invalid in 'launcherShowAllApps yes' 'launcherMatching invalid' 'launcherSearchOrder invalid' 'launcherDefaultOrder Relevance'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
+    done
+    save_setting launcherShowAllApps true
+    save_setting launcherMatching Fuzzy
+    save_setting launcherSearchOrder Relevance
+}
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/sed "s|\"../../|\"file:$test_dir/../../|g" "$test_dir/launcher-views.qml" > "$test_root/views.qml"
+    cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    cat > "$test_root/app-list" <<'APPS'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+    --list) printf '%s\n' '[{"launcher":"kitty.desktop","name":"Kitty","icon":"utilities-terminal"},{"launcher":"launch-obsidian","name":"Obsidian","icon":"application-x-executable"},{"launcher":"brave-browser.desktop","name":"Brave","icon":"web-browser"}]' ;;
+    --launch) printf '%s\n' "$2" > "$TEST_ROOT/launched" ;;
+    *) exit 2 ;;
+esac
+APPS
+    /usr/bin/chmod +x "$test_root/controller"
+}
+
+check_settings
+make_fixture
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    ISLAND_APP_LIST_SCRIPT="$test_root/app-list" ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Could not run launcher views.'
+fi
+if ! /usr/bin/rg -q 'PASS: launcher search' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Launcher views failed.'
+fi
+read_settings | /usr/bin/jq -e '(.launcherShowAllApps | not) and .launcherMatching == "Contains" and .launcherSearchOrder == "Most used"' >/dev/null
+/usr/bin/jq -e '."launch-obsidian".count == 1 and ."launch-obsidian".lastUsed > 0' "$test_root/state/launcher-usage.json" >/dev/null
+[[ "$(/usr/bin/cat "$test_root/launched")" == launch-obsidian ]]
+printf 'PASS: launcher matching, ordering, configured apps, keyboard navigation, monitor ownership, persistence, validation and dry-run\n'

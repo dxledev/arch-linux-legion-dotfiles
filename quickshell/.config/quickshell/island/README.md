@@ -72,3 +72,13 @@ Run `./island/integration/tests/mode-transitions` for the mocked profile matrix 
 Run `bash ./island/integration/tests/workspaces` for saved setting defaults/validation, monitor filtering, persistent and occupied dots, delegate reuse, and interrupted/bidirectional animations in an isolated offscreen Quickshell instance.
 
 Desktop reservation protects the top margin and compact clock height (at least 33 px). `reservedSpaceBelow` controls the visible gap to tiled window borders, accounting for Hyprland's top outer gap. Zero adds no space below the clock. Opening larger panels keeps this reservation stable. Existing `exclusiveZone` settings migrate to this gap when loaded.
+
+## App launcher
+
+`SUPER+SPACE` toggles the native app launcher; `SUPER+ALT+SPACE` toggles the Island navigation menu. Type to search, use Up/Down to select, Enter to launch, and Escape to close.
+
+**Show all apps** defaults to on. Turn it off to use `~/.config/apps.list`, including custom names, icons, and launch commands from `~/bin/app-list`. The default filtered list follows the file's order.
+
+Open **Settings → App launcher**, or the launcher's settings button, for fuzzy/contains matching, optional description/keyword search, and separate default/search ordering. Ordering options include alphabetical, app list order, most used, recently used, and search relevance. Usage is stored in `~/.local/state/island/launcher-usage.json`.
+
+Run `/usr/bin/bash island/integration/tests/launcher` for isolated launcher checks. `APP_LIST` and `ISLAND_APP_LIST_SCRIPT` can override the app list and helper for fixtures; `LauncherService.launch(app, true)` resolves a launch without launching or changing usage.

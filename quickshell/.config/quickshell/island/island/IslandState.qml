@@ -23,6 +23,7 @@ QtObject {
     readonly property int clockSettingsMode: 12
     readonly property int osdSettingsMode: 13
     readonly property int settingsSectionMode: 14
+    readonly property int launcherMode: 15
 
     // =========================================================
     // STATE
@@ -41,6 +42,7 @@ QtObject {
     // =========================================================
 
     readonly property bool modal:
+        mode === launcherMode ||
         mode === navigationMode ||
         mode === settingsMode ||
         mode === settingsSectionMode ||

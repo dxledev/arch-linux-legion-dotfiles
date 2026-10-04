@@ -28,6 +28,8 @@ local function bind(key, description, command, options)
 end
 
 local panels = {
+    { "SUPER + SPACE", "Island App Launcher", "openLauncher" },
+    { "SUPER + ALT + SPACE", "Island Menu", "openNavigation" },
     { "SUPER + SHIFT + CTRL + C", "Island Settings", "openSettings" },
     { "SUPER + ALT + T", "Theme Selector", "openThemeSelector" },
     { "SUPER + CTRL + ALT + SPACE", "Wallpaper Selector", "openWallpaperSelector" },
@@ -44,8 +46,6 @@ local panels = {
 for _, item in ipairs(panels) do bind(item[1], item[2], ipc .. item[3]) end
 
 local desktop = {
-    { "SUPER + SPACE", "App Launcher", home .. "/bin/menu-apps" },
-    { "SUPER + ALT + SPACE", "Menu", home .. "/bin/menu" },
     { "SUPER + ALT + C", "Clipboard", home .. "/bin/menu-clipboard" },
     { "SUPER + SHIFT + L", "Lock Screen", home .. "/bin/system-lock --wait" },
     { "SUPER + S", "Region Screenshot", home .. "/bin/launch-screenshot-clipboard" },

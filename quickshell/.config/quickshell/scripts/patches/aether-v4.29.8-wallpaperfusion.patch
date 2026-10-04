@@ -1,0 +1,1470 @@
+diff --git a/app.go b/app.go
+index a3c09b3..82c18bf 100644
+--- a/app.go
++++ b/app.go
+@@ -23,6 +23,7 @@ import (
+ 	"aether/internal/update"
+ 	"aether/internal/wallhaven"
+ 	"aether/internal/wallpaper"
++	"aether/internal/wallpaperfusion"
+ 	"aether/internal/wallpaperscom"
+ 	"aether/ipc"
+ 
+@@ -32,19 +33,20 @@ import (
+ // App is the main Wails application struct.
+ // All exported methods are automatically bound as frontend API.
+ type App struct {
+-	ctx          context.Context
+-	state        *theme.ThemeState
+-	history      *theme.HistoryManager
+-	writer       *theme.Writer
+-	blueprints   *blueprint.Service
+-	favorites    *favorites.Service
+-	wallhaven    *wallhaven.Client
+-	wallpapers   *wallpaperscom.Client
+-	batch        *batch.Processor
+-	themeWatcher *theme.ThemeWatcher
+-	ipcServer    *ipc.Server
+-	pending      pendingImportState
+-	focusTab     string
++	ctx             context.Context
++	state           *theme.ThemeState
++	history         *theme.HistoryManager
++	writer          *theme.Writer
++	blueprints      *blueprint.Service
++	favorites       *favorites.Service
++	wallhaven       *wallhaven.Client
++	wallpapers      *wallpaperscom.Client
++	wallpaperFusion *wallpaperfusion.Client
++	batch           *batch.Processor
++	themeWatcher    *theme.ThemeWatcher
++	ipcServer       *ipc.Server
++	pending         pendingImportState
++	focusTab        string
+ }
+ 
+ // IsMacOS returns true when running on macOS.
+@@ -91,15 +93,16 @@ func (a *App) StartUpgrade() error {
+ // NewApp creates a new App instance.
+ func NewApp() *App {
+ 	return &App{
+-		state:        newSeededState(),
+-		history:      theme.NewHistoryManager(),
+-		writer:       theme.NewWriter(EmbeddedTemplates, "templates"),
+-		blueprints:   blueprint.NewService(),
+-		favorites:    favorites.NewService(),
+-		wallhaven:    wallhaven.NewClient(),
+-		wallpapers:   wallpaperscom.NewClient(),
+-		batch:        batch.NewProcessor(),
+-		themeWatcher: theme.NewThemeWatcher(),
++		state:           newSeededState(),
++		history:         theme.NewHistoryManager(),
++		writer:          theme.NewWriter(EmbeddedTemplates, "templates"),
++		blueprints:      blueprint.NewService(),
++		favorites:       favorites.NewService(),
++		wallhaven:       wallhaven.NewClient(),
++		wallpapers:      wallpaperscom.NewClient(),
++		wallpaperFusion: wallpaperfusion.NewClient(),
++		batch:           batch.NewProcessor(),
++		themeWatcher:    theme.NewThemeWatcher(),
+ 	}
+ }
+ 
+@@ -757,6 +760,13 @@ func (a *App) SearchWallhaven(params wallhaven.SearchParams) (*wallhaven.SearchR
+ 
+ // DownloadWallpaper downloads a wallpaper from a URL. Returns local path.
+ func (a *App) DownloadWallpaper(imageURL string) (string, error) {
++	if wallpaperfusion.IsDownloadURL(imageURL) {
++		resolved, err := a.wallpaperFusion.ResolveImageURL(imageURL)
++		if err != nil {
++			return "", err
++		}
++		imageURL = resolved
++	}
+ 	return a.wallhaven.Download(imageURL)
+ }
+ 
+diff --git a/app_wallpaperfusion.go b/app_wallpaperfusion.go
+new file mode 100644
+index 0000000..51fb159
+--- /dev/null
++++ b/app_wallpaperfusion.go
+@@ -0,0 +1,15 @@
++package main
++
++import "aether/internal/wallpaperfusion"
++
++func (a *App) SearchWallpaperFusion(params wallpaperfusion.SearchParams) (*wallpaperfusion.SearchResult, error) {
++	return a.wallpaperFusion.Search(params)
++}
++
++func (a *App) GetWallpaperFusionConfig() map[string]interface{} {
++	return readConfigJSON("wallpaperfusion.json")
++}
++
++func (a *App) SaveWallpaperFusionConfig(config map[string]interface{}) error {
++	return writeConfigJSON("wallpaperfusion.json", config)
++}
+diff --git a/app_wallpaperfusion_test.go b/app_wallpaperfusion_test.go
+new file mode 100644
+index 0000000..d26dda3
+--- /dev/null
++++ b/app_wallpaperfusion_test.go
+@@ -0,0 +1,37 @@
++package main
++
++import (
++	"image"
++	_ "image/jpeg"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"aether/internal/wallhaven"
++	"aether/internal/wallpaperfusion"
++)
++
++func TestLiveWallpaperFusionDownload(t *testing.T) {
++	if os.Getenv("AETHER_WALLPAPERFUSION_LIVE_TEST") != "1" {
++		t.Skip("set AETHER_WALLPAPERFUSION_LIVE_TEST=1 to test downloads")
++	}
++	t.Setenv("XDG_DATA_HOME", t.TempDir())
++	app := &App{wallhaven: wallhaven.NewClient(), wallpaperFusion: wallpaperfusion.NewClient()}
++	path, err := app.DownloadWallpaper("https://www.wallpaperfusion.com/Download/29100/?W=-1&H=-1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if filepath.Ext(path) != ".jpg" {
++		t.Fatalf("download has no image extension: %s", path)
++	}
++	file, err := os.Open(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer file.Close()
++	config, format, err := image.DecodeConfig(file)
++	if err != nil || format != "jpeg" || config.Width < 1920 || config.Height < 1080 {
++		t.Fatalf("invalid downloaded image: %+v %s %v", config, format, err)
++	}
++	t.Logf("downloaded %s: %dx%d %s", filepath.Base(path), config.Width, config.Height, format)
++}
+diff --git a/frontend/src/App.svelte b/frontend/src/App.svelte
+index d7069dd..dba21c2 100644
+--- a/frontend/src/App.svelte
++++ b/frontend/src/App.svelte
+@@ -6,6 +6,11 @@
+     import ThemeEditor from '$lib/components/editor/ThemeEditor.svelte';
+     import WallhavenBrowser from '$lib/components/wallhaven/WallhavenBrowser.svelte';
+     import WallpapersComBrowser from '$lib/components/wallpaperscom/WallpapersComBrowser.svelte';
++    import WallpaperFusionBrowser from '$lib/components/wallpaperfusion/WallpaperFusionBrowser.svelte';
++    import {
++        initializeSettings,
++        isWallpaperProviderEnabled,
++    } from '$lib/stores/settings.svelte';
+     import LocalBrowser from '$lib/components/local/LocalBrowser.svelte';
+     import FavoritesView from '$lib/components/favorites/FavoritesView.svelte';
+     import BlueprintsView from '$lib/components/blueprints/BlueprintsView.svelte';
+@@ -41,6 +46,7 @@
+         'editor',
+         'wallhaven',
+         'wallpaperscom',
++        'wallpaperfusion',
+         'local',
+         'favorites',
+         'blueprints',
+@@ -99,6 +105,9 @@
+     import type {main} from '../wailsjs/go/models';
+ 
+     let activeTab = $derived(getActiveTab());
++    $effect(() => {
++        if (!isWallpaperProviderEnabled(activeTab)) setActiveTab('editor');
++    });
+     let commands = $derived(buildCommands());
+ 
+     const TAB_FADE_DURATION = prefersReducedMotion() ? 0 : 100;
+@@ -175,6 +184,7 @@
+ 
+         // Focus a specific tab if requested via --tab flag
+         try {
++            await initializeSettings();
+             const {GetFocusTab} = await import('../wailsjs/go/main/App');
+             const tab = await GetFocusTab();
+             if (tab && isValidTab(tab)) setActiveTab(tab);
+@@ -457,6 +467,8 @@
+                     <WallhavenBrowser />
+                 {:else if activeTab === 'wallpaperscom'}
+                     <WallpapersComBrowser />
++                {:else if activeTab === 'wallpaperfusion'}
++                    <WallpaperFusionBrowser />
+                 {:else if activeTab === 'local'}
+                     <LocalBrowser />
+                 {:else if activeTab === 'favorites'}
+diff --git a/frontend/src/lib/commands/commands.svelte.ts b/frontend/src/lib/commands/commands.svelte.ts
+index ad88729..7aa48c6 100644
+--- a/frontend/src/lib/commands/commands.svelte.ts
++++ b/frontend/src/lib/commands/commands.svelte.ts
+@@ -10,6 +10,7 @@ import {
+     setAdjustments,
+ } from '$lib/stores/theme.svelte';
+ import {DEFAULT_ADJUSTMENTS} from '$lib/types/theme';
++import {isWallpaperProviderEnabled} from '$lib/stores/settings.svelte';
+ import {zoomIn, zoomOut, resetZoom} from '$lib/utils/zoom';
+ import {
+     applyTheme,
+@@ -53,6 +54,15 @@ export function buildCommands(): Command[] {
+             category: 'Navigate',
+             keywords: 'browse online wallpapers daily random',
+             run: () => setActiveTab('wallpaperscom'),
++            visible: () => isWallpaperProviderEnabled('wallpaperscom'),
++        },
++        {
++            id: 'nav.wallpaperfusion',
++            label: 'Go to WallpaperFusion',
++            category: 'Navigate',
++            keywords: 'browse online wallpapers search monitors',
++            run: () => setActiveTab('wallpaperfusion'),
++            visible: () => isWallpaperProviderEnabled('wallpaperfusion'),
+         },
+         {
+             id: 'nav.local',
+diff --git a/frontend/src/lib/components/favorites/FavoritesView.svelte b/frontend/src/lib/components/favorites/FavoritesView.svelte
+index da3ec96..2d5af67 100644
+--- a/frontend/src/lib/components/favorites/FavoritesView.svelte
++++ b/frontend/src/lib/components/favorites/FavoritesView.svelte
+@@ -228,7 +228,7 @@
+             {:else}
+                 <EmptyState
+                     title="No favorites yet"
+-                    body="Tap the heart on any wallpaper in Wallhaven, Wallpapers.com or Local to save it here for quick access."
++                    body="Tap the heart on any wallpaper to save it here for quick access."
+                     actionLabel="Browse Wallhaven"
+                     onaction={() => setActiveTab('wallhaven')}
+                     secondaryLabel="Browse Local"
+@@ -265,11 +265,16 @@
+                         onwallpaperonly={() => applyWallpaperOnly(fav.path)}
+                         onpreview={() => handlePreview(i)}
+                         onaddextra={() => handleAddExtra(fav)}
+-                        sourceLabel={fav.type === 'wallpaperscom'
+-                            ? fav.data?.credit_text || 'Wallpapers.com'
++                        sourceLabel={fav.type === 'wallpaperscom' ||
++                        fav.type === 'wallpaperfusion'
++                            ? fav.data?.credit_text ||
++                              (fav.type === 'wallpaperfusion'
++                                  ? 'WallpaperFusion'
++                                  : 'Wallpapers.com')
+                             : undefined}
+-                        sourceURL={fav.type === 'wallpaperscom'
+-                            ? fav.data?.credit_url || 'https://wallpapers.com/'
++                        sourceURL={fav.type === 'wallpaperscom' ||
++                        fav.type === 'wallpaperfusion'
++                            ? fav.data?.credit_url || fav.data?.url
+                             : undefined}
+                     >
+                         {#snippet thumb()}
+diff --git a/frontend/src/lib/components/layout/ActionBar.svelte b/frontend/src/lib/components/layout/ActionBar.svelte
+index 7b03e66..869db1f 100644
+--- a/frontend/src/lib/components/layout/ActionBar.svelte
++++ b/frontend/src/lib/components/layout/ActionBar.svelte
+@@ -299,7 +299,8 @@
+                         } catch {
+                             isOmarchy = false;
+                         }
+-                    }}>Export</button
++                    }}
++                    >Export</button
+                 >
+ 
+                 <button
+@@ -490,9 +491,11 @@
+             <div class="flex items-center gap-1">
+                 {@render goToEditor()}
+             </div>
+-        {:else if activeTab === 'wallpaperscom'}
++        {:else if activeTab === 'wallpaperscom' || activeTab === 'wallpaperfusion'}
+             <div class="text-fg-dimmed flex items-center gap-2 text-[11px]">
+-                Wallpapers.com
++                {activeTab === 'wallpaperscom'
++                    ? 'Wallpapers.com'
++                    : 'WallpaperFusion'}
+             </div>
+             <div class="flex items-center gap-1">
+                 {@render goToEditor()}
+@@ -514,7 +517,8 @@
+                         } catch {
+                             showToast('Failed to rescan');
+                         }
+-                    }}>Rescan</button
++                    }}
++                    >Rescan</button
+                 >
+             </div>
+             <div class="flex items-center gap-1">
+diff --git a/frontend/src/lib/components/layout/HeaderBar.svelte b/frontend/src/lib/components/layout/HeaderBar.svelte
+index 3d38b1c..0cbcf9e 100644
+--- a/frontend/src/lib/components/layout/HeaderBar.svelte
++++ b/frontend/src/lib/components/layout/HeaderBar.svelte
+@@ -10,6 +10,7 @@
+         type Tab,
+     } from '$lib/stores/ui.svelte';
+     import SearchIcon from '$lib/components/shared/SearchIcon.svelte';
++    import {isWallpaperProviderEnabled} from '$lib/stores/settings.svelte';
+     import aetherLogo from '../../../assets/aether-logo.png';
+ 
+     let sidebarVisible = $derived(getSidebarVisible());
+@@ -41,6 +42,11 @@
+             label: 'Wallpapers.com',
+             icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+         },
++        {
++            id: 'wallpaperfusion',
++            label: 'WallpaperFusion',
++            icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14M3 14l4-4 5 5M12 14l4-4 5 5"/>',
++        },
+         {
+             id: 'local',
+             label: 'Local',
+@@ -112,10 +118,13 @@
+             </svg>
+         </button>
+     {/if}
+-    <nav class="flex flex-1 justify-end gap-0.5">
+-        {#each tabs as tab}
++    <nav
++        class="flex min-w-0 flex-1 gap-0.5 overflow-x-auto"
++        style="--wails-draggable:no-drag"
++    >
++        {#each tabs.filter(tab => isWallpaperProviderEnabled(tab.id)) as tab}
+             <button
+-                class="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-all duration-100
++                class="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-[11px] font-medium transition-all duration-100 first:ml-auto
+           {getActiveTab() === tab.id
+                     ? 'text-accent bg-accent-muted'
+                     : 'text-fg-dimmed hover:text-fg-secondary hover:bg-bg-hover'}"
+@@ -138,7 +147,7 @@
+     </nav>
+ 
+     <div
+-        class="ml-2 flex items-center gap-0.5"
++        class="ml-2 flex shrink-0 items-center gap-0.5"
+         style="--wails-draggable:no-drag"
+     >
+         <button
+diff --git a/frontend/src/lib/components/settings/SettingsView.svelte b/frontend/src/lib/components/settings/SettingsView.svelte
+index 6b67467..bd0d7d9 100644
+--- a/frontend/src/lib/components/settings/SettingsView.svelte
++++ b/frontend/src/lib/components/settings/SettingsView.svelte
+@@ -6,6 +6,24 @@
+     let wallpaperFolder = $derived(
+         getSettings().wallpaperFolder || '~/Wallpapers'
+     );
++    const providers: {
++        key: 'wallpapersComEnabled' | 'wallpaperFusionEnabled';
++        label: string;
++        description: string;
++    }[] = [
++        {
++            key: 'wallpapersComEnabled',
++            label: 'Wallpapers.com',
++            description:
++                'Keyword search, random wallpapers, and the daily selection.',
++        },
++        {
++            key: 'wallpaperFusionEnabled',
++            label: 'WallpaperFusion',
++            description:
++                'Search wallpapers with monitor filters and Load more.',
++        },
++    ];
+ 
+     async function chooseWallpaperFolder() {
+         choosingFolder = true;
+@@ -36,7 +54,7 @@
+         </p>
+         <h1 class="text-fg-primary text-[24px] font-semibold">Settings</h1>
+         <p class="text-fg-dimmed mt-2 max-w-lg text-[12px] leading-relaxed">
+-            Configure where Aether finds local wallpapers.
++            Configure your wallpaper library and online sources.
+         </p>
+     </header>
+ 
+@@ -75,9 +93,7 @@
+                     <div class="text-fg-primary text-[12px] font-medium">
+                         Wallpaper folder
+                     </div>
+-                    <p
+-                        class="text-fg-dimmed mt-1 text-[10px] leading-relaxed"
+-                    >
++                    <p class="text-fg-dimmed mt-1 text-[10px] leading-relaxed">
+                         The Local page scans this folder and all of its
+                         subfolders for images.
+                     </p>
+@@ -100,4 +116,57 @@
+             </div>
+         </div>
+     </section>
++    <section class="mt-8" aria-labelledby="wallpaper-sources-heading">
++        <h2
++            id="wallpaper-sources-heading"
++            class="text-fg-dimmed mb-3 text-[10px] font-medium uppercase tracking-wider"
++        >
++            Wallpaper sources
++        </h2>
++        <div
++            class="border-border bg-bg-secondary divide-border divide-y border"
++        >
++            {#each providers as provider}
++                <div class="flex items-center gap-4 p-4">
++                    <div class="min-w-0 flex-1">
++                        <div class="text-fg-primary text-[12px] font-medium">
++                            {provider.label}
++                        </div>
++                        <p
++                            class="text-fg-dimmed mt-1 text-[10px] leading-relaxed"
++                        >
++                            {provider.description}
++                        </p>
++                    </div>
++                    <button
++                        type="button"
++                        role="switch"
++                        aria-label={provider.label}
++                        aria-checked={getSettings()[provider.key]}
++                        class="focus-visible:outline-accent relative h-5 w-9 shrink-0 border border-transparent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 {getSettings()[
++                            provider.key
++                        ]
++                            ? 'bg-accent'
++                            : 'bg-bg-hover border-border'}"
++                        onclick={() =>
++                            updateSettings({
++                                [provider.key]: !getSettings()[provider.key],
++                            })}
++                    >
++                        <span
++                            class="absolute left-0.5 top-0.5 h-3.5 w-3.5 transition-transform {getSettings()[
++                                provider.key
++                            ]
++                                ? 'bg-accent-fg translate-x-4'
++                                : 'bg-fg-dimmed'}"
++                        ></span>
++                    </button>
++                </div>
++            {/each}
++        </div>
++        <p class="text-fg-dimmed mt-3 text-[10px] leading-relaxed">
++            Enabled sources appear as tabs. Saved favorites remain available
++            when a source is turned off.
++        </p>
++    </section>
+ </div>
+diff --git a/frontend/src/lib/components/wallpaperfusion/WallpaperFusionBrowser.svelte b/frontend/src/lib/components/wallpaperfusion/WallpaperFusionBrowser.svelte
+new file mode 100644
+index 0000000..005ea16
+--- /dev/null
++++ b/frontend/src/lib/components/wallpaperfusion/WallpaperFusionBrowser.svelte
+@@ -0,0 +1,74 @@
++<script lang="ts">
++    import {onMount} from 'svelte';
++    import WallpaperFusionFilters from './WallpaperFusionFilters.svelte';
++    import WallpaperGrid from '$lib/components/wallhaven/WallpaperGrid.svelte';
++    import EmptyState from '$lib/components/shared/EmptyState.svelte';
++    import LoadingState from '$lib/components/shared/LoadingState.svelte';
++    import {
++        getResults,
++        getIsSearching,
++        getError,
++        getHasMore,
++        initialize,
++        loadMore,
++        retry,
++    } from '$lib/stores/wallpaperfusion.svelte';
++
++    onMount(() => {
++        initialize();
++    });
++</script>
++
++<div class="flex h-full flex-col">
++    <WallpaperFusionFilters />
++    {#if getError() && getResults().length > 0}
++        <div
++            class="border-border text-warning flex items-center gap-3 border-b px-3 py-2 text-[11px]"
++            role="status"
++        >
++            <span>{getError()} Showing previous results.</span>
++            <button
++                class="hover:text-fg-primary ml-auto shrink-0"
++                onclick={retry}
++                disabled={getIsSearching()}>Retry</button
++            >
++        </div>
++    {/if}
++    <div class="flex-1 overflow-y-auto p-3">
++        {#if getIsSearching() && getResults().length === 0}
++            <LoadingState message="Searching WallpaperFusion…" />
++        {:else if getResults().length === 0}
++            <EmptyState
++                title={getError()
++                    ? 'Could not load WallpaperFusion'
++                    : 'No wallpapers found'}
++                body={getError() ||
++                    'Try another keyword, or clear the search to browse all wallpapers.'}
++                actionLabel="Retry"
++                onaction={retry}
++            />
++        {:else}
++            <WallpaperGrid wallpapers={getResults()} />
++            <div
++                class="text-fg-dimmed flex flex-col items-center justify-center gap-3 py-5 text-[11px]"
++                role="status"
++            >
++                <span
++                    >{getIsSearching()
++                        ? 'Searching WallpaperFusion…'
++                        : `Showing ${getResults().length} wallpapers`}</span
++                >
++                {#if getHasMore()}
++                    <button
++                        class="border-border text-fg-secondary hover:bg-bg-hover border px-4 py-1.5 disabled:opacity-50"
++                        onclick={loadMore}
++                        disabled={getIsSearching()}
++                        >{getIsSearching() ? 'Loading…' : 'Load more'}</button
++                    >
++                {:else if !getError() && !getIsSearching()}
++                    <span>End of results</span>
++                {/if}
++            </div>
++        {/if}
++    </div>
++</div>
+diff --git a/frontend/src/lib/components/wallpaperfusion/WallpaperFusionFilters.svelte b/frontend/src/lib/components/wallpaperfusion/WallpaperFusionFilters.svelte
+new file mode 100644
+index 0000000..86acbc4
+--- /dev/null
++++ b/frontend/src/lib/components/wallpaperfusion/WallpaperFusionFilters.svelte
+@@ -0,0 +1,73 @@
++<script lang="ts">
++    import {
++        getQuery,
++        setQuery,
++        getSort,
++        setSort,
++        getMonitors,
++        setMonitors,
++        getIsSearching,
++        search,
++    } from '$lib/stores/wallpaperfusion.svelte';
++    import {openURL} from '$lib/utils/browser';
++</script>
++
++<form
++    class="bg-bg-secondary border-border border-b"
++    onsubmit={event => {
++        event.preventDefault();
++        search();
++    }}
++>
++    <div class="flex flex-wrap items-center gap-2 px-3 pb-1.5 pt-2.5">
++        <input
++            type="text"
++            class="bg-bg-surface border-border text-fg-primary focus:border-border-focus min-w-[160px] flex-1 border px-2 py-1.5 text-[12px] outline-none"
++            placeholder="Search WallpaperFusion…"
++            aria-label="Search WallpaperFusion"
++            value={getQuery()}
++            oninput={event => setQuery(event.currentTarget.value)}
++        />
++        <select
++            class="bg-bg-surface border-border text-fg-secondary border px-2 py-1.5 text-[11px] outline-none"
++            aria-label="WallpaperFusion sort order"
++            value={getSort()}
++            onchange={event => setSort(Number(event.currentTarget.value))}
++        >
++            <option value={0}>Most popular</option>
++            <option value={4}>Newest</option>
++            <option value={8}>Highest rated</option>
++            <option value={2}>Most downloaded</option>
++            <option value={5}>Oldest</option>
++        </select>
++        <select
++            class="bg-bg-surface border-border text-fg-secondary border px-2 py-1.5 text-[11px] outline-none"
++            aria-label="WallpaperFusion monitors"
++            value={getMonitors()}
++            onchange={event => setMonitors(Number(event.currentTarget.value))}
++        >
++            <option value={0}>Any monitors</option>
++            <option value={1}>Single monitor</option>
++            <option value={2}>Dual monitors</option>
++            <option value={3}>Triple monitors</option>
++            <option value={4}>Quad monitors</option>
++            <option value={99}>Multiple monitors</option>
++        </select>
++        <button
++            type="submit"
++            class="bg-accent hover:bg-accent-hover text-accent-fg px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
++            disabled={getIsSearching()}>Search</button
++        >
++    </div>
++    <div
++        class="text-fg-dimmed flex flex-wrap items-center gap-3 px-3 py-2 text-[10px]"
++    >
++        <button
++            type="button"
++            class="hover:text-fg-primary"
++            onclick={() => openURL('https://www.wallpaperfusion.com/')}
++            >WallpaperFusion</button
++        >
++        <span>Use Load more to keep browsing the same search.</span>
++    </div>
++</form>
+diff --git a/frontend/src/lib/stores/settings.svelte.ts b/frontend/src/lib/stores/settings.svelte.ts
+index 5f39871..e99e5d0 100644
+--- a/frontend/src/lib/stores/settings.svelte.ts
++++ b/frontend/src/lib/stores/settings.svelte.ts
+@@ -3,6 +3,8 @@ import {SPECIAL_APP_FLAGS} from '$lib/constants/apps';
+ 
+ const defaults: Settings = {
+     wallpaperFolder: '',
++    wallpapersComEnabled: true,
++    wallpaperFusionEnabled: true,
+     includeZed: false,
+     includeVscode: false,
+     includeNeovim: false,
+@@ -13,7 +15,19 @@ const defaults: Settings = {
+ let settings = $state<Settings>({...defaults});
+ 
+ // Load saved settings on startup
+-loadSettings();
++const initialization = loadSettings();
++
++export async function initializeSettings(): Promise<void> {
++    await initialization;
++}
++
++export function isWallpaperProviderEnabled(provider: string): boolean {
++    if (provider === 'wallpaperscom')
++        return settings.wallpapersComEnabled !== false;
++    if (provider === 'wallpaperfusion')
++        return settings.wallpaperFusionEnabled !== false;
++    return true;
++}
+ 
+ async function loadSettings() {
+     try {
+diff --git a/frontend/src/lib/stores/ui.svelte.ts b/frontend/src/lib/stores/ui.svelte.ts
+index 4a5e518..204da36 100644
+--- a/frontend/src/lib/stores/ui.svelte.ts
++++ b/frontend/src/lib/stores/ui.svelte.ts
+@@ -1,9 +1,11 @@
+ import {STORAGE_KEYS} from '$lib/constants/storage';
++import {isWallpaperProviderEnabled} from '$lib/stores/settings.svelte';
+ 
+ export type Tab =
+     | 'editor'
+     | 'wallhaven'
+     | 'wallpaperscom'
++    | 'wallpaperfusion'
+     | 'local'
+     | 'favorites'
+     | 'blueprints'
+@@ -92,7 +94,7 @@ export function setColorPickerModel(m: ColorModel): void {
+ 
+ // --- Actions ---
+ export function setActiveTab(tab: Tab): void {
+-    activeTab = tab;
++    activeTab = isWallpaperProviderEnabled(tab) ? tab : 'editor';
+ }
+ 
+ export function toggleSidebar(): void {
+diff --git a/frontend/src/lib/stores/wallpaperfusion.svelte.ts b/frontend/src/lib/stores/wallpaperfusion.svelte.ts
+new file mode 100644
+index 0000000..7cf87a4
+--- /dev/null
++++ b/frontend/src/lib/stores/wallpaperfusion.svelte.ts
+@@ -0,0 +1,106 @@
++import type {wallpaperfusion} from '../../../wailsjs/go/models';
++
++let query = $state('nature');
++let sort = $state(0);
++let monitors = $state(0);
++let results = $state<wallpaperfusion.Wallpaper[]>([]);
++let searching = $state(false);
++let initialized = false;
++let error = $state('');
++let hasMore = $state(false);
++let nextPage = 0;
++let activeSearch: wallpaperfusion.SearchParams | null = null;
++let failedSearch: wallpaperfusion.SearchParams | null = null;
++let initialization: Promise<void> | null = null;
++
++export const getQuery = () => query;
++export const getSort = () => sort;
++export const getMonitors = () => monitors;
++export const getResults = () => results;
++export const getIsSearching = () => searching;
++export const getError = () => error;
++export const getHasMore = () => hasMore && !error;
++export const setQuery = (value: string) => {
++    query = value;
++};
++export const setSort = (value: number) => {
++    sort = value;
++};
++export const setMonitors = (value: number) => {
++    monitors = value;
++};
++
++export async function initialize(): Promise<void> {
++    if (!initialization) initialization = loadConfig();
++    await initialization;
++    if (!initialized && !searching) await search();
++}
++
++async function loadConfig(): Promise<void> {
++    try {
++        const {GetWallpaperFusionConfig} = await import(
++            '../../../wailsjs/go/main/App'
++        );
++        const config = await GetWallpaperFusionConfig();
++        if (typeof config?.query === 'string') query = config.query;
++        if (
++            Number.isInteger(config?.sort) &&
++            config.sort >= 0 &&
++            config.sort <= 9
++        )
++            sort = config.sort;
++        if ([0, 1, 2, 3, 4, 99].includes(config?.monitors))
++            monitors = config.monitors;
++    } catch {}
++}
++
++async function fetchPage(params: wallpaperfusion.SearchParams): Promise<void> {
++    if (searching) return;
++    searching = true;
++    error = '';
++    try {
++        const {SearchWallpaperFusion, SaveWallpaperFusionConfig} = await import(
++            '../../../wailsjs/go/main/App'
++        );
++        const result = await SearchWallpaperFusion(params);
++        const previous = params.page === 0 ? [] : results;
++        const seen = new Set(previous.map(wallpaper => wallpaper.id));
++        results = [
++            ...previous,
++            ...(result.data || []).filter(wallpaper => {
++                if (seen.has(wallpaper.id)) return false;
++                seen.add(wallpaper.id);
++                return true;
++            }),
++        ];
++        activeSearch = params;
++        nextPage = params.page + 1;
++        hasMore = result.hasMore;
++        failedSearch = null;
++        SaveWallpaperFusionConfig({
++            query: params.q,
++            sort: params.sort,
++            monitors: params.monitors,
++        }).catch(() => {});
++    } catch (cause) {
++        error = String(cause);
++        failedSearch = params;
++    } finally {
++        initialized = true;
++        searching = false;
++    }
++}
++
++export async function search(): Promise<void> {
++    await fetchPage({q: query, sort, monitors, page: 0});
++}
++
++export async function loadMore(): Promise<void> {
++    if (!getHasMore() || !activeSearch) return;
++    await fetchPage({...activeSearch, page: nextPage});
++}
++
++export async function retry(): Promise<void> {
++    if (failedSearch) await fetchPage(failedSearch);
++    else await search();
++}
+diff --git a/frontend/src/lib/types/theme.ts b/frontend/src/lib/types/theme.ts
+index 1268d8b..d7bd711 100644
+--- a/frontend/src/lib/types/theme.ts
++++ b/frontend/src/lib/types/theme.ts
+@@ -64,6 +64,8 @@ export interface Blueprint {
+ 
+ export interface Settings {
+     wallpaperFolder: string;
++    wallpapersComEnabled: boolean;
++    wallpaperFusionEnabled: boolean;
+     includeZed: boolean;
+     includeVscode: boolean;
+     includeNeovim: boolean;
+diff --git a/frontend/wailsjs/go/main/App.d.ts b/frontend/wailsjs/go/main/App.d.ts
+index d032bbc..b45b2d0 100755
+--- a/frontend/wailsjs/go/main/App.d.ts
++++ b/frontend/wailsjs/go/main/App.d.ts
+@@ -8,6 +8,7 @@ import {ipc} from '../models';
+ import {omarchy} from '../models';
+ import {wallpaper} from '../models';
+ import {wallhaven} from '../models';
++import {wallpaperfusion} from '../models';
+ import {wallpaperscom} from '../models';
+ 
+ export function AdjustPaletteColors(
+@@ -89,6 +90,8 @@ export function GetThumbnail(arg1: string): Promise<string>;
+ 
+ export function GetWallhavenConfig(): Promise<Record<string, any>>;
+ 
++export function GetWallpaperFusionConfig(): Promise<Record<string, any>>;
++
+ export function GetWallpaperTags(): Promise<Record<string, any>>;
+ 
+ export function GetWallpapersComConfig(): Promise<Record<string, any>>;
+@@ -139,6 +142,10 @@ export function SaveSettings(arg1: Record<string, any>): Promise<void>;
+ 
+ export function SaveWallhavenConfig(arg1: Record<string, any>): Promise<void>;
+ 
++export function SaveWallpaperFusionConfig(
++    arg1: Record<string, any>
++): Promise<void>;
++
+ export function SaveWallpaperTags(arg1: Record<string, any>): Promise<void>;
+ 
+ export function SaveWallpapersComConfig(
+@@ -151,6 +158,10 @@ export function SearchWallhaven(
+     arg1: wallhaven.SearchParams
+ ): Promise<wallhaven.SearchResult>;
+ 
++export function SearchWallpaperFusion(
++    arg1: wallpaperfusion.SearchParams
++): Promise<wallpaperfusion.SearchResult>;
++
+ export function SearchWallpapersCom(
+     arg1: wallpaperscom.SearchParams
+ ): Promise<wallpaperscom.SearchResult>;
+diff --git a/frontend/wailsjs/go/main/App.js b/frontend/wailsjs/go/main/App.js
+index 9a68231..791bafc 100755
+--- a/frontend/wailsjs/go/main/App.js
++++ b/frontend/wailsjs/go/main/App.js
+@@ -130,6 +130,10 @@ export function GetWallhavenConfig() {
+     return window['go']['main']['App']['GetWallhavenConfig']();
+ }
+ 
++export function GetWallpaperFusionConfig() {
++    return window['go']['main']['App']['GetWallpaperFusionConfig']();
++}
++
+ export function GetWallpaperTags() {
+     return window['go']['main']['App']['GetWallpaperTags']();
+ }
+@@ -222,6 +226,10 @@ export function SaveWallhavenConfig(arg1) {
+     return window['go']['main']['App']['SaveWallhavenConfig'](arg1);
+ }
+ 
++export function SaveWallpaperFusionConfig(arg1) {
++    return window['go']['main']['App']['SaveWallpaperFusionConfig'](arg1);
++}
++
+ export function SaveWallpaperTags(arg1) {
+     return window['go']['main']['App']['SaveWallpaperTags'](arg1);
+ }
+@@ -238,6 +246,10 @@ export function SearchWallhaven(arg1) {
+     return window['go']['main']['App']['SearchWallhaven'](arg1);
+ }
+ 
++export function SearchWallpaperFusion(arg1) {
++    return window['go']['main']['App']['SearchWallpaperFusion'](arg1);
++}
++
+ export function SearchWallpapersCom(arg1) {
+     return window['go']['main']['App']['SearchWallpapersCom'](arg1);
+ }
+diff --git a/frontend/wailsjs/go/models.ts b/frontend/wailsjs/go/models.ts
+index 5f47bcb..a125d85 100755
+--- a/frontend/wailsjs/go/models.ts
++++ b/frontend/wailsjs/go/models.ts
+@@ -686,6 +686,99 @@ export namespace wallpaper {
+     }
+ }
+ 
++export namespace wallpaperfusion {
++    export class SearchParams {
++        q: string;
++        page: number;
++        sort: number;
++        monitors: number;
++
++        static createFrom(source: any = {}) {
++            return new SearchParams(source);
++        }
++
++        constructor(source: any = {}) {
++            if ('string' === typeof source) source = JSON.parse(source);
++            this.q = source['q'];
++            this.page = source['page'];
++            this.sort = source['sort'];
++            this.monitors = source['monitors'];
++        }
++    }
++    export class Wallpaper {
++        id: string;
++        url: string;
++        path: string;
++        resolution: string;
++        file_size: number;
++        category: string;
++        purity: string;
++        thumbs: Record<string, string>;
++        title: string;
++        alt: string;
++        source: string;
++        credit_url: string;
++        credit_text: string;
++
++        static createFrom(source: any = {}) {
++            return new Wallpaper(source);
++        }
++
++        constructor(source: any = {}) {
++            if ('string' === typeof source) source = JSON.parse(source);
++            this.id = source['id'];
++            this.url = source['url'];
++            this.path = source['path'];
++            this.resolution = source['resolution'];
++            this.file_size = source['file_size'];
++            this.category = source['category'];
++            this.purity = source['purity'];
++            this.thumbs = source['thumbs'];
++            this.title = source['title'];
++            this.alt = source['alt'];
++            this.source = source['source'];
++            this.credit_url = source['credit_url'];
++            this.credit_text = source['credit_text'];
++        }
++    }
++    export class SearchResult {
++        data: Wallpaper[];
++        page: number;
++        hasMore: boolean;
++
++        static createFrom(source: any = {}) {
++            return new SearchResult(source);
++        }
++
++        constructor(source: any = {}) {
++            if ('string' === typeof source) source = JSON.parse(source);
++            this.data = this.convertValues(source['data'], Wallpaper);
++            this.page = source['page'];
++            this.hasMore = source['hasMore'];
++        }
++
++        convertValues(a: any, classs: any, asMap: boolean = false): any {
++            if (!a) {
++                return a;
++            }
++            if (a.slice && a.map) {
++                return (a as any[]).map(elem =>
++                    this.convertValues(elem, classs)
++                );
++            } else if ('object' === typeof a) {
++                if (asMap) {
++                    for (const key of Object.keys(a)) {
++                        a[key] = new classs(a[key]);
++                    }
++                    return a;
++                }
++                return new classs(a);
++            }
++            return a;
++        }
++    }
++}
++
+ export namespace wallpaperscom {
+     export class SearchParams {
+         q: string;
+diff --git a/internal/favorites/service.go b/internal/favorites/service.go
+index fc542e3..ef60eba 100644
+--- a/internal/favorites/service.go
++++ b/internal/favorites/service.go
+@@ -99,8 +99,8 @@ func (s *Service) GetAll() []Favorite {
+ 
+ 		fav := Favorite{Path: path, Data: make(map[string]interface{})}
+ 
+-		if obj["type"] == "wallpaperscom" {
+-			fav.Type = "wallpaperscom"
++		if obj["type"] == "wallpaperscom" || obj["type"] == "wallpaperfusion" {
++			fav.Type, _ = obj["type"].(string)
+ 			if data, ok := obj["data"].(map[string]interface{}); ok {
+ 				fav.Data = data
+ 			}
+@@ -203,7 +203,7 @@ func (s *Service) rebuildIndex() {
+ 
+ func (s *Service) buildEntry(path, favType string, data map[string]interface{}) interface{} {
+ 	switch favType {
+-	case "wallpaperscom":
++	case "wallpaperscom", "wallpaperfusion":
+ 		return Favorite{Path: path, Type: favType, Data: data}
+ 	case "wallhaven":
+ 		e := wallhavenEntry{Path: path}
+diff --git a/internal/favorites/wallpaperfusion_test.go b/internal/favorites/wallpaperfusion_test.go
+new file mode 100644
+index 0000000..6fc1439
+--- /dev/null
++++ b/internal/favorites/wallpaperfusion_test.go
+@@ -0,0 +1,23 @@
++package favorites
++
++import "testing"
++
++func TestWallpaperFusionFavoriteRoundTrip(t *testing.T) {
++	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
++	path := "https://www.wallpaperfusion.com/Download/29100/?W=-1&H=-1"
++	data := map[string]interface{}{
++		"name": "Peaceful Mountain Lake Sunset", "thumbUrl": "https://binaryfortressdownloads.com/Download/WPF/Images/29100/thumb.jpg",
++		"url":        "https://www.wallpaperfusion.com/Image/peaceful-mountain-lake-sunset/29100/",
++		"credit_url": "https://www.wallpaperfusion.com/Image/peaceful-mountain-lake-sunset/29100/", "credit_text": "WallpaperFusion",
++	}
++	service := NewService()
++	service.Toggle(path, "wallpaperfusion", data)
++	reloaded := NewService()
++	favorites := reloaded.GetAll()
++	if len(favorites) != 1 || favorites[0].Type != "wallpaperfusion" || favorites[0].Data["thumbUrl"] != data["thumbUrl"] || favorites[0].Data["credit_url"] != data["credit_url"] {
++		t.Fatalf("favorite source or metadata lost on reload: %+v", favorites)
++	}
++	if reloaded.Toggle(path, "wallpaperfusion", nil) || len(NewService().GetAll()) != 0 {
++		t.Fatal("favorite removal did not persist")
++	}
++}
+diff --git a/internal/wallpaperfusion/client.go b/internal/wallpaperfusion/client.go
+new file mode 100644
+index 0000000..911adbf
+--- /dev/null
++++ b/internal/wallpaperfusion/client.go
+@@ -0,0 +1,110 @@
++package wallpaperfusion
++
++import (
++	"fmt"
++	"io"
++	"net/http"
++	"net/url"
++	"regexp"
++	"strconv"
++	"strings"
++	"time"
++)
++
++const baseURL = "https://www.wallpaperfusion.com"
++const responseLimit = 4 << 20
++
++var downloadPath = regexp.MustCompile(`^/Download/[1-9][0-9]*/$`)
++
++type Client struct {
++	http    *http.Client
++	baseURL string
++}
++
++func NewClient() *Client {
++	return &Client{http: &http.Client{Timeout: 30 * time.Second}, baseURL: baseURL}
++}
++
++func searchValues(params SearchParams) (url.Values, error) {
++	if params.Page < 0 || params.Sort < 0 || params.Sort > 9 || (params.Monitors < 0 || params.Monitors > 4) && params.Monitors != 99 {
++		return nil, fmt.Errorf("invalid WallpaperFusion search filters")
++	}
++	return url.Values{
++		"ReqID": {"2"}, "Page": {strconv.Itoa(params.Page)},
++		"Text": {strings.TrimSpace(params.Query)}, "Sort": {strconv.Itoa(params.Sort)},
++		"Mon": {strconv.Itoa(params.Monitors)}, "TagShow": {""}, "TagHide": {""},
++		"RateAll": {"0"}, "RateUser": {""}, "SearchWidth": {"0"}, "SearchWidthMod": {"0"},
++		"SearchHeight": {"0"}, "SearchHeightMod": {"0"}, "SubmittersMode": {""},
++		"ArtistsMode": {""}, "ShowFavs": {"0"}, "TagSearchMode": {"0"},
++	}, nil
++}
++
++func (c *Client) Search(params SearchParams) (*SearchResult, error) {
++	values, err := searchValues(params)
++	if err != nil {
++		return nil, err
++	}
++	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/Ajax/BuildSearchResultsHTML/", strings.NewReader(values.Encode()))
++	if err != nil {
++		return nil, err
++	}
++	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++	req.Header.Set("Accept", "text/html")
++	resp, err := c.http.Do(req)
++	if err != nil {
++		return nil, fmt.Errorf("could not reach WallpaperFusion: %w", err)
++	}
++	defer resp.Body.Close()
++	if err := responseStatus(resp); err != nil {
++		return nil, err
++	}
++	body, err := io.ReadAll(io.LimitReader(resp.Body, responseLimit+1))
++	if err != nil || len(body) > responseLimit {
++		return nil, fmt.Errorf("could not read WallpaperFusion search results")
++	}
++	return parseResponse(string(body), params.Page)
++}
++
++func responseStatus(resp *http.Response) error {
++	if resp.StatusCode == http.StatusTooManyRequests {
++		return fmt.Errorf("WallpaperFusion rate limit reached; wait before retrying")
++	}
++	if resp.StatusCode != http.StatusOK {
++		return fmt.Errorf("WallpaperFusion returned HTTP %d", resp.StatusCode)
++	}
++	return nil
++}
++
++func IsDownloadURL(raw string) bool {
++	parsed, err := url.Parse(raw)
++	return err == nil && parsed.Scheme == "https" && parsed.Host == "www.wallpaperfusion.com" && parsed.User == nil && downloadPath.MatchString(parsed.Path)
++}
++
++func (c *Client) ResolveImageURL(raw string) (string, error) {
++	if !IsDownloadURL(raw) {
++		return "", fmt.Errorf("invalid WallpaperFusion download URL")
++	}
++	// Resolve the site's redirect before the shared downloader chooses a filename.
++	req, err := http.NewRequest(http.MethodHead, raw, nil)
++	if err != nil {
++		return "", err
++	}
++	resp, err := c.http.Do(req)
++	if err != nil {
++		return "", fmt.Errorf("could not resolve WallpaperFusion download: %w", err)
++	}
++	defer resp.Body.Close()
++	if err := responseStatus(resp); err != nil {
++		return "", err
++	}
++	imageURL := resp.Request.URL.String()
++	if !imageURLAllowed(imageURL) {
++		return "", fmt.Errorf("WallpaperFusion returned an invalid image URL")
++	}
++	return imageURL, nil
++}
++
++func imageURLAllowed(raw string) bool {
++	parsed, err := url.Parse(raw)
++	return err == nil && parsed.Scheme == "https" && parsed.Host == "binaryfortressdownloads.com" && parsed.User == nil && strings.HasPrefix(parsed.Path, "/Download/WPF/Images/")
++}
+diff --git a/internal/wallpaperfusion/client_test.go b/internal/wallpaperfusion/client_test.go
+new file mode 100644
+index 0000000..46322ae
+--- /dev/null
++++ b/internal/wallpaperfusion/client_test.go
+@@ -0,0 +1,146 @@
++package wallpaperfusion
++
++import (
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++)
++
++func fixture(t *testing.T, name string) string {
++	t.Helper()
++	body, err := os.ReadFile("testdata/" + name + ".txt")
++	if err != nil {
++		t.Fatal(err)
++	}
++	return string(body)
++}
++
++func TestSearchPages(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Method != http.MethodPost || r.URL.Path != "/Ajax/BuildSearchResultsHTML/" {
++			t.Errorf("unexpected search request: %s %s", r.Method, r.URL.Path)
++		}
++		if err := r.ParseForm(); err != nil {
++			t.Error(err)
++		}
++		if r.Form.Get("Text") != "nature & lakes" || r.Form.Get("Sort") != "4" || r.Form.Get("Mon") != "2" {
++			t.Errorf("filters were not encoded correctly: %v", r.Form)
++		}
++		io.WriteString(w, fixture(t, "page"+r.Form.Get("Page")))
++	}))
++	defer server.Close()
++	client := &Client{http: server.Client(), baseURL: server.URL}
++	seen := make(map[string]bool)
++	for page := 0; page < 2; page++ {
++		result, err := client.Search(SearchParams{Query: " nature & lakes ", Page: page, Sort: 4, Monitors: 2})
++		if err != nil {
++			t.Fatal(err)
++		}
++		if len(result.Data) != 2 || result.Page != page || !result.HasMore {
++			t.Fatalf("unexpected page: %+v", result)
++		}
++		for _, wallpaper := range result.Data {
++			if seen[wallpaper.ID] || !IsDownloadURL(wallpaper.Path) || wallpaper.Source != "wallpaperfusion" || wallpaper.CreditURL != wallpaper.URL || !imageURLAllowed(wallpaper.Thumbs["small"]) {
++				t.Fatalf("invalid or repeated wallpaper: %+v", wallpaper)
++			}
++			seen[wallpaper.ID] = true
++		}
++	}
++}
++
++func TestSearchResponseValidation(t *testing.T) {
++	body := fixture(t, "page0")
++	for name, response := range map[string]string{
++		"unexpected layout":   "<html>Service unavailable</html>",
++		"wrong request":       strings.Replace(body, "2:::", "3:::", 1),
++		"untrusted thumbnail": strings.ReplaceAll(body, "binaryfortressdownloads.com", "example.com"),
++		"untrusted page":      strings.ReplaceAll(body, "www.wallpaperfusion.com/Image/", "example.com/Image/"),
++	} {
++		t.Run(name, func(t *testing.T) {
++			if _, err := parseResponse(response, 0); err == nil {
++				t.Fatal("expected a clear error instead of silently empty results")
++			}
++		})
++	}
++	parts := strings.SplitN(body, ":::", 13)
++	parts[7], parts[11] = "<p>No matches</p>", "True"
++	result, err := parseResponse(strings.Join(parts, ":::"), 0)
++	if err != nil || len(result.Data) != 0 || result.HasMore || result.Data == nil {
++		t.Fatalf("no matches was not handled: %+v, %v", result, err)
++	}
++	parts[7] = `<a class="ImageThumbBorder" href="https://www.wallpaperfusion.com/Image/lakes/12/"><span class="ImageThumb" style="background-image:url('https://binaryfortressdownloads.com/Download/WPF/Images/12/thumb.jpg');"></span><span class="ImageThumbHoverTitle">Lakes &amp; <b>Mountains</b></span></a>`
++	parts[7] += parts[7]
++	result, err = parseResponse(strings.Join(parts, ":::"), 0)
++	if err != nil || len(result.Data) != 1 || result.Data[0].Title != "Lakes & Mountains" {
++		t.Fatalf("HTML decoding or deduplication failed: %+v, %v", result, err)
++	}
++}
++
++func TestSearchFailure(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.WriteHeader(http.StatusTooManyRequests)
++	}))
++	defer server.Close()
++	client := &Client{http: server.Client(), baseURL: server.URL}
++	if _, err := client.Search(SearchParams{}); err == nil || !strings.Contains(err.Error(), "rate limit") {
++		t.Fatalf("expected rate-limit feedback: %v", err)
++	}
++	if _, err := client.Search(SearchParams{Page: -1}); err == nil {
++		t.Fatal("negative page accepted")
++	}
++}
++
++type roundTripFunc func(*http.Request) (*http.Response, error)
++
++func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
++
++func TestResolveDownloadRedirect(t *testing.T) {
++	for _, target := range []string{"https://binaryfortressdownloads.com/Download/WPF/Images/12/original.jpg", "https://example.com/original.jpg"} {
++		client := NewClient()
++		client.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
++			if r.Method != http.MethodHead {
++				t.Errorf("download resolution fetched the image body: %s", r.Method)
++			}
++			response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}
++			if IsDownloadURL(r.URL.String()) {
++				response.StatusCode = http.StatusFound
++				response.Header.Set("Location", target)
++			}
++			return response, nil
++		})
++		resolved, err := client.ResolveImageURL(baseURL + "/Download/12/?W=-1&H=-1")
++		if imageURLAllowed(target) && (err != nil || resolved != target) {
++			t.Fatalf("redirect did not resolve: %s, %v", resolved, err)
++		}
++		if !imageURLAllowed(target) && err == nil {
++			t.Fatal("untrusted download origin accepted")
++		}
++	}
++}
++
++func TestLiveSearchPagination(t *testing.T) {
++	if os.Getenv("AETHER_WALLPAPERFUSION_LIVE_TEST") != "1" {
++		t.Skip("set AETHER_WALLPAPERFUSION_LIVE_TEST=1 to test the public source")
++	}
++	client := NewClient()
++	seen := make(map[string]bool)
++	for page := 0; page < 2; page++ {
++		result, err := client.Search(SearchParams{Query: "nature", Page: page})
++		if err != nil {
++			t.Fatal(err)
++		}
++		if len(result.Data) == 0 || !result.HasMore {
++			t.Fatalf("missing live results on page %d: %+v", page, result)
++		}
++		for _, wallpaper := range result.Data {
++			if seen[wallpaper.ID] {
++				t.Fatalf("pagination repeated wallpaper %s", wallpaper.ID)
++			}
++			seen[wallpaper.ID] = true
++		}
++		t.Logf("page %d: %d wallpapers", page, len(result.Data))
++	}
++}
+diff --git a/internal/wallpaperfusion/parser.go b/internal/wallpaperfusion/parser.go
+new file mode 100644
+index 0000000..f28cd82
+--- /dev/null
++++ b/internal/wallpaperfusion/parser.go
+@@ -0,0 +1,104 @@
++package wallpaperfusion
++
++import (
++	"fmt"
++	"regexp"
++	"strings"
++
++	"golang.org/x/net/html"
++)
++
++var imagePage = regexp.MustCompile(`^https://www\.wallpaperfusion\.com/Image/[^/?#]+/([1-9][0-9]*)/$`)
++var backgroundImage = regexp.MustCompile(`background-image\s*:\s*url\(\s*["']?([^\s"')]+)["']?\s*\)`)
++
++func parseResponse(body string, page int) (*SearchResult, error) {
++	parts := strings.SplitN(body, ":::", 13)
++	if len(parts) != 13 || parts[0] != "2" || (strings.ToLower(parts[11]) != "true" && strings.ToLower(parts[11]) != "false") {
++		return nil, fmt.Errorf("WallpaperFusion returned an invalid search response")
++	}
++	root, err := html.Parse(strings.NewReader(parts[7]))
++	if err != nil {
++		return nil, fmt.Errorf("could not parse WallpaperFusion results")
++	}
++	result := &SearchResult{Data: []Wallpaper{}, Page: page, HasMore: strings.ToLower(parts[11]) == "false"}
++	seen := make(map[string]bool)
++	cardCount := 0
++	walk(root, func(node *html.Node) {
++		if node.Type != html.ElementNode || node.Data != "a" || !hasClass(node, "ImageThumbBorder") {
++			return
++		}
++		cardCount++
++		wallpaper, ok := parseCard(node)
++		if ok && !seen[wallpaper.ID] {
++			result.Data = append(result.Data, wallpaper)
++			seen[wallpaper.ID] = true
++		}
++	})
++	if len(result.Data) == 0 && (cardCount > 0 || result.HasMore) {
++		return nil, fmt.Errorf("WallpaperFusion's result format has changed; try again later")
++	}
++	return result, nil
++}
++
++func parseCard(node *html.Node) (Wallpaper, bool) {
++	pageURL := attribute(node, "href")
++	match := imagePage.FindStringSubmatch(pageURL)
++	if len(match) != 2 {
++		return Wallpaper{}, false
++	}
++	var title, thumb string
++	walk(node, func(child *html.Node) {
++		if hasClass(child, "ImageThumbHoverTitle") {
++			title = strings.TrimSpace(nodeText(child))
++		}
++		if hasClass(child, "ImageThumb") {
++			if image := backgroundImage.FindStringSubmatch(attribute(child, "style")); len(image) == 2 {
++				thumb = image[1]
++			}
++		}
++	})
++	if title == "" || !imageURLAllowed(thumb) {
++		return Wallpaper{}, false
++	}
++	return Wallpaper{
++		ID: "wallpaperfusion-" + match[1], URL: pageURL,
++		Path:   baseURL + "/Download/" + match[1] + "/?W=-1&H=-1",
++		Thumbs: map[string]string{"small": thumb, "large": thumb, "original": thumb},
++		Title:  title, Alt: title, Source: "wallpaperfusion", CreditURL: pageURL, CreditText: "WallpaperFusion",
++	}, true
++}
++
++func walk(node *html.Node, visit func(*html.Node)) {
++	visit(node)
++	for child := node.FirstChild; child != nil; child = child.NextSibling {
++		walk(child, visit)
++	}
++}
++
++func attribute(node *html.Node, key string) string {
++	for _, attr := range node.Attr {
++		if attr.Key == key {
++			return attr.Val
++		}
++	}
++	return ""
++}
++
++func hasClass(node *html.Node, class string) bool {
++	for _, value := range strings.Fields(attribute(node, "class")) {
++		if value == class {
++			return true
++		}
++	}
++	return false
++}
++
++func nodeText(node *html.Node) string {
++	var text strings.Builder
++	walk(node, func(child *html.Node) {
++		if child.Type == html.TextNode {
++			text.WriteString(child.Data)
++		}
++	})
++	return text.String()
++}
+diff --git a/internal/wallpaperfusion/testdata/page0.txt b/internal/wallpaperfusion/testdata/page0.txt
+new file mode 100644
+index 0000000..7d7d707
+--- /dev/null
++++ b/internal/wallpaperfusion/testdata/page0.txt
+@@ -0,0 +1,2 @@
++2:::::::::::::::::::::<a href="https://www.wallpaperfusion.com/Image/reflective-world/2877/" class="col-auto BoxWrap ImageThumbBorder"><span class="ImageThumb" style="width:330px; height:140px; background-image:url(https://binaryfortressdownloads.com/Download/WPF/Images/2877/WallpaperFusion-reflective-world-330x140.jpg);" ><span class="ImageThumbHover"><span class="ImageThumbHoverTitle">Reflective World</span></span></span><span class="ImageThumbInfo" style="width:330px;"><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Comment11.png" border="0" alt="31 comments" title="31 comments" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="31 comments">31</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Download11x11.png" border="0" alt="1,520,689 downloads" title="1,520,689 downloads" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="1,520,689 downloads">1.5m</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="margin-right:1px;box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img></span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (533 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (533 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (533 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (533 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (533 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (533 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (533 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (533 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star-half-stroke.grey.light.svg" alt="4.5 stars (533 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (533 ratings)" /></img></span></span></span></a>
++<a href="https://www.wallpaperfusion.com/Image/sunset-at-muriwai-beach/18346/" class="col-auto BoxWrap ImageThumbBorder"><span class="ImageThumb" style="width:330px; height:140px; background-image:url(https://binaryfortressdownloads.com/Download/WPF/Images/18346/WallpaperFusion-sunset-at-muriwai-beach-330x140.jpg);" ><span class="ImageThumbHover"><span class="ImageThumbHoverTitle">Sunset At Muriwai Beach</span></span></span><span class="ImageThumbInfo" style="width:330px;"><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Comment11.png" border="0" alt="18 comments" title="18 comments" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="18 comments">18</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Download11x11.png" border="0" alt="1,249,776 downloads" title="1,249,776 downloads" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="1,249,776 downloads">1.2m</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="margin-right:1px;box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img></span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (459 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (459 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (459 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (459 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (459 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (459 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (459 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (459 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star-half-stroke.grey.light.svg" alt="4.5 stars (459 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (459 ratings)" /></img></span></span></span></a>::::::::::::False:::
+\ No newline at end of file
+diff --git a/internal/wallpaperfusion/testdata/page1.txt b/internal/wallpaperfusion/testdata/page1.txt
+new file mode 100644
+index 0000000..e4ad033
+--- /dev/null
++++ b/internal/wallpaperfusion/testdata/page1.txt
+@@ -0,0 +1,2 @@
++2:::::::::::::::::::::<a href="https://www.wallpaperfusion.com/Image/wiesner-viaduct-rhaetian-railway-switzerland/21400/" class="col-auto BoxWrap ImageThumbBorder"><span class="ImageThumb" style="width:330px; height:140px; background-image:url(https://binaryfortressdownloads.com/Download/WPF/Images/21400/WallpaperFusion-wiesner-viaduct-rhaetian-railway-switzerland-330x140.jpg);" ><span class="ImageThumbHover"><span class="ImageThumbHoverTitle">Wiesner Viaduct & Rhaetian Railway (Switzerland)</span></span></span><span class="ImageThumbInfo" style="width:330px;"><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Comment11.png" border="0" alt="6 comments" title="6 comments" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="6 comments">6</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Download11x11.png" border="0" alt="1,115,731 downloads" title="1,115,731 downloads" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="1,115,731 downloads">1.1m</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="margin-right:1px;box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img></span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (306 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (306 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (306 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (306 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (306 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (306 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (306 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (306 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star-half-stroke.grey.light.svg" alt="4.5 stars (306 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (306 ratings)" /></img></span></span></span></a>
++<a href="https://www.wallpaperfusion.com/Image/sea-moon-waves-art-design/28618/" class="col-auto BoxWrap ImageThumbBorder"><span class="ImageThumb" style="width:330px; height:140px; background-image:url(https://binaryfortressdownloads.com/Download/WPF/Images/28618/WallpaperFusion-sea-moon-waves-art-design-330x140.jpg);" ><span class="ImageThumbHover"><span class="ImageThumbHoverTitle">Sea Moon Waves Art Design</span></span></span><span class="ImageThumbInfo" style="width:330px;"><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="/ImagesCommon/WallpaperFusion/Icons/Download11x11.png" border="0" alt="62,748 downloads" title="62,748 downloads" class="ImageMiddle" /></img></span><span class="OverlayDownloadNumber" title="62,748 downloads">62.7k</span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="margin-right:1px;box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/tv.grey.dark.svg" alt="2 monitors" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="2 monitors" /></img></span></span><span class="OverlayInfoSection"><span class="OverlayIcon"><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (5 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (5 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (5 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (5 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (5 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (5 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star.solid.grey.light.svg" alt="4.5 stars (5 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (5 ratings)" /></img><img src="https://www.wallpaperfusion.com/MediaCommon/SVGs/FontAwesome/star-half-stroke.grey.light.svg" alt="4.5 stars (5 ratings)" style="box-sizing:border-box;position:relative;overflow:hidden;vertical-align:middle !important;width:12px;height:12px;"  data-color  HelpButtonData="4.5 stars (5 ratings)" /></img></span></span></span></a>::::::::::::False:::
+\ No newline at end of file
+diff --git a/internal/wallpaperfusion/types.go b/internal/wallpaperfusion/types.go
+new file mode 100644
+index 0000000..d786475
+--- /dev/null
++++ b/internal/wallpaperfusion/types.go
+@@ -0,0 +1,30 @@
++package wallpaperfusion
++
++type SearchParams struct {
++	Query    string `json:"q"`
++	Page     int    `json:"page"`
++	Sort     int    `json:"sort"`
++	Monitors int    `json:"monitors"`
++}
++
++type Wallpaper struct {
++	ID         string            `json:"id"`
++	URL        string            `json:"url"`
++	Path       string            `json:"path"`
++	Resolution string            `json:"resolution"`
++	FileSize   int64             `json:"file_size"`
++	Category   string            `json:"category"`
++	Purity     string            `json:"purity"`
++	Thumbs     map[string]string `json:"thumbs"`
++	Title      string            `json:"title"`
++	Alt        string            `json:"alt"`
++	Source     string            `json:"source"`
++	CreditURL  string            `json:"credit_url"`
++	CreditText string            `json:"credit_text"`
++}
++
++type SearchResult struct {
++	Data    []Wallpaper `json:"data"`
++	Page    int         `json:"page"`
++	HasMore bool        `json:"hasMore"`
++}

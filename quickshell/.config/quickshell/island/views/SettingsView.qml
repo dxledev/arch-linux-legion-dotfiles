@@ -11,6 +11,7 @@ SettingsPanel {
     backAction: () => IslandController.openNavigation()
     escapeAction: () => IslandController.reset()
     readonly property var sections: [
+        {key: "launcher", title: "App launcher", icon: "../assets/icons/apps.svg"},
         {key: "appearance", title: "Appearance", icon: "../assets/icons/display.svg"},
         {key: "clock", title: "Clock", icon: "../assets/icons/clock.svg"},
         {key: "osd", title: "OSD", icon: "../assets/icons/osd.svg"},

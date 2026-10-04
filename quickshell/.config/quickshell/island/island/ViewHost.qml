@@ -57,6 +57,9 @@ Item {
 
             switch (root.mode) {
 
+            case IslandState.launcherMode:
+                return launcherView
+
             case IslandState.navigationMode:
                 return navigationView
 
@@ -65,6 +68,7 @@ Item {
 
             case IslandState.settingsSectionMode:
                 switch (IslandState.settingsSection) {
+                case "launcher": return launcherSettingsView
                 case "appearance": return appearanceSettingsView
                 case "clock": return clockSettingsView
                 case "osd": return osdSettingsView
@@ -115,6 +119,8 @@ Item {
         }
     }
 
+    Component { id: launcherView; LauncherView {} }
+    Component { id: launcherSettingsView; LauncherSettingsView {} }
     Component { id: navigationView; NavigationView {} }
     Component { id: settingsView; SettingsView {} }
     Component { id: wallpaperAnimationSettingsView; WallpaperAnimationSettingsView {} }

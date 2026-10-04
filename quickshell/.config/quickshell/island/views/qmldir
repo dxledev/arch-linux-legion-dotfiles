@@ -10,6 +10,8 @@ NotificationView 1.0 NotificationView.qml
 OverlayView 1.0 OverlayView.qml
 PowerMenuView 1.0 PowerMenuView.qml
 SettingsView 1.0 SettingsView.qml
+LauncherView 1.0 LauncherView.qml
+LauncherSettingsView 1.0 LauncherSettingsView.qml
 ShellSwitcherView 1.0 ShellSwitcherView.qml
 ThemeSelectorView 1.0 ThemeSelectorView.qml
 WallpaperSelectorView 1.0 WallpaperSelectorView.qml

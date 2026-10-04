@@ -9,7 +9,7 @@ import "../services"
 QtObject {
     id: root
 
-    readonly property var settingsSections: ["appearance", "clock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
+    readonly property var settingsSections: ["launcher", "appearance", "clock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
 
     function focusedPanelMonitorName() {
         const screen = ThemeService.islandScreens.find(screen => screen.name === Hyprland.focusedMonitor?.name)
@@ -66,6 +66,8 @@ QtObject {
         IslandState.settingsSection = section
         setMode(IslandState.settingsSectionMode)
     }
+
+    function openLauncher() { setMode(IslandState.launcherMode) }
 
     function openSettings() { setMode(IslandState.settingsMode) }
     function openClockSettings() { setMode(IslandState.clockSettingsMode) }

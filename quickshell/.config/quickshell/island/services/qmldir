@@ -18,6 +18,7 @@ singleton PowerService 1.0 PowerService.qml
 BrightnessOsdEvent 1.0 BrightnessOsdEvent.qml
 StatusWatcher 1.0 StatusWatcher.qml
 singleton OsdSettings 1.0 OsdSettings.qml
+singleton LauncherService 1.0 LauncherService.qml
 singleton ThemeService 1.0 ThemeService.qml
 singleton WallpaperService 1.0 WallpaperService.qml
 singleton WifiService 1.0 WifiService.qml

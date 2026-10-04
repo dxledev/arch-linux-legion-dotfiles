@@ -1,0 +1,1286 @@
+diff --git a/app.go b/app.go
+index 161eef1..a3c09b3 100644
+--- a/app.go
++++ b/app.go
+@@ -23,6 +23,7 @@ import (
+ 	"aether/internal/update"
+ 	"aether/internal/wallhaven"
+ 	"aether/internal/wallpaper"
++	"aether/internal/wallpaperscom"
+ 	"aether/ipc"
+ 
+ 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
+@@ -38,6 +39,7 @@ type App struct {
+ 	blueprints   *blueprint.Service
+ 	favorites    *favorites.Service
+ 	wallhaven    *wallhaven.Client
++	wallpapers   *wallpaperscom.Client
+ 	batch        *batch.Processor
+ 	themeWatcher *theme.ThemeWatcher
+ 	ipcServer    *ipc.Server
+@@ -95,6 +97,7 @@ func NewApp() *App {
+ 		blueprints:   blueprint.NewService(),
+ 		favorites:    favorites.NewService(),
+ 		wallhaven:    wallhaven.NewClient(),
++		wallpapers:   wallpaperscom.NewClient(),
+ 		batch:        batch.NewProcessor(),
+ 		themeWatcher: theme.NewThemeWatcher(),
+ 	}
+diff --git a/app_wallpaperscom.go b/app_wallpaperscom.go
+new file mode 100644
+index 0000000..069168e
+--- /dev/null
++++ b/app_wallpaperscom.go
+@@ -0,0 +1,15 @@
++package main
++
++import "aether/internal/wallpaperscom"
++
++func (a *App) SearchWallpapersCom(params wallpaperscom.SearchParams) (*wallpaperscom.SearchResult, error) {
++	return a.wallpapers.Search(params)
++}
++
++func (a *App) GetWallpapersComConfig() map[string]interface{} {
++	return readConfigJSON("wallpaperscom.json")
++}
++
++func (a *App) SaveWallpapersComConfig(config map[string]interface{}) error {
++	return writeConfigJSON("wallpaperscom.json", config)
++}
+diff --git a/frontend/src/App.svelte b/frontend/src/App.svelte
+index 28f6112..d7069dd 100644
+--- a/frontend/src/App.svelte
++++ b/frontend/src/App.svelte
+@@ -5,6 +5,7 @@
+     import ActionBar from '$lib/components/layout/ActionBar.svelte';
+     import ThemeEditor from '$lib/components/editor/ThemeEditor.svelte';
+     import WallhavenBrowser from '$lib/components/wallhaven/WallhavenBrowser.svelte';
++    import WallpapersComBrowser from '$lib/components/wallpaperscom/WallpapersComBrowser.svelte';
+     import LocalBrowser from '$lib/components/local/LocalBrowser.svelte';
+     import FavoritesView from '$lib/components/favorites/FavoritesView.svelte';
+     import BlueprintsView from '$lib/components/blueprints/BlueprintsView.svelte';
+@@ -39,6 +40,7 @@
+     const VALID_TABS: readonly Tab[] = [
+         'editor',
+         'wallhaven',
++        'wallpaperscom',
+         'local',
+         'favorites',
+         'blueprints',
+@@ -453,6 +455,8 @@
+                     <ThemeEditor />
+                 {:else if activeTab === 'wallhaven'}
+                     <WallhavenBrowser />
++                {:else if activeTab === 'wallpaperscom'}
++                    <WallpapersComBrowser />
+                 {:else if activeTab === 'local'}
+                     <LocalBrowser />
+                 {:else if activeTab === 'favorites'}
+diff --git a/frontend/src/lib/commands/commands.svelte.ts b/frontend/src/lib/commands/commands.svelte.ts
+index 951240b..ad88729 100644
+--- a/frontend/src/lib/commands/commands.svelte.ts
++++ b/frontend/src/lib/commands/commands.svelte.ts
+@@ -47,6 +47,13 @@ export function buildCommands(): Command[] {
+             keywords: 'browse online wallpapers',
+             run: () => setActiveTab('wallhaven'),
+         },
++        {
++            id: 'nav.wallpaperscom',
++            label: 'Go to Wallpapers.com',
++            category: 'Navigate',
++            keywords: 'browse online wallpapers daily random',
++            run: () => setActiveTab('wallpaperscom'),
++        },
+         {
+             id: 'nav.local',
+             label: 'Go to Local',
+diff --git a/frontend/src/lib/components/favorites/FavoritesView.svelte b/frontend/src/lib/components/favorites/FavoritesView.svelte
+index 9a802bb..da3ec96 100644
+--- a/frontend/src/lib/components/favorites/FavoritesView.svelte
++++ b/frontend/src/lib/components/favorites/FavoritesView.svelte
+@@ -228,7 +228,7 @@
+             {:else}
+                 <EmptyState
+                     title="No favorites yet"
+-                    body="Tap the heart on any wallpaper in Wallhaven or Local to save it here for quick access."
++                    body="Tap the heart on any wallpaper in Wallhaven, Wallpapers.com or Local to save it here for quick access."
+                     actionLabel="Browse Wallhaven"
+                     onaction={() => setActiveTab('wallhaven')}
+                     secondaryLabel="Browse Local"
+@@ -265,6 +265,12 @@
+                         onwallpaperonly={() => applyWallpaperOnly(fav.path)}
+                         onpreview={() => handlePreview(i)}
+                         onaddextra={() => handleAddExtra(fav)}
++                        sourceLabel={fav.type === 'wallpaperscom'
++                            ? fav.data?.credit_text || 'Wallpapers.com'
++                            : undefined}
++                        sourceURL={fav.type === 'wallpaperscom'
++                            ? fav.data?.credit_url || 'https://wallpapers.com/'
++                            : undefined}
+                     >
+                         {#snippet thumb()}
+                             {#if getCachedThumbnail(fav.path)}
+diff --git a/frontend/src/lib/components/layout/ActionBar.svelte b/frontend/src/lib/components/layout/ActionBar.svelte
+index e601c60..7b03e66 100644
+--- a/frontend/src/lib/components/layout/ActionBar.svelte
++++ b/frontend/src/lib/components/layout/ActionBar.svelte
+@@ -490,6 +490,13 @@
+             <div class="flex items-center gap-1">
+                 {@render goToEditor()}
+             </div>
++        {:else if activeTab === 'wallpaperscom'}
++            <div class="text-fg-dimmed flex items-center gap-2 text-[11px]">
++                Wallpapers.com
++            </div>
++            <div class="flex items-center gap-1">
++                {@render goToEditor()}
++            </div>
+         {:else if activeTab === 'local'}
+             <div class="flex items-center gap-1">
+                 <button
+diff --git a/frontend/src/lib/components/layout/HeaderBar.svelte b/frontend/src/lib/components/layout/HeaderBar.svelte
+index 1c94de8..3d38b1c 100644
+--- a/frontend/src/lib/components/layout/HeaderBar.svelte
++++ b/frontend/src/lib/components/layout/HeaderBar.svelte
+@@ -36,6 +36,11 @@
+             // Globe
+             icon: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+         },
++        {
++            id: 'wallpaperscom',
++            label: 'Wallpapers.com',
++            icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
++        },
+         {
+             id: 'local',
+             label: 'Local',
+diff --git a/frontend/src/lib/components/shared/WallpaperTile.svelte b/frontend/src/lib/components/shared/WallpaperTile.svelte
+index a7cd2d1..3a6a500 100644
+--- a/frontend/src/lib/components/shared/WallpaperTile.svelte
++++ b/frontend/src/lib/components/shared/WallpaperTile.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
+     import type {Snippet} from 'svelte';
+     import TagPicker from './TagPicker.svelte';
++    import {openURL} from '$lib/utils/browser';
+ 
+     // Shared card for the Local and Favorites wallpaper grids. The thumbnail
+     // source differs per view (lazy-loaded vs preloaded cache), so it arrives
+@@ -18,6 +19,8 @@
+         onaddextra,
+         thumb,
+         topRight,
++        sourceLabel,
++        sourceURL,
+     }: {
+         path: string;
+         name: string;
+@@ -29,6 +32,8 @@
+         onaddextra: () => void;
+         thumb: Snippet;
+         topRight?: Snippet;
++        sourceLabel?: string;
++        sourceURL?: string;
+     } = $props();
+ </script>
+ 
+@@ -105,5 +110,12 @@
+     <div class="flex items-center gap-1.5 px-2 py-1">
+         <TagPicker {path} />
+         <span class="text-fg-dimmed flex-1 truncate text-[10px]">{name}</span>
++        {#if sourceURL}
++            <button
++                class="text-fg-dimmed hover:text-fg-primary relative z-10 shrink-0 text-[10px]"
++                onclick={() => openURL(sourceURL!)}
++                title="Open wallpaper source">{sourceLabel || 'Source'}</button
++            >
++        {/if}
+     </div>
+ </div>
+diff --git a/frontend/src/lib/components/wallhaven/WallpaperCard.svelte b/frontend/src/lib/components/wallhaven/WallpaperCard.svelte
+index 2158a56..1ce43b8 100644
+--- a/frontend/src/lib/components/wallhaven/WallpaperCard.svelte
++++ b/frontend/src/lib/components/wallhaven/WallpaperCard.svelte
+@@ -9,9 +9,12 @@
+     import {getIsApplying} from '$lib/stores/theme.svelte';
+     import {openURL} from '$lib/utils/browser';
+     import {observeIntersection} from '$lib/utils/intersection';
++    import type {BrowsableWallpaper} from '$lib/types/wallpaper';
+ 
+-    let {wallpaper, onpreview}: {wallpaper: any; onpreview: () => void} =
+-        $props();
++    let {
++        wallpaper,
++        onpreview,
++    }: {wallpaper: BrowsableWallpaper; onpreview: () => void} = $props();
+     let isDownloading = $state(false);
+     let isFavorited = $state(false);
+     let cardEl = $state<HTMLDivElement | null>(null);
+@@ -69,11 +72,15 @@
+             );
+             const result = await ToggleFavorite(
+                 wallpaper.path || wallpaper.id,
+-                'wallhaven',
++                wallpaper.source || 'wallhaven',
+                 {
+                     id: wallpaper.id,
+                     thumbUrl: wallpaper.thumbs?.small,
+                     resolution: wallpaper.resolution,
++                    name: wallpaper.title,
++                    url: wallpaper.url,
++                    credit_url: wallpaper.credit_url,
++                    credit_text: wallpaper.credit_text,
+                 }
+             );
+             isFavorited = result;
+@@ -100,7 +107,7 @@
+     }
+ 
+     function handleVisit() {
+-        openURL(`https://wallhaven.cc/w/${wallpaper.id}`);
++        openURL(wallpaper.url || `https://wallhaven.cc/w/${wallpaper.id}`);
+     }
+ 
+     function formatSize(bytes: number): string {
+@@ -121,7 +128,7 @@
+                 src={wallpaper.thumbs?.large ||
+                     wallpaper.thumbs?.original ||
+                     wallpaper.thumbs?.small}
+-                alt={wallpaper.id}
++                alt={wallpaper.alt || wallpaper.title || wallpaper.id}
+                 class="h-full w-full object-cover"
+                 loading="lazy"
+             />
+@@ -178,8 +185,19 @@
+     <div
+         class="text-fg-dimmed flex items-center justify-between px-2 py-1.5 text-[10px]"
+     >
+-        <span>{wallpaper.resolution}</span>
+-        <span>{formatSize(wallpaper.file_size)}</span>
++        <span class="truncate" title={wallpaper.title}
++            >{wallpaper.title || wallpaper.resolution}</span
++        >
++        {#if wallpaper.credit_url}
++            <button
++                class="hover:text-fg-primary relative z-10 ml-2 shrink-0"
++                onclick={() => openURL(wallpaper.credit_url!)}
++                title="Open wallpaper source"
++                >{wallpaper.credit_text || 'Wallpapers.com'}</button
++            >
++        {:else}
++            <span>{formatSize(wallpaper.file_size)}</span>
++        {/if}
+     </div>
+ 
+     <!-- Hover overlay -->
+@@ -214,7 +232,7 @@
+             <button
+                 class="pointer-events-auto px-1 transition-colors hover:text-white"
+                 onclick={handleVisit}
+-                title="Open wallhaven.cc page">Visit</button
++                title="Open wallpaper page">Visit</button
+             >
+         </div>
+     </div>
+diff --git a/frontend/src/lib/components/wallhaven/WallpaperGrid.svelte b/frontend/src/lib/components/wallhaven/WallpaperGrid.svelte
+index 1b2abae..d95400c 100644
+--- a/frontend/src/lib/components/wallhaven/WallpaperGrid.svelte
++++ b/frontend/src/lib/components/wallhaven/WallpaperGrid.svelte
+@@ -2,9 +2,7 @@
+     import WallpaperCard from './WallpaperCard.svelte';
+     import ImagePreview from '$lib/components/shared/ImagePreview.svelte';
+     import {getCardSize, CARD_MIN_WIDTH} from '$lib/stores/cardsize.svelte';
+-    import type {wallhaven} from '../../../../wailsjs/go/models';
+-
+-    type Wallpaper = wallhaven.WallpaperInfo;
++    import type {BrowsableWallpaper as Wallpaper} from '$lib/types/wallpaper';
+ 
+     let {wallpapers}: {wallpapers: Wallpaper[]} = $props();
+     let previewIndex = $state(-1);
+@@ -27,7 +25,9 @@
+ 
+ <ImagePreview
+     src={previewIndex >= 0 ? getPreviewSrc(wallpapers[previewIndex]) : ''}
+-    alt={previewIndex >= 0 ? wallpapers[previewIndex].id : ''}
++    alt={previewIndex >= 0
++        ? wallpapers[previewIndex].title || wallpapers[previewIndex].id
++        : ''}
+     open={previewIndex >= 0}
+     onclose={() => (previewIndex = -1)}
+     hasPrev={previewIndex > 0}
+diff --git a/frontend/src/lib/components/wallpaperscom/WallpapersComBrowser.svelte b/frontend/src/lib/components/wallpaperscom/WallpapersComBrowser.svelte
+new file mode 100644
+index 0000000..659ad32
+--- /dev/null
++++ b/frontend/src/lib/components/wallpaperscom/WallpapersComBrowser.svelte
+@@ -0,0 +1,66 @@
++<script lang="ts">
++    import {onMount} from 'svelte';
++    import WallpapersComFilters from './WallpapersComFilters.svelte';
++    import WallpaperGrid from '$lib/components/wallhaven/WallpaperGrid.svelte';
++    import EmptyState from '$lib/components/shared/EmptyState.svelte';
++    import LoadingState from '$lib/components/shared/LoadingState.svelte';
++    import {
++        getResults,
++        getIsSearching,
++        getError,
++        getTotal,
++        initialize,
++        search,
++    } from '$lib/stores/wallpaperscom.svelte';
++
++    onMount(() => {
++        initialize();
++    });
++</script>
++
++<div class="flex h-full flex-col">
++    <WallpapersComFilters />
++    {#if getError() && getResults().length > 0}
++        <div
++            class="border-border text-warning flex items-center gap-3 border-b px-3 py-2 text-[11px]"
++            role="status"
++        >
++            <span>{getError()} Showing previous results.</span>
++            <button
++                class="hover:text-fg-primary ml-auto shrink-0"
++                onclick={() => search()}
++                disabled={getIsSearching()}>Retry</button
++            >
++        </div>
++    {/if}
++    <div class="flex-1 overflow-y-auto p-3">
++        {#if getIsSearching() && getResults().length === 0}
++            <LoadingState message="Searching Wallpapers.com…" />
++        {:else if getResults().length === 0}
++            <EmptyState
++                title={getError()
++                    ? 'Could not load Wallpapers.com'
++                    : 'No wallpapers found'}
++                body={getError() ||
++                    'Try another keyword, or choose Daily to see today’s wallpaper.'}
++                actionLabel="Retry"
++                onaction={() => search()}
++            />
++        {:else}
++            <WallpaperGrid wallpapers={getResults()} />
++            <div
++                class="text-fg-dimmed flex h-12 items-center justify-center text-[11px]"
++                role="status"
++            >
++                {#if getIsSearching()}
++                    Searching Wallpapers.com…
++                {:else}
++                    Showing {getResults().length}{getTotal() >
++                    getResults().length
++                        ? ` of ${getTotal()}`
++                        : ''} wallpapers
++                {/if}
++            </div>
++        {/if}
++    </div>
++</div>
+diff --git a/frontend/src/lib/components/wallpaperscom/WallpapersComFilters.svelte b/frontend/src/lib/components/wallpaperscom/WallpapersComFilters.svelte
+new file mode 100644
+index 0000000..75810ce
+--- /dev/null
++++ b/frontend/src/lib/components/wallpaperscom/WallpapersComFilters.svelte
+@@ -0,0 +1,122 @@
++<script lang="ts">
++    import {
++        getQuery,
++        setQuery,
++        getLimit,
++        setLimit,
++        getApiKey,
++        setApiKey,
++        getMode,
++        getIsSearching,
++        search,
++        saveConfig,
++    } from '$lib/stores/wallpaperscom.svelte';
++    import {showToast} from '$lib/stores/ui.svelte';
++    import {openURL} from '$lib/utils/browser';
++
++    let keyVisible = $state(false);
++
++    async function saveKey() {
++        try {
++            await saveConfig();
++            showToast('Wallpapers.com settings saved');
++            keyVisible = false;
++        } catch {
++            showToast('Could not save Wallpapers.com settings');
++        }
++    }
++</script>
++
++<form
++    class="bg-bg-secondary border-border border-b"
++    onsubmit={event => {
++        event.preventDefault();
++        search('keyword');
++    }}
++>
++    <div class="flex flex-wrap items-center gap-2 px-3 pb-1.5 pt-2.5">
++        <input
++            type="text"
++            class="bg-bg-surface border-border text-fg-primary focus:border-border-focus min-w-[160px] flex-1 border px-2 py-1.5 text-[12px] outline-none"
++            placeholder="Search a keyword, e.g. Doctor Doom…"
++            aria-label="Search Wallpapers.com"
++            value={getQuery()}
++            oninput={event => setQuery(event.currentTarget.value)}
++        />
++        <select
++            class="bg-bg-surface border-border text-fg-secondary border px-2 py-1.5 text-[11px] outline-none"
++            aria-label="Maximum search results"
++            value={getLimit()}
++            onchange={event => setLimit(Number(event.currentTarget.value))}
++        >
++            <option value={24}>24 results</option>
++            <option value={48}>48 results</option>
++            <option value={60}>60 results</option>
++        </select>
++        <button
++            type="submit"
++            class="bg-accent hover:bg-accent-hover text-accent-fg px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
++            disabled={getIsSearching()}>Search</button
++        >
++        <button
++            type="button"
++            class="border-border text-fg-secondary hover:bg-bg-hover border px-3 py-1.5 text-[11px] disabled:opacity-50"
++            aria-pressed={getMode() === 'random'}
++            disabled={getIsSearching()}
++            title="Random wallpaper matching the keyword; clear it for any wallpaper"
++            onclick={() => search('random')}>Random</button
++        >
++        <button
++            type="button"
++            class="border-border text-fg-secondary hover:bg-bg-hover border px-3 py-1.5 text-[11px] disabled:opacity-50"
++            aria-pressed={getMode() === 'daily'}
++            disabled={getIsSearching()}
++            onclick={() => search('daily')}>Daily</button
++        >
++    </div>
++    <div
++        class="text-fg-dimmed flex flex-wrap items-center gap-3 px-3 py-2 text-[10px]"
++    >
++        <button
++            type="button"
++            class="hover:text-fg-primary"
++            onclick={() => openURL('https://wallpapers.com/')}
++        >
++            Wallpapers.com
++        </button>
++        <span>Check each wallpaper’s license via Visit.</span>
++        <button
++            type="button"
++            class="hover:text-fg-primary ml-auto"
++            aria-expanded={keyVisible}
++            onclick={() => {
++                keyVisible = !keyVisible;
++            }}>{getApiKey() ? 'API key set' : 'API key (optional)'}</button
++        >
++    </div>
++    {#if keyVisible}
++        <div class="flex items-center gap-2 px-3 pb-2">
++            <input
++                type="password"
++                class="bg-bg-surface border-border text-fg-primary min-w-0 flex-1 border px-2 py-1.5 text-[11px] outline-none"
++                aria-label="Wallpapers.com API key"
++                placeholder="Optional Wallpapers.com API key"
++                autocomplete="off"
++                value={getApiKey()}
++                oninput={event => setApiKey(event.currentTarget.value)}
++            />
++            <button
++                type="button"
++                class="text-accent px-2 text-[11px]"
++                onclick={saveKey}>Save</button
++            >
++            <button
++                type="button"
++                class="text-fg-dimmed hover:text-fg-primary text-[10px]"
++                onclick={() =>
++                    openURL('https://wallpapers.com/account/api-keys/')}
++                >Get a key</button
++            >
++        </div>
++    {/if}
++</form>
+diff --git a/frontend/src/lib/stores/ui.svelte.ts b/frontend/src/lib/stores/ui.svelte.ts
+index 543c951..4a5e518 100644
+--- a/frontend/src/lib/stores/ui.svelte.ts
++++ b/frontend/src/lib/stores/ui.svelte.ts
+@@ -3,6 +3,7 @@ import {STORAGE_KEYS} from '$lib/constants/storage';
+ export type Tab =
+     | 'editor'
+     | 'wallhaven'
++    | 'wallpaperscom'
+     | 'local'
+     | 'favorites'
+     | 'blueprints'
+diff --git a/frontend/src/lib/stores/wallpaperscom.svelte.ts b/frontend/src/lib/stores/wallpaperscom.svelte.ts
+new file mode 100644
+index 0000000..d1298e0
+--- /dev/null
++++ b/frontend/src/lib/stores/wallpaperscom.svelte.ts
+@@ -0,0 +1,83 @@
++import type {wallpaperscom} from '../../../wailsjs/go/models';
++
++export type BrowseMode = 'keyword' | 'random' | 'daily';
++
++let query = $state('desktop');
++let limit = $state(24);
++let apiKey = $state('');
++let mode = $state<BrowseMode>('keyword');
++let results = $state<wallpaperscom.Wallpaper[]>([]);
++let total = $state(0);
++let searching = $state(false);
++let initialized = $state(false);
++let error = $state('');
++let initialization: Promise<void> | null = null;
++
++export const getQuery = () => query;
++export const getLimit = () => limit;
++export const getApiKey = () => apiKey;
++export const getMode = () => mode;
++export const getResults = () => results;
++export const getTotal = () => total;
++export const getIsSearching = () => searching;
++export const getError = () => error;
++export const setQuery = (value: string) => {
++    query = value;
++};
++export const setLimit = (value: number) => {
++    limit = value;
++};
++export const setApiKey = (value: string) => {
++    apiKey = value;
++};
++
++export async function initialize(): Promise<void> {
++    if (!initialization) initialization = loadConfig();
++    await initialization;
++    if (!initialized && !searching) await search();
++}
++
++async function loadConfig(): Promise<void> {
++    try {
++        const {GetWallpapersComConfig} = await import(
++            '../../../wailsjs/go/main/App'
++        );
++        const config = await GetWallpapersComConfig();
++        if (typeof config?.query === 'string') query = config.query;
++        if ([24, 48, 60].includes(config?.limit)) limit = config.limit;
++        if (typeof config?.apiKey === 'string') apiKey = config.apiKey;
++    } catch {}
++}
++
++export async function saveConfig(): Promise<void> {
++    const {SaveWallpapersComConfig} = await import(
++        '../../../wailsjs/go/main/App'
++    );
++    await SaveWallpapersComConfig({query, limit, apiKey});
++}
++
++export async function search(nextMode: BrowseMode = mode): Promise<void> {
++    if (searching) return;
++    mode = nextMode;
++    searching = true;
++    error = '';
++    try {
++        const {SearchWallpapersCom} = await import(
++            '../../../wailsjs/go/main/App'
++        );
++        const result = await SearchWallpapersCom({
++            q: query,
++            limit,
++            apiKey,
++            mode,
++        });
++        results = result.data || [];
++        total = result.total || 0;
++        saveConfig().catch(() => {});
++    } catch (cause) {
++        error = String(cause);
++    } finally {
++        initialized = true;
++        searching = false;
++    }
++}
+diff --git a/frontend/src/lib/types/wallpaper.ts b/frontend/src/lib/types/wallpaper.ts
+new file mode 100644
+index 0000000..198cd92
+--- /dev/null
++++ b/frontend/src/lib/types/wallpaper.ts
+@@ -0,0 +1,9 @@
++import type {wallhaven} from '../../../wailsjs/go/models';
++
++export type BrowsableWallpaper = wallhaven.WallpaperInfo & {
++    title?: string;
++    alt?: string;
++    source?: string;
++    credit_url?: string;
++    credit_text?: string;
++};
+diff --git a/frontend/wailsjs/go/main/App.d.ts b/frontend/wailsjs/go/main/App.d.ts
+index cda7eec..d032bbc 100755
+--- a/frontend/wailsjs/go/main/App.d.ts
++++ b/frontend/wailsjs/go/main/App.d.ts
+@@ -8,6 +8,7 @@ import {ipc} from '../models';
+ import {omarchy} from '../models';
+ import {wallpaper} from '../models';
+ import {wallhaven} from '../models';
++import {wallpaperscom} from '../models';
+ 
+ export function AdjustPaletteColors(
+     arg1: Array<string>,
+@@ -72,12 +73,12 @@ export function GetFocusTab(): Promise<string>;
+ 
+ export function GetInitialState(): Promise<theme.StateSnapshot>;
+ 
+-export function GetReleaseStatus(arg1: string): Promise<Record<string, any>>;
+-
+ export function GetPendingExternalImport(): Promise<main.ExternalImportPreview>;
+ 
+ export function GetPreview(arg1: string): Promise<string>;
+ 
++export function GetReleaseStatus(arg1: string): Promise<Record<string, any>>;
++
+ export function GetSettings(): Promise<Record<string, any>>;
+ 
+ export function GetTemplateColors(): Promise<Record<string, Array<string>>>;
+@@ -90,6 +91,8 @@ export function GetWallhavenConfig(): Promise<Record<string, any>>;
+ 
+ export function GetWallpaperTags(): Promise<Record<string, any>>;
+ 
++export function GetWallpapersComConfig(): Promise<Record<string, any>>;
++
+ export function HandleDroppedFiles(arg1: Array<string>): Promise<string>;
+ 
+ export function HandleIPC(arg1: ipc.Request): Promise<ipc.Response>;
+@@ -124,7 +127,9 @@ export function ReadImageAsDataURL(arg1: string): Promise<string>;
+ 
+ export function ResetState(): Promise<void>;
+ 
+-export function SaveAndApplyTheme(arg1: main.SaveAndApplyThemeRequest): Promise<theme.ApplyResult>;
++export function SaveAndApplyTheme(
++    arg1: main.SaveAndApplyThemeRequest
++): Promise<theme.ApplyResult>;
+ 
+ export function SaveBlueprint(arg1: main.SaveBlueprintRequest): Promise<void>;
+ 
+@@ -136,12 +141,20 @@ export function SaveWallhavenConfig(arg1: Record<string, any>): Promise<void>;
+ 
+ export function SaveWallpaperTags(arg1: Record<string, any>): Promise<void>;
+ 
++export function SaveWallpapersComConfig(
++    arg1: Record<string, any>
++): Promise<void>;
++
+ export function ScanLocalWallpapers(): Promise<Array<wallpaper.WallpaperInfo>>;
+ 
+ export function SearchWallhaven(
+     arg1: wallhaven.SearchParams
+ ): Promise<wallhaven.SearchResult>;
+ 
++export function SearchWallpapersCom(
++    arg1: wallpaperscom.SearchParams
++): Promise<wallpaperscom.SearchResult>;
++
+ export function SetExtractionMode(arg1: string): Promise<void>;
+ 
+ export function SetWallhavenAPIKey(arg1: string): Promise<void>;
+diff --git a/frontend/wailsjs/go/main/App.js b/frontend/wailsjs/go/main/App.js
+index 6fa53ec..9a68231 100755
+--- a/frontend/wailsjs/go/main/App.js
++++ b/frontend/wailsjs/go/main/App.js
+@@ -98,10 +98,6 @@ export function GetInitialState() {
+     return window['go']['main']['App']['GetInitialState']();
+ }
+ 
+-export function GetReleaseStatus(arg1) {
+-    return window['go']['main']['App']['GetReleaseStatus'](arg1);
+-}
+-
+ export function GetPendingExternalImport() {
+     return window['go']['main']['App']['GetPendingExternalImport']();
+ }
+@@ -110,6 +106,10 @@ export function GetPreview(arg1) {
+     return window['go']['main']['App']['GetPreview'](arg1);
+ }
+ 
++export function GetReleaseStatus(arg1) {
++    return window['go']['main']['App']['GetReleaseStatus'](arg1);
++}
++
+ export function GetSettings() {
+     return window['go']['main']['App']['GetSettings']();
+ }
+@@ -134,6 +134,10 @@ export function GetWallpaperTags() {
+     return window['go']['main']['App']['GetWallpaperTags']();
+ }
+ 
++export function GetWallpapersComConfig() {
++    return window['go']['main']['App']['GetWallpapersComConfig']();
++}
++
+ export function HandleDroppedFiles(arg1) {
+     return window['go']['main']['App']['HandleDroppedFiles'](arg1);
+ }
+@@ -222,6 +226,10 @@ export function SaveWallpaperTags(arg1) {
+     return window['go']['main']['App']['SaveWallpaperTags'](arg1);
+ }
+ 
++export function SaveWallpapersComConfig(arg1) {
++    return window['go']['main']['App']['SaveWallpapersComConfig'](arg1);
++}
++
+ export function ScanLocalWallpapers() {
+     return window['go']['main']['App']['ScanLocalWallpapers']();
+ }
+@@ -230,6 +238,10 @@ export function SearchWallhaven(arg1) {
+     return window['go']['main']['App']['SearchWallhaven'](arg1);
+ }
+ 
++export function SearchWallpapersCom(arg1) {
++    return window['go']['main']['App']['SearchWallpapersCom'](arg1);
++}
++
+ export function SetExtractionMode(arg1) {
+     return window['go']['main']['App']['SetExtractionMode'](arg1);
+ }
+diff --git a/frontend/wailsjs/go/models.ts b/frontend/wailsjs/go/models.ts
+index 14f24f7..5f47bcb 100755
+--- a/frontend/wailsjs/go/models.ts
++++ b/frontend/wailsjs/go/models.ts
+@@ -685,3 +685,94 @@ export namespace wallpaper {
+         }
+     }
+ }
++
++export namespace wallpaperscom {
++    export class SearchParams {
++        q: string;
++        mode: string;
++        limit: number;
++        apiKey: string;
++
++        static createFrom(source: any = {}) {
++            return new SearchParams(source);
++        }
++
++        constructor(source: any = {}) {
++            if ('string' === typeof source) source = JSON.parse(source);
++            this.q = source['q'];
++            this.mode = source['mode'];
++            this.limit = source['limit'];
++            this.apiKey = source['apiKey'];
++        }
++    }
++    export class Wallpaper {
++        id: string;
++        url: string;
++        path: string;
++        resolution: string;
++        file_size: number;
++        category: string;
++        purity: string;
++        thumbs: Record<string, string>;
++        title: string;
++        alt: string;
++        source: string;
++        credit_url: string;
++        credit_text: string;
++
++        static createFrom(source: any = {}) {
++            return new Wallpaper(source);
++        }
++
++        constructor(source: any = {}) {
++            if ('string' === typeof source) source = JSON.parse(source);
++            this.id = source['id'];
++            this.url = source['url'];
++            this.path = source['path'];
++            this.resolution = source['resolution'];
++            this.file_size = source['file_size'];
++            this.category = source['category'];
++            this.purity = source['purity'];
++            this.thumbs = source['thumbs'];
++            this.title = source['title'];
++            this.alt = source['alt'];
++            this.source = source['source'];
++            this.credit_url = source['credit_url'];
++            this.credit_text = source['credit_text'];
++        }
++    }
++    export class SearchResult {
++        data: Wallpaper[];
++        total: number;
++
++        static createFrom(source: any = {}) {
++            return new SearchResult(source);
++        }
++
++        constructor(source: any = {}) {
++            if ('string' === typeof source) source = JSON.parse(source);
++            this.data = this.convertValues(source['data'], Wallpaper);
++            this.total = source['total'];
++        }
++
++        convertValues(a: any, classs: any, asMap: boolean = false): any {
++            if (!a) {
++                return a;
++            }
++            if (a.slice && a.map) {
++                return (a as any[]).map(elem =>
++                    this.convertValues(elem, classs)
++                );
++            } else if ('object' === typeof a) {
++                if (asMap) {
++                    for (const key of Object.keys(a)) {
++                        a[key] = new classs(a[key]);
++                    }
++                    return a;
++                }
++                return new classs(a);
++            }
++            return a;
++        }
++    }
++}
+diff --git a/internal/favorites/service.go b/internal/favorites/service.go
+index 744928a..fc542e3 100644
+--- a/internal/favorites/service.go
++++ b/internal/favorites/service.go
+@@ -99,7 +99,12 @@ func (s *Service) GetAll() []Favorite {
+ 
+ 		fav := Favorite{Path: path, Data: make(map[string]interface{})}
+ 
+-		if _, ok := obj["id"]; ok {
++		if obj["type"] == "wallpaperscom" {
++			fav.Type = "wallpaperscom"
++			if data, ok := obj["data"].(map[string]interface{}); ok {
++				fav.Data = data
++			}
++		} else if _, ok := obj["id"]; ok {
+ 			// Wallhaven format
+ 			fav.Type = "wallhaven"
+ 			fav.Data["id"] = obj["id"]
+@@ -198,6 +203,8 @@ func (s *Service) rebuildIndex() {
+ 
+ func (s *Service) buildEntry(path, favType string, data map[string]interface{}) interface{} {
+ 	switch favType {
++	case "wallpaperscom":
++		return Favorite{Path: path, Type: favType, Data: data}
+ 	case "wallhaven":
+ 		e := wallhavenEntry{Path: path}
+ 		if data != nil {
+diff --git a/internal/favorites/wallpaperscom_test.go b/internal/favorites/wallpaperscom_test.go
+new file mode 100644
+index 0000000..c323c55
+--- /dev/null
++++ b/internal/favorites/wallpaperscom_test.go
+@@ -0,0 +1,25 @@
++package favorites
++
++import "testing"
++
++func TestWallpapersComFavoriteRoundTrip(t *testing.T) {
++	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
++	path := "https://wallpapers.com/images/high/mountains.jpg"
++	data := map[string]interface{}{
++		"name": "Mountains", "thumbUrl": "https://wallpapers.com/images/thumbnail/mountains.jpg",
++		"url":        "https://wallpapers.com/wallpapers/mountains.html",
++		"credit_url": "https://wallpapers.com/", "credit_text": "Wallpapers.com",
++	}
++	service := NewService()
++	if !service.Toggle(path, "wallpaperscom", data) {
++		t.Fatal("favorite was not added")
++	}
++	reloaded := NewService()
++	favorites := reloaded.GetAll()
++	if len(favorites) != 1 || favorites[0].Type != "wallpaperscom" || favorites[0].Data["thumbUrl"] != data["thumbUrl"] || favorites[0].Data["credit_url"] != data["credit_url"] {
++		t.Fatalf("favorite metadata did not survive reload: %+v", favorites)
++	}
++	if reloaded.Toggle(path, "wallpaperscom", nil) || len(NewService().GetAll()) != 0 {
++		t.Fatal("favorite was not removed")
++	}
++}
+diff --git a/internal/wallpaperscom/client.go b/internal/wallpaperscom/client.go
+new file mode 100644
+index 0000000..04f36bc
+--- /dev/null
++++ b/internal/wallpaperscom/client.go
+@@ -0,0 +1,184 @@
++package wallpaperscom
++
++import (
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++	"net/url"
++	"path"
++	"regexp"
++	"strings"
++	"time"
++)
++
++const baseURL = "https://wallpapers.com/api/v1"
++
++var slugSeparators = regexp.MustCompile(`[^a-z0-9]+`)
++
++type Client struct {
++	http    *http.Client
++	baseURL string
++}
++
++type apiWallpaper struct {
++	ID         json.Number `json:"id"`
++	Title      string      `json:"title"`
++	Alt        string      `json:"alt"`
++	Thumb      string      `json:"thumb"`
++	High       string      `json:"high"`
++	URL        string      `json:"url"`
++	Credit     string      `json:"credit"`
++	CreditText string      `json:"credit_text"`
++	CreditURL  string      `json:"credit_url"`
++}
++
++type apiResponse struct {
++	apiWallpaper
++	Success   bool           `json:"success"`
++	Items     []apiWallpaper `json:"items"`
++	Wallpaper *apiWallpaper  `json:"wallpaper"`
++	Total     int            `json:"total"`
++}
++
++func NewClient() *Client {
++	return &Client{http: &http.Client{Timeout: 30 * time.Second}, baseURL: baseURL}
++}
++
++func searchEndpoint(params SearchParams) (string, error) {
++	query := strings.Trim(slugSeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(params.Query)), "-"), "-")
++	values := url.Values{}
++	switch params.Mode {
++	case "daily":
++		return "/daily-wallpaper", nil
++	case "random":
++		values.Set("type", "wallpaper")
++		if query != "" {
++			values.Set("q", query)
++		}
++		return "/random?" + values.Encode(), nil
++	case "", "keyword":
++		if query == "" {
++			return "", fmt.Errorf("enter a keyword to search Wallpapers.com")
++		}
++		limit := params.Limit
++		if limit <= 0 {
++			limit = 24
++		}
++		if limit > 60 {
++			limit = 60
++		}
++		values.Set("limit", fmt.Sprint(limit))
++		return "/keyword/" + query + "?" + values.Encode(), nil
++	default:
++		return "", fmt.Errorf("unknown Wallpapers.com search mode")
++	}
++}
++
++func (c *Client) Search(params SearchParams) (*SearchResult, error) {
++	endpoint, err := searchEndpoint(params)
++	if err != nil {
++		return nil, err
++	}
++	req, err := http.NewRequest(http.MethodGet, c.baseURL+endpoint, nil)
++	if err != nil {
++		return nil, err
++	}
++	req.Header.Set("Accept", "application/json")
++	if key := strings.TrimSpace(params.APIKey); key != "" {
++		req.Header.Set("X-API-Key", key)
++	}
++	resp, err := c.http.Do(req)
++	if err != nil {
++		return nil, fmt.Errorf("could not reach Wallpapers.com: %w", err)
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode == http.StatusNotFound && params.Mode != "daily" {
++		var missing struct {
++			Message string `json:"msg"`
++		}
++		if json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&missing) == nil && (missing.Message == "no matches" || missing.Message == "unknown keyword") {
++			return &SearchResult{Data: []Wallpaper{}}, nil
++		}
++	}
++	if resp.StatusCode == http.StatusTooManyRequests {
++		return nil, fmt.Errorf("Wallpapers.com rate limit reached; wait a minute before retrying")
++	}
++	if resp.StatusCode != http.StatusOK {
++		return nil, fmt.Errorf("Wallpapers.com returned HTTP %d", resp.StatusCode)
++	}
++	var response apiResponse
++	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&response); err != nil {
++		return nil, fmt.Errorf("Wallpapers.com returned an invalid response")
++	}
++	if !response.Success {
++		return nil, fmt.Errorf("Wallpapers.com could not complete the request")
++	}
++	return normalizeResponse(response), nil
++}
++
++func siteURL(raw string) bool {
++	parsed, err := url.Parse(raw)
++	return err == nil && parsed.Scheme == "https" && parsed.Host == "wallpapers.com" && parsed.User == nil
++}
++
++func normalizeWallpaper(item apiWallpaper) (Wallpaper, bool) {
++	if !siteURL(item.High) || !strings.HasPrefix(item.High, "https://wallpapers.com/images/") {
++		return Wallpaper{}, false
++	}
++	id := item.ID.String()
++	if id == "" {
++		parsed, _ := url.Parse(item.High)
++		id = path.Base(parsed.Path)
++	}
++	thumb := item.Thumb
++	if !siteURL(thumb) {
++		thumb = item.High
++	}
++	pageURL := item.URL
++	if !siteURL(pageURL) {
++		pageURL = "https://wallpapers.com/"
++	}
++	creditURL := item.CreditURL
++	if !siteURL(creditURL) {
++		creditURL = "https://wallpapers.com/"
++	}
++	credit := item.CreditText
++	if credit == "" {
++		credit = item.Credit
++	}
++	if credit == "" {
++		credit = "Wallpapers.com"
++	}
++	title := item.Title
++	if title == "" {
++		title = item.Alt
++	}
++	return Wallpaper{
++		ID: "wallpaperscom-" + id, URL: pageURL, Path: item.High,
++		Thumbs: map[string]string{"small": thumb, "large": thumb, "original": thumb},
++		Title:  title, Alt: item.Alt, Source: "wallpaperscom", CreditURL: creditURL, CreditText: credit,
++	}, true
++}
++
++func normalizeResponse(response apiResponse) *SearchResult {
++	items := response.Items
++	if response.Wallpaper != nil {
++		items = []apiWallpaper{*response.Wallpaper}
++	} else if response.High != "" {
++		items = []apiWallpaper{response.apiWallpaper}
++	}
++	result := &SearchResult{Data: []Wallpaper{}, Total: response.Total}
++	seen := make(map[string]bool)
++	for _, item := range items {
++		wallpaper, ok := normalizeWallpaper(item)
++		if ok && !seen[wallpaper.ID] {
++			result.Data = append(result.Data, wallpaper)
++			seen[wallpaper.ID] = true
++		}
++	}
++	if result.Total < len(result.Data) {
++		result.Total = len(result.Data)
++	}
++	return result
++}
+diff --git a/internal/wallpaperscom/client_test.go b/internal/wallpaperscom/client_test.go
+new file mode 100644
+index 0000000..2a054dd
+--- /dev/null
++++ b/internal/wallpaperscom/client_test.go
+@@ -0,0 +1,145 @@
++package wallpaperscom
++
++import (
++	"fmt"
++	"image"
++	_ "image/jpeg"
++	_ "image/png"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++
++	"aether/internal/wallhaven"
++)
++
++const testWallpaper = `{"id":123,"title":"Mountains","alt":"Snowy mountains","high":"https://wallpapers.com/images/high/mountains.jpg","thumb":"https://wallpapers.com/images/thumbnail/mountains.jpg","url":"https://wallpapers.com/wallpapers/mountains.html","credit":"Wallpapers.com","credit_url":"https://wallpapers.com/"}`
++
++func TestSearchResponseFormats(t *testing.T) {
++	tests := []struct {
++		name, mode, response, endpoint string
++	}{
++		{"keyword", "keyword", `{"success":true,"total":9,"items":[` + testWallpaper + `]}`, "/keyword/doctor-doom"},
++		{"random", "random", `{"success":true,"wallpaper":` + testWallpaper + `}`, "/random"},
++		{"daily", "daily", `{"success":true,` + strings.TrimPrefix(testWallpaper, "{"), "/daily-wallpaper"},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				if r.URL.Path != tc.endpoint || r.Header.Get("X-API-Key") != "test-key" {
++					t.Errorf("unexpected request: %s, key present=%v", r.URL.Path, r.Header.Get("X-API-Key") != "")
++				}
++				if tc.mode == "keyword" && r.URL.Query().Get("limit") != "60" {
++					t.Errorf("limit was not capped: %s", r.URL.RawQuery)
++				}
++				if tc.mode == "random" && (r.URL.Query().Get("q") != "doctor-doom" || r.URL.Query().Get("type") != "wallpaper") {
++					t.Errorf("unexpected random filters: %s", r.URL.RawQuery)
++				}
++				fmt.Fprint(w, tc.response)
++			}))
++			defer server.Close()
++			client := &Client{http: server.Client(), baseURL: server.URL}
++			result, err := client.Search(SearchParams{Query: " Doctor Doom! ", Mode: tc.mode, Limit: 90, APIKey: " test-key "})
++			if err != nil || len(result.Data) != 1 {
++				t.Fatalf("Search result=%v, err=%v", result, err)
++			}
++			wallpaper := result.Data[0]
++			if wallpaper.ID != "wallpaperscom-123" || wallpaper.Title != "Mountains" || wallpaper.Source != "wallpaperscom" || wallpaper.CreditURL != "https://wallpapers.com/" || wallpaper.Thumbs["small"] == "" {
++				t.Fatalf("lost wallpaper metadata: %+v", wallpaper)
++			}
++		})
++	}
++}
++
++func TestSearchFailures(t *testing.T) {
++	tests := []struct {
++		status        int
++		body, message string
++	}{
++		{429, "", "rate limit"},
++		{403, "<html>challenge</html>", "HTTP 403"},
++		{200, "<html>challenge</html>", "invalid response"},
++		{200, `{"success":false}`, "could not complete"},
++	}
++	for _, tc := range tests {
++		t.Run(tc.message, func(t *testing.T) {
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				if r.Header.Get("X-API-Key") != "" {
++					t.Error("anonymous request included a key")
++				}
++				w.WriteHeader(tc.status)
++				fmt.Fprint(w, tc.body)
++			}))
++			defer server.Close()
++			client := &Client{http: server.Client(), baseURL: server.URL}
++			_, err := client.Search(SearchParams{Mode: "daily"})
++			if err == nil || !strings.Contains(err.Error(), tc.message) {
++				t.Fatalf("unexpected error: %v", err)
++			}
++		})
++	}
++}
++
++func TestNormalizeRejectsInvalidImagesAndDuplicates(t *testing.T) {
++	response := apiResponse{Items: []apiWallpaper{
++		{ID: "1", High: "https://wallpapers.com/images/high/one.jpg"},
++		{ID: "1", High: "https://wallpapers.com/images/high/one.jpg"},
++		{ID: "2", High: "https://example.com/two.jpg"},
++	}}
++	result := normalizeResponse(response)
++	if len(result.Data) != 1 || result.Total != 1 || result.Data[0].CreditText != "Wallpapers.com" {
++		t.Fatalf("unexpected normalized response: %+v", result)
++	}
++	if _, err := searchEndpoint(SearchParams{Query: "   "}); err == nil {
++		t.Error("empty keyword was accepted")
++	}
++}
++
++func TestSearchNoMatches(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.WriteHeader(http.StatusNotFound)
++		fmt.Fprint(w, `{"success":false,"msg":"no matches"}`)
++	}))
++	defer server.Close()
++	client := &Client{http: server.Client(), baseURL: server.URL}
++	result, err := client.Search(SearchParams{Mode: "random", Query: "nature"})
++	if err != nil || result == nil || len(result.Data) != 0 {
++		t.Fatalf("no matches was not an empty result: result=%v, err=%v", result, err)
++	}
++}
++
++func TestLiveAPI(t *testing.T) {
++	if os.Getenv("AETHER_WALLPAPERSCOM_LIVE_TEST") != "1" {
++		t.Skip("set AETHER_WALLPAPERSCOM_LIVE_TEST=1 to check the public API")
++	}
++	client := NewClient()
++	t.Setenv("XDG_DATA_HOME", t.TempDir())
++	for _, mode := range []string{"keyword", "random", "daily"} {
++		t.Run(mode, func(t *testing.T) {
++			query := ""
++			if mode == "keyword" {
++				query = "nature"
++			}
++			result, err := client.Search(SearchParams{Query: query, Mode: mode, Limit: 2})
++			if err != nil || result == nil || len(result.Data) == 0 {
++				t.Fatalf("live Search result=%v, err=%v", result, err)
++			}
++			if mode == "daily" {
++				localPath, err := wallhaven.NewClient().Download(result.Data[0].Path)
++				if err != nil {
++					t.Fatal(err)
++				}
++				file, err := os.Open(localPath)
++				if err != nil {
++					t.Fatal(err)
++				}
++				defer file.Close()
++				config, _, err := image.DecodeConfig(file)
++				if err != nil || config.Width <= 0 || config.Height <= 0 {
++					t.Fatalf("download was not an image: config=%+v, err=%v", config, err)
++				}
++			}
++		})
++	}
++}
+diff --git a/internal/wallpaperscom/types.go b/internal/wallpaperscom/types.go
+new file mode 100644
+index 0000000..7971bb7
+--- /dev/null
++++ b/internal/wallpaperscom/types.go
+@@ -0,0 +1,29 @@
++package wallpaperscom
++
++type SearchParams struct {
++	Query  string `json:"q"`
++	Mode   string `json:"mode"`
++	Limit  int    `json:"limit"`
++	APIKey string `json:"apiKey"`
++}
++
++type Wallpaper struct {
++	ID         string            `json:"id"`
++	URL        string            `json:"url"`
++	Path       string            `json:"path"`
++	Resolution string            `json:"resolution"`
++	FileSize   int64             `json:"file_size"`
++	Category   string            `json:"category"`
++	Purity     string            `json:"purity"`
++	Thumbs     map[string]string `json:"thumbs"`
++	Title      string            `json:"title"`
++	Alt        string            `json:"alt"`
++	Source     string            `json:"source"`
++	CreditURL  string            `json:"credit_url"`
++	CreditText string            `json:"credit_text"`
++}
++
++type SearchResult struct {
++	Data  []Wallpaper `json:"data"`
++	Total int         `json:"total"`
++}

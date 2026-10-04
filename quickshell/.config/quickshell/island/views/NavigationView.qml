@@ -12,7 +12,7 @@ FocusScope {
         anchors.fill: parent
         anchors.margins: 24
         spacing: 20
-        PanelHeader { title: "Island"; onBack: IslandController.openExpanded() }
+        PanelHeader { title: "Menu"; onBack: IslandController.openExpanded() }
         Grid {
             width: parent.width
             columns: 2

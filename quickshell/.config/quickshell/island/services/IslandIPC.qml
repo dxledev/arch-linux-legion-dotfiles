@@ -28,6 +28,7 @@ IpcHandler {
     function openControlCenter(): void { IslandController.toggleMode(IslandState.controlCenterMode); }
     function openNotifications(): void { IslandController.toggleMode(IslandState.notificationsMode); }
     function openAudioDevices(): void { IslandController.toggleMode(IslandState.audioDevicesMode); }
+    function openLauncher(): void { IslandController.toggleMode(IslandState.launcherMode); }
     function openNavigation(): void { IslandController.toggleMode(IslandState.navigationMode); }
     function openClockSettings(): void { IslandController.toggleMode(IslandState.clockSettingsMode); }
     function openOsdSettings(): void { IslandController.toggleMode(IslandState.osdSettingsMode); }

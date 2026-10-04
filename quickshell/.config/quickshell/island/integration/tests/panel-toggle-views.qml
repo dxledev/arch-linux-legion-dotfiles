@@ -12,6 +12,7 @@ ShellRoot {
 
     function checkPanelToggles() {
         const panels = [
+            ["openLauncher", IslandState.launcherMode],
             ["openExpandedHome", IslandState.expandedMode],
             ["openPowerMenu", IslandState.powerMenuMode],
             ["openControlCenter", IslandState.controlCenterMode],
