@@ -19,6 +19,8 @@ QtObject {
     property bool hovered: false
     property real remaining: 0
     property real deadline: 0
+    property real totalDuration: 0
+    property real countdownProgress: 0
     readonly property int animationDuration: ThemeService.settings.notificationAnimationDuration ?? Theme.animationNormal
 
     signal updated()
@@ -27,9 +29,12 @@ QtObject {
     function restartTimeout() {
         if (closed) return;
         timeout.stop();
+        countdown.stop();
         const requested = notification.expireTimeout;
         remaining = requested === 0 || (requested < 0 && notification.urgency === NotificationUrgency.Critical)
             ? 0 : requested > 0 ? requested : (ThemeService.settings.notificationTimeout ?? 5000);
+        totalDuration = remaining;
+        countdownProgress = remaining > 0 ? 1 : 0;
         resumeTimeout();
     }
 
@@ -38,6 +43,9 @@ QtObject {
             deadline = Date.now() + remaining;
             timeout.interval = remaining;
             timeout.start();
+            countdown.from = countdownProgress;
+            countdown.duration = remaining;
+            countdown.start();
         }
     }
 
@@ -58,6 +66,8 @@ QtObject {
         closed = true;
         popup = false;
         timeout.stop();
+        countdown.stop();
+        countdownProgress = 0;
         cleanup.restart();
     }
 
@@ -76,9 +86,18 @@ QtObject {
 
     onHoveredChanged: {
         if (hovered && timeout.running) {
+            countdown.stop();
             remaining = Math.max(1, deadline - Date.now());
+            countdownProgress = Math.min(1, remaining / totalDuration);
             timeout.stop();
         } else if (!hovered) resumeTimeout();
+    }
+
+    readonly property NumberAnimation countdown: NumberAnimation {
+        target: root
+        property: "countdownProgress"
+        to: 0
+        easing.type: Easing.Linear
     }
 
     readonly property Timer timeout: Timer {

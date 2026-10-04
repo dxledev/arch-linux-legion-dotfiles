@@ -20,7 +20,9 @@ Button {
         border.color: Theme.accent
         Behavior on color { ColorAnimation { duration: Theme.animationFast } }
     }
-    ToolTip.visible: hovered && description.length > 0
-    ToolTip.text: description
-    ToolTip.delay: 700
+    IslandTooltip {
+        parent: root
+        visible: root.hovered && root.description.length > 0
+        text: root.description
+    }
 }

@@ -25,6 +25,8 @@ SearchField 1.0 SearchField.qml
 WallpaperCard 1.0 WallpaperCard.qml
 WaveformProgress 1.0 WaveformProgress.qml
 IconButton 1.0 IconButton.qml
+IslandTooltip 1.0 IslandTooltip.qml
+CountdownRing 1.0 CountdownRing.qml
 PanelHeader 1.0 PanelHeader.qml
 ScrollProgress 1.0 ScrollProgress.qml
 SmoothScroll 1.0 SmoothScroll.qml

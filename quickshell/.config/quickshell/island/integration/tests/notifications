@@ -100,23 +100,34 @@ run_session() {
     expect '.history == 1 and .unread == 1 and .popups == 1 and .window.visible and .window.active and .window.top == 10 and .window.zone == 0 and (.window.focusable | not) and .window.regions == 2 and .capsules[0].opacity == 1 and .capsules[0].width >= 80 and .capsules[0].width < 400 and .capsules[0].originY == 0 and .capsules[0].startHeight == 33 and .capsules[0].height < .capsules[0].fullHeight and .capsules[0].y < .window.islandHeight'
     /usr/bin/sleep 0.65
     expect '.capsules[0].width == 400 and .capsules[0].y == 67 and .capsules[0].height == .capsules[0].fullHeight and .capsules[0].radius == 23 and .capsules[0].background == "#101010"'
+    expect '.rings[0].visible and .rings[0].width == 30 and .rings[0].height == 30 and .rings[0].z > 0 and .rings[0].progress > 0 and .rings[0].progress < 1'
     ipc hover true
+    local paused_progress
+    paused_progress="$(snapshot | /usr/bin/jq -r '.entries[0].countdown')"
+    expect '.entries[0].duration == 2200 and .entries[0].countdown > 0 and .entries[0].countdown < 0.85'
     /usr/bin/sleep 1.6
     expect '.entries[0].hovered and (.entries[0].closed | not)'
+    expect ".entries[0].countdown == $paused_progress"
     notify "$id" Title '<b>Body</b>' 0 0 2200 >/dev/null
     /usr/bin/sleep 0.1
-    expect '.history == 1 and .popups == 1 and .entries[0].remaining == 2200 and .entries[0].hovered'
+    expect '.history == 1 and .popups == 1 and .entries[0].remaining == 2200 and .entries[0].hovered and .entries[0].countdown == 1'
     ipc hover false
     notify "$id" Replacement 'Updated body' 0 0 400 >/dev/null
     /usr/bin/sleep 0.1
-    expect '.history == 1 and .popups == 1 and .entries[0].summary == "Replacement" and .entries[0].body == "Updated body"'
+    expect '.history == 1 and .popups == 1 and .entries[0].summary == "Replacement" and .entries[0].body == "Updated body" and .entries[0].duration == 400 and .entries[0].countdown > 0 and .entries[0].countdown < 1'
     wait_for '.entries[0].closed'
+    wait_for '.capsules[0].opacity > 0 and .capsules[0].opacity < 0.9'
+    expect '.capsules[0].width == 400 and .capsules[0].y == 67'
     wait_for '.popups == 0 and (.window.active | not) and .window.height == 1 and .window.regions == 0 and .history == 1'
     ipc markRead
     expect '.unread == 0'
     notify 0 Persistent 'No timeout' 0 0 0 >/dev/null
     /usr/bin/sleep 0.7
-    expect '.entries[0].remaining == 0 and .popups == 1 and .history == 2'
+    expect '.entries[0].remaining == 0 and .entries[0].duration == 0 and .entries[0].countdown == 0 and .popups == 1 and .history == 2'
+    ipc showTooltip
+    wait_for '.tooltip.opened'
+    expect '.tooltip.background == "#101010" and .tooltip.foreground == "#eeeeee" and .tooltip.radius == .tooltip.height / 2'
+    ipc hideTooltip
     ipc moveAway
     /usr/bin/sleep 0.05
     expect '(.window.active | not) and .window.height == 1 and .window.regions == 0'

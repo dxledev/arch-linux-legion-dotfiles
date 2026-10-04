@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import "../styles"
 import "../core"
 
@@ -7,8 +8,10 @@ Item {
     required property string title
     property string subtitle: ""
     property string trailingText: ""
+    property bool trailingClickable: false
     property var scrollTargets: []
     signal back()
+    signal trailingClicked()
     width: parent.width
     implicitHeight: subtitle ? 64 : 48
     IconButton {
@@ -50,7 +53,7 @@ Item {
             font.pixelSize: 12
         }
     }
-    Text {
+    Button {
         id: trailingLabel
         anchors.right: closeButton.left
         anchors.rightMargin: 12
@@ -58,10 +61,31 @@ Item {
         width: Math.min(implicitWidth, Math.max(0, (root.width - 116) / 2))
         visible: root.trailingText.length > 0
         text: root.trailingText
-        color: Theme.textSecondary
-        font.pixelSize: 13
-        horizontalAlignment: Text.AlignRight
-        elide: Text.ElideRight
+        enabled: root.trailingClickable
+        hoverEnabled: root.trailingClickable
+        padding: root.trailingClickable ? 10 : 0
+        Accessible.name: root.trailingText
+        onClicked: root.trailingClicked()
+        contentItem: Text {
+            text: trailingLabel.text
+            color: root.trailingClickable && (trailingLabel.hovered || trailingLabel.activeFocus) ? Theme.textPrimary : Theme.textSecondary
+            font.pixelSize: 13
+            horizontalAlignment: Text.AlignRight
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+        }
+        background: Rectangle {
+            radius: height / 2
+            color: trailingLabel.down ? Theme.buttonPressed : trailingLabel.hovered ? Theme.surfaceVariant : "transparent"
+            border.width: root.trailingClickable && trailingLabel.activeFocus ? 2 : 0
+            border.color: Theme.accent
+            Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+        }
+        HoverHandler {
+            enabled: root.trailingClickable
+            cursorShape: Qt.PointingHandCursor
+        }
     }
     IconButton {
         id: closeButton

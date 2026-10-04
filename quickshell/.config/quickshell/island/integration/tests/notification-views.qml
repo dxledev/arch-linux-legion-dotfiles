@@ -4,6 +4,7 @@ import Quickshell.Io
 import "../../windows"
 import "../../services"
 import "../../styles"
+import "../../components"
 
 ShellRoot {
     id: root
@@ -17,12 +18,25 @@ ShellRoot {
         return result;
     }
 
+    function rings(item) {
+        let result = [];
+        if (item.objectName === "notification-countdown-ring") result.push(item);
+        for (const child of item.children || []) result = result.concat(rings(child));
+        return result;
+    }
+
     NotificationWindow {
         id: window
         screen: Quickshell.screens[0]
         islandTop: 10
         islandBottom: 43
         islandWidth: 160
+    }
+
+    IslandTooltip {
+        id: tooltip
+        parent: window.contentItem
+        text: "Dismiss notification"
     }
 
     IpcHandler {
@@ -33,10 +47,18 @@ ShellRoot {
                 history: NotificationService.history.count,
                 unread: NotificationService.unreadCount,
                 popups: NotificationService.popups.count,
+                tooltip: {opened: tooltip.opened, background: tooltip.background.color.toString(),
+                    foreground: tooltip.contentItem.color.toString(), radius: tooltip.background.radius,
+                    height: tooltip.background.height},
+                rings: root.rings(window.contentItem).map(ring => ({
+                    visible: ring.visible, width: ring.width, height: ring.height,
+                    progress: ring.progress, z: ring.z
+                })),
                 entries: NotificationService.entries.map(entry => ({
                     id: entry.notificationId, summary: entry.summary, body: entry.body,
                     closed: entry.closed, popup: entry.popup, hovered: entry.hovered,
                     remaining: entry.remaining, monitor: entry.monitorName,
+                    duration: entry.totalDuration, countdown: entry.countdownProgress,
                     actions: entry.actions.map(action => action.identifier)
                 })),
                 window: {visible: window.visible, active: window.popupActive, width: window.width, top: window.popupTop,
@@ -55,6 +77,8 @@ ShellRoot {
             });
         }
         function hover(paused: bool): void { NotificationService.entries[0].hovered = paused; }
+        function showTooltip(): void { tooltip.open(); }
+        function hideTooltip(): void { tooltip.close(); }
         function dismiss(): void { NotificationService.entries[0].dismiss(); }
         function invoke(): void {
             const entry = NotificationService.entries[0];

@@ -46,6 +46,8 @@ FocusScope {
             title: "Themes"
             scrollTargets: [themeView]
             trailingText: ThemeService.currentTheme
+            trailingClickable: ThemeService.state.source === "dynamic"
+            onTrailingClicked: IslandController.openSettingsSection("dynamicPalette")
             onBack: IslandController.openNavigation()
         }
 

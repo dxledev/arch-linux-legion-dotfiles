@@ -18,7 +18,8 @@ Item {
     property real frontHeight: fullHeight
     property real deckDepth: stackIndex
     property bool appeared: false
-    property real progress: appeared && entry.popup ? 1 : 0
+    property real progress: appeared ? 1 : 0
+    property real dismissalOpacity: 1
     readonly property real expansion: Math.max(0, (progress - 0.2) / 0.8)
     readonly property real startWidth: Math.min(width * 0.9, islandWidth * (ThemeService.settings.notificationStartWidthPercent ?? 50) / 100)
     readonly property real startHeight: Math.min(33, islandHeight)
@@ -33,6 +34,20 @@ Item {
     Behavior on deckDepth {
         NumberAnimation { duration: root.entry.animationDuration; easing.type: Theme.animationVertical }
     }
+    NumberAnimation {
+        id: dismissalFade
+        target: root
+        property: "dismissalOpacity"
+        to: 0
+        duration: root.entry.animationDuration
+        easing.type: Easing.Linear
+    }
+    Connections {
+        target: root.entry
+        function onPopupChanged() {
+            if (!root.entry.popup) dismissalFade.start();
+        }
+    }
 
     Rectangle {
         id: capsule
@@ -44,7 +59,7 @@ Item {
         radius: ThemeService.settings.radius ?? Theme.capsuleRadius
         color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b,
             Theme.background.a * (ThemeService.settings.opacity ?? 1))
-        opacity: root.entry.popup ? 1 : root.progress
+        opacity: root.dismissalOpacity
         border.width: root.stackIndex > 0 ? 1 : 0
         border.color: Theme.borderSubtle
         clip: true
@@ -140,12 +155,20 @@ Item {
                     }
                 }
                 IconButton {
+                    id: dismissButton
                     iconSource: "../assets/icons/close.svg"
                     description: "Dismiss notification"
                     implicitWidth: 30
                     implicitHeight: 30
                     padding: 7
                     onClicked: root.entry.dismiss()
+                    CountdownRing {
+                        parent: dismissButton
+                        anchors.fill: parent
+                        z: 2
+                        progress: root.entry.countdownProgress
+                        visible: root.entry.totalDuration > 0
+                    }
                 }
             }
             Text {
