@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import "../services"
 import "../services/MonitorSelection.js" as MonitorSelection
 
@@ -15,26 +16,30 @@ Singleton {
     property int statusWidth: 160
     property int statusHeight: 33
     property int animationDuration: 0
-    property var brightnessEvents: []
+    property var brightnessEvent: null
+    readonly property var brightnessEvents: brightnessEvent ? [brightnessEvent] : []
+    readonly property string targetMonitorName: MonitorSelection.osdMonitorName(monitorName, ThemeService.islandScreens)
+
+    function isTargetScreen(screenName) {
+        return screenName === targetMonitorName;
+    }
 
     function brightnessForScreen(screenName) {
-        return MonitorSelection.brightnessForScreen(brightnessEvents, screenName, ThemeService.islandScreens);
+        return mode === "brightness" && isTargetScreen(screenName) ? brightnessEvents : [];
     }
 
     function showBrightness(data) {
-        const now = Date.now();
-        const retained = mode === "brightness" && visible
-            ? brightnessEvents.filter(event => event.monitorName !== data.monitorName && event.expiresAt > now) : [];
-        brightnessEvents = [...retained, {
+        brightnessEvent = {
             monitorName: data.monitorName || "", label: data.label || data.monitorName || "Brightness",
-            icon: data.icon, value: data.value, expiresAt: now + OsdSettings.timeout
-        }].sort((left, right) => left.monitorName.localeCompare(right.monitorName));
+            icon: data.icon, value: data.value
+        };
     }
 
     function show(data) {
         if (data.mode === "brightness") showBrightness(data);
+        else brightnessEvent = null;
         mode = data.mode;
-        monitorName = data.monitorName ?? "";
+        monitorName = data.monitorName || Hyprland.focusedMonitor?.name || ThemeService.islandScreens[0]?.name || "";
         icon = data.icon;
         title = data.title;
         value = data.value;
@@ -49,15 +54,5 @@ Singleton {
         id: hideTimer
         interval: ["volume", "brightness", "nightlight", "keyboard"].includes(root.mode) ? OsdSettings.timeout : 1800
         onTriggered: root.visible = false
-    }
-    Timer {
-        interval: 50
-        running: root.visible && root.mode === "brightness"
-        repeat: true
-        onTriggered: {
-            const remaining = root.brightnessEvents.filter(event => event.expiresAt > Date.now());
-            if (remaining.length !== root.brightnessEvents.length) root.brightnessEvents = remaining;
-            if (!remaining.length) root.visible = false;
-        }
     }
 }

@@ -2,6 +2,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import QtTest
+import "../../components"
 import "../../services"
 import "../../views"
 import "../../core"
@@ -9,6 +11,7 @@ import "../../island"
 
 ShellRoot {
     id: root
+    Component.onCompleted: ThemeService.islandScreens = [{name: "DP-1"}, {name: "HDMI-A-1"}]
     StatusWatcher {}
     FloatingWindow {
         visible: true
@@ -16,6 +19,8 @@ ShellRoot {
         implicitHeight: 740
         CompactView { id: dp; monitorName: "DP-1"; monitorActive: false; width: implicitWidth; height: implicitHeight }
         CompactView { id: hdmi; x: 400; monitorName: "HDMI-A-1"; monitorActive: true; width: implicitWidth; height: implicitHeight }
+        SearchField { id: search; visible: false }
+        DateView { id: date; visible: false }
         Loader {
             id: panel
             y: 80
@@ -27,6 +32,9 @@ ShellRoot {
     Component { id: clockSettings; ClockSettingsView {} }
     Component { id: osdSettings; OsdSettingsView {} }
     Component { id: mainSettings; SettingsView {} }
+    Component { id: appearanceSettings; AppearanceSettingsView {} }
+    Component { id: dynamicPaletteSettings; DynamicPaletteSettingsView {} }
+    TestEvent { id: input }
 
     function childrenNamed(item, name) {
         let found = item.objectName === name ? [item] : [];
@@ -43,6 +51,7 @@ ShellRoot {
             percentages: percentages.map(label => ({text: label.text, visible: label.visible, font: label.font.family,
                 size: label.font.pixelSize, bold: label.font.bold})),
             text: {font: text.font.family, size: text.font.pixelSize, bold: text.font.bold},
+            iconFont: childrenNamed(overlay, "osd-icon")[0]?.font.family,
             sliders: sliders.map(slider => ({width: slider.width, height: slider.height, radius: slider.radius}))};
     }
     IpcHandler {
@@ -54,10 +63,16 @@ ShellRoot {
             const title = childrenNamed(panel.item, "panel-title")[0];
             const scroll = childrenNamed(panel.item, panel.item.scrollObjectName)[0];
             const smoothScroll = childrenNamed(scroll, "smooth-scroll")[0];
+            const fontChoice = childrenNamed(panel.item, "setting-choice-Font")[0];
+            const inheritance = childrenNamed(panel.item, "clock-inherit-ui-font")[0]
+                || childrenNamed(panel.item, "osd-inherit-ui-font")[0];
             return JSON.stringify({ready: ThemeService.ready, busy: ThemeService.busy, error: ThemeService.error,
                 settings: ThemeService.settings, dp: root.compactSnapshot(dp), hdmi: root.compactSnapshot(hdmi),
                 mode: StatusManager.mode, animation: StatusManager.animationDuration,
                 clock: {font: clock.font.family, size: clock.font.pixelSize, bold: clock.font.bold},
+                ui: {titleFont: title.font.family, searchFont: search.font.family, dateFont: date.font.family,
+                    fontChoiceEnabled: fontChoice?.enabled, inherit: inheritance?.checked,
+                    choices: panel.item?.title === "Appearance" ? childrenNamed(panel.item, "setting-choice-Font").length : 0},
                 panel: panel.item?.title, choices: childrenNamed(panel.item, "setting-choice-Font").length,
                 progress: {value: indicator.progress, scrollable: indicator.scrollable, opacity: indicator.opacity,
                     width: indicator.width, fillWidth: fill.width, height: indicator.height,
@@ -76,12 +91,24 @@ ShellRoot {
         }
         function keyboard(): void { StatusManager.show({mode: "keyboard", icon: "󰌌", title: "English", value: "EN"}); }
         function save(key: string, value: string): void { ThemeService.setSetting(key, value); }
+        function toggleFontInheritance(): void {
+            const toggle = childrenNamed(panel.item, "clock-inherit-ui-font")[0]
+                || childrenNamed(panel.item, "osd-inherit-ui-font")[0];
+            if (!input.mouseClick(toggle, toggle.width - 25, toggle.height / 2, Qt.LeftButton, Qt.NoModifier, 0))
+                throw new Error("Could not click font inheritance switch");
+        }
         function screens(single: bool): void {
             ThemeService.islandScreens = single ? [{name: "HDMI-A-1"}]
                 : [{name: "DP-1"}, {name: "HDMI-A-1"}];
         }
         function settingsPanel(name: string): void {
-            if (name === "OSD") {
+            if (name === "Appearance") {
+                IslandController.openSettingsSection("appearance");
+                panel.sourceComponent = appearanceSettings;
+            } else if (name === "Dynamic palette") {
+                IslandController.openSettingsSection("dynamicPalette");
+                panel.sourceComponent = dynamicPaletteSettings;
+            } else if (name === "OSD") {
                 IslandController.openOsdSettings();
                 panel.sourceComponent = osdSettings;
             } else if (name === "Clock") {

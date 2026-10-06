@@ -94,7 +94,7 @@ FocusScope {
                     imageSource: parent.thumbnail
                     selected: index === gallery.currentIndex || path === ThemeService.wallpaper
                 }
-                Text {
+                UiText {
                     anchors.top: thumbnail.bottom
                     anchors.topMargin: 4
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -112,7 +112,7 @@ FocusScope {
                     onClicked: { gallery.currentIndex = index; WallpaperService.apply(path); }
                 }
             }
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 width: parent.width
                 visible: filteredWallpapers.model.count === 0

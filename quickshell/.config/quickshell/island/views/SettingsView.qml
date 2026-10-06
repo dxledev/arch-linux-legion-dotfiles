@@ -14,6 +14,7 @@ SettingsPanel {
         {key: "launcher", title: "App launcher", icon: "../assets/icons/apps.svg"},
         {key: "appearance", title: "Appearance", icon: "../assets/icons/display.svg"},
         {key: "clock", title: "Clock", icon: "../assets/icons/clock.svg"},
+        {key: "lock", title: "Lock screen", icon: "../assets/icons/lock.svg"},
         {key: "osd", title: "OSD", icon: "../assets/icons/osd.svg"},
         {key: "workspaces", title: "Workspaces", icon: "../assets/icons/workspaces.svg"},
         {key: "dynamicPalette", title: "Dynamic palette", icon: "../assets/icons/palette.svg"},

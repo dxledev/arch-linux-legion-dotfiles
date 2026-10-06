@@ -5,13 +5,12 @@ import "../services"
 
 Item {
     id: root
+    anchors.alignWhenCentered: false
 
     property bool monitorActive: true
     property string monitorName: (QsWindow.window as QsWindow)?.screen?.name ?? ""
-    readonly property bool showingStatus: StatusManager.visible
-        && (StatusManager.mode === "brightness" ? StatusManager.brightnessForScreen(monitorName).length > 0
-            : StatusManager.mode !== "workspace" || (monitorActive
-                && (!StatusManager.monitorName || monitorName === StatusManager.monitorName)))
+    readonly property bool showingStatus: StatusManager.visible && StatusManager.isTargetScreen(monitorName)
+        && (StatusManager.mode !== "workspace" || monitorActive)
     readonly property int transitionDuration: StatusManager.mode === "workspace"
         ? (ThemeService.settings.workspaceAnimationDuration ?? 160) : StatusManager.animationDuration
     implicitWidth: showingStatus ? overlay.implicitWidth : clock.implicitWidth
@@ -21,6 +20,7 @@ Item {
         id: clock
         objectName: "compact-clock"
         anchors.centerIn: parent
+        anchors.alignWhenCentered: false
         width: implicitWidth
         height: implicitHeight
         opacity: root.showingStatus ? 0 : 1
@@ -40,7 +40,7 @@ Item {
         width: implicitWidth
         height: implicitHeight
         opacity: root.showingStatus ? 1 : 0
-        visible: opacity > 0
+        visible: opacity > 0 && StatusManager.isTargetScreen(root.monitorName)
         transform: Translate {
             y: root.showingStatus ? 0 : 6
             Behavior on y { NumberAnimation { duration: root.transitionDuration; easing.type: Easing.OutCubic } }

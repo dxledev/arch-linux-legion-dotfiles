@@ -130,7 +130,7 @@ FocusScope {
                 }
             }
 
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 visible: filteredThemes.model.count === 0 && searchField.text.length > 0
                 text: "No themes match your search."
@@ -138,7 +138,7 @@ FocusScope {
                 font.pixelSize: 13
             }
         }
-        Text {
+        UiText {
             width: parent.width
             text: ThemeService.error || (ThemeService.busy ? "Applying…" : "")
             visible: text.length > 0

@@ -5,10 +5,11 @@ import "../services"
 
 FocusScope {
     implicitWidth: 460
-    implicitHeight: 420
+    implicitHeight: content.implicitHeight + 48
     Component.onCompleted: forceActiveFocus()
     Keys.onEscapePressed: IslandController.reset()
     Column {
+        id: content
         anchors.fill: parent
         anchors.margins: 24
         spacing: 20

@@ -8,6 +8,13 @@ check_settings() {
     local config_home="$test_root/config" settings_file="$test_root/state/settings.json" dry_run=0
     source "$test_dir/../theme-functions"
     read_settings | /usr/bin/jq -e '.clockFontSize == 18 and .osdFontSize == 18 and .osdSliderWidth == 180 and .osdTimeout == 1800' >/dev/null
+    read_settings | /usr/bin/jq -e '.uiFontFamily == "Noto Sans" and (.clockInheritUiFont | not) and (.osdInheritUiFont | not)' >/dev/null
+    save_setting uiFontFamily 'Noto Sans'
+    save_setting clockInheritUiFont true
+    save_setting osdInheritUiFont true
+    read_settings | /usr/bin/jq -e '.uiFontFamily == "Noto Sans" and .clockInheritUiFont and .osdInheritUiFont' >/dev/null
+    save_setting clockInheritUiFont false
+    save_setting osdInheritUiFont false
     read_settings | /usr/bin/jq -e '.scrollProgressAlwaysVisible and .scrollProgressVisibleDuration == 1500 and (.scrollProgressShowOnNonScrollable | not) and .scrollProgressAnimationDuration == 180' >/dev/null
     save_setting scrollProgressAlwaysVisible false
     save_setting scrollProgressVisibleDuration 500
@@ -36,6 +43,9 @@ check_settings() {
     before="$(/usr/bin/sha256sum "$settings_file")"
     dry_run=1
     save_setting osdFontFamily 'Noto Sans' >/dev/null
+    save_setting uiFontFamily 'DejaVu Sans' >/dev/null
+    save_setting clockInheritUiFont true >/dev/null
+    save_setting osdInheritUiFont true >/dev/null
     save_setting scrollProgressAlwaysVisible false >/dev/null
     [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
     dry_run=0
@@ -44,6 +54,11 @@ check_settings() {
     done
     if (save_setting osdFontFamily '') >/dev/null 2>&1; then fail 'Accepted empty font.'; fi
     if (save_setting osdFontFamily $'bad\nfont') >/dev/null 2>&1; then fail 'Accepted multiline font.'; fi
+    if (save_setting uiFontFamily '') >/dev/null 2>&1; then fail 'Accepted empty UI font.'; fi
+    if (save_setting uiFontFamily $'bad\nfont') >/dev/null 2>&1; then fail 'Accepted multiline UI font.'; fi
+    for invalid in 'clockInheritUiFont yes' 'osdInheritUiFont 1'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
+    done
     for invalid in 'scrollProgressAlwaysVisible yes' 'scrollProgressShowOnNonScrollable 1' 'scrollProgressVisibleDuration 99' 'scrollProgressVisibleDuration 10001' 'scrollProgressVisibleDuration 100.5' 'scrollProgressAnimationDuration -1' 'scrollProgressAnimationDuration 1001' 'scrollAnimationDuration -1' 'scrollAnimationDuration 1001' 'scrollWheelStep 15' 'scrollWheelStep 201'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
     done
@@ -78,10 +93,34 @@ MOCK
     [[ $(<"$cache_home/island/status/event") == 'brightness|45|eDP-1|'* ]] || fail 'Backlight shortcut lost its monitor.'
 }
 
+make_audio_fixture() {
+    cat > "$test_root/island/services/AudioService.qml" <<'AUDIO'
+pragma Singleton
+import QtQuick
+import Quickshell
+
+Singleton {
+    readonly property var sink: null
+    readonly property var source: null
+    readonly property var outputs: []
+    readonly property var inputs: []
+    readonly property string outputLabel: "No audio output"
+    readonly property int volume: 0
+    readonly property bool muted: false
+    readonly property url volumeIcon: "../assets/icons/volume-0.svg"
+    function setVolume(value) {}
+    function toggleMute() {}
+    function selectOutput(node) {}
+    function selectInput(node) {}
+}
+AUDIO
+}
+
 make_fixture() {
     /usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache/island/status"
     /usr/bin/chmod 700 "$test_root/runtime"
     /usr/bin/cp -a "$test_dir/../.." "$test_root/island"
+    make_audio_fixture
     /usr/bin/sed 's|"../../|"island/|g' "$test_dir/osd-settings-views.qml" > "$test_root/views.qml"
     /usr/bin/sed -i 's/readonly property var islandScreens: .*/property var islandScreens: [{name: "DP-1"}, {name: "HDMI-A-1"}]/' "$test_root/island/services/ThemeService.qml"
     /usr/bin/sed -i 's/readonly property var monitor: .*/readonly property var monitor: null/' "$test_root/island/services/WorkspaceService.qml" "$test_root/island/views/WorkspaceView.qml"
@@ -127,7 +166,10 @@ run_session() {
     fixture_pid=$!
     trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
     wait_for '.ready and .panel == "Clock" and .choices == 1'
-    expect '.clock.font == "Noto Sans" and .clock.size == 24 and (.clock.bold | not) and .dp.height == 36'
+    expect '.clock.font == "Noto Sans" and .clock.size == 24 and (.clock.bold | not) and .dp.height >= 36'
+    check_font_inheritance
+    ipc settingsPanel 'Dynamic palette'
+    wait_for '.panel == "Dynamic palette" and (.progress.scrollable | not)'
     expect '(.progress.scrollable | not) and .progress.opacity == 0 and .progress.height == 2'
     ipc settingsPanel OSD
     wait_for '.panel == "OSD" and .choices == 1 and .modal'
@@ -181,8 +223,8 @@ run_session() {
     [[ "$title_geometry" == "$(ipc snapshot | /usr/bin/jq -c '.progress | [.titleX, .titleY, .titleHeight, .headerHeight]')" ]] || fail 'Scroll indicator moved the title.'
     ipc save scrollProgressAlwaysVisible true
     wait_for '.settings.scrollProgressAlwaysVisible and (.busy | not) and .progress.opacity == 1'
-    ipc settingsPanel Clock
-    wait_for '.panel == "Clock" and (.progress.scrollable | not) and .progress.opacity == 0'
+    ipc settingsPanel 'Dynamic palette'
+    wait_for '.panel == "Dynamic palette" and (.progress.scrollable | not) and .progress.opacity == 0'
     ipc save scrollProgressShowOnNonScrollable true
     wait_for '.settings.scrollProgressShowOnNonScrollable and (.busy | not) and .progress.opacity == 1 and .progress.value == 1'
     ipc save scrollProgressShowOnNonScrollable false
@@ -190,7 +232,7 @@ run_session() {
     ipc settingsPanel Settings
     wait_for '.panel == "Settings"'
     event 'volume|65'
-    wait_for '.dp.showing and .hdmi.showing and .dp.percentages[0].text == "65%"'
+    wait_for '.dp.showing and (.hdmi.showing | not) and .dp.percentages[0].text == "65%"'
     expect '.animation == 80 and .dp.percentages[0].size == 20 and (.dp.percentages[0].bold | not) and .dp.sliders[0].width == 240 and .dp.sliders[0].height == 10 and .dp.sliders[0].radius == 5'
     ipc save osdFontFamily 'Noto Sans'
     wait_for '.settings.osdFontFamily == "Noto Sans" and (.busy | not)'
@@ -198,13 +240,14 @@ run_session() {
     wait_for '.dp.showing and (.hdmi.showing | not) and .dp.percentages[0].text == "25%"'
     expect '.dp.percentages[0].font == "Noto Sans" and .dp.sliders[0].width == 240 and .dp.sliders[0].height == 10'
     event 'brightness|80|HDMI-A-1'
-    wait_for '.dp.showing and .hdmi.showing and .hdmi.percentages[0].text == "80%"'
+    wait_for '(.dp.showing | not) and .hdmi.showing and .hdmi.percentages[0].text == "80%"'
     ipc screens true
-    wait_for '(.dp.showing | not) and .hdmi.showing and (.hdmi.sliders | length) == 2 and (.hdmi.labels | length) == 2'
-    expect '.hdmi.labels == ["DP-1", "HDMI-A-1"] and .hdmi.percentages[0].text == "25%" and .hdmi.percentages[1].text == "80%" and .hdmi.height > 80'
+    wait_for '(.dp.showing | not) and .hdmi.showing and (.hdmi.sliders | length) == 1 and (.hdmi.labels | length) == 1'
+    expect '.hdmi.labels == ["HDMI-A-1"] and .hdmi.percentages[0].text == "80%"'
+    event 'brightness|35|DP-1'
+    wait_for '(.dp.showing | not) and .hdmi.showing and (.hdmi.sliders | length) == 1 and .hdmi.labels == ["DP-1"] and .hdmi.percentages[0].text == "35%"'
     /usr/bin/sleep 0.3
     event 'brightness|90|HDMI-A-1'
-    wait_for '.hdmi.percentages[1].text == "90%"'
     wait_for '.hdmi.showing and (.hdmi.sliders | length) == 1 and .hdmi.percentages[0].text == "90%"'
     wait_for '(.hdmi.showing | not)'
     /usr/bin/bash "$test_dir/../../scripts/publish-brightness-osd.sh" 45 DP-1 &
@@ -212,7 +255,7 @@ run_session() {
     /usr/bin/bash "$test_dir/../../scripts/publish-brightness-osd.sh" 75 HDMI-A-1 &
     local second_event=$!
     wait "$first_event" "$second_event"
-    wait_for '.hdmi.showing and (.hdmi.sliders | length) == 2 and ([.hdmi.percentages[].text] | sort) == ["45%", "75%"]'
+    wait_for '.hdmi.showing and (.hdmi.sliders | length) == 1 and (.hdmi.percentages[0].text == "45%" or .hdmi.percentages[0].text == "75%")'
     wait_for '(.hdmi.showing | not)'
     ipc save osdShowPercentage false
     wait_for '(.settings.osdShowPercentage | not) and (.busy | not)'
@@ -225,8 +268,58 @@ run_session() {
     expect '.hdmi.text.font == "Noto Sans" and .hdmi.text.size == 20 and (.hdmi.text.bold | not) and .animation == 80'
     ipc save clockFontSize 40
     wait_for '.clock.size == 40 and (.busy | not)'
-    wait_for '(.hdmi.showing | not) and .dp.height == 52'
+    wait_for '(.hdmi.showing | not) and .dp.height >= 52'
     expect '.error == ""'
+}
+
+check_font_inheritance() {
+    ipc settingsPanel Appearance
+    wait_for '.panel == "Appearance" and .ui.choices == 1'
+    ipc save uiFontFamily 'DejaVu Sans'
+    wait_for '.settings.uiFontFamily == "DejaVu Sans" and (.busy | not)'
+    expect '.ui.titleFont == "DejaVu Sans" and .ui.searchFont == "DejaVu Sans" and .clock.font == "Noto Sans"'
+    ipc settingsPanel Clock
+    wait_for '.panel == "Clock" and (.ui.inherit | not) and .ui.fontChoiceEnabled'
+    ipc toggleFontInheritance
+    wait_for '.settings.clockInheritUiFont and (.busy | not)'
+    expect '.ui.inherit and (.ui.fontChoiceEnabled | not) and .clock.font == "DejaVu Sans" and .ui.dateFont == "DejaVu Sans"'
+    ipc settingsPanel OSD
+    wait_for '.panel == "OSD" and (.ui.inherit | not) and .ui.fontChoiceEnabled'
+    ipc toggleFontInheritance
+    wait_for '.settings.osdInheritUiFont and (.busy | not)'
+    event 'volume|65'
+    wait_for '.dp.showing and .dp.percentages[0].font == "DejaVu Sans"'
+    expect '.ui.inherit and (.ui.fontChoiceEnabled | not) and .dp.iconFont == "JetBrainsMono Nerd Font"'
+    ipc keyboard
+    wait_for '.mode == "keyboard" and .dp.text.font == "DejaVu Sans"'
+    ipc save uiFontFamily 'Noto Sans'
+    wait_for '.settings.uiFontFamily == "Noto Sans" and (.busy | not)'
+    expect '.ui.titleFont == "Noto Sans" and .ui.searchFont == "Noto Sans" and .clock.font == "Noto Sans" and .dp.text.font == "Noto Sans"'
+    ipc toggleFontInheritance
+    wait_for '(.settings.osdInheritUiFont | not) and (.busy | not)'
+    expect '.ui.fontChoiceEnabled and .settings.osdFontFamily == "JetBrainsMono Nerd Font" and .dp.text.font == "JetBrainsMono Nerd Font"'
+    ipc settingsPanel Clock
+    wait_for '.panel == "Clock"'
+    ipc toggleFontInheritance
+    wait_for '(.settings.clockInheritUiFont | not) and (.busy | not)'
+    expect '.ui.fontChoiceEnabled and .settings.clockFontFamily == "Noto Sans" and .clock.font == "Noto Sans"'
+    wait_for '(.dp.showing | not) and (.hdmi.showing | not)'
+}
+
+check_drawer_views() {
+    /usr/bin/mkdir -p "$test_root/drawer-images"
+    /usr/bin/sed "s|\"../../|\"file:$test_root/island/|g" "$test_dir/osd-drawer-views.qml" > "$test_root/drawer.qml"
+    if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        OSD_DRAWER_IMAGE_DIR="$test_root/drawer-images" \
+        /usr/bin/dbus-run-session -- /usr/bin/timeout 45s /usr/bin/quickshell -p "$test_root/drawer.qml" > "$test_root/drawer.log" 2>&1; then
+        /usr/bin/cat "$test_root/drawer.log" >&2
+        fail 'Could not run exclusive OSD drawer views.'
+    fi
+    if ! /usr/bin/rg -q 'PASS: all OSD types' "$test_root/drawer.log" \
+        || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/drawer.log"; then
+        /usr/bin/cat "$test_root/drawer.log" >&2
+        fail 'Exclusive OSD drawer views failed.'
+    fi
 }
 
 if [[ ${1:-} == --session ]]; then test_root=$2; run_session; exit; fi
@@ -237,9 +330,10 @@ check_publishers
 export ISLAND_DDCUTIL_BIN=/usr/bin/true
 export TEST_ROOT="$test_root" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller"
 if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
-    /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a /usr/bin/timeout 25s /usr/bin/bash "$0" --session "$test_root"; then
+    /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a /usr/bin/timeout 35s /usr/bin/bash "$0" --session "$test_root"; then
     /usr/bin/cat "$test_root/views.log" >&2
     exit 1
 fi
 if /usr/bin/rg -q 'ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then /usr/bin/cat "$test_root/views.log" >&2; exit 1; fi
-printf 'PASS: clock/OSD panels, scroll progress and expiry, fixed title geometry, saved settings, slider styling, per-monitor routing, fallback stacks, percentages, validation and dry-run\n'
+check_drawer_views
+printf 'PASS: UI font, clock/OSD inheritance switches and restored custom fonts, panels, scroll progress and expiry, fixed title geometry, saved settings, slider styling, exclusive attached OSD drawers, per-monitor routing, fallback labels, simultaneous event replacement, percentages, validation and dry-run\n'

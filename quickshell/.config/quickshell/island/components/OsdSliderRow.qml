@@ -37,6 +37,7 @@ Item {
             height: OsdSettings.rowHeight
             spacing: 10
             Text {
+                objectName: "osd-icon"
                 text: root.icon
                 color: Theme.textPrimary
                 font.family: Theme.iconFont

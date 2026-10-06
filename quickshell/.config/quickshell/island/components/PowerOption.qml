@@ -5,6 +5,7 @@ Rectangle {
     id: root
 
     property bool selected: false
+    property bool active: false
 
     property string icon: ""
     property string title: ""
@@ -16,9 +17,13 @@ Rectangle {
 
     radius: 18
 
-    color: selected ? Theme.accent : Theme.buttonBackground
+    color: tap.pressed ? (active ? Theme.accentPressed : Theme.buttonPressed)
+        : hover.hovered ? (active ? Theme.accentHover : Theme.buttonHover)
+        : active ? Theme.accent : Theme.buttonBackground
+    border.width: selected ? 2 : 0
+    border.color: Theme.accent
 
-    scale: selected ? 1.04 : 1.0
+    scale: hover.hovered ? 1.04 : 1.0
 
     Behavior on scale {
         NumberAnimation {
@@ -33,7 +38,10 @@ Rectangle {
         }
     }
 
+    HoverHandler { id: hover }
+
     TapHandler {
+        id: tap
         acceptedButtons: Qt.LeftButton
 
         onTapped: {
@@ -58,17 +66,17 @@ Rectangle {
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 20
 
-            color: selected ? Theme.background : Theme.textPrimary
+            color: root.active ? Theme.background : Theme.textPrimary
         }
 
-        Text {
+        UiText {
             anchors.horizontalCenter: parent.horizontalCenter
 
             text: root.title
 
             font.pixelSize: 11
 
-            color: selected ? Theme.background : Theme.textPrimary
+            color: root.active ? Theme.background : Theme.textPrimary
         }
     }
 }

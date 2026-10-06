@@ -11,6 +11,7 @@ TextField {
     placeholderTextColor: Theme.textMuted
     selectionColor: Theme.accent
     selectedTextColor: Theme.background
+    font.family: Theme.uiFontFamily
     font.pixelSize: 14
     selectByMouse: true
     signal navigateDown()

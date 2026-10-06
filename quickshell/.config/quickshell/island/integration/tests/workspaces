@@ -65,6 +65,7 @@ check_views() {
     if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
         XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
         ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        WORKSPACE_DRAWER_IMAGE="$test_root/workspace-drawer.png" \
         /usr/bin/dbus-run-session -- /usr/bin/timeout 12s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
         /usr/bin/cat "$test_root/views.log" >&2
         fail "Could not run $view_file."
@@ -85,5 +86,6 @@ check_views panel-toggle-views.qml 'PASS: panel toggles and pending hover cancel
 check_views monitor-animation-views.qml 'PASS: normal close animation on both monitors'
 check_views monitor-toggle-views.qml 'PASS: monitor panel transfers'
 check_views workspace-views.qml 'PASS: workspace states'
+check_views workspace-drawer-views.qml 'PASS: attached workspace drawer'
 check_views monitor-views.qml 'PASS: active monitor panels'
-printf 'PASS: saved workspace settings, defaults, validation, dry-run, dot states, occupancy updates, bidirectional transitions, active monitor panels, panel keybind toggles, monitor close animations, and monitor panel transfers\n'
+printf 'PASS: saved workspace settings, defaults, validation, dry-run, dot states, occupancy updates, attached workspace drawer and rendered concave joins, compact workspace OSD, bidirectional transitions, active monitor panels, panel keybind toggles, monitor close animations, and monitor panel transfers\n'

@@ -41,7 +41,7 @@ FocusScope {
                 size: 20
                 color: Theme.textPrimary
             }
-            Text {
+            UiText {
                 objectName: "notification-count"
                 text: NotificationService.history.count > 99 ? "99+" : String(NotificationService.history.count)
                 color: Theme.textPrimary
@@ -82,7 +82,7 @@ FocusScope {
                 width: list.width
                 notification: model
             }
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 visible: list.count === 0
                 text: search.text.trim() ? "No matching notifications" : "No notifications"

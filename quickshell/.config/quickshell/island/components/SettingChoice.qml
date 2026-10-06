@@ -8,30 +8,32 @@ Column {
     required property string label
     required property var choices
     required property string selected
+    property var choiceLabel: value => value
     signal chosen(string value)
     width: parent.width
     spacing: 8
     opacity: enabled ? 1 : 0.45
-    Text { text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
+    UiText { text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
     ComboBox {
         id: choice
         objectName: "setting-choice-" + root.label
         width: root.width
         height: 40
         model: root.choices
+        displayText: root.choiceLabel(currentText)
         currentIndex: Math.max(0, root.choices.indexOf(root.selected))
         enabled: !ThemeService.busy
         leftPadding: 14
         rightPadding: 38
         onActivated: root.chosen(currentText)
-        contentItem: Text {
+        contentItem: UiText {
             text: choice.displayText
             color: Theme.textSecondary
             font.pixelSize: 13
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
-        indicator: Text {
+        indicator: UiText {
             x: choice.width - width - 15
             anchors.verticalCenter: parent.verticalCenter
             text: "⌄"
@@ -50,7 +52,7 @@ Column {
             width: choice.width - 12
             height: 36
             highlighted: choice.highlightedIndex === index
-            contentItem: Text { text: modelData; color: Theme.textPrimary; font.pixelSize: 13; verticalAlignment: Text.AlignVCenter }
+            contentItem: UiText { text: root.choiceLabel(modelData); color: Theme.textPrimary; font.pixelSize: 13; verticalAlignment: Text.AlignVCenter }
             background: Rectangle { radius: 12; color: parent.highlighted ? Theme.surfaceVariant : "transparent" }
         }
         popup: Popup {

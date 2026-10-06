@@ -1,13 +1,16 @@
 AlbumArt 1.0 AlbumArt.qml
+AttachedPanelShape 1.0 AttachedPanelShape.qml
 Cava 1.0 Cava.qml
 CenterSection 1.0 CenterSection.qml
 ControlCard 1.0 ControlCard.qml
 ControlSlider 1.0 ControlSlider.qml
 IslandButton 1.0 IslandButton.qml
+UiText 1.0 UiText.qml
 LeftSection 1.0 LeftSection.qml
 MediaHeader 1.0 MediaHeader.qml
 NowPlayingWidget 1.0 NowPlayingWidget.qml
 PowerOption 1.0 PowerOption.qml
+SystemResourceCard 1.0 SystemResourceCard.qml
 QuickToggle 1.0 QuickToggle.qml
 RightSection 1.0 RightSection.qml
 ScrollingText 1.0 ScrollingText.qml

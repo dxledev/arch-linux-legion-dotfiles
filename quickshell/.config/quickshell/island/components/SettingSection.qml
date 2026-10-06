@@ -12,7 +12,7 @@ Column {
         x: 8
         spacing: 9
         SvgIcon { source: root.iconSource; size: 17; color: Theme.accent }
-        Text { text: root.title; color: Theme.textSecondary; font.pixelSize: 13; font.weight: Font.DemiBold }
+        UiText { text: root.title; color: Theme.textSecondary; font.pixelSize: 13; font.weight: Font.DemiBold }
     }
     Rectangle {
         width: root.width

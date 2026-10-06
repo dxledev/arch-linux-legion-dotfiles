@@ -80,6 +80,9 @@ QtObject {
     // TYPOGRAPHY
     // =========================================================
 
+    property string uiFontFamily: "Noto Sans"
+    property bool uiFontBold: false
+    property real uiLetterSpacing: 0
     property string iconFont: "JetBrainsMono Nerd Font"
 
 
@@ -120,9 +123,10 @@ QtObject {
     // ANIMATION
     // =========================================================
 
-    readonly property int animationFast: 180
-    readonly property int animationNormal: 300
-    readonly property int animationSlow: 500
+    property int uiAnimationDuration: 300
+    readonly property int animationFast: Math.round(uiAnimationDuration * 0.6)
+    readonly property int animationNormal: uiAnimationDuration
+    readonly property int animationSlow: Math.round(uiAnimationDuration * 5 / 3)
 
     readonly property var animationHorizontal: Easing.OutBack
     readonly property var animationVertical: Easing.OutCubic

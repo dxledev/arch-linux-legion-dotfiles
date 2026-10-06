@@ -11,7 +11,7 @@ ToolTip {
     rightPadding: 14
     popupType: Popup.Window
 
-    contentItem: Text {
+    contentItem: UiText {
         text: root.text
         textFormat: Text.PlainText
         color: Theme.textPrimary

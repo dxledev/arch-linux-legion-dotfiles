@@ -27,7 +27,7 @@ Item {
 
         spacing: 10
 
-        Text {
+        UiText {
             id: leftTime
             
             text:                
@@ -89,7 +89,7 @@ Item {
             }
         }
 
-        Text {
+        UiText {
             id: rightTime
 
             text:

@@ -22,8 +22,8 @@ Column {
     opacity: enabled ? 1 : 0.45
     Row {
         width: parent.width
-        Text { width: parent.width - 85; text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
-        Text {
+        UiText { width: parent.width - 85; text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
+        UiText {
             width: 85
             text: (Math.round(slider.value * 100) / 100) + root.suffix
             color: Theme.textSecondary

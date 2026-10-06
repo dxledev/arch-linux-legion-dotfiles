@@ -7,9 +7,11 @@ import "../core"
 FocusScope {
     id: root
 
-    property int selectedIndex: 0
+    property int selectedIndex: 3
+    property bool keyboardSelection: false
+    property int horizontalPadding: 24
 
-    implicitWidth: 520
+    implicitWidth: options.implicitWidth + horizontalPadding * 2
     implicitHeight: 75
 
     Component.onCompleted: {
@@ -24,6 +26,7 @@ FocusScope {
         case Qt.Key_H:
 
             selectedIndex = (selectedIndex + 4) % 5
+            keyboardSelection = true
             event.accepted = true
             break
 
@@ -31,6 +34,7 @@ FocusScope {
         case Qt.Key_L:
 
             selectedIndex = (selectedIndex + 1) % 5
+            keyboardSelection = true
             event.accepted = true
             break
 
@@ -40,23 +44,23 @@ FocusScope {
             switch (selectedIndex) {
 
             case 0:
-                PowerService.lock()
+                PowerService.poweroff()
                 break
 
             case 1:
-                PowerService.suspend()
-                break
-
-            case 2:
-                PowerService.logout()
-                break
-
-            case 3:
                 PowerService.reboot()
                 break
 
+            case 2:
+                NightLightService.toggle()
+                break
+
+            case 3:
+                PowerService.lock()
+                break
+
             case 4:
-                PowerService.poweroff()
+                IslandController.openSystem()
                 break
             }
 
@@ -73,35 +77,20 @@ FocusScope {
     }
 
     Row {
+        id: options
         anchors.centerIn: parent
         spacing: 8
 
         PowerOption {
-            selected: root.selectedIndex === 0
+            selected: root.keyboardSelection && root.selectedIndex === 0
 
-            icon: "󰌾"
-            title: "Lock"
-            action: PowerService.lock
+            icon: ""
+            title: "Power"
+            action: PowerService.poweroff
         }
 
         PowerOption {
-            selected: root.selectedIndex === 1
-
-            icon: "󰤄"
-            title: "Sleep"
-            action: PowerService.suspend
-        }
-
-        PowerOption {
-            selected: root.selectedIndex === 2
-
-            icon: "󰍃"
-            title: "Logout"
-            action: PowerService.logout
-        }
-
-        PowerOption {
-            selected: root.selectedIndex === 3
+            selected: root.keyboardSelection && root.selectedIndex === 1
 
             icon: "󰑐"
             title: "Reboot"
@@ -109,11 +98,29 @@ FocusScope {
         }
 
         PowerOption {
-            selected: root.selectedIndex === 4
+            selected: root.keyboardSelection && root.selectedIndex === 2
 
-            icon: ""
-            title: "Power"
-            action: PowerService.poweroff
+            objectName: "session-nightlight-button"
+            icon: "󰖔"
+            title: "Nightlight"
+            active: NightLightService.enabled
+            action: NightLightService.toggle
+        }
+
+        PowerOption {
+            selected: root.keyboardSelection && root.selectedIndex === 3
+
+            icon: "󰌾"
+            title: "Lock"
+            action: PowerService.lock
+        }
+
+        PowerOption {
+            selected: root.keyboardSelection && root.selectedIndex === 4
+
+            icon: "󰍹"
+            title: "System"
+            action: IslandController.openSystem
         }
     }
 }

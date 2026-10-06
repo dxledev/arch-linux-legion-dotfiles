@@ -55,7 +55,7 @@ Rectangle {
             font.pixelSize: 13
         }
 
-        Text {
+        UiText {
             text: root.title
 
             color: Theme.textPrimary

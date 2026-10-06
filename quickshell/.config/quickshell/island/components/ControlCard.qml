@@ -78,7 +78,7 @@ Rectangle {
 
             width: 80   
 
-            Text {
+            UiText {
                 width: parent.width
 
                 text: root.title
@@ -91,7 +91,7 @@ Rectangle {
                 elide: Text.ElideRight
             }
 
-            Text {
+            UiText {
                 width: parent.width
 
                 text: root.subtitle

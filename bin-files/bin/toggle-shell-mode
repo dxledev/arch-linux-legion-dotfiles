@@ -454,9 +454,8 @@ apply_profile() {
     stop_waybar_owned || return 1
     stop_noctalia || return 1
     if [[ "$target" == island ]]; then
-        if (( lock_flag )); then start_hyprlock || return 1; fi
         "$island_theme" restore 9>&- || return 1
-        start_island
+        start_island "$lock_flag"
     elif [[ "$target" == noctalia ]]; then
         local theme_state theme_source
         theme_state="$("$noctalia_theme_sync" --describe)" || return 1
@@ -491,6 +490,10 @@ fresh_login_start() {
     [[ "${SHELL_MODE_FRESH_LOGIN:-0}" == 1 ]] && return 0
     session_id="${XDG_SESSION_ID:-default}"
     marker="${XDG_RUNTIME_DIR:-/tmp}/noctalia-shell-login-$UID-$session_id"
+    if [[ "${1:-}" == island ]]; then
+        session_id="${HYPRLAND_INSTANCE_SIGNATURE:-$session_id}"
+        marker="${XDG_RUNTIME_DIR:-/tmp}/island-shell-login-$UID-$session_id"
+    fi
     [[ -e "$marker" ]] && return 1
     fresh_login_marker="$marker"
     return 0
@@ -586,7 +589,8 @@ write_startup_plan() {
     fi
     printf 'Markers: Waybar=%s, Noctalia=%s\n' "$waybar_marker" "$noctalia_marker"
     if [[ "$target" == island ]]; then
-        printf 'Stop the previous shell and slideshow; restore Island theme and wallpaper; start Island with Hyprlock.\n'
+        printf 'Stop the previous shell and slideshow; restore Island theme and wallpaper; start Island with its native lock provider.\n'
+        printf 'Start Island polkit agent: %s\n' "$island_polkit_service"
         "$island_theme" status
     elif [[ "$target" == noctalia ]]; then
         printf 'Stop Proton VPN desktop app, Waybar slideshow and external wallpaper daemon; start Noctalia full profile.\n'
@@ -662,7 +666,7 @@ main() {
     [[ "$action" != apply ]] || target="$current"
     validate_paths "$target"
     startup_locked=0
-    fresh_login_start && startup_locked=1 || true
+    fresh_login_start "$target" && startup_locked=1 || true
     if (( dry_run )); then
         write_startup_plan "$current" "$target"
         return 0

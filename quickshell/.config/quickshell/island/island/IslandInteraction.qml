@@ -11,6 +11,16 @@ Item {
     property bool hovered: false
     property bool monitorActive: true
     property string monitorName: ""
+    readonly property bool hoverToExpand: ThemeService.settings.hoverToExpand ?? true
+    onHoverToExpandChanged: expandTimer.stop()
+
+    function expandFromClick() {
+        if (!root.enabled || !root.monitorActive || root.hoverToExpand || IslandState.mode !== IslandState.defaultMode) return;
+        expandTimer.stop();
+        collapseTimer.stop();
+        IslandState.islandPinned = true;
+        IslandController.openExpanded(root.monitorName);
+    }
 
     Connections {
         target: IslandState
@@ -55,7 +65,7 @@ Item {
             )
                 return
 
-            expandTimer.restart()
+            if (root.hoverToExpand) expandTimer.restart()
 
         } else {
 
@@ -134,7 +144,7 @@ Item {
 
         onTriggered: {
 
-            if (!root.enabled || !root.monitorActive || !root.hovered) return
+            if (!root.enabled || !root.monitorActive || !root.hovered || !root.hoverToExpand) return
 
             if (
                 IslandState.mode === IslandState.mediaControlsMode &&

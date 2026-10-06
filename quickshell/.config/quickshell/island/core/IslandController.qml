@@ -9,7 +9,7 @@ import "../services"
 QtObject {
     id: root
 
-    readonly property var settingsSections: ["launcher", "appearance", "clock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
+    readonly property var settingsSections: ["launcher", "appearance", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
 
     function focusedPanelMonitorName() {
         const screen = ThemeService.islandScreens.find(screen => screen.name === Hyprland.focusedMonitor?.name)
@@ -87,6 +87,8 @@ QtObject {
         setMode(IslandState.powerMenuMode)
     }
 
+    function openSystem() { setMode(IslandState.systemMode) }
+
     function openControlCenter() {
         setMode(IslandState.controlCenterMode)
     }
@@ -139,6 +141,12 @@ QtObject {
         IslandState.islandPinned = false
 
         setMode(IslandState.controlCenterMode)
+    }
+
+    function openPowerMenuFromRightSection() {
+        IslandState.returnToExpanded = IslandState.islandPinned
+        IslandState.islandPinned = false
+        setMode(IslandState.powerMenuMode)
     }
 
 

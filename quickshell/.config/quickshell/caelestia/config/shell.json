@@ -148,6 +148,7 @@
         "showClockSeconds": true,
         "showDashboard": true,
         "showMedia": true,
+        "showOnHover": false,
         "showPerformance": true,
         "showWeather": true
     },

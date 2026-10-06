@@ -49,6 +49,7 @@ Rectangle {
         Text {
 
             text: root.icon
+            font.family: Theme.iconFont
 
             Layout.alignment: Qt.AlignHCenter
 
@@ -60,7 +61,7 @@ Rectangle {
                 : Theme.textPrimary
         }
 
-        Text {
+        UiText {
 
             text: root.label
 

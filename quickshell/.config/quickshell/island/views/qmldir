@@ -1,4 +1,5 @@
 ClockSettingsView 1.0 ClockSettingsView.qml
+LockSettingsView 1.0 LockSettingsView.qml
 OsdSettingsView 1.0 OsdSettingsView.qml
 ClockView 1.0 ClockView.qml
 ControlCenterView 1.0 ControlCenterView.qml
@@ -9,6 +10,7 @@ MediaView 1.0 MediaView.qml
 NotificationView 1.0 NotificationView.qml
 OverlayView 1.0 OverlayView.qml
 PowerMenuView 1.0 PowerMenuView.qml
+SystemView 1.0 SystemView.qml
 SettingsView 1.0 SettingsView.qml
 LauncherView 1.0 LauncherView.qml
 LauncherSettingsView 1.0 LauncherSettingsView.qml

@@ -1,21 +1,33 @@
+import QtQuick
 import Quickshell
 import "windows"
 import "services"
 
 ShellRoot {
-    readonly property var notifications: NotificationService
-    StatusWatcher {}
-    readonly property var workspaces: WorkspaceService
-    KeyboardService {}
+    id: root
+    readonly property var lock: LockService
+    readonly property bool startupLocked: Quickshell.env("ISLAND_START_LOCKED") === "1"
+    property bool contentLoaded: false
+    settings.watchFiles: false
 
-    IslandIPC {}
+    Loader {
+        active: root.contentLoaded || !root.startupLocked || LockService.secure
+        asynchronous: root.startupLocked
+        onLoaded: root.contentLoaded = true
+        sourceComponent: Scope {
+            readonly property var notifications: NotificationService
+            StatusWatcher {}
+            readonly property var workspaces: WorkspaceService
+            KeyboardService {}
+            IslandIPC {}
 
-    Variants {
-        model: ThemeService.islandScreens
-
-        IslandWindow {
-            required property ShellScreen modelData
-            screen: modelData
+            Variants {
+                model: ThemeService.islandScreens
+                IslandWindow {
+                    required property ShellScreen modelData
+                    screen: modelData
+                }
+            }
         }
     }
 }

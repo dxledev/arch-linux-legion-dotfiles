@@ -134,7 +134,7 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 3
-                    Text {
+                    UiText {
                         Layout.fillWidth: true
                         text: root.entry.app || "Notification"
                         textFormat: Text.PlainText
@@ -142,7 +142,7 @@ Item {
                         font.pixelSize: 11
                         elide: Text.ElideRight
                     }
-                    Text {
+                    UiText {
                         Layout.fillWidth: true
                         text: root.entry.summary
                         textFormat: Text.PlainText
@@ -171,7 +171,7 @@ Item {
                     }
                 }
             }
-            Text {
+            UiText {
                 Layout.fillWidth: true
                 visible: text.length > 0
                 text: root.entry.body
@@ -198,7 +198,7 @@ Item {
                         padding: 8
                         width: Math.min(implicitWidth, content.width)
                         onClicked: root.entry.invoke(modelData)
-                        contentItem: Text {
+                        contentItem: UiText {
                             text: actionButton.text
                             color: Theme.textPrimary
                             font.pixelSize: 12

@@ -37,14 +37,14 @@ Flickable {
 
                 Row {
                     width: parent.width
-                    Text {
+                    UiText {
                         width: parent.width - 145
                         text: row.modelData.label
                         elide: Text.ElideRight
                         color: Theme.textPrimary
                         font.pixelSize: 12
                     }
-                    Text {
+                    UiText {
                         width: 145
                         text: !row.modelData.supported ? "Unsupported" : row.modelData.error || (row.modelData.initialized ? row.modelData.brightness + "%" : "Loading…")
                         horizontalAlignment: Text.AlignRight

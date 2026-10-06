@@ -22,7 +22,8 @@ Item {
         default: return Theme.statusDefaultWidth;
         }
     }
-    implicitHeight: StatusManager.mode === "brightness" ? brightnessColumn.implicitHeight + (brightnessLabels ? 12 : 0)
+    implicitHeight: StatusManager.mode === "workspace" ? workspaceView.implicitHeight
+        : StatusManager.mode === "brightness" ? brightnessColumn.implicitHeight + (brightnessLabels ? 12 : 0)
         : StatusManager.mode === "volume" || textStatus ? OsdSettings.rowHeight : 33
 
     WorkspaceView {
@@ -34,6 +35,7 @@ Item {
     }
     OsdSliderRow {
         id: volumeRow
+        objectName: "volume-osd"
         anchors.centerIn: parent
         width: parent.width
         visible: StatusManager.mode === "volume"
@@ -42,6 +44,7 @@ Item {
     }
     Column {
         id: brightnessColumn
+        objectName: "brightness-osd"
         anchors.centerIn: parent
         width: parent.width
         spacing: 6
@@ -60,6 +63,7 @@ Item {
     }
     RowLayout {
         id: textRow
+        objectName: "text-osd"
         visible: root.textStatus
         width: implicitWidth
         height: implicitHeight

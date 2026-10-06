@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-lockscreen.XXXXXX)"
+config_home="$test_root/config"
+settings_file="$test_root/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$test_dir/../theme-functions"
+
+check_settings() {
+    read_settings | /usr/bin/jq -e '.lockFontFamily == "Noto Sans" and .lockClockSize == 112 and .lockShowMedia and .lockShowBattery and .lockAnimationDuration == 180 and .lockBlurRadius == 64 and .lockDimOpacity == 40' >/dev/null
+    save_setting lockClockSize 128
+    save_setting lockFontFamily 'Noto Sans'
+    save_setting lockShowMedia false
+    save_setting lockShowBattery false
+    save_setting lockAnimationDuration 0
+    save_setting lockBlurRadius 96
+    save_setting lockDimOpacity 50
+    local before
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting lockClockSize 160 >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
+    dry_run=0
+    if (save_setting lockClockSize 71) >/dev/null 2>&1; then fail 'Accepted a too-small clock.'; fi
+    if (save_setting lockClockSize 161) >/dev/null 2>&1; then fail 'Accepted a too-large clock.'; fi
+    if (save_setting lockAnimationDuration 1001) >/dev/null 2>&1; then fail 'Accepted an excessive animation.'; fi
+    if (save_setting lockShowMedia yes) >/dev/null 2>&1; then fail 'Accepted a non-boolean detail toggle.'; fi
+    if (save_setting lockFontFamily '') >/dev/null 2>&1; then fail 'Accepted an empty font.'; fi
+    if (save_setting lockBlurRadius 129) >/dev/null 2>&1; then fail 'Accepted an excessive blur radius.'; fi
+    if (save_setting lockDimOpacity 101) >/dev/null 2>&1; then fail 'Accepted excessive background dimming.'; fi
+    save_setting lockBlurRadius 64
+    save_setting lockDimOpacity 40
+    save_setting lockClockSize 112
+}
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/pam"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cat > "$test_root/pam-response" <<'PAM_RESPONSE'
+#!/usr/bin/env bash
+set -euo pipefail
+response=''
+IFS= read -r -d '' response || true
+[[ "$response" == test-only ]]
+PAM_RESPONSE
+    /usr/bin/chmod +x "$test_root/pam-response"
+    printf 'auth required pam_exec.so expose_authtok quiet %s/pam-response\n' "$test_root" > "$test_root/pam/deny"
+    /usr/bin/cp "$test_root/pam/deny" "$test_root/pam/permit"
+    printf 'auth optional pam_exec.so expose_authtok quiet %s/pam-response\nauth required pam_deny.so\n' "$test_root" > "$test_root/pam/deny"
+    /usr/bin/sed "s|\"../../|\"file:$test_dir/../../|g" "$test_dir/lockscreen-views.qml" > "$test_root/views.qml"
+    /usr/bin/cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"rosepine",settings:$settings,wallpaper:"",colors:{background:"#191724",backgroundGray:"#1f1d2e",foreground:"#e0def4",foregroundInactive:"#908caa",muted:"#6e6a86",primary:"#c4a7e7",danger:"#eb6f92",warning:"#f6c177",success:"#9ccfd8"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    /usr/bin/chmod +x "$test_root/controller"
+}
+
+check_router() {
+    /usr/bin/touch "$test_root/island.qml" "$test_root/caelestia.qml"
+    /usr/bin/cat > "$test_root/mode" <<'MODE'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# == 1 && "$1" == --status ]]
+printf '%s\n' "$TEST_ROUTER_MODE"
+MODE
+    /usr/bin/cat > "$test_root/qs" <<'QS'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# == 6 && "$1" == -p && "$3 $4 $5" == 'ipc call lock' ]]
+printf '%s %s\n' "$2" "$6" >> "$TEST_ROOT/router-calls"
+case "$6" in
+    lock) ;;
+    state)
+        attempt=0
+        if [[ -f "$TEST_ROOT/router-attempt" ]]; then read -r attempt < "$TEST_ROOT/router-attempt"; fi
+        attempt=$((attempt + 1))
+        printf '%s\n' "$attempt" > "$TEST_ROOT/router-attempt"
+        if [[ "$TEST_ROUTER_STATE" == secure && "$attempt" -ge 2 ]]; then
+            printf 'true:true\n'
+        elif [[ "$TEST_ROUTER_STATE" == unlocked && "$attempt" -ge 2 ]]; then
+            printf 'false:false\n'
+        else
+            printf 'true:false\n'
+        fi
+        ;;
+    *) exit 2 ;;
+esac
+QS
+    /usr/bin/chmod +x "$test_root/mode" "$test_root/qs"
+    local mode profile output
+    export TEST_ROOT="$test_root" SYSTEM_LOCK_MODE_SCRIPT="$test_root/mode" SYSTEM_LOCK_QUICKSHELL_BIN="$test_root/qs"
+    export SYSTEM_LOCK_QUICKSHELL_CONFIG="$test_root/caelestia.qml" SYSTEM_LOCK_ISLAND_CONFIG="$test_root/island.qml"
+    export SYSTEM_LOCK_WAIT_TIMEOUT=1 SYSTEM_LOCK_POLL_INTERVAL=0
+    for mode in island caelestia waybar noctalia; do
+        output="$(TEST_ROUTER_MODE="$mode" "$test_dir/../desktop/system-lock" --dry-run)"
+        case "$mode" in waybar) profile=hyprlock ;; noctalia) profile=full ;; *) profile="$mode" ;; esac
+        /usr/bin/grep -q "Provider: $profile" <<< "$output" || fail "Wrong provider for $mode."
+    done
+    printf '0\n' > "$test_root/router-attempt"
+    TEST_ROUTER_MODE=island TEST_ROUTER_STATE=secure "$test_dir/../desktop/system-lock" --wait
+    [[ "$(< "$test_root/router-attempt")" == 2 ]]
+    [[ "$(/usr/bin/awk '$2 == "lock" {count++} END {print count}' "$test_root/router-calls")" == 1 ]]
+    /usr/bin/awk -v config="$test_root/island.qml" '$1 != config {exit 1}' "$test_root/router-calls"
+    if TEST_ROUTER_MODE=island TEST_ROUTER_STATE=insecure "$test_dir/../desktop/system-lock" --wait > "$test_root/router-error" 2>&1; then
+        fail 'Island router accepted a lock without compositor confirmation.'
+    fi
+    TEST_ROUTER_MODE=caelestia TEST_ROUTER_STATE=insecure "$test_dir/../desktop/system-lock" --wait
+    : > "$test_root/router-calls"
+    printf '0\n' > "$test_root/router-attempt"
+    if TEST_ROUTER_MODE=island TEST_ROUTER_STATE=unlocked "$test_dir/../desktop/system-lock" --wait > "$test_root/router-error" 2>&1; then
+        fail 'Island accepted a lock without secure confirmation.'
+    fi
+    [[ "$(/usr/bin/awk '$2 == "lock" {count++} END {print count}' "$test_root/router-calls")" == 1 ]] || fail 'A successful unlock triggered another lock request.'
+    if TEST_ROUTER_MODE=unknown "$test_dir/../desktop/system-lock" --dry-run > /dev/null 2>&1; then
+        fail 'Router accepted an unknown mode.'
+    fi
+    unset SYSTEM_LOCK_MODE_SCRIPT SYSTEM_LOCK_QUICKSHELL_BIN SYSTEM_LOCK_QUICKSHELL_CONFIG SYSTEM_LOCK_ISLAND_CONFIG
+    unset SYSTEM_LOCK_WAIT_TIMEOUT SYSTEM_LOCK_POLL_INTERVAL
+}
+
+check_settings
+make_fixture
+check_router
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    ISLAND_TEST_PAM_DIRECTORY="$test_root/pam" ISLAND_TEST_SCREENSHOT="$test_root/preview.png" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Could not run lockscreen views.'
+fi
+if ! /usr/bin/rg -q 'PASS: masked and shared input' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Lockscreen views failed.'
+fi
+printf 'PASS: lock settings, persistence, validation, dry-run, provider routing, no repeated lock requests after unlock, secure-lock checks, and real isolated PAM conversations\nPreview: %s/preview.png\n' "$test_root"

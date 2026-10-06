@@ -20,7 +20,9 @@ IpcHandler {
     function nightlightEnabled(): bool { return NightLightService.enabled; }
     function toggleNightlight(): void { NightLightService.toggle(); }
     function ready(): bool { return ThemeService.ready; }
+    function lock(): void { LockService.lock(); }
     function openPowerMenu(): void { IslandController.toggleMode(IslandState.powerMenuMode); }
+    function openSystem(): void { IslandController.toggleMode(IslandState.systemMode); }
     function openExpandedHome(): void { IslandController.toggleMode(IslandState.expandedMode); }
     function reset(): void { IslandController.reset(); }
     function openWallpaperSelector(): void { IslandController.toggleMode(IslandState.wallpaperSelectorMode); }

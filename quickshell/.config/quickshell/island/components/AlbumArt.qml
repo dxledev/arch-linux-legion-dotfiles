@@ -44,7 +44,7 @@ ClippingRectangle {
         }
     }
 
-    Text {
+    UiText {
         anchors.centerIn: parent
         visible: !root.artworkReady
         text: "♪"

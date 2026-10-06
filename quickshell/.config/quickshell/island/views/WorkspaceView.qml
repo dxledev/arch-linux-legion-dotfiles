@@ -15,7 +15,8 @@ Item {
     implicitWidth: dotsStyle ? Math.max(160, dots.width + 40) : Theme.statusWorkspaceWidth
     implicitHeight: IslandGeometry.compactHeight
 
-    Text {
+    UiText {
+        objectName: "workspace-label"
         anchors.centerIn: parent
         visible: !root.dotsStyle
         text: "Workspace " + (root.activeWorkspace?.name ?? StatusManager.title)

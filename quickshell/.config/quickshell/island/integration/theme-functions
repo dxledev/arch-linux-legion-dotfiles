@@ -7,7 +7,7 @@ write_json() {
 }
 
 read_settings() {
-    local defaults='{"launcherShowAllApps":true,"launcherMatching":"Fuzzy","launcherSearchOrder":"Relevance","launcherDefaultOrder":"App list order","launcherSearchDescriptions":false,"clockFontFamily":"JetBrainsMono Nerd Font","clockFontSize":18,"clockFontBold":true,"clock12Hour":false,"osdFontFamily":"JetBrainsMono Nerd Font","osdFontSize":18,"osdFontBold":true,"osdIconSize":18,"osdSliderWidth":180,"osdSliderHeight":6,"osdSliderRadius":3,"osdSliderAnimationDuration":180,"osdAnimationDuration":120,"osdTimeout":1800,"osdShowPercentage":true,"monitor":"all","topMargin":10,"radius":23,"opacity":1,"hoverDelay":100,"collapseDelay":250,"reservedSpaceBelow":0,"visualizer":true,"scrollAnimationDuration":180,"scrollWheelStep":64,"scrollProgressAlwaysVisible":true,"scrollProgressVisibleDuration":1500,"scrollProgressShowOnNonScrollable":false,"scrollProgressAnimationDuration":180,"workspaceStyle":"default","workspaceDotSize":8,"workspacePersistent":true,"workspaceShowAllMonitors":false,"workspaceCount":11,"workspaceAnimationDuration":160,"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationStackVisible":3,"notificationStackSpacing":8,"notificationAnimationDuration":300,"notificationTimeout":5000,"transition":"grow","transitionDuration":3.2,"transitionFps":120}'
+    local defaults='{"launcherShowAllApps":true,"launcherMatching":"Fuzzy","launcherSearchOrder":"Relevance","launcherDefaultOrder":"App list order","launcherSearchDescriptions":false,"uiFontFamily":"Noto Sans","uiFontBold":false,"uiLetterSpacing":0,"uiAnimationDuration":300,"clockInheritUiFont":false,"osdInheritUiFont":false,"clockFontFamily":"JetBrainsMono Nerd Font","clockFontSize":18,"clockFontBold":true,"clock12Hour":false,"lockFontFamily":"Noto Sans","lockClockSize":112,"lockShowMedia":true,"lockShowBattery":true,"lockAnimationDuration":180,"lockBlurRadius":64,"lockDimOpacity":40,"osdFontFamily":"JetBrainsMono Nerd Font","osdFontSize":18,"osdFontBold":true,"osdIconSize":18,"osdSliderWidth":180,"osdSliderHeight":6,"osdSliderRadius":3,"osdSliderAnimationDuration":180,"osdAnimationDuration":120,"osdTimeout":1800,"osdShowPercentage":true,"monitor":"all","islandWidth":160,"islandHeight":33,"islandBorderWidth":0,"islandAnimationDuration":300,"topMargin":10,"radius":23,"opacity":1,"hoverToExpand":true,"hoverDelay":100,"collapseDelay":250,"reservedSpaceBelow":0,"visualizer":true,"scrollAnimationDuration":180,"scrollWheelStep":64,"scrollProgressAlwaysVisible":true,"scrollProgressVisibleDuration":1500,"scrollProgressShowOnNonScrollable":false,"scrollProgressAnimationDuration":180,"workspaceStyle":"default","workspaceDotSize":8,"workspacePersistent":true,"workspaceShowAllMonitors":false,"workspaceCount":11,"workspaceAnimationDuration":160,"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationStackVisible":3,"notificationStackSpacing":8,"notificationAnimationDuration":300,"notificationTimeout":5000,"transition":"grow","transitionDuration":3.2,"transitionFps":120}'
     if [[ -r "$config_home/background/bg-set.conf" ]]; then
         local key value
         while IFS='=' read -r key value; do
@@ -34,16 +34,26 @@ save_setting() {
         launcherMatching) [[ "$value" == Fuzzy || "$value" == Contains ]] || fail "Invalid launcher matching." ;;
         launcherSearchOrder) [[ "$value" == Relevance || "$value" == Alphabetical || "$value" == "App list order" || "$value" == "Most used" || "$value" == "Recently used" ]] || fail "Invalid launcher search order." ;;
         launcherDefaultOrder) [[ "$value" == Alphabetical || "$value" == "App list order" || "$value" == "Most used" || "$value" == "Recently used" ]] || fail "Invalid launcher default order." ;;
-        clockFontFamily|osdFontFamily)
+        uiFontFamily|clockFontFamily|osdFontFamily|lockFontFamily)
             [[ -n "$value" && ${#value} -le 160 && "$value" != *$'\n'* && "$value" != *$'\r'* ]] || fail 'Invalid font family.' ;;
+        uiLetterSpacing)
+            [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] && /usr/bin/awk -v value="$value" 'BEGIN {exit !(value <= 3)}' || fail 'Letter spacing must be 0-3 px.' ;;
+        uiAnimationDuration|islandAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Animation duration must be 0-1000 ms.' ;;
+        islandWidth) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 4 && "$value" -le 600 ]] || fail 'Island width must be 4-600 px; the clock sets the rendered minimum.' ;;
+        islandHeight) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 24 && "$value" -le 80 ]] || fail 'Island height must be 24-80 px; the clock sets the rendered minimum.' ;;
+        islandBorderWidth) [[ "$value" =~ ^[0-9]+$ && "$value" -le 4 ]] || fail 'Island border width must be 0-4 px.' ;;
         clockFontSize|osdFontSize|osdIconSize) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 8 && "$value" -le 40 ]] || fail 'Font and icon sizes must be 8-40 px.' ;;
+        lockClockSize) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 72 && "$value" -le 160 ]] || fail 'Lock clock size must be 72-160 px.' ;;
+        lockAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Lock animation duration must be 0-1000 ms.' ;;
+        lockBlurRadius) [[ "$value" =~ ^[0-9]+$ && "$value" -le 128 ]] || fail 'Lock blur radius must be 0-128 px.' ;;
+        lockDimOpacity) [[ "$value" =~ ^[0-9]+$ && "$value" -le 100 ]] || fail 'Lock dimming must be 0-100 percent.' ;;
         osdSliderWidth) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 60 && "$value" -le 500 ]] || fail 'OSD slider width must be 60-500 px.' ;;
         osdSliderHeight) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 2 && "$value" -le 24 ]] || fail 'OSD slider thickness must be 2-24 px.' ;;
         osdSliderRadius) [[ "$value" =~ ^[0-9]+$ && "$value" -le 12 ]] || fail 'OSD slider radius must be 0-12 px.' ;;
         osdSliderAnimationDuration|osdAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'OSD animation duration must be 0-1000 ms.' ;;
         osdTimeout) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 500 && "$value" -le 10000 ]] || fail 'OSD display duration must be 500-10000 ms.' ;;
         monitor) [[ "$value" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || fail 'Invalid monitor name.' ;;
-        launcherShowAllApps|launcherSearchDescriptions|clockFontBold|clock12Hour|osdFontBold|osdShowPercentage|visualizer|workspacePersistent|workspaceShowAllMonitors|scrollProgressAlwaysVisible|scrollProgressShowOnNonScrollable) [[ "$value" == true || "$value" == false ]] || fail "$key must be true or false." ;;
+        launcherShowAllApps|launcherSearchDescriptions|uiFontBold|hoverToExpand|clockFontBold|clockInheritUiFont|osdInheritUiFont|clock12Hour|osdFontBold|osdShowPercentage|lockShowMedia|lockShowBattery|visualizer|workspacePersistent|workspaceShowAllMonitors|scrollProgressAlwaysVisible|scrollProgressShowOnNonScrollable) [[ "$value" == true || "$value" == false ]] || fail "$key must be true or false." ;;
         scrollProgressVisibleDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 100 && "$value" -le 10000 ]] || fail 'Scroll indicator display duration must be 100-10000 ms.' ;;
         scrollProgressAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Scroll indicator animation duration must be 0-1000 ms.' ;;
         scrollAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Scroll smoothing duration must be 0-1000 ms.' ;;
@@ -71,7 +81,7 @@ save_setting() {
             ;;
         *) fail "Unknown setting: $key" ;;
     esac
-    if [[ "$key" == launcherMatching || "$key" == launcherSearchOrder || "$key" == launcherDefaultOrder || "$key" == transition || "$key" == monitor || "$key" == workspaceStyle || "$key" == clockFontFamily || "$key" == osdFontFamily ]]; then value="$(/usr/bin/jq -Rn --arg value "$value" '$value')"; fi
+    if [[ "$key" == launcherMatching || "$key" == launcherSearchOrder || "$key" == launcherDefaultOrder || "$key" == transition || "$key" == monitor || "$key" == workspaceStyle || "$key" == uiFontFamily || "$key" == clockFontFamily || "$key" == osdFontFamily || "$key" == lockFontFamily ]]; then value="$(/usr/bin/jq -Rn --arg value "$value" '$value')"; fi
     settings="$(read_settings | /usr/bin/jq -c --arg key "$key" --argjson value "$value" '.[$key]=$value')"
     if (( dry_run )); then printf '%s\n' "$settings"; else write_json "$settings_file" "$settings"; fi
 }

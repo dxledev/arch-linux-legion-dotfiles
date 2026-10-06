@@ -21,7 +21,7 @@ Button {
             size: 20
             color: Theme.accent
         }
-        Text {
+        UiText {
             anchors.left: parent.left
             anchors.leftMargin: icon.visible ? icon.width + 14 : 0
             anchors.right: arrow.left

@@ -14,14 +14,13 @@ Item {
 
     clip: true
 
-    Text {
+    UiText {
         id: label
 
         text: root.text
 
         color: Theme.textPrimary
 
-        font.family: "JetBrainsMono Nerd Font"
         font.pixelSize: root.fontSize
         font.bold: true
 

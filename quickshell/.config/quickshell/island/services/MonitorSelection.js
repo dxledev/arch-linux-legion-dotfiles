@@ -1,6 +1,6 @@
-function brightnessForScreen(events, screenName, islandScreens) {
-    if (islandScreens.length === 1) return islandScreens[0].name === screenName ? events : [];
-    return events.filter(event => event.monitorName === screenName);
+function osdMonitorName(sourceMonitor, islandScreens) {
+    return islandScreens.find(screen => screen.name === sourceMonitor)?.name
+        ?? islandScreens.find(screen => screen.name)?.name ?? sourceMonitor;
 }
 
 function screensForSetting(screens, setting) {

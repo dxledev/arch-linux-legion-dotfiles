@@ -17,10 +17,11 @@ Item {
         objectName: "clock-label"
 
         anchors.centerIn: parent
+        anchors.alignWhenCentered: false
 
         color: Theme.textPrimary
 
-        font.family: ThemeService.settings.clockFontFamily || "JetBrainsMono Nerd Font"
+        font.family: ThemeService.clockFontFamily
         font.pixelSize: ThemeService.settings.clockFontSize ?? 18
         font.bold: ThemeService.settings.clockFontBold ?? true
 

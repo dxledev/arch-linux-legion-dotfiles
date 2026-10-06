@@ -28,7 +28,7 @@ Item {
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
         spacing: 4
-        Text {
+        UiText {
             id: titleLabel
             objectName: "panel-title"
             width: parent.width
@@ -46,7 +46,7 @@ Item {
                 scrollTargets: root.scrollTargets
             }
         }
-        Text {
+        UiText {
             visible: root.subtitle.length > 0
             text: root.subtitle
             color: Theme.textSecondary
@@ -66,7 +66,7 @@ Item {
         padding: root.trailingClickable ? 10 : 0
         Accessible.name: root.trailingText
         onClicked: root.trailingClicked()
-        contentItem: Text {
+        contentItem: UiText {
             text: trailingLabel.text
             color: root.trailingClickable && (trailingLabel.hovered || trailingLabel.activeFocus) ? Theme.textPrimary : Theme.textSecondary
             font.pixelSize: 13

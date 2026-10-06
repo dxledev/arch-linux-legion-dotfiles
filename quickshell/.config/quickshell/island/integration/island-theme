@@ -9,6 +9,7 @@ dynamic_directory="${ISLAND_DYNAMIC_WALLPAPERS_DIR:-$HOME/files/pictures/wallpap
 settings_file="$state_dir/settings.json"
 wallpapers_file="$state_dir/wallpapers.json"
 shell_theme="${ISLAND_SHELL_THEME_ENGINE:-$script_dir/../../caelestia/integration/shell-theme}"
+theme_apply="${THEME_APPLY:-${DESKTOP_SCRIPTS_DIR:-$HOME/bin}/theme-apply}"
 awww_bin="${ISLAND_AWWW_BIN:-/usr/bin/awww}"
 awww_daemon="${ISLAND_AWWW_DAEMON:-/usr/bin/awww-daemon}"
 pgrep_bin="${ISLAND_PGREP_BIN:-/usr/bin/pgrep}"
@@ -32,8 +33,19 @@ engine() {
         SHELL_THEME_PREWARM="${ISLAND_THEME_PREWARM:-1}" \
         SHELL_THEME_CACHE_DIR="${ISLAND_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/island/theme}" \
         SHELL_THEME_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WALLPAPER=1 \
-        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_WAIT_FOR_RELOADS=1 \
+        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_ACTIVATE_ONLY=1 \
         "$shell_theme" "${args[@]}" "$@" 8>&-
+}
+
+reload_applications() {
+    (( ! dry_run )) || return 0
+    [[ "${THEME_APPLY_ACTIVATE_ONLY:-0}" != 1 ]] || return 0
+    local args=("$source_name")
+    [[ "$source_name" != dynamic ]] || args+=(island)
+    THEME_APPLY_SKIP_WAYBAR=1 THEME_APPLY_SUPPRESS_NOTIFY=1 THEME_APPLY_SKIP_WALLPAPER=1 \
+        THEME_APPLY_FORCE_EXTERNAL_WALLPAPER=1 THEME_APPLY_LOW_PRIORITY="${THEME_APPLY_LOW_PRIORITY:-1}" \
+        THEME_APPLY_WAIT_FOR_RELOADS="${THEME_APPLY_WAIT_FOR_RELOADS:-0}" \
+        "$theme_apply" "${args[@]}" 8>&-
 }
 
 load_state() {
@@ -90,6 +102,7 @@ apply_selection() {
     save_wallpaper "$path"
     if [[ "$theme_key" == dynamic ]]; then engine refresh-wallpaper; fi
     apply_awww "$path" 0
+    if [[ "$theme_key" == dynamic ]]; then reload_applications; fi
 }
 
 restore() {
@@ -100,6 +113,7 @@ restore() {
     if (( ! dry_run )); then save_wallpaper "$wallpaper"; fi
     SHELL_DYNAMIC_WALLPAPER="$wallpaper" engine restore
     apply_awww "$wallpaper" 1
+    reload_applications
 }
 
 step_wallpaper() {
@@ -117,7 +131,7 @@ step_wallpaper() {
 }
 
 main() {
-    [[ "$state_dir" == /* && "$themes_dir" == /* && "$dynamic_directory" == /* && "$shell_theme" == /* && "$awww_bin" == /* && "$awww_daemon" == /* && "$pgrep_bin" == /* ]] || fail 'Paths must be absolute.'
+    [[ "$state_dir" == /* && "$themes_dir" == /* && "$dynamic_directory" == /* && "$shell_theme" == /* && "$theme_apply" == /* && "$awww_bin" == /* && "$awww_daemon" == /* && "$pgrep_bin" == /* ]] || fail 'Paths must be absolute.'
     [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
     local action="${1:---help}"
     (( $# == 0 )) || shift
@@ -159,6 +173,7 @@ main() {
             if (( ! dry_run )); then
                 load_state
                 apply_awww "$(selected_wallpaper)" 0
+                reload_applications
             fi
             ;;
         wallpaper) (( $# == 1 )) || fail 'wallpaper requires one path.'; apply_selection "$1" ;;
@@ -167,6 +182,7 @@ main() {
             (( $# == 1 )) || fail 'One value required.'
             [[ "$theme_key" == dynamic ]] || fail 'Mode and variant apply to Dynamic themes.'
             engine "set-$action" "$1"
+            reload_applications
             ;;
         setting) (( $# == 2 )) || fail 'setting requires a key and value.'; save_setting "$1" "$2" ;;
         *) usage >&2; return 2 ;;

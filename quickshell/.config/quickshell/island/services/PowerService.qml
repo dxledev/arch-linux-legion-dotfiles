@@ -17,10 +17,7 @@ Singleton {
     }
 
     function lock() {
-        run([
-            Quickshell.env("HOME") + "/bin/system-lock",
-            "--wait"
-        ])
+        LockService.lock()
     }
 
     function logout() {

@@ -1,12 +1,13 @@
 import QtQuick
 import "../styles"
+import "../services"
 
 Text {
     id: date
 
     color: Theme.textSecondary
 
-    font.family: "JetBrainsMono Nerd Font"
+    font.family: ThemeService.clockFontFamily
     font.pixelSize: 11
 
     text: Qt.formatDate(new Date(), "ddd, MMM d")

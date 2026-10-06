@@ -29,9 +29,19 @@ elif name == 'pkill':
     save()
 elif name == 'kill':
     state['qs'] = ''
+    state['qsLocked'] = False
     save()
 elif name == 'systemctl':
-    if 'is-active' in args:
+    if 'hyprpolkitagent.service' in args:
+        if 'start' in args:
+            state['islandPolkit'] = True
+            save()
+        elif 'stop' in args:
+            state['islandPolkit'] = False
+            save()
+        elif 'is-active' in args:
+            result = 0 if state.get('islandPolkit') else 1
+    elif 'is-active' in args:
         result = 0 if 'ward' in state['processes'] else 1
     elif 'start' in args:
         state['processes'].append('ward')
@@ -45,9 +55,13 @@ elif name == 'qs':
     if 'list' in args:
         print(json.dumps([{'pid': int(os.environ['ISLAND_TEST_PID'])}] if state['qs'] == selected else []))
     elif 'ipc' in args:
-        print('false' if (root / 'fail-island-health').exists() else 'true')
+        if args[-2:] == ['lock', 'state']:
+            print('true:false' if (root / 'fail-island-lock').exists() else 'true:true' if state.get('qsLocked') else 'false:false')
+        else:
+            print('false' if (root / 'fail-island-health').exists() else 'true')
     else:
         state['qs'] = selected
+        state['qsLocked'] = os.environ.get('ISLAND_START_LOCKED' if selected == 'island' else 'CAELESTIA_START_LOCKED') == '1'
         save()
 elif name == 'noctalia':
     if 'status' in args:

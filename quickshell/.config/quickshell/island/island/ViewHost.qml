@@ -3,6 +3,7 @@ import QtQuick
 import "../views"
 import "../core"
 import "../services"
+import "../styles"
 
 Item {
     id: root
@@ -48,7 +49,36 @@ Item {
     Loader {
         id: viewLoader
 
+        onLoaded: {
+            sessionEntrance.stop()
+            opacity = 1
+            scale = 1
+            if (root.mode === IslandState.powerMenuMode || root.mode === IslandState.systemMode)
+                sessionEntrance.restart()
+        }
+
+        ParallelAnimation {
+            id: sessionEntrance
+            NumberAnimation {
+                target: viewLoader
+                property: "opacity"
+                from: 0
+                to: 1
+                duration: Theme.animationNormal
+                easing.type: Easing.OutCubic
+            }
+            NumberAnimation {
+                target: viewLoader
+                property: "scale"
+                from: 0.94
+                to: 1
+                duration: Theme.animationNormal
+                easing.type: Easing.OutCubic
+            }
+        }
+
         anchors.centerIn: parent
+        anchors.alignWhenCentered: false
 
         width: item ? item.implicitWidth : 0
         height: item ? item.implicitHeight : 0
@@ -71,6 +101,7 @@ Item {
                 case "launcher": return launcherSettingsView
                 case "appearance": return appearanceSettingsView
                 case "clock": return clockSettingsView
+                case "lock": return lockSettingsView
                 case "osd": return osdSettingsView
                 case "workspaces": return workspacesSettingsView
                 case "dynamicPalette": return dynamicPaletteSettingsView
@@ -94,6 +125,9 @@ Item {
 
             case IslandState.powerMenuMode:
                 return powerMenuView
+
+            case IslandState.systemMode:
+                return systemView
 
             case IslandState.controlCenterMode:
                 return null
@@ -120,6 +154,7 @@ Item {
     }
 
     Component { id: launcherView; LauncherView {} }
+    Component { id: systemView; SystemView {} }
     Component { id: launcherSettingsView; LauncherSettingsView {} }
     Component { id: navigationView; NavigationView {} }
     Component { id: settingsView; SettingsView {} }
@@ -130,6 +165,7 @@ Item {
     Component { id: workspacesSettingsView; WorkspaceSettingsView {} }
     Component { id: appearanceSettingsView; AppearanceSettingsView {} }
     Component { id: clockSettingsView; ClockSettingsView {} }
+    Component { id: lockSettingsView; LockSettingsView {} }
     Component { id: osdSettingsView; OsdSettingsView {} }
     Component { id: shellSwitcherView; ShellSwitcherView {} }
     Component { id: notificationsView; NotificationsPanelView {} }

@@ -17,13 +17,16 @@ Item {
 
         spacing: 10
 
-        StatusChip {
-            visible: StatusManager.visible
-
-            icon: StatusManager.icon
-            title: StatusManager.title
+        IconButton {
+            objectName: "session-menu-button"
+            anchors.verticalCenter: parent.verticalCenter
+            iconSource: "../assets/icons/power.svg"
+            description: "Session menu"
+            onClicked: {
+                IslandController.ignoreNextIslandTap();
+                IslandController.openPowerMenuFromRightSection();
+            }
         }
-
         IconButton {
             objectName: "control-center-button"
             anchors.verticalCenter: parent.verticalCenter

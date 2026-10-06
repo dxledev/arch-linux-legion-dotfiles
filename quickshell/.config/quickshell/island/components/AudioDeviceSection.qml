@@ -18,7 +18,7 @@ ColumnLayout {
     signal selected(var device)
     spacing: 8
 
-    Text {
+    UiText {
         text: root.title
         color: Theme.textPrimary
         font.pixelSize: 16
@@ -58,14 +58,14 @@ ColumnLayout {
                     size: 20
                     color: deviceButton.selected ? Theme.accent : Theme.textSecondary
                 }
-                Text {
+                UiText {
                     Layout.fillWidth: true
                     text: deviceButton.deviceLabel
                     elide: Text.ElideRight
                     font.pixelSize: 13
                     color: Theme.textPrimary
                 }
-                Text {
+                UiText {
                     visible: deviceButton.selected
                     text: "Selected"
                     font.pixelSize: 12
@@ -91,7 +91,7 @@ ColumnLayout {
             }
         }
 
-        Text {
+        UiText {
             anchors.centerIn: parent
             visible: list.count === 0
             text: "No devices available"

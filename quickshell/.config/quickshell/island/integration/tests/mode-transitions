@@ -6,6 +6,7 @@ test_root="$(/usr/bin/mktemp -d /tmp/island-transitions.XXXXXX)"
 trap '/usr/bin/rm -rf -- "$test_root"' EXIT
 export ISLAND_TEST_ROOT="$test_root" ISLAND_TEST_PID="$$"
 export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state"
+export XDG_RUNTIME_DIR="$test_root/runtime" XDG_SESSION_ID=test-session HYPRLAND_INSTANCE_SIGNATURE=test-instance-one
 export ISLAND_MODE_FUNCTIONS="$integration_dir/mode-functions"
 export SHELL_MODE_LOG_DIR="$test_root/logs" SHELL_MODE_LOCK_FILE="$test_root/transition.lock"
 export SHELL_HEALTH_DELAY=0 SHELL_HEALTH_TIMEOUT=1 SHELL_MODE_PANEL_CLOSE_DELAY=0
@@ -13,7 +14,7 @@ export HYPR_CONFIG="$XDG_CONFIG_HOME/hypr/hyprland.lua"
 export THEMES_DIR="$XDG_CONFIG_HOME/themes"
 export QUICKSHELL_CONFIG="$XDG_CONFIG_HOME/quickshell/shell.qml"
 export ISLAND_QUICKSHELL_CONFIG="$XDG_CONFIG_HOME/quickshell/island/shell.qml"
-/usr/bin/mkdir -p "$test_root/bin" "$XDG_CONFIG_HOME/hypr" "$XDG_CONFIG_HOME/quickshell/island" "$THEMES_DIR"
+/usr/bin/mkdir -p "$test_root/bin" "$test_root/runtime" "$XDG_CONFIG_HOME/hypr" "$XDG_CONFIG_HOME/quickshell/island" "$THEMES_DIR"
 /usr/bin/touch "$QUICKSHELL_CONFIG" "$ISLAND_QUICKSHELL_CONFIG"
 for name in ristretto bauhaus nord dracula; do
     /usr/bin/mkdir -p "$THEMES_DIR/$name"
@@ -44,6 +45,11 @@ assert_mode() {
     [[ "$actual" == "$mode" ]] || { printf 'Expected %s; got %s\n' "$mode" "$actual" >&2; exit 1; }
     [[ "$(/usr/bin/basename "$(/usr/bin/readlink -f "$THEMES_DIR/current")")" == "$theme" ]]
     /usr/bin/python3 "$integration_dir/tests/assert-processes.py" "$test_root/processes.json" "$mode"
+    if [[ "$mode" == island ]]; then
+        /usr/bin/jq -e '.islandPolkit' "$test_root/processes.json" >/dev/null
+    else
+        /usr/bin/jq -e '(.islandPolkit // false | not)' "$test_root/processes.json" >/dev/null
+    fi
 }
 
 for mode in island caelestia island noctalia island waybar noctalia island caelestia waybar island noctalia waybar caelestia noctalia caelestia; do
@@ -51,6 +57,32 @@ for mode in island caelestia island noctalia island waybar noctalia island caele
     case "$mode" in waybar) theme=ristretto ;; caelestia) theme=bauhaus ;; noctalia) theme=nord ;; island) theme=dracula ;; esac
     assert_mode "$mode" "$theme"
 done
+SHELL_MODE_FRESH_LOGIN=1 "$script" --island
+assert_mode island dracula
+/usr/bin/jq -e '(.qsLocked | not)' "$test_root/processes.json" >/dev/null
+SHELL_MODE_FRESH_LOGIN=1 "$script" --apply
+assert_mode island dracula
+/usr/bin/jq -e '.qsLocked and (.processes | index("hyprlock") | not)' "$test_root/processes.json" >/dev/null
+ISLAND_START_LOCKED=1 "$script" --island
+assert_mode island dracula
+/usr/bin/jq -e '(.qsLocked | not)' "$test_root/processes.json" >/dev/null
+"$script" --apply
+assert_mode island dracula
+/usr/bin/jq -e '.qsLocked' "$test_root/processes.json" >/dev/null
+"$script" --apply
+assert_mode island dracula
+/usr/bin/jq -e '(.qsLocked | not)' "$test_root/processes.json" >/dev/null
+HYPRLAND_INSTANCE_SIGNATURE=test-instance-two "$script" --apply
+assert_mode island dracula
+/usr/bin/jq -e '.qsLocked' "$test_root/processes.json" >/dev/null
+"$script" --island
+/usr/bin/touch "$test_root/fail-island-lock"
+if SHELL_MODE_FRESH_LOGIN=1 "$script" --apply > "$test_root/lock-rollback.log" 2>&1; then
+    printf 'Unsecured Island startup unexpectedly succeeded.\n' >&2; exit 1
+fi
+assert_mode island dracula
+/usr/bin/rm -- "$test_root/fail-island-lock"
+"$script" --caelestia
 /usr/bin/touch "$test_root/fail-island"
 if "$script" --island > "$test_root/rollback.log" 2>&1; then printf 'Failed Island startup unexpectedly succeeded.\n' >&2; exit 1; fi
 assert_mode caelestia bauhaus
@@ -58,4 +90,4 @@ assert_mode caelestia bauhaus
 /usr/bin/touch "$test_root/fail-island-health"
 if "$script" --island > "$test_root/health-rollback.log" 2>&1; then printf 'Unready Island unexpectedly succeeded.\n' >&2; exit 1; fi
 assert_mode caelestia bauhaus
-printf 'PASS: all 12 mode pairs, repeated Island restoration, theme retention, and two startup rollback paths\n'
+printf 'PASS: all 12 mode pairs, theme retention, native Island fresh-login locking, unlocked transitions, secure-lock checks, and startup rollback\n'

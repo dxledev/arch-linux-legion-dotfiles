@@ -9,6 +9,7 @@ cleanup() {
     if (( status )); then
         printf 'Theme state test failed; log tail:\n' >&2
         [[ ! -f "$test_root/dynamic.log" ]] || /usr/bin/tail -35 "$test_root/dynamic.log" >&2
+        [[ ! -f "$test_root/observer.log" ]] || /usr/bin/tail -35 "$test_root/observer.log" >&2
     fi
     /usr/bin/rm -rf -- "$test_root"
 }
@@ -45,6 +46,82 @@ set -euo pipefail
 MOCK
 /usr/bin/chmod +x "$ISLAND_AWWW_BIN"
 controller="$integration_dir/island-theme"
+
+wait_for_file() {
+    local path="$1" deadline=$((SECONDS + 5))
+    while [[ ! -f "$path" ]]; do
+        (( SECONDS < deadline )) || { printf 'Timed out waiting for %s\n' "$path" >&2; return 1; }
+        /usr/bin/sleep 0.05
+    done
+}
+
+check_apply_order() {
+    local name="$1" expected_source="$2" expected_mode="$3" expected_variant="$4" expected_wallpaper="$5"
+    shift 5
+    export ISLAND_TEST_RELOAD_STARTED="$test_root/$name.started" ISLAND_TEST_RELOAD_RELEASE="$test_root/$name.release"
+    export ISLAND_TEST_RELOAD_FINISHED="$test_root/$name.finished" ISLAND_TEST_EXPECTED_WALLPAPER="$expected_wallpaper"
+    "$controller" "$@" >> "$test_root/dynamic.log" 2>&1
+    wait_for_file "$ISLAND_TEST_RELOAD_STARTED"
+    [[ "$(/usr/bin/tail -1 "$ISLAND_TEST_AWWW_LOG")" == "$expected_wallpaper" ]]
+    local deadline=$((SECONDS + 5)) snapshot
+    while :; do
+        snapshot="$(/usr/bin/qs -p "$test_root/observer" ipc --any-display call themeOrder snapshot 2>/dev/null || true)"
+        if /usr/bin/jq -e --arg source "$expected_source" --arg mode "$expected_mode" --arg variant "$expected_variant" \
+            --arg wallpaper "$expected_wallpaper" '.ready and .source == $source and .mode == $mode and .variant == $variant and .wallpaper == $wallpaper and .colorsMatch' <<< "$snapshot" >/dev/null 2>&1; then
+            break
+        fi
+        (( SECONDS < deadline )) || { printf 'Shell did not update before app reload finished: %s\n' "$snapshot" >&2; return 1; }
+        /usr/bin/sleep 0.05
+    done
+    [[ ! -f "$ISLAND_TEST_RELOAD_FINISHED" ]]
+    : > "$ISLAND_TEST_RELOAD_RELEASE"
+    wait_for_file "$ISLAND_TEST_RELOAD_FINISHED"
+}
+
+check_slow_reloads() {
+    /usr/bin/mkdir -p "$test_root/apps" "$test_root/observer/services" "$test_root/observer/styles" "$test_root/runtime"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp "$integration_dir/desktop/theme-apply" "$test_root/apps/theme-apply"
+    local command
+    for command in reload-nemo reload-pavucontrol cursor-set reload-browsers reload-borders reload-btop reload-discord spicetify-set reload-obsidian reload-mako; do
+        /usr/bin/ln -s /usr/bin/true "$test_root/apps/$command"
+    done
+    cat > "$test_root/apps/reload-terminal" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$(/usr/bin/tail -1 "$ISLAND_TEST_AWWW_LOG")" == "$ISLAND_TEST_EXPECTED_WALLPAPER" ]]
+: > "$ISLAND_TEST_RELOAD_STARTED"
+deadline=$((SECONDS + 10))
+while [[ ! -f "$ISLAND_TEST_RELOAD_RELEASE" ]]; do
+    (( SECONDS < deadline )) || exit 1
+    /usr/bin/sleep 0.05
+done
+: > "$ISLAND_TEST_RELOAD_FINISHED"
+MOCK
+    /usr/bin/chmod +x "$test_root/apps/reload-terminal"
+    /usr/bin/cp "$integration_dir/../services/ThemeService.qml" "$integration_dir/../services/MonitorSelection.js" "$test_root/observer/services/"
+    /usr/bin/cp "$integration_dir/../styles/Theme.qml" "$integration_dir/../styles/qmldir" "$test_root/observer/styles/"
+    printf 'singleton ThemeService 1.0 ThemeService.qml\nsingleton WallpaperService 1.0 WallpaperService.qml\n' > "$test_root/observer/services/qmldir"
+    printf 'pragma Singleton\nimport QtQuick\nQtObject { function reload() {} }\n' > "$test_root/observer/services/WallpaperService.qml"
+    /usr/bin/cp "$integration_dir/tests/theme-order-views.qml" "$test_root/observer/shell.qml"
+    export THEME_APPLY="$test_root/apps/theme-apply" THEME_APPLY_ACTIVATE_ONLY=0 THEME_APPLY_WAIT_FOR_RELOADS=0
+    export THEME_APPLY_PGREP_BIN=/usr/bin/false THEME_APPLY_PKILL_BIN=/usr/bin/true
+    export THEME_APPLY_SPICETIFY_LOCK="$test_root/spicetify.lock" ISLAND_THEME_SCRIPT="$controller"
+    export XDG_RUNTIME_DIR="$test_root/runtime"
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        /usr/bin/dbus-run-session -- /usr/bin/timeout 45s /usr/bin/qs -p "$test_root/observer" > "$test_root/observer.log" 2>&1 &
+    local observer_pid="$!"
+    check_apply_order static system light expressive "$test_root/static/nord/one.png" theme nord
+    check_apply_order dynamic dynamic light expressive "$ISLAND_DYNAMIC_WALLPAPERS_DIR/two space.png" theme dynamic
+    check_apply_order wallpaper dynamic dark tonalspot "$ISLAND_DYNAMIC_WALLPAPERS_DIR/one.png" wallpaper "$ISLAND_DYNAMIC_WALLPAPERS_DIR/one.png"
+    check_apply_order mode dynamic light tonalspot "$ISLAND_DYNAMIC_WALLPAPERS_DIR/one.png" mode light
+    check_apply_order variant dynamic light expressive "$ISLAND_DYNAMIC_WALLPAPERS_DIR/one.png" variant expressive
+    check_apply_order restore dynamic light expressive "$ISLAND_DYNAMIC_WALLPAPERS_DIR/one.png" restore
+    /usr/bin/qs -p "$test_root/observer" ipc --any-display call themeOrder quit >/dev/null
+    wait "$observer_pid"
+    printf 'PASS: shell colors and wallpaper precede slow app reloads for static/dynamic themes, wallpaper, mode, variant, and restore\n'
+}
+
 "$controller" initialize
 "$controller" wallpaper "$THEMES_DIR/ristretto/wallpapers/two space.png"
 "$controller" theme nord
@@ -79,3 +156,4 @@ before="$(/usr/bin/sha256sum "$ISLAND_STATE_DIR/settings.json")"
 if "$controller" setting opacity 5 > /dev/null 2>&1; then exit 1; fi
 if "$controller" wallpaper "$THEMES_DIR/nord/wallpapers/one.png" > /dev/null 2>&1; then exit 1; fi
 printf 'PASS: real static/dynamic rendering, separate wallpaper memory, mode/variant persistence, settings, input validation, and dry-run preservation\n'
+check_slow_reloads

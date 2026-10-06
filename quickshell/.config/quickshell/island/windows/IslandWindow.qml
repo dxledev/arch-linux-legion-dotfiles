@@ -18,6 +18,8 @@ PanelWindow {
 
     WlrLayershell.namespace: "island"
     WlrLayershell.layer: WlrLayer.Overlay
+    exclusionMode: ExclusionMode.Ignore
+    exclusiveZone: 0
     visible: ThemeService.ready && !root.hasFullscreen
 
     HyprlandFocusGrab {
@@ -36,15 +38,17 @@ PanelWindow {
 
     anchors {
         top: true
+        bottom: true
         left: true
         right: true
     }
 
-    exclusiveZone: IslandGeometry.reservedHeight
-
-    implicitHeight: capsule.height + IslandGeometry.topMargin
-
     color: "transparent"
+
+    IslandReservation {
+        screen: root.screen
+        visible: root.visible
+    }
 
     Island {
         id: capsule
@@ -59,8 +63,8 @@ PanelWindow {
 
     Region {
         id: capsuleMask
-
-        item: capsule
+        Region { item: capsule.panelArea }
+        Region { item: capsule.statusArea }
     }
 
     mask: capsuleMask

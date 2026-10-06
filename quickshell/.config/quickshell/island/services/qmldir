@@ -5,6 +5,7 @@ singleton BrightnessService 1.0 BrightnessService.qml
 MonitorBrightness 1.0 MonitorBrightness.qml
 singleton CavaService 1.0 CavaService.qml
 singleton IdleLockService 1.0 IdleLockService.qml
+singleton LockService 1.0 LockService.qml
 IslandIPC 1.0 IslandIPC.qml
 FilteredListModel 1.0 FilteredListModel.qml
 KeyboardService 1.0 KeyboardService.qml
@@ -15,6 +16,7 @@ singleton NotificationService 1.0 NotificationService.qml
 NotificationData 1.0 NotificationData.qml
 NotificationReplacements 1.0 NotificationReplacements.qml
 singleton PowerService 1.0 PowerService.qml
+SystemInfoService 1.0 SystemInfoService.qml
 BrightnessOsdEvent 1.0 BrightnessOsdEvent.qml
 StatusWatcher 1.0 StatusWatcher.qml
 singleton OsdSettings 1.0 OsdSettings.qml

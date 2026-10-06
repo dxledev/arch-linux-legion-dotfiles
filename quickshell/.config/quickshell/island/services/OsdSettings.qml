@@ -1,9 +1,11 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import "../styles"
 
 Singleton {
-    readonly property string fontFamily: ThemeService.settings.osdFontFamily || "JetBrainsMono Nerd Font"
+    readonly property string fontFamily: ThemeService.settings.osdInheritUiFont
+        ? Theme.uiFontFamily : ThemeService.settings.osdFontFamily || "JetBrainsMono Nerd Font"
     readonly property int fontSize: ThemeService.settings.osdFontSize ?? 18
     readonly property bool fontBold: ThemeService.settings.osdFontBold ?? true
     readonly property int iconSize: ThemeService.settings.osdIconSize ?? 18

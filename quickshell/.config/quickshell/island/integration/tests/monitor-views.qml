@@ -180,9 +180,9 @@ ShellRoot {
             if (elapsed < 240) return;
             expectStatus(firstCompact, false);
             expectStatus(secondCompact, true);
-            StatusManager.show({mode: "volume", icon: "", title: "50%", value: 50});
-            check(firstCompact.showingStatus && secondCompact.showingStatus, "Other status visibility preserved");
-            check(StatusManager.monitorName === "", "New status clears workspace monitor");
+            StatusManager.show({mode: "volume", monitorName: "DP-1", icon: "", title: "50%", value: 50});
+            check(!firstCompact.showingStatus && secondCompact.showingStatus, "Volume replaces workspace OSD on one monitor");
+            check(StatusManager.monitorName === "DP-1", "New status owns its event monitor");
             console.log("PASS: active monitor panels, hover isolation, fixed panel monitor, close delay across focus changes, pinned and modal panels, and workspace popup routing");
             Qt.quit();
         }

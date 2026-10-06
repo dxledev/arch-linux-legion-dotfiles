@@ -7,11 +7,24 @@ import "../services"
 
 Singleton {
     id: root
-    readonly property int compactHeight: Math.max(33, (ThemeService.settings.clockFontSize ?? 18) + 12)
+    readonly property int minimumHeight: Math.ceil(clockMetrics.height) + 4 + 2 * (ThemeService.settings.islandBorderWidth ?? 0)
+    readonly property int compactHeight: Math.max(ThemeService.settings.islandHeight ?? 33,
+        (ThemeService.settings.clockFontSize ?? 18) + 12, minimumHeight)
     readonly property int topMargin: ThemeService.settings.topMargin ?? 10
     readonly property int spaceBelow: ThemeService.settings.reservedSpaceBelow ?? 0
     property int windowGapTop: 0
     readonly property int reservedHeight: Math.max(1, topMargin + compactHeight + spaceBelow - windowGapTop)
+
+    function minimumWidth(clockWidth) {
+        return Math.ceil(clockWidth) + 2 * (2 + (ThemeService.settings.islandBorderWidth ?? 0));
+    }
+
+    FontMetrics {
+        id: clockMetrics
+        font.family: ThemeService.clockFontFamily
+        font.pixelSize: ThemeService.settings.clockFontSize ?? 18
+        font.bold: ThemeService.settings.clockFontBold ?? true
+    }
 
     Process {
         id: windowGaps

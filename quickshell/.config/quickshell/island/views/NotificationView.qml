@@ -24,7 +24,7 @@ Item {
             Layout.fillWidth: true
             spacing: 8
 
-            Text {
+            UiText {
                 text: "Notifications"
                 color: Theme.textPrimary
                 font.pixelSize: 16
@@ -60,7 +60,7 @@ Item {
                     notification: model
                 }
             }
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 visible: latestNotification.model.count === 0
                 text: "No notifications"

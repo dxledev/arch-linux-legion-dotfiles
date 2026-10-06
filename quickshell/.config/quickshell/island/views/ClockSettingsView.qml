@@ -1,5 +1,6 @@
 import QtQuick
 import "../components"
+import "../services"
 
 SettingsPanel {
     title: "Clock"
@@ -11,7 +12,8 @@ SettingsPanel {
     SettingSection {
         title: "Text"
         iconSource: "../assets/icons/clock.svg"
-        SettingFont { setting: "clockFontFamily" }
+        SettingToggle { objectName: "clock-inherit-ui-font"; text: "Inherit UI font"; setting: "clockInheritUiFont" }
+        SettingFont { setting: "clockFontFamily"; enabled: !ThemeService.settings.clockInheritUiFont }
         SettingSlider { label: "Font size"; setting: "clockFontSize"; minimum: 8; maximum: 40 }
         SettingToggle { text: "Bold"; setting: "clockFontBold" }
     }

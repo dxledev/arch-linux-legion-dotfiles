@@ -39,8 +39,8 @@ Button {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             spacing: 4
-            Text { text: root.title; color: Theme.textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold }
-            Text { width: parent.width; text: root.subtitle; color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideRight }
+            UiText { text: root.title; color: Theme.textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold }
+            UiText { width: parent.width; text: root.subtitle; color: Theme.textSecondary; font.pixelSize: 11; elide: Text.ElideRight }
         }
     }
 }

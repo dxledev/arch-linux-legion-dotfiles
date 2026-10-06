@@ -11,6 +11,8 @@ Singleton {
     property string currentTheme: ""
     property var state: ({source: "system", mode: "dark", variant: "tonalspot"})
     property var settings: ({})
+    readonly property string clockFontFamily: settings.clockInheritUiFont
+        ? Theme.uiFontFamily : settings.clockFontFamily || "JetBrainsMono Nerd Font"
     readonly property var islandScreens: MonitorSelection.screensForSetting(Quickshell.screens, settings.monitor)
     property string wallpaper: ""
     readonly property string stateDirectory: Quickshell.env("ISLAND_STATE_DIR") || (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/island"
@@ -47,6 +49,10 @@ Singleton {
     function load(data) {
         state = data.theme;
         settings = data.settings;
+        Theme.uiFontFamily = settings.uiFontFamily || "Noto Sans";
+        Theme.uiFontBold = settings.uiFontBold ?? false;
+        Theme.uiLetterSpacing = settings.uiLetterSpacing ?? 0;
+        Theme.uiAnimationDuration = settings.uiAnimationDuration ?? 300;
         currentTheme = data.label;
         wallpaper = data.wallpaper;
         const c = data.colors;

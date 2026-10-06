@@ -1,12 +1,14 @@
 import QtQuick
 import "../components"
+import "../services"
 
 SettingsPanel {
     title: "OSD"
     SettingSection {
         title: "Text"
         iconSource: "../assets/icons/osd.svg"
-        SettingFont { setting: "osdFontFamily" }
+        SettingToggle { objectName: "osd-inherit-ui-font"; text: "Inherit UI font"; setting: "osdInheritUiFont" }
+        SettingFont { setting: "osdFontFamily"; enabled: !ThemeService.settings.osdInheritUiFont }
         SettingSlider { label: "Font size"; setting: "osdFontSize"; minimum: 8; maximum: 40 }
         SettingToggle { text: "Bold"; setting: "osdFontBold" }
         SettingSlider { label: "Icon size"; setting: "osdIconSize"; minimum: 8; maximum: 40 }

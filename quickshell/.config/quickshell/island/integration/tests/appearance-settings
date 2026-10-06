@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-appearance-settings.XXXXXX)"
+config_home="$test_root/config"
+settings_file="$test_root/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$test_dir/../theme-functions"
+
+check_settings() {
+    read_settings | /usr/bin/jq -e '.islandWidth == 160 and .islandHeight == 33 and .islandBorderWidth == 0 and .islandAnimationDuration == 300 and .hoverToExpand and (.uiFontBold | not) and .uiLetterSpacing == 0 and .uiAnimationDuration == 300' >/dev/null
+    save_setting islandWidth 4
+    save_setting islandHeight 24
+    save_setting islandBorderWidth 4
+    save_setting islandAnimationDuration 0
+    save_setting uiFontBold true
+    save_setting uiLetterSpacing 1.25
+    save_setting uiAnimationDuration 1000
+    save_setting hoverToExpand false
+    read_settings | /usr/bin/jq -e '.islandWidth == 4 and .islandHeight == 24 and .islandBorderWidth == 4 and .islandAnimationDuration == 0 and (.hoverToExpand | not) and .uiFontBold and .uiLetterSpacing == 1.25 and .uiAnimationDuration == 1000' >/dev/null
+    local before invalid
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting islandWidth 600 >/dev/null
+    save_setting islandHeight 80 >/dev/null
+    save_setting islandBorderWidth 0 >/dev/null
+    save_setting islandAnimationDuration 1000 >/dev/null
+    save_setting uiFontBold false >/dev/null
+    save_setting uiLetterSpacing 0 >/dev/null
+    save_setting uiAnimationDuration 0 >/dev/null
+    save_setting hoverToExpand true >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]] || fail 'Dry-run changed saved appearance settings.'
+    dry_run=0
+    for invalid in 'islandWidth 3' 'islandWidth 601' 'islandWidth 80.5' 'islandHeight 23' 'islandHeight 81' 'islandBorderWidth -1' 'islandBorderWidth 5' 'islandAnimationDuration 1001' 'uiFontBold yes' 'uiLetterSpacing -1' 'uiLetterSpacing 3.1' 'uiLetterSpacing nope' 'uiAnimationDuration -1' 'uiAnimationDuration 1001' 'hoverToExpand yes'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
+    done
+    save_setting islandWidth 160
+    save_setting islandHeight 33
+    save_setting islandBorderWidth 0
+    save_setting islandAnimationDuration 300
+    save_setting uiFontBold false
+    save_setting uiLetterSpacing 0
+    save_setting uiAnimationDuration 300
+    save_setting hoverToExpand true
+    save_setting hoverDelay 2000
+    save_setting collapseDelay 2000
+}
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/sed "s|\"../../|\"file:$test_dir/../../|g" "$test_dir/appearance-settings-views.qml" > "$test_root/views.qml"
+    cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    /usr/bin/chmod +x "$test_root/controller"
+}
+
+run_views() {
+    if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= ISLAND_DDCUTIL_BIN=/usr/bin/true \
+        TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+        ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail 'Could not run appearance views.'
+    fi
+    if ! /usr/bin/rg -q 'PASS: appearance sections' "$test_root/views.log" \
+        || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail 'Appearance views failed.'
+    fi
+}
+
+check_settings
+make_fixture
+run_views
+read_settings | /usr/bin/jq -e '.uiFontBold and .uiLetterSpacing == 1.25 and .uiAnimationDuration == 500 and .islandWidth > 4 and .islandHeight == 60 and .islandBorderWidth == 4 and .islandAnimationDuration == 0 and .topMargin == 20 and .reservedSpaceBelow == 18' >/dev/null
+printf 'PASS: UI/Island sections, actual slider and switch clicks, clock width clamp across fonts and formats, height and reservation, borders, hover/click expansion, UI typography/animations, persistence, validation and dry-run\n'

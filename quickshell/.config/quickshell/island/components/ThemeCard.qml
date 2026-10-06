@@ -83,7 +83,7 @@ Rectangle {
             transform: Translate { y: 2 }
         }
 
-        Text {
+        UiText {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight

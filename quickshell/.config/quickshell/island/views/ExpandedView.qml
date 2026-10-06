@@ -16,7 +16,7 @@ Item {
         }
         RightSection {
             id: rightSection
-            width: 82
+            width: 128
             anchors.verticalCenter: parent.verticalCenter
         }
     }

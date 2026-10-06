@@ -11,7 +11,7 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 8
 
-        Text {
+        UiText {
             objectName: "audio-output-label"
             Layout.maximumWidth: Math.max(0, parent.width - 145 - audioButton.width - parent.spacing * 2)
             text: AudioService.outputLabel
@@ -33,7 +33,7 @@ ColumnLayout {
 
         Item { Layout.fillWidth: true }
 
-        Text {
+        UiText {
             objectName: "audio-volume-label"
             text: AudioService.volume + "%"
             horizontalAlignment: Text.AlignRight

@@ -4,6 +4,7 @@ local root = config_home .. "/quickshell/island"
 local ipc = config_home .. "/quickshell/scripts/quickshell -p " .. root .. "/shell.qml ipc call island "
 
 local mode_owned_keys = {
+    "SUPER + A",
     "SUPER + SHIFT + ALT + V", "SUPER + SHIFT + CTRL + C", "SUPER + SHIFT + CTRL + A",
     "SUPER + ALT + V", "SUPER + ALT + N", "SUPER + ALT + W", "CTRL + ALT + SPACE",
     "CTRL + ALT + SHIFT + SPACE", "SUPER + CTRL + SPACE", "SUPER + S", "SUPER + SHIFT + S",
@@ -28,6 +29,7 @@ local function bind(key, description, command, options)
 end
 
 local panels = {
+    { "SUPER + A", "Island System", "openSystem" },
     { "SUPER + SPACE", "Island App Launcher", "openLauncher" },
     { "SUPER + ALT + SPACE", "Island Menu", "openNavigation" },
     { "SUPER + SHIFT + CTRL + C", "Island Settings", "openSettings" },
@@ -47,7 +49,7 @@ for _, item in ipairs(panels) do bind(item[1], item[2], ipc .. item[3]) end
 
 local desktop = {
     { "SUPER + ALT + C", "Clipboard", home .. "/bin/menu-clipboard" },
-    { "SUPER + SHIFT + L", "Lock Screen", home .. "/bin/system-lock --wait" },
+    { "SUPER + SHIFT + L", "Island Lock Screen", home .. "/bin/system-lock --wait" },
     { "SUPER + S", "Region Screenshot", home .. "/bin/launch-screenshot-clipboard" },
     { "SUPER + SHIFT + S", "Monitor Screenshot", home .. "/bin/launch-screenshot-active-monitor-clipboard" },
     { "Print", "Monitor Screenshot", home .. "/bin/launch-screenshot-active-monitor-clipboard" },

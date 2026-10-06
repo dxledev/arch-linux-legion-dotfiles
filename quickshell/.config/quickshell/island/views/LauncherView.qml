@@ -105,12 +105,12 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 44
                         spacing: 3
-                        Text { width: parent.width; text: row.modelData.name; color: Theme.textPrimary; font.pixelSize: 14; elide: Text.ElideRight }
-                        Text { width: parent.width; text: row.modelData.description; visible: text.length > 0; color: Theme.textMuted; font.pixelSize: 11; elide: Text.ElideRight }
+                        UiText { width: parent.width; text: row.modelData.name; color: Theme.textPrimary; font.pixelSize: 14; elide: Text.ElideRight }
+                        UiText { width: parent.width; text: row.modelData.description; visible: text.length > 0; color: Theme.textMuted; font.pixelSize: 11; elide: Text.ElideRight }
                     }
                 }
             }
-            Text {
+            UiText {
                 anchors.centerIn: parent
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
@@ -122,6 +122,6 @@ FocusScope {
                 font.pixelSize: 13
             }
         }
-        Text { text: "↑ ↓ Select    Enter Launch    Esc Close"; color: Theme.textMuted; font.pixelSize: 11 }
+        UiText { text: "↑ ↓ Select    Enter Launch    Esc Close"; color: Theme.textMuted; font.pixelSize: 11 }
     }
 }

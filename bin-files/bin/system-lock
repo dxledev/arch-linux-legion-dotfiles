@@ -7,6 +7,7 @@ noctalia_shell="${SYSTEM_LOCK_NOCTALIA_SHELL:-$HOME/bin/noctalia-shell}"
 noctalia_bin="${SYSTEM_LOCK_NOCTALIA_BIN:-$config_home/noctalia/.runtime/bin/noctalia}"
 quickshell_bin="${SYSTEM_LOCK_QUICKSHELL_BIN:-$config_home/quickshell/scripts/quickshell}"
 quickshell_config="${SYSTEM_LOCK_QUICKSHELL_CONFIG:-$config_home/quickshell/shell.qml}"
+island_config="${SYSTEM_LOCK_ISLAND_CONFIG:-$config_home/quickshell/island/shell.qml}"
 hyprlock_launcher="${SYSTEM_LOCK_HYPRLOCK_LAUNCHER:-$config_home/hyprlock/scripts/launch-lock-screen.sh}"
 jq_bin="${SYSTEM_LOCK_JQ_BIN:-/usr/bin/jq}"
 pgrep_bin="${SYSTEM_LOCK_PGREP_BIN:-/usr/bin/pgrep}"
@@ -20,11 +21,12 @@ usage() {
 Usage: system-lock [--dry-run] [--wait]
 
 Lock with the provider selected by toggle-shell-mode: Hyprlock for Waybar,
-Caelestia for Caelestia, or Noctalia for Noctalia.
+Caelestia for Caelestia, Noctalia for Noctalia, or Island for Island.
 --wait is retained as a compatibility flag while the native IPC call is retried.
 SYSTEM_LOCK_WAIT_TIMEOUT sets the retry timeout in seconds (default: 10).
 SYSTEM_LOCK_MODE_SCRIPT, SYSTEM_LOCK_NOCTALIA_SHELL, SYSTEM_LOCK_NOCTALIA_BIN,
-SYSTEM_LOCK_QUICKSHELL_BIN, SYSTEM_LOCK_QUICKSHELL_CONFIG, SYSTEM_LOCK_HYPRLOCK_LAUNCHER,
+SYSTEM_LOCK_QUICKSHELL_BIN, SYSTEM_LOCK_QUICKSHELL_CONFIG, SYSTEM_LOCK_ISLAND_CONFIG,
+SYSTEM_LOCK_HYPRLOCK_LAUNCHER,
 SYSTEM_LOCK_JQ_BIN, SYSTEM_LOCK_PGREP_BIN, SYSTEM_LOCK_NOHUP_BIN,
 SYSTEM_LOCK_WAIT_TIMEOUT, and SYSTEM_LOCK_POLL_INTERVAL override validated paths/settings.
 EOF
@@ -87,16 +89,16 @@ lock_with_hyprlock() {
     return 1
 }
 
-caelestia_lock_state() {
-    "$quickshell_bin" -p "$quickshell_config" ipc call lock state 2>/dev/null
-}
-
-lock_with_caelestia() {
-    local attempt state
+lock_with_quickshell() {
+    local selected_config="$1" expected_state="$2" attempt state requested=0
     for (( attempt = 0; attempt < wait_timeout * 10; attempt++ )); do
-        "$quickshell_bin" -p "$quickshell_config" ipc call lock lock >/dev/null 2>&1 || true
-        state="$(caelestia_lock_state || true)"
-        [[ "$state" == true:* ]] && return 0
+        if (( ! requested )); then
+            if "$quickshell_bin" -p "$selected_config" ipc call lock lock >/dev/null 2>&1; then
+                requested=1
+            fi
+        fi
+        state="$("$quickshell_bin" -p "$selected_config" ipc call lock state 2>/dev/null || true)"
+        [[ "$state" == $expected_state ]] && return 0
         /usr/bin/sleep "$poll_interval"
     done
     return 1
@@ -149,6 +151,7 @@ main() {
     require_absolute_path "$noctalia_bin" SYSTEM_LOCK_NOCTALIA_BIN
     require_absolute_path "$quickshell_bin" SYSTEM_LOCK_QUICKSHELL_BIN
     require_absolute_path "$quickshell_config" SYSTEM_LOCK_QUICKSHELL_CONFIG
+    require_absolute_path "$island_config" SYSTEM_LOCK_ISLAND_CONFIG
     require_absolute_path "$hyprlock_launcher" SYSTEM_LOCK_HYPRLOCK_LAUNCHER
     require_absolute_path "$jq_bin" SYSTEM_LOCK_JQ_BIN
     require_absolute_path "$pgrep_bin" SYSTEM_LOCK_PGREP_BIN
@@ -158,28 +161,35 @@ main() {
     require_absolute_executable "$mode_script"
     selected_mode="$(current_mode)" || fail 'Could not determine the active shell mode.'
     case "$selected_mode" in
-        waybar|island) profile=hyprlock ;;
+        waybar) profile=hyprlock ;;
+        island) profile=island ;;
         caelestia) profile=caelestia ;;
         noctalia) profile=full ;;
         *) fail "Unsupported shell mode: $selected_mode" ;;
     esac
     if (( dry_run )); then
         case "$selected_mode" in
-            waybar|island) printf 'Provider: %s\nLock command: %s\n' "$profile" "$hyprlock_launcher" ;;
+            waybar) printf 'Provider: %s\nLock command: %s\n' "$profile" "$hyprlock_launcher" ;;
+            island) printf 'Provider: %s\nLock command: %s -p %s ipc call lock lock\n' "$profile" "$quickshell_bin" "$island_config" ;;
             caelestia) printf 'Provider: %s\nLock command: %s -p %s ipc call lock lock\n' "$profile" "$quickshell_bin" "$quickshell_config" ;;
             noctalia) printf 'Provider: %s\nLock command: %s msg session lock\n' "$profile" "$noctalia_bin" ;;
         esac
         return 0
     fi
     case "$selected_mode" in
-        waybar|island)
+        waybar)
             require_absolute_executable "$hyprlock_launcher"
             lock_with_hyprlock || fail 'Hyprlock did not start within the timeout.'
             ;;
         caelestia)
             require_absolute_executable "$quickshell_bin"
             [[ -f "$quickshell_config" ]] || fail "Quickshell config not found: $quickshell_config"
-            lock_with_caelestia || fail 'Caelestia did not report locked=true within the timeout.'
+            lock_with_quickshell "$quickshell_config" 'true:*' || fail 'Caelestia did not report locked=true within the timeout.'
+            ;;
+        island)
+            require_absolute_executable "$quickshell_bin"
+            [[ -f "$island_config" ]] || fail "Island config not found: $island_config"
+            lock_with_quickshell "$island_config" true:true || fail 'Island did not confirm a secure lock within the timeout.'
             ;;
         noctalia)
             require_absolute_executable "$noctalia_shell"

@@ -48,7 +48,7 @@ Rectangle {
 
             RowLayout {
                 Layout.fillWidth: true
-                Text {
+                UiText {
                     Layout.fillWidth: true
                     text: root.notification.app
                     color: Theme.textPrimary
@@ -66,7 +66,7 @@ Rectangle {
                     onClicked: NotificationService.removeById(root.notification.notificationId)
                 }
             }
-            Text {
+            UiText {
                 Layout.fillWidth: true
                 text: root.notification.summary
                 color: Theme.textPrimary
@@ -75,7 +75,7 @@ Rectangle {
                 elide: Text.ElideRight
                 textFormat: Text.PlainText
             }
-            Text {
+            UiText {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 text: root.notification.body
@@ -86,7 +86,7 @@ Rectangle {
                 maximumLineCount: 2
                 elide: Text.ElideRight
             }
-            Text {
+            UiText {
                 text: root.notification.time
                 color: Theme.textMuted
                 font.pixelSize: 11

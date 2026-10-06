@@ -12,7 +12,7 @@ Switch {
     checked: ThemeService.settings[setting] ?? false
     enabled: !ThemeService.busy
     onToggled: ThemeService.setSetting(setting, checked)
-    contentItem: Text {
+    contentItem: UiText {
         text: root.text
         color: Theme.textPrimary
         font.pixelSize: 14

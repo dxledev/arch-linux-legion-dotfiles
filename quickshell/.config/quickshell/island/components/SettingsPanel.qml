@@ -53,7 +53,7 @@ FocusScope {
             contentItem: Rectangle { implicitWidth: 4; radius: 2; color: Theme.textMuted; opacity: 0.5 }
         }
     }
-    Text {
+    UiText {
         id: status
         anchors.left: parent.left
         anchors.right: parent.right
