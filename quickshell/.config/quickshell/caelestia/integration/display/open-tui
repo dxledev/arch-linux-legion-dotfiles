@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+terminal_launcher="${CAELESTIA_DISPLAY_TERMINAL:-$HOME/bin/launch-terminal}"
+[[ "$terminal_launcher" == /* && -x "$terminal_launcher" ]] || exit 1
+exec "$terminal_launcher" "$script_dir/backend" tui

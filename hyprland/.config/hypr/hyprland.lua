@@ -1,6 +1,6 @@
-require("island-mode-keybindings")
+-- require("island-mode-keybindings")
 -- require("waybar-mode-keybindings")
--- require("noctalia-mode-keybindings")
+require("noctalia-mode-keybindings")
 
 require("autostart")
 require("keybindings")
@@ -36,3 +36,8 @@ if shell_config then
   shell_config:close()
   dofile(shell_bindings)
 end
+
+do local path = (os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/quickshell/shared/display/monitor-rules.lua"; local file = io.open(path, "r"); if file then file:close(); dofile(path) end end
+
+-- Added by hyprmoncfg: its generated monitor rules load last, so nothing before this can override the applied layout.
+do local path = os.getenv("HOME") .. "/.config/hypr/hyprmoncfg-monitors.lua"; local file = io.open(path, "r"); if file then file:close(); dofile(path) end end

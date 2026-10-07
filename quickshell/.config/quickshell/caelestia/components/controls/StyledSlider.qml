@@ -177,6 +177,8 @@ Slider {
             pressStartPos = root.visualPosition;
         }
         onPositionChanged: e => {
+            if (!pressed)
+                return;
             dragMovement = (e.x - pressStartX) / width;
             if (root.interactionOnMove)
                 root.interaction(root.valueAt(posBinding.value));

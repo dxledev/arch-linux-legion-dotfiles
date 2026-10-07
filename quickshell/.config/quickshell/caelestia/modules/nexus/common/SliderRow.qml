@@ -17,6 +17,7 @@ ConnectedRect {
     property real value
     property real from: 0
     property real to: 1
+    property real stepSize: GlobalConfig.services.audioIncrement
 
     signal moved(value: real)
 
@@ -64,7 +65,7 @@ ConnectedRect {
 
             CustomMouseArea {
                 function onWheel(event: WheelEvent): void {
-                    const step = GlobalConfig.services.audioIncrement;
+                    const step = root.stepSize;
                     if (event.angleDelta.y > 0)
                         root.moved(Math.min(root.to, root.value + step));
                     else if (event.angleDelta.y < 0)

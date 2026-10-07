@@ -1,0 +1,16 @@
+{
+    "editor": {
+        "repository": "https://github.com/crmne/omarchy-hyprmoncfg",
+        "version": "2.7.0",
+        "commit": "193e5611f934eec42460ef75f3f46c2a8bd0252a"
+    },
+    "controls": {
+        "repository": "https://github.com/omacom/omarchy",
+        "commit": "81145eb1fd41532fcae4310b26f860608e2eaf82"
+    },
+    "backend": {
+        "repository": "https://github.com/crmne/hyprmoncfg",
+        "version": "1.22.1",
+        "sha256": "9c3ca975d1fef23e07d9fef101405d6a654837e05b696dbeb538a1e4a63d96a6"
+    }
+}

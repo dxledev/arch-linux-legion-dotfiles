@@ -1,0 +1,12 @@
+[Unit]
+Description=Shared display layout backend (hyprmoncfgd)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.config/quickshell/shared/display/backend daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

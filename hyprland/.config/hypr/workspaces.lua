@@ -9,6 +9,11 @@ hl.workspace_rule({
 })
 
 hl.workspace_rule({
+  workspace = "12",
+  layout = "dwindle",
+})
+
+hl.workspace_rule({
   workspace = "special:mediaspace",
   on_created_empty = "~/bin/launch-spotify",
 })

@@ -85,6 +85,14 @@ QtObject {
             }
         },
         Component {
+            // Display
+            StackPage {
+                Component {
+                    DisplayPage {}
+                }
+            }
+        },
+        Component {
             // Audio
             StackPage {
                 Component {

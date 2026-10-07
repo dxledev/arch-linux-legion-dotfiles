@@ -20,10 +20,18 @@ Singleton {
     }
     readonly property list<Monitor> monitors: variants.instances // qmllint disable incompatible-type
     property bool appleDisplayPresent: false
-    readonly property var osdMonitors: System.brightnessMonitors.map(entry => ({
-        monitor: getMonitor(entry.connector),
-        label: entry.label || entry.connector
-    })).filter(entry => entry.monitor?.isDdc)
+    readonly property var osdMonitors: {
+        const ordered = System.brightnessMonitors.map(entry => getMonitor(entry.connector)).filter(Boolean);
+        for (const monitor of monitors)
+            if (!ordered.includes(monitor))
+                ordered.push(monitor);
+        return ordered.filter(monitor => monitor.supported);
+    }
+    readonly property bool combinedOsd: DisplaySettings.layoutFor(Quickshell.screens.length) === "combined"
+
+    function osdMonitorsFor(screen: ShellScreen): var {
+        return combinedOsd ? osdMonitors : osdMonitors.filter(monitor => monitor.modelData === screen);
+    }
 
     function getMonitorForScreen(screen: ShellScreen): var {
         return monitors.find(m => m.modelData === screen); // qmllint disable missing-property
@@ -128,6 +136,20 @@ Singleton {
                 monitor.initBrightness();
         }
 
+        function status(): string {
+            return JSON.stringify({
+                layout: root.combinedOsd ? "combined" : "local",
+                monitors: root.monitors.map(monitor => ({
+                    connector: monitor.modelData.name,
+                    name: monitor.displayName,
+                    brightness: monitor.brightness,
+                    supported: monitor.supported,
+                    initialized: monitor.initialized,
+                    panelTargets: root.osdMonitorsFor(monitor.modelData).map(target => target.modelData.name)
+                }))
+            });
+        }
+
         function set(value: string): string {
             return setFor("active", value);
         }
@@ -137,6 +159,8 @@ Singleton {
             const monitor = root.getMonitor(query);
             if (!monitor)
                 return "Invalid monitor: " + query;
+            if (!monitor.supported)
+                return "Brightness unavailable for monitor: " + query;
 
             let targetBrightness;
             if (value.endsWith("%-")) {
@@ -177,8 +201,13 @@ Singleton {
         required property ShellScreen modelData
         readonly property var ddcInfo: root.ddcMonitorMap[modelData.name] ?? null
         readonly property bool isDdc: ddcInfo !== null
+        readonly property bool isBacklight: /^(eDP|LVDS|DSI)-/i.test(modelData.name)
         readonly property string busNum: ddcInfo?.busNum ?? ""
         readonly property bool isAppleDisplay: root.appleDisplayPresent && modelData.model.startsWith("StudioDisplay")
+        readonly property bool supported: isDdc || isBacklight || isAppleDisplay
+        readonly property string displayName: DisplaySettings.nameFor(modelData.name)
+        readonly property string label: DisplaySettings.nickname(modelData.name)
+            || System.brightnessMonitors.find(entry => entry.connector === modelData.name)?.label || modelData.name
         property real brightness
         property real queuedBrightness: NaN
         property bool initialized: false
@@ -198,10 +227,17 @@ Singleton {
                         }
                     } else if (monitor.isAppleDisplay) {
                         const val = parseInt(text.trim());
-                        monitor.brightness = val / 101;
+                        if (Number.isFinite(val)) {
+                            monitor.brightness = val / 101;
+                            monitor.initialized = true;
+                        }
                     } else {
                         const [, , , cur, max] = text.split(" ");
-                        monitor.brightness = parseInt(cur) / parseInt(max);
+                        const value = parseInt(cur) / parseInt(max);
+                        if (Number.isFinite(value)) {
+                            monitor.brightness = value;
+                            monitor.initialized = true;
+                        }
                     }
                 }
             }
@@ -253,7 +289,7 @@ Singleton {
         }
 
         function setBrightness(value: real): void {
-            if (!Number.isFinite(value))
+            if (!supported || !Number.isFinite(value))
                 return;
             value = Math.max(0, Math.min(1, value));
             const rounded = Math.round(value * 100);
@@ -267,12 +303,12 @@ Singleton {
             else if (isDdc) {
                 queuedBrightness = value;
                 flushBrightness();
-            } else
+            } else if (isBacklight)
                 Quickshell.execDetached(["brightnessctl", "s", `${rounded}%`]);
         }
 
         function initBrightness(): void {
-            if (initProc.running || writeProc.running)
+            if (!supported || initProc.running || writeProc.running)
                 return;
             if (isAppleDisplay)
                 initProc.command = ["asdbctl", "get"];
@@ -285,6 +321,7 @@ Singleton {
         }
 
         onBusNumChanged: initBrightness()
+        onSupportedChanged: initBrightness()
         Component.onCompleted: initBrightness()
     }
 }

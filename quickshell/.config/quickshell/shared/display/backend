@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+shell_root="$(/usr/bin/readlink -f -- "$script_dir/../..")"
+backend_bin="${HYPRMONCFG_BIN:-${CAELESTIA_HYPRMONCFG_BIN:-$shell_root/.runtime/hyprmoncfg/bin/hyprmoncfg}}"
+daemon_bin="${HYPRMONCFGD_BIN:-${CAELESTIA_HYPRMONCFGD_BIN:-$shell_root/.runtime/hyprmoncfg/bin/hyprmoncfgd}}"
+profile_dir="${HYPRMONCFG_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/hyprmoncfg}"
+[[ "$profile_dir" == /* ]] || exit 2
+config_args=(--config-dir "$profile_dir")
+
+case "${1:-}" in
+    install)
+        exec "$shell_root/scripts/install-hyprmoncfg" --enable-service
+        ;;
+    daemon)
+        shift
+        [[ "$daemon_bin" == /* && -x "$daemon_bin" ]] || exit 1
+        exec "$daemon_bin" "${config_args[@]}" "$@"
+        ;;
+    manage)
+        /usr/bin/systemctl --user enable --now hyprmoncfgd.service >/dev/null
+        ;;
+    --help|-h|'')
+        printf 'Usage: backend install|daemon|manage|unmanage|<hyprmoncfg command>\n'
+        exit 0
+        ;;
+esac
+
+[[ "$backend_bin" == /* && -x "$backend_bin" ]] || {
+    printf 'Display: run %s/scripts/install-hyprmoncfg --enable-service\n' "$shell_root" >&2
+    exit 1
+}
+exec "$backend_bin" "${config_args[@]}" "$@"

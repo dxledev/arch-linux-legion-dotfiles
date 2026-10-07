@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+shell_root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
+runtime="${QUICKSHELL_RUNTIME:-$shell_root/.runtime}"
+version=1.22.1
+checksum=9c3ca975d1fef23e07d9fef101405d6a654837e05b696dbeb538a1e4a63d96a6
+archive="${HYPRMONCFG_ARCHIVE:-${TMPDIR:-/tmp}/hyprmoncfg_${version}_linux_amd64.tar.gz}"
+enable_service=0
+configure_only=0
+dry_run=0
+
+usage() {
+    printf 'Usage: install-hyprmoncfg [--enable-service] [--configure-only] [--dry-run]\nInstall hyprmoncfg %s into the shared runtime.\n--configure-only wires the installed backend into Hyprland and its user service.\n' "$version"
+}
+
+run() {
+    if (( dry_run )); then
+        printf '%q ' "$@"
+        printf '\n'
+    else
+        "$@"
+    fi
+}
+
+install_backend() {
+    [[ "$(/usr/bin/uname -m)" == x86_64 ]] || {
+        printf 'install-hyprmoncfg: this pin requires x86_64\n' >&2
+        exit 1
+    }
+    if [[ ! -f "$archive" ]]; then
+        run /usr/bin/curl --fail --location --silent --show-error \
+            "https://github.com/crmne/hyprmoncfg/releases/download/v$version/hyprmoncfg_${version}_linux_amd64.tar.gz" -o "$archive"
+    fi
+    if (( dry_run )); then
+        printf 'Verify SHA256: %s\n' "$checksum"
+    else
+        printf '%s  %s\n' "$checksum" "$archive" | /usr/bin/sha256sum --check --status
+    fi
+    run /usr/bin/mkdir -p -- "$runtime/hyprmoncfg/bin"
+    run /usr/bin/tar -xzf "$archive" -C "$runtime/hyprmoncfg/bin" hyprmoncfg hyprmoncfgd
+    run "$runtime/hyprmoncfg/bin/hyprmoncfg" version
+}
+
+install_service() {
+    local source="$shell_root/shared/display/hyprmoncfgd.service"
+    local target="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/hyprmoncfgd.service"
+    [[ ! -e "$target" || "$(/usr/bin/readlink -f -- "$target")" == "$(/usr/bin/readlink -f -- "$source")" ]] || {
+        printf 'install-hyprmoncfg: an existing service is already configured: %s\n' "$target" >&2
+        exit 1
+    }
+    run /usr/bin/mkdir -p -- "${target%/*}"
+    if [[ ! -L "$target" || "$(/usr/bin/readlink -- "$target")" != "$source" ]]; then
+        run /usr/bin/ln -sfn -- "$source" "$target"
+    fi
+    install_monitor_rules
+    run /usr/bin/systemctl --user daemon-reload
+    seed_current_layout
+    run /usr/bin/systemctl --user enable --now hyprmoncfgd.service
+}
+
+install_monitor_rules() {
+    local root_config="${HYPRLAND_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua}"
+    local rules_path="$shell_root/shared/display/monitor-rules.lua"
+    local lua_path include temporary
+    [[ "$root_config" == /* && -f "$root_config" ]] || exit 2
+    [[ "$root_config" == *.lua ]] || return 0
+    [[ "$rules_path" != *$'\n'* && "$rules_path" != *$'\r'* ]] || exit 2
+    if [[ "$shell_root" == "${XDG_CONFIG_HOME:-$HOME/.config}/quickshell" ]]; then
+        lua_path='(os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/quickshell/shared/display/monitor-rules.lua"'
+    else
+        lua_path="${rules_path//\\/\\\\}"
+        lua_path="${lua_path//\"/\\\"}"
+        printf -v lua_path '"%s"' "$lua_path"
+    fi
+    printf -v include 'do local path = %s; local file = io.open(path, "r"); if file then file:close(); dofile(path) end end' "$lua_path"
+    if (( dry_run )); then
+        printf 'Load %s before the generated monitor include in %s\n' "$rules_path" "$root_config"
+        return 0
+    fi
+    root_config="$(/usr/bin/readlink -f -- "$root_config")"
+    temporary="$(/usr/bin/mktemp "$root_config.XXXXXX")"
+    /usr/bin/chmod --reference="$root_config" "$temporary"
+    DISPLAY_MONITOR_INCLUDE="$include" /usr/bin/awk '
+        BEGIN { include = ENVIRON["DISPLAY_MONITOR_INCLUDE"] }
+        index($0, "/shared/display/monitor-rules.lua") { next }
+        !inserted && (index($0, "hyprmoncfg-monitors") || /^-- Added by hyprmoncfg:/) {
+            print include
+            inserted = 1
+        }
+        { print }
+        END { if (!inserted) print include }
+    ' "$root_config" > "$temporary"
+    if /usr/bin/cmp -s -- "$root_config" "$temporary"; then
+        /usr/bin/rm -- "$temporary"
+    else
+        /usr/bin/mv -- "$temporary" "$root_config"
+    fi
+}
+
+seed_current_layout() {
+    local profile_dir="${HYPRMONCFG_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/hyprmoncfg}"
+    local profiles=()
+    [[ "$profile_dir" == /* ]] || exit 2
+    shopt -s nullglob
+    profiles=("$profile_dir"/profiles/*.json)
+    shopt -u nullglob
+    if (( ${#profiles[@]} == 0 )); then
+        run "$runtime/hyprmoncfg/bin/hyprmoncfg" --config-dir "$profile_dir" save 'Current Layout'
+    fi
+}
+
+main() {
+    for argument in "$@"; do
+        case "$argument" in
+            --enable-service) enable_service=1 ;;
+            --configure-only) configure_only=1; enable_service=1 ;;
+            --dry-run) dry_run=1 ;;
+            --help|-h) usage; return 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    [[ "$shell_root" == /* && "$runtime" == /* && "$archive" == /* ]] || exit 2
+    if (( configure_only )); then
+        [[ -x "$runtime/hyprmoncfg/bin/hyprmoncfg" && -x "$runtime/hyprmoncfg/bin/hyprmoncfgd" ]] || exit 1
+    else
+        install_backend
+    fi
+    if (( enable_service )); then
+        install_service
+    fi
+}
+
+main "$@"

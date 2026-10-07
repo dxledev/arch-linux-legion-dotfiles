@@ -210,6 +210,14 @@
             },
             {
                 "command": [
+                    "display"
+                ],
+                "description": "Open Layout Editor",
+                "icon": "monitor",
+                "name": "Display"
+            },
+            {
+                "command": [
                     "autocomplete",
                     "theme"
                 ],
@@ -525,6 +533,9 @@
             "hibernate": "nightlight",
             "logout": "lock"
         }
+    },
+    "sidebar": {
+        "enabled": true
     },
     "utilities": {
         "cards": {

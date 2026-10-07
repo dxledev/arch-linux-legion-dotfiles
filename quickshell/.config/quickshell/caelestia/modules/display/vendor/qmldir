@@ -1,0 +1,19 @@
+module qs.modules.display.vendor
+BrightnessControl 1.0 BrightnessControl.qml
+CoordinateField 1.0 CoordinateField.qml
+DisplayCanvas 1.0 DisplayCanvas.qml
+DisplayIdentify 1.0 DisplayIdentify.qml
+EditorPane 1.0 EditorPane.qml
+InspectorViewport 1.0 InspectorViewport.qml
+KeyboardHelp 1.0 KeyboardHelp.qml
+MonitorInfo 1.0 MonitorInfo.qml
+NumberStepper 1.0 NumberStepper.qml
+Panel 1.0 Panel.qml
+PanelDropdown 1.0 PanelDropdown.qml
+PreviewConfirmCard 1.0 PreviewConfirmCard.qml
+PreviewGuard 1.0 PreviewGuard.qml
+ProfileActionsMenu 1.0 ProfileActionsMenu.qml
+ProfileStatus 1.0 ProfileStatus.qml
+ScaleField 1.0 ScaleField.qml
+SegmentedField 1.0 SegmentedField.qml
+TextSizeControl 1.0 TextSizeControl.qml

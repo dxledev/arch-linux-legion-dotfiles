@@ -1,0 +1,2 @@
+module qs.modules.display
+singleton Display 1.0 Display.qml

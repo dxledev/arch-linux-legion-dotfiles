@@ -42,6 +42,13 @@ hl.workspace_rule({
     persistent = false,
 })
 
+hl.window_rule({
+    name = "caelestia-display-editor",
+    match = { title = "^Display — Layout Editor$" },
+    float = true,
+    center = true,
+})
+
 local ipc = root .. "/scripts/quickshell -p " .. root .. "/shell.qml ipc call "
 local screenshot = root .. "/active/integration/screenshot"
 local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")

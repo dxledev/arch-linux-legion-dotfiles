@@ -9,6 +9,7 @@ import Caelestia.Services
 import qs.services
 import qs.modules.chromack as Chromack
 import qs.modules.clipboard as Clipboard
+import qs.modules.display
 import qs.utils
 
 Searcher {
@@ -92,6 +93,9 @@ Searcher {
             } else if (command[0] === "clipboard") {
                 list.screenState.launcher = false;
                 Clipboard.ClipboardState.open();
+            } else if (command[0] === "display") {
+                list.screenState.launcher = false;
+                Display.open();
             } else if (command[0] === "apps") {
                 list.search.text = "";
             } else if (command[0] === "autocomplete" && command.length > 1) {

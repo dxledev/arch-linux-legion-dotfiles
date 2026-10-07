@@ -1,0 +1,24 @@
+module qs.modules.display.compat
+Button 1.0 Button.qml
+ButtonGroup 1.0 ButtonGroup.qml
+BorderSurface 1.0 BorderSurface.qml
+BorderOverlay 1.0 BorderOverlay.qml
+CursorSurface 1.0 CursorSurface.qml
+NumberField 1.0 NumberField.qml
+PanelActionButton 1.0 PanelActionButton.qml
+PanelKeyCatcher 1.0 PanelKeyCatcher.qml
+PanelSectionHeader 1.0 PanelSectionHeader.qml
+PanelSeparator 1.0 PanelSeparator.qml
+PanelSlider 1.0 PanelSlider.qml
+PanelToolTip 1.0 PanelToolTip.qml
+Toggle 1.0 Toggle.qml
+OpticalGlyph 1.0 OpticalGlyph.qml
+ScreenMoveRemap 1.0 ScreenMoveRemap.qml
+EditorHost 1.0 EditorHost.qml
+KeyboardPanel 1.0 KeyboardPanel.qml
+singleton Color 1.0 Color.qml
+singleton Style 1.0 Style.qml
+singleton Border 1.0 Border.qml
+singleton Util 1.0 Util.qml
+ToggleSwitch 1.0 ToggleSwitch.qml
+TextField 1.0 TextField.qml

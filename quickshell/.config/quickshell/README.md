@@ -13,6 +13,7 @@ The default shell is Caelestia, adapted from [caelestia-dots/shell](https://gith
     modules/             Caelestia panels
     services/            Caelestia services
   scripts/               launcher, selector, native dependency rebuild
+  shared/display/        display backend and monitor compatibility for all shell modes
   .runtime/              local compiled dependencies; rebuild on another machine
   .backups/              original Quickshell files; not tracked
 
@@ -30,6 +31,7 @@ The default shell is Caelestia, adapted from [caelestia-dots/shell](https://gith
 - `caelestia/integration/NotificationReplacements.qml`: uses `/usr/bin/dbus-monitor` to detect replacement requests, including identical content. Each replacement restarts the popup timeout and can show an expired popup again, respecting DND and hover pauses.
 - `caelestia/integration/WindowRounding.qml`: follows `border.rounding` in `shell.json` (default 25), using circular corners (`power: 2`). Reapplies after Hyprland reloads while Quickshell mode is selected. Waybar restores the normal Hyprland configuration.
 - `caelestia/integration/hyprland.lua`: loaded through `active` at the end of the Hyprland config and applied only in Quickshell mode.
+- `shared/display`: [shared display backend and integration contract](shared/display/README.md). Saved monitor layouts and workspace assignments persist across Caelestia, Island, Noctalia and Waybar. Future display editors must use the same daemon and profile store so changes stay synchronized across shells.
 - `noctalia/integration`: records the pinned native source, patch series, managed configuration, static palette links, and dynamic theme bridge. `~/bin/noctalia-shell` owns the `full` and `lock-provider` profiles; `~/bin/app-list` is the shared catalog adapter for Caelestia and Noctalia.
 
 The wallpaper selector previews highlighted images live through `awww`, using a horizontal wipe with a soft fade (0.65 seconds, 144 FPS, color step 3). Closing the selector restores the saved wallpaper; confirming saves the current theme's wallpaper link. Rapid navigation coalesces pending previews so the latest selection wins. Set `AWWW_TRANSITION`, `AWWW_TRANSITION_DURATION`, `AWWW_TRANSITION_ANGLE`, `AWWW_TRANSITION_STEP`, or `AWWW_TRANSITION_FPS` in the shell environment to customize the effect. Preview the command with `integration/system-action --dry-run wallpaper-preview /absolute/image/path`. The existing `awww` slideshow continues to work for Waybar and Caelestia; full Noctalia owns its native wallpaper surface. Hypridle remains the idle scheduler, while `~/bin/system-lock` routes idle, pre-suspend, menu, login-session, and manual locking to Hyprlock in Waybar mode, Caelestia's native lock in Caelestia mode, and Noctalia's native lock in Noctalia mode. SwayOSD, OBS recording tools, and the system theme scripts remain the configured providers.

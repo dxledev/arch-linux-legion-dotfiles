@@ -6,6 +6,7 @@ import qs.components.misc
 import qs.services
 import qs.modules.chromack as Chromack
 import qs.modules.clipboard as Clipboard
+import qs.modules.display
 import qs.modules.nexus
 
 Scope {
@@ -220,6 +221,18 @@ Scope {
         }
 
         target: "nexus"
+    }
+
+    IpcHandler {
+        target: "display"
+
+        function open(): void {
+            Display.open();
+        }
+
+        function close(): void {
+            Display.close();
+        }
     }
 
     IpcHandler {

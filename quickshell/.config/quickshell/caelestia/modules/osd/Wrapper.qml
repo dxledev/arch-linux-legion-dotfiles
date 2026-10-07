@@ -45,6 +45,16 @@ Item {
         target?.showLocal(control);
     }
 
+    function showBrightness(monitor: var): void {
+        if (!monitor.initialized || !monitor.supported)
+            return;
+        if (Brightness.combinedOsd) {
+            showValue(monitor.modelData.name);
+        } else if (monitor.modelData === screen && !ShellState.hasFullscreen(screen)) {
+            showLocal(monitor.modelData.name);
+        }
+    }
+
     function showAudio(control: string): void {
         if (!audioPopoutVisible)
             showValue(control);
@@ -92,15 +102,14 @@ Item {
     }
 
     Instantiator {
-        model: Brightness.osdMonitors
+        model: Brightness.monitors
 
         delegate: Connections {
             required property var modelData
 
-            target: modelData.monitor
+            target: modelData
             function onBrightnessChanged(): void {
-                if (modelData.monitor.initialized)
-                    root.showValue(modelData.monitor.modelData.name);
+                root.showBrightness(modelData);
             }
         }
     }
@@ -129,6 +138,7 @@ Item {
         }
 
         sourceComponent: Content {
+            screen: root.screen
             initialValueDisplays: root.pendingValueDisplays
             screenState: root.screenState
             volume: root.volume
