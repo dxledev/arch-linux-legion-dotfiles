@@ -1,0 +1,2713 @@
+diff --git a/assets/translations/en.json b/assets/translations/en.json
+index 41e4467..4c2d330 100644
+--- a/assets/translations/en.json
++++ b/assets/translations/en.json
+@@ -287,7 +287,8 @@
+       "disabled": "Disabled",
+       "no-displays": "No monitors available",
+       "rescan": "Rescan DDC/CI monitors",
+-      "unknown-resolution": "Unknown resolution"
++      "unknown-resolution": "Unknown resolution",
++      "configure-monitors": "Configure Monitors"
+     },
+     "home": {
+       "avatar-error-title": "Avatar not updated",
+@@ -798,6 +799,10 @@
+       },
+       "window": {
+         "title": "Windows"
++      },
++      "displays": {
++        "title": "Displays",
++        "subtitle": "Arrange displays, assign workspaces, and manage profiles"
+       }
+     },
+     "search-placeholder": "Search applications…"
+@@ -2676,6 +2681,14 @@
+         "transparency-mode": {
+           "description": "Panel glass style, including floating panel opacity and card translucency",
+           "label": "Transparency"
++        },
++        "launcher-global-displays": {
++          "description": "Also show Displays in unprefixed search",
++          "label": "Displays in Global Search"
++        },
++        "launcher-prefix-displays": {
++          "description": "Trigger prefix for configuring monitors",
++          "label": "Displays Prefix"
+         }
+       },
+       "power": {
+@@ -3880,6 +3893,18 @@
+           "workspace-switch": {
+             "description": "Switch to the adjacent workspace on the target monitor (stops at both ends)",
+             "label": "Switch workspace"
++          },
++          "display-open": {
++            "label": "display-open",
++            "description": "Open or focus the display layout editor"
++          },
++          "display-close": {
++            "label": "display-close",
++            "description": "Close the display layout editor"
++          },
++          "display-toggle": {
++            "label": "display-toggle",
++            "description": "Toggle the display layout editor"
+           }
+         },
+         "default": "Default",
+diff --git a/meson.build b/meson.build
+index 0c3ad59..cf6776c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -518,6 +518,7 @@ _noctalia_sources = files(
+   'src/launcher/panel_provider.cpp',
+   'src/launcher/plugin_launcher_provider.cpp',
+   'src/launcher/settings_provider.cpp',
++  'src/launcher/display_provider.cpp',
+   'src/launcher/session_provider.cpp',
+   'src/launcher/wallpaper_provider.cpp',
+   'src/launcher/window_provider.cpp',
+@@ -738,6 +739,12 @@ _noctalia_sources = files(
+   'src/shell/settings/settings_window_popups.cpp',
+   'src/shell/settings/settings_window_scene.cpp',
+   'src/shell/settings/settings_window.cpp',
++  'src/shell/display/display_client.cpp',
++  'src/shell/display/display_identify.cpp',
++  'src/shell/display/display_model.cpp',
++  'src/shell/display/display_window.cpp',
++  'src/shell/display/display_scene.cpp',
++  'src/shell/display/display_controls.cpp',
+   'src/shell/test/test_panel.cpp',
+   'src/shell/tray/tray_drawer_panel.cpp',
+   'src/shell/tray/tray_settings.cpp',
+@@ -1148,6 +1155,7 @@ install_data(
+ 
+ if build_tests
+   _cpp_test_names = [
++    'display_editor',
+     'annotation_document',
+     'annotation_raster',
+     'animation_manager',
+diff --git a/src/app/application.h b/src/app/application.h
+index ae74ef7..9f544ea 100644
+--- a/src/app/application.h
++++ b/src/app/application.h
+@@ -88,6 +88,7 @@
+ #include "wayland/clipboard_service.h"
+ #include "wayland/key_repeat_poll_source.h"
+ #include "wayland/keyboard_layout_poll_source.h"
++#include "shell/display/display_window.h"
+ #include "wayland/text_input_service.h"
+ #include "wayland/virtual_keyboard_service.h"
+ #include "wayland/wayland_connection.h"
+@@ -356,6 +357,7 @@ private:
+   Wallpaper m_wallpaper;
+   Backdrop m_backdrop;
+   SettingsWindow m_settingsWindow;
++  DisplayWindow m_displayWindow;
+   LayerPopupHostRegistry m_layerPopupHosts;
+   ColorPickerDialogPopup m_colorPickerDialogPopup;
+   GlyphPickerDialogPopup m_glyphPickerDialogPopup;
+diff --git a/src/app/application_events.cpp b/src/app/application_events.cpp
+index 9d851d1..19ef383 100644
+--- a/src/app/application_events.cpp
++++ b/src/app/application_events.cpp
+@@ -73,6 +73,7 @@ void Application::recoverGraphicsAfterReset() {
+     m_lockScreen.onGpuResourcesInvalidated();
+     m_trayMenu.requestLayout();
+     m_settingsWindow.requestRedraw();
++    m_displayWindow.onAppearanceChanged();
+     m_screenCorners.requestRedraw();
+     requestAllSurfacesRedraw();
+     m_graphicsRecoveryAttempts = 0;
+diff --git a/src/app/application_ipc.cpp b/src/app/application_ipc.cpp
+index f14c72b..2db3c90 100644
+--- a/src/app/application_ipc.cpp
++++ b/src/app/application_ipc.cpp
+@@ -112,6 +112,24 @@ namespace {
+ } // namespace
+ 
+ void Application::initIpc() {
++  const auto bindDisplay = [this](const noctalia::cli::Command& command, std::function<void()> action) {
++    m_ipcService.bind(command, [action = std::move(action)](const std::string& args) -> std::string {
++      if (!args.empty())
++        return "error: display commands do not accept arguments\n";
++      if (noctalia::runtime::isLockProvider())
++        return "error: display editor is unavailable in lock-provider mode\n";
++      action();
++      return "ok\n";
++    });
++  };
++  bindDisplay(noctalia::cli::msg::displayOpen, [this]() { m_displayWindow.open(); });
++  bindDisplay(noctalia::cli::msg::displayClose, [this]() { m_displayWindow.close(); });
++  bindDisplay(noctalia::cli::msg::displayToggle, [this]() {
++    if (m_displayWindow.isOpen())
++      m_displayWindow.close();
++    else
++      m_displayWindow.open();
++  });
+   if (m_ipcService.start()) {
+     kLog.info("IPC socket at {}", m_ipcService.socketPath());
+   } else {
+diff --git a/src/app/application_poll_sources.cpp b/src/app/application_poll_sources.cpp
+index 10c985d..6ee18dc 100644
+--- a/src/app/application_poll_sources.cpp
++++ b/src/app/application_poll_sources.cpp
+@@ -64,6 +64,7 @@ std::vector<PollSource*> Application::currentPollSources() {
+   }
+   sources.push_back(&m_fileWatchPollSource);
+   sources.push_back(&m_ipcPollSource);
++  sources.push_back(&m_displayWindow.client());
+   if (!noctalia::runtime::isLockProvider()) {
+     sources.push_back(&m_dmenuIpc);
+   }
+diff --git a/src/app/application_services.cpp b/src/app/application_services.cpp
+index 4bad491..68d91a0 100644
+--- a/src/app/application_services.cpp
++++ b/src/app/application_services.cpp
+@@ -1097,6 +1097,7 @@ void Application::initAuxServicesAndHooks() {
+     m_trayMenu.onThemeChanged();
+     m_backdrop.onThemeChanged();
+     m_settingsWindow.onThemeChanged();
++    m_displayWindow.onAppearanceChanged();
+     scheduleGreeterAutoSync();
+   });
+ 
+@@ -1560,11 +1561,13 @@ void Application::initBrightnessAndPipewire() {
+     m_brightnessService = std::make_unique<BrightnessService>(
+         m_systemBus.get(), m_compositorPlatform, m_configService.config().brightness
+     );
++    m_displayWindow.setBrightnessService(m_brightnessService.get());
+     m_brightnessService->setChangeCallback([this, shouldRefreshControlCenter]() {
+       if (noctalia::runtime::isLockProvider()) {
+         return;
+       }
+       m_brightnessOsd.onBrightnessChanged(*m_brightnessService);
++      m_displayWindow.onBrightnessChanged();
+       m_bar.refresh();
+       if (shouldRefreshControlCenter()) {
+         m_panelManager.refresh();
+diff --git a/src/app/application_ui.cpp b/src/app/application_ui.cpp
+index 05f511c..06aa507 100644
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -40,6 +40,7 @@
+ #include "i18n/i18n_service.h"
+ #include "ipc/ipc_arg_parse.h"
+ #include "launcher/app_provider.h"
++#include "launcher/display_provider.h"
+ #include "launcher/dmenu_provider.h"
+ #include "launcher/emoji_provider.h"
+ #include "launcher/math_provider.h"
+@@ -152,6 +153,8 @@ void Application::initUiRenderSurfacesAndSettings() {
+   m_renderContext.setTextBaseDirection(i18n::Service::instance().rtl());
+   m_wallpaper.initialize(m_wayland, &m_configService, &m_renderContext, &m_sharedTextureCache, &m_themeService);
+   m_backdrop.initialize(m_wayland, &m_configService, &m_sharedTextureCache, &m_glShared);
++  m_displayWindow.initialize(m_wayland, m_configService, m_renderContext, m_fileWatcher);
++  m_settingsWindow.setOpenDisplayWindow([this]() { m_displayWindow.open(); });
+   m_settingsWindow.initialize(
+       m_wayland, &m_configService, &m_renderContext, &m_dependencyService, m_upowerService.get(), &m_idleManager,
+       &m_compositorPlatform, m_accountsService.get()
+@@ -488,6 +491,8 @@ void Application::initInputDispatch() {
+     if (m_trayMenu.onPointerEvent(event)) {
+       return;
+     }
++    if (m_displayWindow.onPointerEvent(event))
++      return;
+     if (m_settingsWindow.onPointerEvent(event))
+       return;
+     if (m_bar.onPointerEvent(event))
+@@ -542,6 +547,10 @@ void Application::initInputDispatch() {
+       m_desktopWidgetsController.onKeyboardEvent(event);
+       return;
+     }
++    if (m_displayWindow.ownsKeyboardSurface(m_wayland.lastKeyboardSurface())) {
++      m_displayWindow.onKeyboardEvent(event);
++      return;
++    }
+     if (m_settingsWindow.ownsKeyboardSurface(m_wayland.lastKeyboardSurface())) {
+       m_settingsWindow.onKeyboardEvent(event);
+       return;
+@@ -563,7 +572,10 @@ void Application::initPanelManagerAndPanels() {
+   // Panel manager must be before bar so widgets can access PanelManager::instance()
+   m_panelManager.initialize(m_compositorPlatform, &m_configService, &m_renderContext);
+   m_panelManager.setOpenSettingsWindowCallback([this](std::string context) {
+-    m_settingsWindow.open(std::move(context));
++    if (context == "display")
++      m_displayWindow.open();
++    else
++      m_settingsWindow.open(std::move(context));
+   });
+   m_panelManager.setCloseSettingsWindowCallback([this]() { m_settingsWindow.close(); });
+   m_panelManager.setToggleSettingsWindowCallback([this](std::string context) {
+@@ -676,6 +688,7 @@ void Application::initPanelManagerAndPanels() {
+     );
+     launcherPanel->addProvider(std::make_unique<SessionProvider>(&m_configService, &m_sessionActionRunner));
+     launcherPanel->addProvider(std::make_unique<SettingsProvider>(&m_panelManager));
++    launcherPanel->addProvider(std::make_unique<DisplayProvider>(&m_panelManager));
+     launcherPanel->addProvider(std::make_unique<MathProvider>(&m_clipboardService, &m_configService, &m_httpClient));
+     launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService));
+     launcherPanel->setCopiedActivationCallback([this]() {
+@@ -1094,6 +1107,7 @@ void Application::initWidgetControllersAndCallbacks() {
+         m_trayMenu.onFontChanged();
+         m_backdrop.onFontChanged();
+         m_settingsWindow.onFontChanged();
++        m_displayWindow.onAppearanceChanged();
+         m_colorPickerDialogPopup.requestLayout();
+         m_glyphPickerDialogPopup.requestLayout();
+         m_fileDialogPopup.requestLayout();
+@@ -1124,6 +1138,7 @@ void Application::initWidgetControllersAndCallbacks() {
+         m_trayMenu.onFontChanged();
+         m_backdrop.onFontChanged();
+         m_settingsWindow.onFontChanged();
++        m_displayWindow.onAppearanceChanged();
+         m_colorPickerDialogPopup.requestLayout();
+         m_glyphPickerDialogPopup.requestLayout();
+         m_fileDialogPopup.requestLayout();
+diff --git a/src/cli/schema_msg.h b/src/cli/schema_msg.h
+index df840c4..d5279a4 100644
+--- a/src/cli/schema_msg.h
++++ b/src/cli/schema_msg.h
+@@ -646,6 +646,14 @@ namespace noctalia::cli {
+     };
+     inline constexpr Command session{"session", "Run a built-in session action", {}, {},
+                                      {},        kMsgSessionPositionals,          {}, false};
++    inline constexpr Command displayOpen{"display-open", "Open or focus the display layout editor", {}, {}, {}, {}, {},
++                                         false};
++    inline constexpr Command displayClose{
++        "display-close", "Close the display layout editor", {}, {}, {}, {}, {}, false
++    };
++    inline constexpr Command displayToggle{
++        "display-toggle", "Toggle the display layout editor", {}, {}, {}, {}, {}, false
++    };
+     inline constexpr Command settingsClose{"settings-close", "Close the settings window", {}, {}, {}, {}, {}, false};
+     inline constexpr Command settingsOpen{
+         "settings-open",
+@@ -917,6 +925,9 @@ namespace noctalia::cli {
+       msg::screenshotFullscreen,
+       msg::screenshotRegion,
+       msg::session,
++      msg::displayOpen,
++      msg::displayClose,
++      msg::displayToggle,
+       msg::settingsClose,
+       msg::settingsOpen,
+       msg::settingsOpenPlugin,
+diff --git a/src/launcher/display_provider.cpp b/src/launcher/display_provider.cpp
+new file mode 100644
+index 0000000..6381673
+--- /dev/null
++++ b/src/launcher/display_provider.cpp
+@@ -0,0 +1,33 @@
++#include "launcher/display_provider.h"
++
++#include "i18n/i18n.h"
++#include "shell/panel/panel_manager.h"
++#include "util/fuzzy_match.h"
++#include "util/string_utils.h"
++
++DisplayProvider::DisplayProvider(PanelManager* panelManager) : m_panelManager(panelManager) {}
++
++std::string DisplayProvider::displayName() const { return i18n::tr("launcher.providers.displays.title"); }
++
++std::vector<LauncherResult> DisplayProvider::query(std::string_view text) const {
++  const auto query = StringUtils::toLower(StringUtils::trim(text));
++  const double score = query.empty()
++      ? 0.0
++      : FuzzyMatch::score(query, "configure monitors displays layout resolution scale workspaces profiles");
++  if (!query.empty() && !FuzzyMatch::isMatch(score))
++    return {};
++  LauncherResult result;
++  result.id = "configure-monitors";
++  result.title = i18n::tr("control-center.display.configure-monitors");
++  result.subtitle = i18n::tr("launcher.providers.displays.subtitle");
++  result.glyphName = std::string(defaultGlyphName());
++  result.score = score;
++  return {std::move(result)};
++}
++
++bool DisplayProvider::activate(const LauncherResult& result) {
++  if (!m_panelManager || result.id != "configure-monitors" || (!result.providerId.empty() && result.providerId != id()))
++    return false;
++  m_panelManager->openSettingsWindow("display");
++  return true;
++}
+diff --git a/src/launcher/display_provider.h b/src/launcher/display_provider.h
+new file mode 100644
+index 0000000..f8b7225
+--- /dev/null
++++ b/src/launcher/display_provider.h
+@@ -0,0 +1,19 @@
++#pragma once
++
++#include "launcher/launcher_provider.h"
++
++class PanelManager;
++
++class DisplayProvider : public LauncherProvider {
++public:
++  explicit DisplayProvider(PanelManager* panelManager);
++  [[nodiscard]] std::string_view defaultPrefix() const override { return "Displays"; }
++  [[nodiscard]] std::string_view id() const override { return "Displays"; }
++  [[nodiscard]] std::string displayName() const override;
++  [[nodiscard]] std::string_view defaultGlyphName() const override { return "device-desktop"; }
++  [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
++  bool activate(const LauncherResult& result) override;
++
++private:
++  PanelManager* m_panelManager = nullptr;
++};
+diff --git a/src/launcher/launcher_provider.h b/src/launcher/launcher_provider.h
+index fe2f286..ea26330 100644
+--- a/src/launcher/launcher_provider.h
++++ b/src/launcher/launcher_provider.h
+@@ -9,8 +9,8 @@
+ 
+ namespace launcher {
+   inline constexpr std::array kBuiltinProviders = {std::string_view("calculator"), std::string_view("emoji"),
+-                                                   std::string_view("panels"),     std::string_view("session"),
+-                                                   std::string_view("settings"),
++                                                   std::string_view("displays"),   std::string_view("panels"),
++                                                   std::string_view("session"),    std::string_view("settings"),
+                                                    std::string_view("wallpaper"),  std::string_view("windows")};
+ } // namespace launcher
+ 
+diff --git a/src/launcher/settings_provider.cpp b/src/launcher/settings_provider.cpp
+index 7af25c3..1dc5131 100644
+--- a/src/launcher/settings_provider.cpp
++++ b/src/launcher/settings_provider.cpp
+@@ -12,7 +12,6 @@
+ 
+ namespace {
+   constexpr std::string_view kSettingsResultId = "settings";
+-  constexpr std::string_view kSettingsSearchText = "settings";
+ } // namespace
+ 
+ SettingsProvider::SettingsProvider(PanelManager* panelManager) : m_panelManager(panelManager) {}
+@@ -21,28 +20,31 @@ std::string SettingsProvider::displayName() const { return i18n::tr("launcher.pr
+ 
+ std::vector<LauncherResult> SettingsProvider::query(std::string_view text) const {
+   const std::string query = StringUtils::toLower(StringUtils::trim(text));
+-  const double score = query.empty() ? 0.0 : FuzzyMatch::score(query, kSettingsSearchText);
+-  if (!query.empty() && !FuzzyMatch::isMatch(score)) {
+-    return {};
++  std::vector<LauncherResult> results;
++  for (const bool display : {false, true}) {
++    const auto search = display ? "display monitors layout resolution workspaces profiles" : "settings";
++    const double score = query.empty() ? 0.0 : FuzzyMatch::score(query, search);
++    if (!query.empty() && !FuzzyMatch::isMatch(score))
++      continue;
++    LauncherResult result;
++    result.id = display ? "display" : std::string(kSettingsResultId);
++    result.title = display ? "Display" : i18n::tr("launcher.providers.settings.title");
++    result.subtitle = display ? "Open the display layout editor" : i18n::tr("launcher.providers.settings.subtitle");
++    result.glyphName = display ? "device-desktop" : std::string(defaultGlyphName());
++    result.score = score;
++    results.push_back(std::move(result));
+   }
+-
+-  LauncherResult result;
+-  result.id = std::string(kSettingsResultId);
+-  result.title = i18n::tr("launcher.providers.settings.title");
+-  result.subtitle = i18n::tr("launcher.providers.settings.subtitle");
+-  result.glyphName = std::string(defaultGlyphName());
+-  result.score = score;
+-  return {std::move(result)};
++  return results;
+ }
+ 
+ bool SettingsProvider::activate(const LauncherResult& result) {
+-  if (m_panelManager == nullptr || result.id != kSettingsResultId) {
++  if (m_panelManager == nullptr || (result.id != kSettingsResultId && result.id != "display")) {
+     return false;
+   }
+   if (!result.providerId.empty() && result.providerId != id()) {
+     return false;
+   }
+ 
+-  m_panelManager->openSettingsWindow("launcher");
++  m_panelManager->openSettingsWindow(result.id == "display" ? "display" : "launcher");
+   return true;
+ }
+diff --git a/src/shell/control_center/tabs/monitor_tab.cpp b/src/shell/control_center/tabs/monitor_tab.cpp
+index cb0c4b1..3545185 100644
+--- a/src/shell/control_center/tabs/monitor_tab.cpp
++++ b/src/shell/control_center/tabs/monitor_tab.cpp
+@@ -4,6 +4,7 @@
+ #include "i18n/i18n.h"
+ #include "render/core/renderer.h"
+ #include "shell/panel/panel_button_style.h"
++#include "shell/panel/panel_manager.h"
+ #include "system/brightness_service.h"
+ #include "ui/builders.h"
+ #include "ui/controls/scroll_view.h"
+@@ -111,6 +112,20 @@ std::unique_ptr<Flex> MonitorTab::create() {
+   );
+   tab->addChild(std::move(emptyState));
+ 
++  tab->addChild(
++      ui::button({
++          .text = i18n::tr("control-center.display.configure-monitors"),
++          .glyph = "device-desktop",
++          .onClick = []() { PanelManager::instance().openSettingsWindow("display"); },
++          .configure =
++              [scale](Button& button) {
++                button.setControlHeight(Style::controlHeight * scale);
++                button.setFontSize(Style::fontSizeBody * scale);
++                button.setGlyphSize(Style::fontSizeTitle * scale);
++              },
++      })
++  );
++
+   return tab;
+ }
+ 
+diff --git a/src/shell/display/display_client.cpp b/src/shell/display/display_client.cpp
+new file mode 100644
+index 0000000..ce36e73
+--- /dev/null
++++ b/src/shell/display/display_client.cpp
+@@ -0,0 +1,207 @@
++#include "shell/display/display_client.h"
++
++#include <cerrno>
++#include <cstdlib>
++#include <cstring>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++#include <utility>
++
++namespace display {
++  Client::~Client() { stop(); }
++
++  void Client::start() {
++    if (m_running)
++      return;
++    m_running = true;
++    connect();
++    m_retry.startRepeating(std::chrono::seconds(2), [this]() {
++      if (m_fd < 0)
++        connect();
++      for (const auto& [id, pending] : m_pending) {
++        (void)id;
++        if (std::chrono::steady_clock::now() >= pending.deadline) {
++          disconnect();
++          return;
++        }
++      }
++    });
++  }
++
++  void Client::stop() {
++    m_running = false;
++    m_retry.stop();
++    onConnection = nullptr;
++    onStatus = nullptr;
++    m_pending.clear();
++    if (m_fd >= 0)
++      ::close(m_fd);
++    m_fd = -1;
++  }
++
++  void Client::connect() {
++    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
++    if (runtime == nullptr || runtime[0] != '/') {
++      if (onConnection)
++        onConnection(false);
++      return;
++    }
++    const std::string path = std::string(runtime) + "/hyprmoncfgd.sock";
++    sockaddr_un address{};
++    address.sun_family = AF_UNIX;
++    if (path.size() >= sizeof(address.sun_path))
++      return;
++    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
++    m_fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
++    if (m_fd < 0)
++      return;
++    if (::connect(m_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
++      if (errno == EINPROGRESS) {
++        m_connecting = true;
++        return;
++      }
++      disconnect();
++      return;
++    }
++    m_connecting = false;
++    if (onConnection)
++      onConnection(true);
++  }
++
++  void Client::disconnect() {
++    if (m_fd >= 0)
++      ::close(m_fd);
++    m_fd = -1;
++    m_connecting = false;
++    m_input.clear();
++    m_output.clear();
++    auto pending = std::exchange(m_pending, {});
++    if (onConnection)
++      onConnection(false);
++    for (auto& [id, entry] : pending) {
++      (void)id;
++      if (entry.reply)
++        entry.reply({}, "Display service disconnected; unconfirmed previews roll back.");
++    }
++  }
++
++  bool Client::request(std::string method, Json params, Reply reply) {
++    if (!connected())
++      return false;
++    const auto id = std::to_string(++m_sequence);
++    m_pending.emplace(id, Pending{std::move(reply), std::chrono::steady_clock::now() + std::chrono::seconds(15)});
++    m_output +=
++        Json{
++            {"type", "request"},
++            {"protocol_version", 1},
++            {"id", id},
++            {"method", std::move(method)},
++            {"params", std::move(params)}
++        }.dump()
++        + "\n";
++    flush();
++    return true;
++  }
++
++  void Client::doAddPollFds(std::vector<pollfd>& fds) {
++    if (m_fd >= 0)
++      fds.push_back(
++          {.fd = m_fd,
++           .events = static_cast<short>(POLLIN | ((m_connecting || !m_output.empty()) ? POLLOUT : 0)),
++           .revents = 0}
++      );
++  }
++
++  void Client::dispatch(const std::vector<pollfd>& fds, std::size_t index) {
++    if (m_fd < 0 || index >= fds.size() || fds[index].fd != m_fd)
++      return;
++    const auto flags = fds[index].revents;
++    if ((flags & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
++      disconnect();
++      return;
++    }
++    if (m_connecting && (flags & POLLOUT) != 0) {
++      int error = 0;
++      socklen_t length = sizeof(error);
++      if (::getsockopt(m_fd, SOL_SOCKET, SO_ERROR, &error, &length) < 0 || error != 0) {
++        disconnect();
++        return;
++      }
++      m_connecting = false;
++      if (onConnection)
++        onConnection(true);
++    }
++    if ((flags & POLLOUT) != 0)
++      flush();
++    if ((flags & POLLIN) != 0 && m_fd >= 0)
++      receive();
++  }
++
++  void Client::flush() {
++    while (connected() && !m_output.empty()) {
++      const auto written = ::send(m_fd, m_output.data(), m_output.size(), MSG_NOSIGNAL);
++      if (written > 0)
++        m_output.erase(0, static_cast<std::size_t>(written));
++      else if (written < 0 && errno == EINTR)
++        continue;
++      else if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
++        return;
++      else {
++        disconnect();
++        return;
++      }
++    }
++  }
++
++  void Client::receive() {
++    char buffer[8192];
++    while (m_fd >= 0) {
++      const auto count = ::recv(m_fd, buffer, sizeof(buffer), 0);
++      if (count > 0) {
++        m_input.append(buffer, static_cast<std::size_t>(count));
++        if (m_input.size() > 4 * 1024 * 1024) {
++          disconnect();
++          return;
++        }
++        std::size_t end;
++        while ((end = m_input.find('\n')) != std::string::npos) {
++          const auto line = m_input.substr(0, end);
++          m_input.erase(0, end + 1);
++          message(line);
++        }
++      } else if (count < 0 && errno == EINTR)
++        continue;
++      else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
++        return;
++      else {
++        disconnect();
++        return;
++      }
++    }
++  }
++
++  void Client::message(const std::string& line) {
++    const auto value = Json::parse(line, nullptr, false);
++    if (!value.is_object() || value.value("protocol_version", 0) != 1) {
++      disconnect();
++      return;
++    }
++    if (value.value("type", "") == "event" && value.value("event", "") == "status") {
++      if (onStatus)
++        onStatus(value.value("data", Json::object()));
++      return;
++    }
++    const auto entry = m_pending.find(value.value("id", ""));
++    if (entry == m_pending.end())
++      return;
++    auto reply = std::move(entry->second.reply);
++    m_pending.erase(entry);
++    const auto error = value.find("error");
++    if (reply)
++      reply(
++          value.value("result", Json::object()),
++          error != value.end() && error->is_object() ? error->value("message", "Display request failed.") : ""
++      );
++  }
++} // namespace display
+diff --git a/src/shell/display/display_client.h b/src/shell/display/display_client.h
+new file mode 100644
+index 0000000..2dd6a50
+--- /dev/null
++++ b/src/shell/display/display_client.h
+@@ -0,0 +1,48 @@
++#pragma once
++
++#include "app/poll_source.h"
++#include "core/timer_manager.h"
++
++#include <functional>
++#include <map>
++#include <nlohmann/json.hpp>
++#include <string>
++
++namespace display {
++  using Json = nlohmann::json;
++
++  class Client final : public PollSource {
++  public:
++    using Reply = std::function<void(const Json&, const std::string&)>;
++    ~Client() override;
++    void start();
++    void stop();
++    bool request(std::string method, Json params, Reply reply);
++    bool connected() const { return m_fd >= 0 && !m_connecting; }
++    std::function<void(bool)> onConnection;
++    std::function<void(const Json&)> onStatus;
++    void dispatch(const std::vector<pollfd>& fds, std::size_t index) override;
++
++  protected:
++    void doAddPollFds(std::vector<pollfd>& fds) override;
++
++  private:
++    struct Pending {
++      Reply reply;
++      std::chrono::steady_clock::time_point deadline;
++    };
++    void connect();
++    void disconnect();
++    void flush();
++    void receive();
++    void message(const std::string& line);
++    int m_fd = -1;
++    bool m_connecting = false;
++    bool m_running = false;
++    unsigned long m_sequence = 0;
++    std::string m_input;
++    std::string m_output;
++    std::map<std::string, Pending> m_pending;
++    Timer m_retry;
++  };
++} // namespace display
+diff --git a/src/shell/display/display_controls.cpp b/src/shell/display/display_controls.cpp
+new file mode 100644
+index 0000000..ae279b7
+--- /dev/null
++++ b/src/shell/display/display_controls.cpp
+@@ -0,0 +1,521 @@
++#include "shell/display/display_window.h"
++#include "system/brightness_service.h"
++#include "ui/builders.h"
++
++#include <algorithm>
++#include <cmath>
++#include <format>
++#include <limits>
++#include <stdexcept>
++#include <tuple>
++
++using display::Json;
++namespace {
++  auto label(std::string value, ColorRole role = ColorRole::OnSurface) {
++    return ui::label({.text = std::move(value), .color = colorSpecFromRole(role)});
++  }
++  auto row(std::string title, std::unique_ptr<Node> control) {
++    return ui::row({.align = FlexAlign::Center, .gap = 10}, label(std::move(title)), ui::spacer(), std::move(control));
++  }
++  auto button(std::string title, std::function<void()> action, bool enabled = true) {
++    return ui::button({.text = std::move(title), .enabled = enabled, .onClick = std::move(action)});
++  }
++  std::string numeric(double value) { return std::format("{:g}", value); }
++} // namespace
++void DisplayWindow::numericField(
++    Flex& parent, const std::string& title, const std::string& key, double fallback, bool integer
++) {
++  const auto output = m_model.output();
++  const auto buffer = m_model.selected + ":" + key;
++  const auto currentValue = output.value(key, fallback);
++  auto control = ui::input(
++      {.value = m_textBuffers.contains(buffer) ? m_textBuffers.at(buffer) : numeric(currentValue),
++       .enabled = m_model.editable(),
++       .width = 150,
++       .onChange = [this, buffer](const std::string& text) { m_textBuffers[buffer] = text; },
++       .onSubmit =
++           [this, key, buffer, integer](const std::string& text) {
++             if (m_rebuildingScene)
++               return;
++             try {
++               std::size_t end = 0;
++               const double value = std::stod(text, &end);
++               if (end != text.size()
++                   || !std::isfinite(value)
++                   || (integer
++                       && (std::floor(value) != value
++                           || value < std::numeric_limits<int>::min()
++                           || value > std::numeric_limits<int>::max())))
++                 throw std::invalid_argument("number");
++               m_textBuffers.erase(buffer);
++               m_model.edit({{key, integer ? Json(static_cast<int>(value)) : Json(value)}});
++             } catch (const std::exception&) {
++               m_model.error = "Enter a valid " + std::string(integer ? "whole number." : "number.");
++               rebuild();
++             }
++           },
++       .submitOnFocusLoss = true,
++       .configure = [buffer](Input& input) { input.inputArea()->setTabFocusKey(buffer); }}
++  );
++  auto field = row(title, std::move(control));
++  for (const auto& saved : m_model.defaults.value("outputs", Json::array())) {
++    if (saved.value("key", "") == m_model.selected
++        && saved.value(key, Json(fallback)) != output.value(key, Json(fallback))) {
++      field->addChild(
++          button("Reset", [this, key, saved]() { m_model.edit({{key, saved.value(key, Json())}}); }, m_model.editable())
++      );
++    }
++  }
++  parent.addChild(std::move(field));
++}
++void DisplayWindow::textField(Flex& parent, const std::string& title, const std::string& key) {
++  const auto buffer = m_model.selected + ":" + key;
++  parent.addChild(
++      row(title,
++          ui::input(
++              {.value = m_textBuffers.contains(buffer) ? m_textBuffers.at(buffer) : m_model.output().value(key, ""),
++               .enabled = m_model.editable(),
++               .width = 200,
++               .onChange = [this, buffer](const std::string& value) { m_textBuffers[buffer] = value; },
++               .onSubmit =
++                   [this, buffer, key](const std::string& value) {
++                     if (m_rebuildingScene)
++                       return;
++                     m_textBuffers.erase(buffer);
++                     m_model.edit({{key, value}});
++                   },
++               .submitOnFocusLoss = true,
++               .configure = [buffer](Input& input) { input.inputArea()->setTabFocusKey(buffer); }}
++          ))
++  );
++}
++void DisplayWindow::selectField(
++    Flex& parent, const std::string& title, const std::string& key, const std::vector<std::string>& labels,
++    const std::vector<Json>& values, Json fallback
++) {
++  const auto value = m_model.output().value(key, fallback);
++  const auto match = std::ranges::find(values, value);
++  const auto index = match == values.end() ? 0U : static_cast<std::size_t>(match - values.begin());
++  parent.addChild(
++      row(title,
++          ui::select(
++              {.options = labels,
++               .selectedIndex = index,
++               .enabled = m_model.editable(),
++               .width = 200,
++               .onSelectionChanged = [this, key, values](std::size_t selected, std::string_view) {
++                 if (selected < values.size())
++                   m_model.edit({{key, values[selected]}});
++               }}
++          ))
++  );
++}
++std::unique_ptr<Flex> DisplayWindow::buildInspector() {
++  auto panel = ui::column(
++      {.align = FlexAlign::Stretch,
++       .gap = 10,
++       .padding = 14,
++       .fill = colorSpecFromRole(ColorRole::SurfaceVariant),
++       .radius = 9}
++  );
++  const auto output = m_model.output(), hardware = m_model.hardware();
++  if (output.empty()) {
++    panel->addChild(label("Select a display"));
++    return panel;
++  }
++  panel->addChild(label(m_model.label(output.value("name", ""))));
++  panel->addChild(label(output.value("description", ""), ColorRole::OnSurfaceVariant));
++  panel->addChild(
++      row("Enabled",
++          ui::toggle(
++              {.checked = output.value("enabled", true), .enabled = m_model.editable(), .onChange = [this](bool value) {
++                 m_model.edit({{"enabled", value}});
++               }}
++          ))
++  );
++  auto modes = hardware.value("available_modes", std::vector<std::string>{});
++  const auto mode = output.value("mode", "preferred");
++  if (std::ranges::find(modes, mode) == modes.end())
++    modes.insert(modes.begin(), mode);
++  std::vector<Json> modeValues(modes.begin(), modes.end());
++  selectField(*panel, "Resolution / refresh", "mode", modes, modeValues, mode);
++  numericField(*panel, "Scale", "scale", 1);
++  numericField(*panel, "Position X", "x", 0, true);
++  numericField(*panel, "Position Y", "y", 0, true);
++  selectField(
++      *panel, "Rotation / flip", "transform",
++      {"Normal", "90°", "180°", "270°", "Flipped", "Flipped 90°", "Flipped 180°", "Flipped 270°"},
++      {0, 1, 2, 3, 4, 5, 6, 7}, 0
++  );
++  std::vector<std::string> mirrors{"None"};
++  std::vector<Json> mirrorValues{""};
++  for (const auto& other : m_model.draft.value("outputs", Json::array())) {
++    if (other.value("key", "") != m_model.selected && other.value("enabled", true)) {
++      mirrors.push_back(m_model.label(other.value("name", "")));
++      mirrorValues.push_back(other.value("key", ""));
++    }
++  }
++  selectField(*panel, "Mirror", "mirror_of", mirrors, mirrorValues, "");
++  selectField(*panel, "Variable refresh rate", "vrr", {"Off", "On", "Fullscreen"}, {0, 1, 2}, 0);
++  if (m_brightness) {
++    if (const auto* brightness = m_brightness->findDisplay(output.value("name", ""));
++        brightness && brightness->controllable) {
++      const auto connector = brightness->id;
++      m_brightnessConnector = connector;
++      panel->addChild(
++          row("Brightness",
++              ui::slider(
++                  {.out = &m_brightnessSlider,
++                   .minValue = 1,
++                   .maxValue = 100,
++                   .step = 1,
++                   .value = std::round(brightness->brightness * 100),
++                   .width = 200,
++                   .onValueChanged = [this, connector](double value) {
++                     if (!m_syncBrightness)
++                       m_brightness->setBrightness(connector, static_cast<float>(value / 100));
++                   }}
++              ))
++      );
++    }
++  }
++  panel->addChild(ui::separator({}));
++  panel->addChild(label("Color and signal"));
++  selectField(*panel, "Color depth", "bitdepth", {"8 bit", "10 bit"}, {8, 10}, 8);
++  selectField(
++      *panel, "Color space / EOTF", "cm",
++      {"sRGB", "Auto", "Wide", "HDR", "HDR EDID", "DCI-P3", "Display P3", "Adobe RGB", "EDID"},
++      {"srgb", "auto", "wide", "hdr", "hdredid", "dcip3", "dp3", "adobe", "edid"}, "srgb"
++  );
++  textField(*panel, "ICC profile", "icc");
++  selectField(*panel, "Wide color support", "supports_wide_color", {"Auto", "Force off", "Force on"}, {0, -1, 1}, 0);
++  selectField(*panel, "HDR support", "supports_hdr", {"Auto", "Force off", "Force on"}, {0, -1, 1}, 0);
++  numericField(*panel, "SDR brightness", "sdr_brightness", 1);
++  numericField(*panel, "SDR saturation", "sdr_saturation", 1);
++  numericField(*panel, "SDR black level", "sdr_min_luminance", 0.2);
++  numericField(*panel, "SDR white level", "sdr_max_luminance", 80, true);
++  selectField(
++      *panel, "SDR transfer curve", "sdr_eotf", {"Default", "Gamma 2.2", "sRGB"}, {"default", "gamma22", "srgb"},
++      "default"
++  );
++  numericField(*panel, "Display black level", "min_luminance", 0);
++  numericField(*panel, "Peak luminance", "max_luminance", 0, true);
++  numericField(*panel, "Maximum frame average", "max_avg_luminance", 0, true);
++  return panel;
++}
++std::unique_ptr<Flex> DisplayWindow::buildWorkspaces() {
++  auto panel = ui::column(
++      {.align = FlexAlign::Stretch,
++       .gap = 12,
++       .padding = 14,
++       .fill = colorSpecFromRole(ColorRole::SurfaceVariant),
++       .radius = 9}
++  );
++  auto workspaces = m_model.draft.value("workspaces", Json::object());
++  const auto edit = [this, workspaces](const std::string& key, Json value) {
++    auto next = workspaces;
++    next[key] = std::move(value);
++    m_model.edit({{"workspaces", next}}, false);
++  };
++  const bool supported = m_model.document.value("workspace_persistence_supported", false);
++  if (!supported)
++    panel->addChild(label("Workspace persistence is unavailable on this compositor.", ColorRole::OnSurfaceVariant));
++  panel->addChild(
++      row("Configure workspaces",
++          ui::toggle(
++              {.checked = workspaces.value("enabled", false),
++               .enabled = m_model.editable() && supported,
++               .onChange = [edit](bool value) { edit("enabled", value); }}
++          ))
++  );
++  const std::vector<std::string> strategies{"sequential", "interleave", "manual"};
++  const auto found = std::ranges::find(strategies, workspaces.value("strategy", "sequential"));
++  panel->addChild(
++      row("Assignment",
++          ui::select(
++              {.options = std::vector<std::string>{"Sequential", "Interleaved", "Manual"},
++               .selectedIndex = found == strategies.end() ? 0U : static_cast<std::size_t>(found - strategies.begin()),
++               .enabled = m_model.editable() && supported,
++               .onSelectionChanged = [edit, strategies](std::size_t index, std::string_view) {
++                 if (index < strategies.size())
++                   edit("strategy", strategies[index]);
++               }}
++          ))
++  );
++  for (const auto& [title, key, fallback] : std::vector<std::tuple<std::string, std::string, int>>{
++           {"Workspace count", "max_workspaces", 10}, {"Group size", "group_size", 1}
++       })
++    panel->addChild(
++        row(title,
++            ui::stepper(
++                {.minValue = 1,
++                 .maxValue = 100,
++                 .value = workspaces.value(key, fallback),
++                 .enabled = m_model.editable() && supported,
++                 .onValueCommitted = [edit, key](int value) { edit(key, value); }}
++            ))
++    );
++  panel->addChild(
++      row("Persist all",
++          ui::toggle(
++              {.checked = workspaces.value("persist_all", false),
++               .enabled = m_model.editable() && supported,
++               .onChange = [edit](bool value) { edit("persist_all", value); }}
++          ))
++  );
++  buildWorkspaceOrder(*panel, workspaces);
++  if (workspaces.value("strategy", "") == "manual")
++    buildWorkspaceRules(*panel, workspaces);
++  panel->addChild(ui::separator({}));
++  panel->addChild(label("Workspace plan"));
++  for (const auto& entry : m_model.workspacePlan) {
++    std::string summary;
++    for (const auto& workspace : entry.value("workspaces", Json::array())) {
++      if (!summary.empty())
++        summary += ", ";
++      summary += workspace.get<std::string>();
++    }
++    panel->addChild(label(m_model.label(entry.value("output_name", "")) + ": " + (summary.empty() ? "—" : summary)));
++  }
++  return panel;
++}
++std::unique_ptr<Flex> DisplayWindow::buildProfiles() {
++  auto panel = ui::column(
++      {.align = FlexAlign::Stretch,
++       .gap = 12,
++       .padding = 14,
++       .fill = colorSpecFromRole(ColorRole::SurfaceVariant),
++       .radius = 9}
++  );
++  const auto daemon = m_model.status.value("daemon", Json::object());
++  panel->addChild(row(
++      "Managed by hyprmoncfg",
++      ui::toggle(
++          {.checked = !daemon.value("unmanaged", false),
++           .enabled =
++               m_model.client.connected() && !m_model.pending && m_model.transaction.empty() && !m_model.foreignPreview,
++           .onChange = [this](bool value) { m_model.setManaged(value); }}
++      )
++  ));
++  panel->addChild(
++      row("Automatically select profiles",
++          ui::toggle(
++              {.checked = daemon.value("profile_override", "").empty(),
++               .enabled = m_model.editable(),
++               .onChange = [this](bool value) { m_model.setAutomatic(value); }}
++          ))
++  );
++  panel->addChild(
++      row("Disable unknown displays",
++          ui::toggle(
++              {.checked = m_model.draft.value("disable_unknown_outputs", false),
++               .enabled = m_model.editable(),
++               .onChange = [this](bool value) { m_model.edit({{"disable_unknown_outputs", value}}, false); }}
++          ))
++  );
++  panel->addChild(
++      ui::row(
++          {.align = FlexAlign::Center, .gap = 8},
++          ui::input(
++              {.value = m_saveName,
++               .placeholder = "Profile name",
++               .flexGrow = 1,
++               .onChange = [this](const std::string& value) { m_saveName = value; },
++               .configure = [](Input& input) { input.inputArea()->setTabFocusKey("profile:name"); }}
++          ),
++          button("Save draft", [this]() { m_model.save(m_saveName); }, m_model.editable() && !m_saveName.empty())
++      )
++  );
++  panel->addChild(
++      label("Saving stores the draft. Use Apply to preview it on your displays.", ColorRole::OnSurfaceVariant)
++  );
++  for (const auto& profile : m_model.document.value("profiles", Json::array())) {
++    const auto name = profile.value("name", "");
++    const auto active = m_model.status.value("active_profile", Json());
++    auto card = ui::column({.gap = 8, .padding = 12, .fill = colorSpecFromRole(ColorRole::Surface), .radius = 6});
++    card->addChild(label(name + (active.is_object() && active.value("name", "") == name ? " · Active" : "")));
++    std::string displays;
++    for (const auto& output : profile.value("outputs", Json::array())) {
++      if (!displays.empty())
++        displays += " · ";
++      displays += m_model.label(output.value("name", "")) + (output.value("enabled", true) ? "" : " (off)");
++    }
++    card->addChild(label(displays, ColorRole::OnSurfaceVariant));
++    card->addChild(
++        ui::row(
++            {.gap = 8},
++            button(
++                "Load",
++                [this, profile, name]() {
++                  m_textBuffers.clear();
++                  m_saveName = name;
++                  m_model.load(profile);
++                },
++                m_model.editable()
++            ),
++            button(
++                "Use profile", [this, name]() { m_model.previewProfile(name); }, m_model.editable()
++            ),
++            button(
++                m_deleteName == name ? "Confirm delete" : "Delete",
++                [this, name]() {
++                  if (m_deleteName == name) {
++                    m_deleteName.clear();
++                    m_model.remove(name);
++                  } else {
++                    m_deleteName = name;
++                    rebuild();
++                  }
++                },
++                m_model.editable()
++            )
++        )
++    );
++    if (m_deleteName == name)
++      card->addChild(button("Cancel", [this]() {
++        m_deleteName.clear();
++        rebuild();
++      }));
++    panel->addChild(std::move(card));
++  }
++  return panel;
++}
++
++void DisplayWindow::buildWorkspaceOrder(Flex& parent, const Json& workspaces) {
++  auto* panel = &parent;
++  const auto edit = [this, workspaces](const std::string& key, Json value) {
++    auto next = workspaces;
++    next[key] = std::move(value);
++    m_model.edit({{"workspaces", next}}, false);
++  };
++  panel->addChild(label("Monitor order"));
++  auto order = workspaces.value("monitor_order", std::vector<std::string>{});
++  if (order.empty())
++    for (const auto& output : m_model.draft.value("outputs", Json::array()))
++      if (output.value("enabled", true))
++        order.push_back(output.value("key", ""));
++  for (std::size_t index = 0; index < order.size(); ++index) {
++    std::string name = order[index];
++    for (const auto& output : m_model.draft.value("outputs", Json::array()))
++      if (output.value("key", "") == name)
++        name = m_model.label(output.value("name", ""));
++    panel->addChild(
++        ui::row(
++            {.align = FlexAlign::Center, .gap = 8}, label(std::to_string(index + 1) + ". " + name), ui::spacer(),
++            button(
++                "Up",
++                [edit, order, index]() mutable {
++                  std::swap(order[index], order[index - 1]);
++                  edit("monitor_order", order);
++                },
++                m_model.editable() && index > 0
++            ),
++            button(
++                "Down",
++                [edit, order, index]() mutable {
++                  std::swap(order[index], order[index + 1]);
++                  edit("monitor_order", order);
++                },
++                m_model.editable() && index + 1 < order.size()
++            )
++        )
++    );
++  }
++}
++
++void DisplayWindow::buildWorkspaceRules(Flex& parent, const Json& workspaces) {
++  auto* panel = &parent;
++  const auto edit = [this, workspaces](const std::string& key, Json value) {
++    auto next = workspaces;
++    next[key] = std::move(value);
++    m_model.edit({{"workspaces", next}}, false);
++  };
++  panel->addChild(label("Manual assignments"));
++  const auto rules = workspaces.value("rules", Json::array());
++  std::vector<std::string> names;
++  std::vector<Json> keys;
++  for (const auto& output : m_model.draft.value("outputs", Json::array())) {
++    names.push_back(m_model.label(output.value("name", "")) + (output.value("enabled", true) ? "" : " (off)"));
++    keys.push_back(output.value("key", ""));
++  }
++  for (std::size_t index = 0; index < rules.size(); ++index) {
++    const auto rule = rules[index];
++    const auto commit = [edit, rules, index](const std::string& field, Json value) {
++      auto next = rules;
++      next[index][field] = std::move(value);
++      edit("rules", next);
++    };
++    const auto match = std::ranges::find(keys, rule.value("output_key", Json("")));
++    auto assignment = ui::column({.gap = 8});
++    const auto buffer = "workspace:" + std::to_string(index);
++    assignment->addChild(
++        ui::row(
++            {.align = FlexAlign::Center, .gap = 8},
++            ui::input(
++                {.value = m_textBuffers.contains(buffer) ? m_textBuffers.at(buffer) : rule.value("workspace", ""),
++                 .placeholder = "Number or name:label",
++                 .enabled = m_model.editable(),
++                 .width = 200,
++                 .onChange = [this, buffer](const std::string& value) { m_textBuffers[buffer] = value; },
++                 .onSubmit =
++                     [this, commit, buffer](const std::string& value) {
++                       if (m_rebuildingScene)
++                         return;
++                       m_textBuffers.erase(buffer);
++                       commit("workspace", value);
++                     },
++                 .submitOnFocusLoss = true,
++                 .configure = [buffer](Input& input) { input.inputArea()->setTabFocusKey(buffer); }}
++            ),
++            ui::select(
++                {.options = names,
++                 .selectedIndex = match == keys.end() ? 0U : static_cast<std::size_t>(match - keys.begin()),
++                 .enabled = m_model.editable(),
++                 .onSelectionChanged =
++                     [commit, keys](std::size_t selected, std::string_view) {
++                       if (selected < keys.size())
++                         commit("output_key", keys[selected]);
++                     }}
++            ),
++            button(
++                "Remove",
++                [edit, rules, index]() {
++                  auto next = rules;
++                  next.erase(index);
++                  edit("rules", next);
++                },
++                m_model.editable()
++            )
++        )
++    );
++    assignment->addChild(
++        ui::row(
++            {.gap = 16},
++            row("Default",
++                ui::toggle(
++                    {.checked = rule.value("default", false),
++                     .enabled = m_model.editable(),
++                     .onChange = [commit](bool value) { commit("default", value); }}
++                )),
++            row("Persistent",
++                ui::toggle(
++                    {.checked = rule.value("persistent", false),
++                     .enabled = m_model.editable(),
++                     .onChange = [commit](bool value) { commit("persistent", value); }}
++                ))
++        )
++    );
++    panel->addChild(std::move(assignment));
++  }
++  panel->addChild(button(
++      "Add assignment",
++      [edit, rules, keys]() {
++        if (keys.empty())
++          return;
++        auto next = rules;
++        next.push_back({{"workspace", std::to_string(next.size() + 1)}, {"output_key", keys[0]}, {"persistent", true}});
++        edit("rules", next);
++      },
++      m_model.editable() && !keys.empty()
++  ));
++}
+diff --git a/src/shell/display/display_identify.cpp b/src/shell/display/display_identify.cpp
+new file mode 100644
+index 0000000..d469936
+--- /dev/null
++++ b/src/shell/display/display_identify.cpp
+@@ -0,0 +1,68 @@
++#include "shell/display/display_identify.h"
++
++#include "render/render_context.h"
++#include "ui/builders.h"
++#include "wayland/wayland_connection.h"
++void DisplayIdentify::clear() {
++  m_timeout.stop();
++  for (auto& entry : m_entries)
++    entry->surface->setSceneRoot(nullptr);
++  m_entries.clear();
++}
++void DisplayIdentify::show(WaylandConnection& wayland, RenderContext& render, const display::Model& model) {
++  clear();
++  if (!wayland.hasLayerShell() || !model.editable())
++    return;
++  for (const auto& output : wayland.outputs()) {
++    if (!output.output || !output.hasUsableGeometry())
++      continue;
++    auto entry = std::make_unique<Entry>();
++    entry->name = model.label(output.connectorName);
++    entry->description = output.description;
++    entry->surface = std::make_unique<LayerSurface>(
++        wayland,
++        LayerSurfaceConfig{
++            .nameSpace = "noctalia-display-identify",
++            .layer = LayerShellLayer::Overlay,
++            .width = 380,
++            .height = 140,
++            .exclusiveZone = -1
++        }
++    );
++    entry->surface->setRenderContext(&render);
++    entry->surface->setClickThrough(true);
++    auto* current = entry.get();
++    entry->surface->setPrepareFrameCallback([current, &render](bool, bool) {
++      render.makeCurrent(current->surface->renderTarget());
++      if (!current->scene) {
++        current->scene = ui::column(
++            {.align = FlexAlign::Center,
++             .justify = FlexJustify::Center,
++             .gap = 8,
++             .padding = 16,
++             .fill = colorSpecFromRole(ColorRole::Surface),
++             .radius = 12,
++             .border = colorSpecFromRole(ColorRole::Outline),
++             .width = static_cast<float>(current->surface->width()),
++             .height = static_cast<float>(current->surface->height())},
++            ui::label(
++                {.text = current->name,
++                 .fontSize = Style::fontSizeHeader,
++                 .color = colorSpecFromRole(ColorRole::OnSurface)}
++            ),
++            ui::label(
++                {.text = current->description,
++                 .fontSize = Style::fontSizeCaption,
++                 .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
++                 .maxLines = 2}
++            )
++        );
++        current->surface->setSceneRoot(current->scene.get());
++      }
++      current->scene->layout(current->surface->renderTarget().renderer());
++    });
++    if (entry->surface->initialize(output.output))
++      m_entries.push_back(std::move(entry));
++  }
++  m_timeout.start(std::chrono::seconds(3), [this]() { clear(); });
++}
+diff --git a/src/shell/display/display_identify.h b/src/shell/display/display_identify.h
+new file mode 100644
+index 0000000..41629ea
+--- /dev/null
++++ b/src/shell/display/display_identify.h
+@@ -0,0 +1,25 @@
++#pragma once
++#include "core/timer_manager.h"
++#include "render/scene/node.h"
++#include "shell/display/display_model.h"
++#include "wayland/layer_surface.h"
++
++#include <memory>
++#include <vector>
++class RenderContext;
++class WaylandConnection;
++class DisplayIdentify {
++public:
++  void show(WaylandConnection& wayland, RenderContext& render, const display::Model& model);
++  void clear();
++
++private:
++  struct Entry {
++    std::unique_ptr<LayerSurface> surface;
++    std::unique_ptr<Node> scene;
++    std::string name;
++    std::string description;
++  };
++  std::vector<std::unique_ptr<Entry>> m_entries;
++  Timer m_timeout;
++};
+diff --git a/src/shell/display/display_model.cpp b/src/shell/display/display_model.cpp
+new file mode 100644
+index 0000000..b89a124
+--- /dev/null
++++ b/src/shell/display/display_model.cpp
+@@ -0,0 +1,267 @@
++#include "shell/display/display_model.h"
++
++#include <cstdlib>
++#include <fstream>
++
++namespace display {
++  namespace {
++    std::string environment(const char* name, std::string fallback = {}) {
++      const char* value = std::getenv(name);
++      return value != nullptr && value[0] != '\0' ? value : std::move(fallback);
++    }
++  } // namespace
++  Model::Model() {
++    client.onConnection = [this](bool connected) {
++      ++m_revision;
++      m_reading = false;
++      ready = connected && ready;
++      if (!connected)
++        error = "Display service unavailable. Install or start the shared hyprmoncfgd.service.";
++      else {
++        error.clear();
++        client.request("subscribe", Json::object(), [this](const Json& result, const std::string& message) {
++          if (message.empty())
++            receiveStatus(result);
++          else {
++            error = message;
++            changed();
++          }
++        });
++        refresh();
++      }
++      changed();
++    };
++    client.onStatus = [this](const Json& value) { receiveStatus(value); };
++  }
++  void Model::changed() {
++    if (onChanged)
++      onChanged();
++  }
++  void Model::open() {
++    readNicknames();
++    client.start();
++    if (client.connected())
++      refresh();
++  }
++
++  bool Model::stale() const {
++    return ready && status.value("monitor_set_hash", "") != document.value("monitor_set_hash", "");
++  }
++  bool Model::editable() const {
++    return client.connected()
++        && ready
++        && !pending
++        && transaction.empty()
++        && !foreignPreview
++        && !stale()
++        && !status.value("daemon", Json::object()).value("unmanaged", false);
++  }
++  void Model::receiveStatus(const Json& value) {
++    if (!value.is_object())
++      return;
++    ++m_revision;
++    status = value;
++    const auto daemon = status.value("daemon", Json::object());
++    const auto preview = daemon.value("preview", Json());
++    foreignPreview = preview.is_object() && preview.value("transaction_id", "") != transaction;
++    if (!transaction.empty() && (!preview.is_object() || preview.value("transaction_id", "") != transaction)) {
++      transaction.clear();
++      deadline.clear();
++      dirty = false;
++      refresh(true);
++    } else {
++      refresh();
++    }
++    changed();
++  }
++  void Model::refresh(bool reset) {
++    if (reset) {
++      dirty = false;
++      m_preserveDraft = false;
++      ++m_revision;
++    }
++    if (!client.connected())
++      return;
++    if (m_reading || pending || !transaction.empty() || foreignPreview) {
++      m_refreshQueued = true;
++      return;
++    }
++    m_reading = true;
++    m_refreshQueued = false;
++    const auto revision = m_revision;
++    client.request("editor_state", Json::object(), [this, revision](const Json& result, const std::string& message) {
++      m_reading = false;
++      if (!message.empty()) {
++        error = message;
++        changed();
++        return;
++      }
++      if (revision != m_revision || pending || !transaction.empty() || foreignPreview) {
++        refresh();
++        return;
++      }
++      if (!result.is_object() || !result.value("profile", Json()).is_object()) {
++        error = "Invalid display editor state.";
++        changed();
++        return;
++      }
++      if (dirty || m_preserveDraft) {
++        document["profiles"] = result.value("profiles", Json::array());
++        document["profile_workspace_plans"] = result.value("profile_workspace_plans", Json::object());
++      } else {
++        document = result;
++        draft = result["profile"];
++        defaults = draft;
++        workspacePlan = result.value("workspace_plan", Json::array());
++        if (output().empty() && draft.contains("outputs") && !draft["outputs"].empty())
++          selected = draft["outputs"][0].value("key", "");
++      }
++      ready = true;
++      changed();
++      if (m_refreshQueued)
++        refresh();
++    });
++  }
++  void Model::mutate(std::string method, Json params, Client::Reply success) {
++    if (pending || !client.connected())
++      return;
++    pending = true;
++    ++m_revision;
++    error.clear();
++    client.request(
++        std::move(method), std::move(params),
++        [this, success = std::move(success)](const Json& result, const std::string& message) {
++          pending = false;
++          if (!message.empty())
++            error = message;
++          else if (success)
++            success(result, message);
++          changed();
++          if (m_refreshQueued)
++            refresh();
++        }
++    );
++    changed();
++  }
++  void Model::edit(Json fields, bool perOutput) {
++    if (!editable())
++      return;
++    if (perOutput)
++      fields["output_key"] = selected;
++    mutate("edit_profile", {{"profile", draft}, {"edit", fields}}, [this](const Json& result, const std::string&) {
++      draft = result.at("profile");
++      workspacePlan = result.value("workspace_plan", Json::array());
++      dirty = draft != defaults;
++    });
++  }
++  void Model::load(const Json& profile) {
++    if (!editable())
++      return;
++    ++m_revision;
++    draft = profile;
++    defaults = draft;
++    m_preserveDraft = true;
++    dirty = false;
++    const auto plans = document.value("profile_workspace_plans", Json::object());
++    workspacePlan = plans.value(profile.value("name", ""), Json::array());
++    changed();
++  }
++  void Model::preview(bool save) {
++    if (!editable())
++      return;
++    saveOnCommit = save;
++    auto profile = draft;
++    if (profile.value("name", "").empty())
++      profile["name"] = "draft";
++    mutate(
++        "preview", {{"profile", profile}, {"timeout_seconds", 30}, {"save_on_commit", save}},
++        [this](const Json& result, const std::string&) {
++          transaction = result.value("id", "");
++          deadline = result.value("deadline", "");
++          foreignPreview = false;
++        }
++    );
++  }
++  void Model::previewProfile(const std::string& name) {
++    if (!editable())
++      return;
++    saveOnCommit = false;
++    mutate(
++        "preview", {{"profile_name", name}, {"timeout_seconds", 30}}, [this](const Json& result, const std::string&) {
++          transaction = result.value("id", "");
++          deadline = result.value("deadline", "");
++          foreignPreview = false;
++        }
++    );
++  }
++  void Model::finishPreview(bool keep) {
++    if (transaction.empty() || pending)
++      return;
++    Json params{{"transaction_id", transaction}};
++    if (keep)
++      params["save"] = saveOnCommit;
++    mutate(keep ? "commit" : "revert", params, [this](const Json&, const std::string&) {
++      transaction.clear();
++      deadline.clear();
++      dirty = false;
++      refresh(true);
++    });
++  }
++  void Model::save(const std::string& name) {
++    if (!editable() || name.empty())
++      return;
++    auto profile = draft;
++    profile["name"] = name;
++    mutate("save", {{"profile", profile}}, [this, profile](const Json&, const std::string&) {
++      draft = profile;
++      defaults = draft;
++      dirty = false;
++      m_preserveDraft = true;
++      refresh();
++    });
++  }
++  void Model::remove(const std::string& name) {
++    if (!editable())
++      return;
++    mutate("delete", {{"name", name}}, [this](const Json&, const std::string&) { refresh(); });
++  }
++  void Model::setAutomatic(bool enabled) {
++    if (!editable())
++      return;
++    mutate("set_profile_auto", {{"enabled", enabled}}, [this](const Json&, const std::string&) { refresh(); });
++  }
++  void Model::setManaged(bool enabled) {
++    if (!client.connected() || pending || !transaction.empty() || foreignPreview)
++      return;
++    mutate(enabled ? "manage" : "unmanage", Json::object(), [this](const Json&, const std::string&) { refresh(true); });
++  }
++  Json Model::output() const {
++    for (const auto& value : draft.value("outputs", Json::array()))
++      if (value.value("key", "") == selected)
++        return value;
++    return Json::object();
++  }
++  Json Model::hardware() const {
++    for (const auto& value : document.value("displays", Json::array()))
++      if (value.value("key", "") == selected)
++        return value;
++    return Json::object();
++  }
++  std::filesystem::path Model::settingsPath() const {
++    return std::filesystem::path(environment(
++               "HYPRMONCFG_CONFIG_DIR", environment("XDG_CONFIG_HOME", environment("HOME") + "/.config") + "/hyprmoncfg"
++           ))
++        / "display-settings.json";
++  }
++  void Model::readNicknames() {
++    std::ifstream stream(settingsPath());
++    const auto value = Json::parse(stream, nullptr, false);
++    m_nicknames = value.is_object() ? value.value("nicknames", Json::object()) : Json::object();
++  }
++  std::string Model::label(const std::string& connector) const {
++    const auto value = m_nicknames.find(connector);
++    return value != m_nicknames.end() && value->is_string() && !value->get<std::string>().empty()
++        ? value->get<std::string>()
++        : connector;
++  }
++} // namespace display
+diff --git a/src/shell/display/display_model.h b/src/shell/display/display_model.h
+new file mode 100644
+index 0000000..addfac3
+--- /dev/null
++++ b/src/shell/display/display_model.h
+@@ -0,0 +1,55 @@
++#pragma once
++#include "shell/display/display_client.h"
++
++#include <filesystem>
++
++namespace display {
++  class Model {
++  public:
++    Model();
++    Client client;
++    Json document = Json::object();
++    Json status = Json::object();
++    Json draft = Json::object();
++    Json defaults = Json::object();
++    Json workspacePlan = Json::array();
++    std::string selected;
++    std::string error;
++    std::string transaction;
++    std::string deadline;
++    bool dirty = false;
++    bool pending = false;
++    bool ready = false;
++    bool foreignPreview = false;
++    bool saveOnCommit = false;
++    std::function<void()> onChanged;
++    void open();
++    void refresh(bool reset = false);
++    void edit(Json fields, bool output = true);
++    void load(const Json& profile);
++    void preview(bool save);
++    void previewProfile(const std::string& name);
++    void finishPreview(bool keep);
++    void save(const std::string& name);
++    void remove(const std::string& name);
++    void setAutomatic(bool enabled);
++    void setManaged(bool enabled);
++    bool editable() const;
++    bool stale() const;
++    Json output() const;
++    Json hardware() const;
++    std::string label(const std::string& connector) const;
++    void readNicknames();
++    std::filesystem::path settingsPath() const;
++
++  private:
++    void changed();
++    void receiveStatus(const Json& value);
++    void mutate(std::string method, Json params, Client::Reply success);
++    Json m_nicknames = Json::object();
++    std::uint64_t m_revision = 0;
++    bool m_reading = false;
++    bool m_preserveDraft = false;
++    bool m_refreshQueued = false;
++  };
++} // namespace display
+diff --git a/src/shell/display/display_scene.cpp b/src/shell/display/display_scene.cpp
+new file mode 100644
+index 0000000..c09366a
+--- /dev/null
++++ b/src/shell/display/display_scene.cpp
+@@ -0,0 +1,309 @@
++#include "config/config_service.h"
++#include "render/render_context.h"
++#include "shell/display/display_window.h"
++#include "shell/tooltip/tooltip_manager.h"
++#include "ui/builders.h"
++#include "ui/controls/select_dropdown_popup.h"
++#include "wayland/wayland_connection.h"
++
++#include <algorithm>
++#include <cmath>
++#include <ctime>
++#include <format>
++
++using display::Json;
++namespace {
++  auto text(std::string value, ColorRole role = ColorRole::OnSurface, float size = Style::fontSizeBody) {
++    return ui::label({.text = std::move(value), .fontSize = size, .color = colorSpecFromRole(role)});
++  }
++  auto button(std::string label, std::function<void()> callback, bool enabled = true, bool primary = false) {
++    return ui::button(
++        {.text = std::move(label),
++         .enabled = enabled,
++         .variant = primary ? ButtonVariant::Primary : ButtonVariant::Outline,
++         .onClick = std::move(callback)}
++    );
++  }
++  std::string number(double value) { return std::format("{:g}", value); }
++} // namespace
++void DisplayWindow::buildScene() {
++  const float contentWidth = static_cast<float>(m_surface->width()) / scale();
++  const float contentHeight = static_cast<float>(m_surface->height()) / scale();
++  m_rebuildingScene = true;
++  m_brightnessSlider = nullptr;
++  const auto focus = m_input.captureTabFocus();
++  m_input.setSceneRoot(nullptr);
++  m_surface->setSceneRoot(nullptr);
++  if (m_popup)
++    m_popup->closeSelectDropdown();
++  m_scene = ui::node({.width = contentWidth, .height = contentHeight, .animationManager = &m_animations});
++  m_scene->setTransformOrigin(0, 0);
++  m_scene->setScale(scale());
++  m_scene->addChild(
++      ui::box({.fill = colorSpecFromRole(ColorRole::Surface), .width = contentWidth, .height = contentHeight})
++  );
++  m_popup->setParent(
++      m_surface->xdgSurface(), m_surface->wlSurface(), m_wayland->outputForSurface(m_surface->wlSurface())
++  );
++  m_scene->setPopupContext(m_popup.get());
++  auto main = ui::column(
++      {.out = &m_main,
++       .align = FlexAlign::Stretch,
++       .gap = 12,
++       .padding = 18,
++       .width = contentWidth,
++       .height = contentHeight}
++  );
++  main->addChild(
++      ui::row(
++          {.align = FlexAlign::Center, .gap = 12},
++          text(m_confirmationOnly ? "Keep display changes?" : "Display", ColorRole::OnSurface, Style::fontSizeHeader),
++          ui::spacer(), button("Close", [this]() { close(); })
++      )
++  );
++  if (!m_model.transaction.empty()) {
++    auto preview =
++        ui::column({.gap = 8, .padding = 12, .fill = colorSpecFromRole(ColorRole::SurfaceVariant), .radius = 9});
++    preview->addChild(text("Unconfirmed changes automatically roll back after 30 seconds."));
++    std::tm end{};
++    if (::strptime(m_model.deadline.c_str(), "%Y-%m-%dT%H:%M:%S", &end)) {
++      const auto seconds = std::max<std::time_t>(0, ::timegm(&end) - std::time(nullptr));
++      preview->addChild(
++          text(std::to_string(seconds) + " seconds remaining", ColorRole::OnSurfaceVariant, Style::fontSizeCaption)
++      );
++    }
++    preview->addChild(
++        ui::row(
++            {.gap = 12},
++            button(
++                "Revert", [this]() { m_model.finishPreview(false); }, !m_model.pending
++            ),
++            button("Keep changes", [this]() { m_model.finishPreview(true); }, !m_model.pending, true)
++        )
++    );
++    main->addChild(std::move(preview));
++  }
++  if (!m_confirmationOnly) {
++    auto nav = ui::row({.gap = 8});
++    for (const std::string page : {"layout", "workspaces", "profiles"})
++      nav->addChild(
++          ui::button(
++              {.text = page == "layout"   ? "Layout"
++                   : page == "workspaces" ? "Workspaces"
++                                          : "Profiles",
++               .selected = m_page == page,
++               .variant = m_page == page ? ButtonVariant::Primary : ButtonVariant::Outline,
++               .onClick = [this, page]() {
++                 m_page = page;
++                 m_scroll = {};
++                 rebuild();
++               }}
++          )
++      );
++    nav->addChild(ui::spacer());
++    nav->addChild(
++        button("Identify", [this]() { m_identify.show(*m_wayland, *m_render, m_model); }, m_model.editable())
++    );
++    nav->addChild(button("TUI", [this]() { openTui(); }));
++    nav->addChild(button(
++        "Reset",
++        [this]() {
++          m_textBuffers.clear();
++          m_model.refresh(true);
++        },
++        !m_model.pending && m_model.transaction.empty() && !m_model.foreignPreview
++    ));
++    main->addChild(std::move(nav));
++    if (m_model.stale())
++      main->addChild(
++          text("Connected displays changed. Reset to read the current layout before applying.", ColorRole::Error)
++      );
++    if (m_model.foreignPreview)
++      main->addChild(
++          text("Another editor is previewing a display layout. Wait for it to finish.", ColorRole::OnSurfaceVariant)
++      );
++    if (m_model.ready) {
++      if (m_saveName.empty())
++        m_saveName = m_model.draft.value("name", "Current Layout");
++      auto body = ui::column({.align = FlexAlign::Stretch, .gap = 12});
++      if (m_page == "layout") {
++        auto canvasRow = ui::row({.align = FlexAlign::Stretch, .gap = 14});
++        const bool narrow = contentWidth < 1000;
++        if (narrow)
++          canvasRow->setDirection(FlexDirection::Vertical);
++        const float canvasWidth = std::max(280.0F, narrow ? contentWidth - 70 : contentWidth * 0.59F - 45);
++        auto left = ui::column({.align = FlexAlign::Stretch, .gap = 10, .width = canvasWidth});
++        left->addChild(text(
++            "Drag displays to arrange them. Positions snap to neighboring edges.", ColorRole::OnSurfaceVariant,
++            Style::fontSizeCaption
++        ));
++        left->addChild(buildCanvas(canvasWidth, std::max(230.0F, contentHeight * 0.4F)));
++        for (const auto& output : m_model.draft.value("outputs", Json::array())) {
++          const auto key = output.value("key", "");
++          left->addChild(
++              ui::button(
++                  {.text =
++                       m_model.label(output.value("name", "")) + (output.value("enabled", true) ? "" : " · Disabled"),
++                   .selected = key == m_model.selected,
++                   .onClick = [this, key]() {
++                     m_model.selected = key;
++                     m_textBuffers.clear();
++                     rebuild();
++                   }}
++              )
++          );
++        }
++        canvasRow->addChild(std::move(left));
++        auto inspector = buildInspector();
++        if (!narrow)
++          inspector->setFlexGrow(1);
++        canvasRow->addChild(std::move(inspector));
++        body->addChild(std::move(canvasRow));
++      } else
++        body->addChild(m_page == "workspaces" ? buildWorkspaces() : buildProfiles());
++      auto scroll = ui::scrollView({.state = &m_scroll, .flexGrow = 1});
++      scroll->content()->setAlign(FlexAlign::Stretch);
++      scroll->content()->addChild(std::move(body));
++      main->addChild(std::move(scroll));
++      main->addChild(
++          ui::row(
++              {.align = FlexAlign::Center, .gap = 8},
++              text(
++                  m_model.pending     ? "Checking…"
++                      : m_model.dirty ? "Unsaved draft"
++                                      : "Current layout",
++                  ColorRole::OnSurfaceVariant
++              ),
++              ui::spacer(), button("Apply", [this]() { m_model.preview(false); }, m_model.editable(), true)
++          )
++      );
++    } else {
++      main->addChild(text("Connecting to the shared display service…", ColorRole::OnSurfaceVariant));
++      main->addChild(text(
++          "~/.config/quickshell/scripts/install-hyprmoncfg --enable-service", ColorRole::OnSurfaceVariant,
++          Style::fontSizeCaption
++      ));
++    }
++  }
++  if (!m_model.error.empty())
++    main->addChild(text(m_model.error, ColorRole::Error, Style::fontSizeCaption));
++  m_scene->addChild(std::move(main));
++  m_input.setTextInputContext(m_surface->wlSurface(), m_wayland->textInputService());
++  m_input.setCursorShapeCallback([this](std::uint32_t serial, std::uint32_t shape) {
++    m_wayland->setCursorShape(serial, shape);
++  });
++  m_input.setHoverChangeCallback([this](InputArea*, InputArea* next) {
++    TooltipManager::instance().onHoverChange(
++        next, m_surface->xdgSurface(), m_wayland->outputForSurface(m_surface->wlSurface())
++    );
++  });
++  m_input.setSceneRoot(m_scene.get());
++  m_surface->setSceneRoot(m_scene.get());
++  m_scene->layout(m_surface->renderTarget().renderer());
++  m_input.restoreTabFocus(focus);
++  m_rebuild = false;
++  m_rebuildingScene = false;
++}
++std::unique_ptr<Node> DisplayWindow::buildCanvas(float width, float height) {
++  auto canvas = ui::node({.width = width, .height = height, .clipChildren = true});
++  canvas->addChild(
++      ui::box({.fill = colorSpecFromRole(ColorRole::SurfaceVariant), .radius = 9, .width = width, .height = height})
++  );
++  auto outputs = m_model.draft.value("outputs", Json::array());
++  double minX = 0, minY = 0, maxX = 1, maxY = 1;
++  bool first = true;
++  for (const auto& output : outputs) {
++    if (!output.value("enabled", true) || !output.value("mirror_of", "").empty())
++      continue;
++    const auto transform = output.value("transform", 0);
++    const double factor = std::max(0.1, output.value("scale", 1.0));
++    const double w = output.value(transform % 2 ? "height" : "width", 1920) / factor;
++    const double h = output.value(transform % 2 ? "width" : "height", 1080) / factor;
++    const double x = output.value("x", 0), y = output.value("y", 0);
++    if (first) {
++      minX = x;
++      minY = y;
++      maxX = x + w;
++      maxY = y + h;
++      first = false;
++    } else {
++      minX = std::min(minX, x);
++      minY = std::min(minY, y);
++      maxX = std::max(maxX, x + w);
++      maxY = std::max(maxY, y + h);
++    }
++  }
++  const double zoom = std::min((width - 32) / std::max(1.0, maxX - minX), (height - 32) / std::max(1.0, maxY - minY));
++  const double offsetX = (width - (maxX - minX) * zoom) / 2, offsetY = (height - (maxY - minY) * zoom) / 2;
++  for (const auto& output : outputs) {
++    if (!output.value("enabled", true) || !output.value("mirror_of", "").empty())
++      continue;
++    const auto key = output.value("key", "");
++    const auto transform = output.value("transform", 0);
++    const double factor = std::max(0.1, output.value("scale", 1.0));
++    const float w = static_cast<float>(output.value(transform % 2 ? "height" : "width", 1920) / factor * zoom);
++    const float h = static_cast<float>(output.value(transform % 2 ? "width" : "height", 1080) / factor * zoom);
++    const float x = static_cast<float>(offsetX + (output.value("x", 0) - minX) * zoom);
++    const float y = static_cast<float>(offsetY + (output.value("y", 0) - minY) * zoom);
++    auto card = ui::inputArea({.focusable = true, .x = x, .y = y, .width = w, .height = h});
++    auto* cardPtr = card.get();
++    card->addChild(
++        ui::box(
++            {.fill = colorSpecFromRole(key == m_model.selected ? ColorRole::Primary : ColorRole::Surface),
++             .border = colorSpecFromRole(ColorRole::Outline),
++             .borderWidth = 2,
++             .radius = 6,
++             .width = w,
++             .height = h}
++        )
++    );
++    auto contents = ui::column(
++        {.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = 4, .padding = 6, .width = w, .height = h}
++    );
++    const auto role = key == m_model.selected ? ColorRole::OnPrimary : ColorRole::OnSurface;
++    contents->addChild(text(m_model.label(output.value("name", "")), role, Style::fontSizeTitle));
++    contents->addChild(text(output.value("mode", ""), role, Style::fontSizeMini));
++    contents->addChild(text(
++        number(factor) + "× · " + std::to_string(output.value("x", 0)) + ", " + std::to_string(output.value("y", 0)),
++        role, Style::fontSizeMini
++    ));
++    card->addChild(std::move(contents));
++    struct Drag {
++      bool active = false;
++      float startX = 0, startY = 0;
++    };
++    auto drag = std::make_shared<Drag>();
++    card->setOnPress([this, key, drag, zoom, output](const InputArea::PointerData& data) {
++      if (data.button != BTN_LEFT)
++        return;
++      if (data.pressed) {
++        drag->active = true;
++        drag->startX = data.sceneX;
++        drag->startY = data.sceneY;
++      } else if (drag->active) {
++        drag->active = false;
++        m_model.selected = key;
++        const auto dx = data.sceneX - drag->startX, dy = data.sceneY - drag->startY;
++        if (m_model.editable() && (std::abs(dx) > 3 || std::abs(dy) > 3))
++          m_model.edit(
++              {{"x", output.value("x", 0) + static_cast<int>(std::round(dx / (zoom * scale())))},
++               {"y", output.value("y", 0) + static_cast<int>(std::round(dy / (zoom * scale())))},
++               {"snap_distance", 24}}
++          );
++        else
++          rebuild();
++      }
++    });
++    card->setOnMotion([this, cardPtr, drag, x, y](const InputArea::PointerData& data) {
++      if (drag->active && m_model.editable()) {
++        float pointerX = 0, pointerY = 0;
++        Node::mapToScene(cardPtr, data.localX, data.localY, pointerX, pointerY);
++        cardPtr->setPosition(x + (pointerX - drag->startX) / scale(), y + (pointerY - drag->startY) / scale());
++        m_surface->requestRedraw();
++      }
++    });
++    card->setOnCancel([drag]() { drag->active = false; });
++    canvas->addChild(std::move(card));
++  }
++  return canvas;
++}
+diff --git a/src/shell/display/display_window.cpp b/src/shell/display/display_window.cpp
+new file mode 100644
+index 0000000..939a554
+--- /dev/null
++++ b/src/shell/display/display_window.cpp
+@@ -0,0 +1,303 @@
++#include "shell/display/display_window.h"
++
++#include "config/config_service.h"
++#include "core/deferred_call.h"
++#include "core/input/keybind_matcher.h"
++#include "core/process/process.h"
++#include "render/render_context.h"
++#include "shell/tooltip/tooltip_manager.h"
++#include "system/brightness_service.h"
++#include "ui/builders.h"
++#include "ui/controls/select_dropdown_popup.h"
++#include "wayland/wayland_connection.h"
++
++#include <algorithm>
++#include <cstdlib>
++#include <filesystem>
++#include <xkbcommon/xkbcommon-keysyms.h>
++
++DisplayWindow::DisplayWindow() {
++  m_model.onChanged = [this]() {
++    if (!m_model.transaction.empty()) {
++      m_identify.clear();
++      if (!m_previewClock.active())
++        m_previewClock.startRepeating(std::chrono::seconds(1), [this]() { rebuild(); });
++      m_wasPreview = true;
++      if (!isOpen()) {
++        m_confirmationOnly = true;
++        auto alive = m_alive;
++        DeferredCall::callLater([this, alive]() {
++          if (*alive && !m_model.transaction.empty())
++            open();
++        });
++      }
++    }
++    if (m_wasPreview && m_model.transaction.empty() && !m_model.pending) {
++      m_previewClock.stop();
++      m_wasPreview = false;
++      m_textBuffers.clear();
++      if (m_confirmationOnly) {
++        auto alive = m_alive;
++        DeferredCall::callLater([this, alive]() {
++          if (*alive)
++            close();
++        });
++      }
++    }
++    rebuild();
++  };
++}
++DisplayWindow::~DisplayWindow() {
++  *m_alive = false;
++  m_identify.clear();
++  m_previewClock.stop();
++  if (m_watcher && m_nicknameWatch != 0)
++    m_watcher->unwatch(m_nicknameWatch);
++  m_model.onChanged = nullptr;
++  m_model.client.stop();
++  destroyWindow();
++}
++void DisplayWindow::initialize(
++    WaylandConnection& wayland, ConfigService& config, RenderContext& render, FileWatcher& watcher
++) {
++  m_wayland = &wayland;
++  m_config = &config;
++  m_render = &render;
++  m_watcher = &watcher;
++}
++float DisplayWindow::scale() const {
++  return m_config ? std::max(0.1F, m_config->config().accessibility.uiScale) : 1.0F;
++}
++bool DisplayWindow::isOpen() const { return m_surface && m_surface->isRunning(); }
++bool DisplayWindow::ownsKeyboardSurface(wl_surface* surface) const {
++  return surface && ((m_surface && surface == m_surface->wlSurface()) || (m_popup && surface == m_popup->wlSurface()));
++}
++void DisplayWindow::open() {
++  if (!m_wayland || !m_render || !m_wayland->hasXdgShell())
++    return;
++  if (isOpen()) {
++    m_wayland->activateSurface(m_surface->wlSurface());
++    for (const auto& window : m_wayland->windowsForApp("dev.noctalia.noctalia", "dev.noctalia.noctalia")) {
++      if (window.title == (m_confirmationOnly ? "Keep display changes? — Noctalia" : "Display — Noctalia")
++          && window.handle) {
++        m_wayland->activateToplevel(window.handle);
++        break;
++      }
++    }
++    return;
++  }
++  if (m_nicknameWatch == 0 && m_watcher) {
++    m_nicknameWatch = m_watcher->watch(m_model.settingsPath(), [this]() {
++      m_model.readNicknames();
++      rebuild();
++    });
++  }
++  m_model.open();
++  m_surface = std::make_unique<ToplevelSurface>(*m_wayland);
++  m_surface->setRenderContext(m_render);
++  m_surface->setAnimationManager(&m_animations);
++  m_surface->setClosedCallback([this]() {
++    if (!m_model.transaction.empty()) {
++      if (m_confirmationOnly) {
++        m_model.finishPreview(false);
++        return;
++      }
++      destroyWindow();
++      m_confirmationOnly = true;
++      auto alive = m_alive;
++      DeferredCall::callLater([this, alive]() {
++        if (*alive)
++          open();
++      });
++    } else
++      close();
++  });
++  m_surface->setConfigureCallback([this](std::uint32_t, std::uint32_t) { rebuild(); });
++  m_surface->setOutputChangedCallback([this](wl_output*) {
++    if (m_popup)
++      m_popup->closeSelectDropdown();
++    rebuild();
++  });
++  m_surface->setPrepareFrameCallback([this](bool update, bool layout) { prepareFrame(update, layout); });
++  auto output = m_wayland->lastPointerOutput();
++  if (!output && !m_wayland->outputs().empty())
++    output = m_wayland->outputs().front().output;
++  std::uint32_t width = static_cast<std::uint32_t>((m_confirmationOnly ? 580 : 1200) * scale());
++  std::uint32_t height = static_cast<std::uint32_t>((m_confirmationOnly ? 230 : 800) * scale());
++  if (const auto* info = m_wayland->findOutputByWl(output); info && info->hasUsableGeometry()) {
++    width = std::min(width, static_cast<std::uint32_t>(info->effectiveLogicalWidth()));
++    height = std::min(height, static_cast<std::uint32_t>(info->effectiveLogicalHeight()));
++  }
++  if (!m_surface->initialize(
++          output,
++          {.width = width,
++           .height = height,
++           .minWidth = std::min(width, 580U),
++           .minHeight = std::min(height, 230U),
++           .title = m_confirmationOnly ? "Keep display changes? — Noctalia" : "Display — Noctalia",
++           .appId = "dev.noctalia.Noctalia"}
++      )) {
++    m_surface.reset();
++    return;
++  }
++  m_popup = std::make_unique<SelectDropdownPopup>(*m_wayland, *m_render);
++  m_rebuild = true;
++}
++void DisplayWindow::close() {
++  if (!m_model.transaction.empty()) {
++    if (m_confirmationOnly) {
++      m_model.finishPreview(false);
++      return;
++    }
++    destroyWindow();
++    m_confirmationOnly = true;
++    open();
++    return;
++  }
++  destroyWindow();
++  m_confirmationOnly = false;
++}
++void DisplayWindow::destroyWindow() {
++  m_rebuildingScene = true;
++  TooltipManager::instance().forceDestroy();
++  m_input.pointerLeave();
++  m_input.setSceneRoot(nullptr);
++  m_popup.reset();
++  if (m_surface)
++    m_surface->setSceneRoot(nullptr);
++  m_scene.reset();
++  m_main = nullptr;
++  m_brightnessSlider = nullptr;
++  m_surface.reset();
++  m_pointerInside = false;
++  m_rebuildingScene = false;
++}
++void DisplayWindow::rebuild() {
++  m_rebuild = true;
++  if (m_surface)
++    m_surface->requestLayout();
++}
++void DisplayWindow::onAppearanceChanged() { rebuild(); }
++void DisplayWindow::onBrightnessChanged() {
++  if (!m_brightness || !m_brightnessSlider || m_brightnessSlider->dragging())
++    return;
++  if (const auto* display = m_brightness->findDisplay(m_brightnessConnector)) {
++    m_syncBrightness = true;
++    m_brightnessSlider->setValue(static_cast<double>(display->brightness) * 100);
++    m_syncBrightness = false;
++    if (m_surface)
++      m_surface->requestRedraw();
++  }
++}
++void DisplayWindow::prepareFrame(bool, bool layout) {
++  if (!m_surface || !m_render || m_surface->width() == 0 || m_surface->height() == 0)
++    return;
++  m_render->makeCurrent(m_surface->renderTarget());
++  const bool typing = m_input.focusedArea() && m_input.focusedArea()->textInputClient();
++  if (m_scene
++      && m_rebuild
++      && (typing || m_input.pointerCaptured())
++      && !m_model.pending
++      && !m_model.stale()
++      && m_model.transaction.empty()
++      && !m_model.foreignPreview) {
++    if (layout || m_scene->layoutDirty())
++      m_scene->layout(m_surface->renderTarget().renderer());
++    return;
++  }
++  if (!m_scene || m_rebuild)
++    buildScene();
++  else if (layout || m_scene->layoutDirty())
++    m_scene->layout(m_surface->renderTarget().renderer());
++}
++bool DisplayWindow::onPointerEvent(const PointerEvent& event) {
++  if (!isOpen())
++    return false;
++  if (m_popup && m_popup->isSelectDropdownOpen()) {
++    if (m_popup->onPointerEvent(event))
++      return true;
++    if (event.type == PointerEvent::Type::Button && event.pressed) {
++      m_popup->closeSelectDropdown();
++      return true;
++    }
++  }
++  const bool here = event.surface == m_surface->wlSurface();
++  if (!here && !m_pointerInside)
++    return false;
++  const auto x = static_cast<float>(event.sx), y = static_cast<float>(event.sy);
++  switch (event.type) {
++  case PointerEvent::Type::Enter:
++    m_pointerInside = here;
++    if (here)
++      m_input.pointerEnter(x, y, event.serial);
++    break;
++  case PointerEvent::Type::Leave:
++    if (here) {
++      m_pointerInside = false;
++      m_input.pointerLeave();
++    }
++    break;
++  case PointerEvent::Type::Motion:
++    m_input.pointerMotion(x, y, m_wayland->lastInputSerial());
++    break;
++  case PointerEvent::Type::Button:
++    m_input.pointerMotion(x, y, event.serial);
++    if (event.pressed && event.button == BTN_LEFT && y < 65 * scale() && !m_input.hoveredArea())
++      m_surface->beginMove(event.serial);
++    else
++      m_input.pointerButton(x, y, event.button, event.pressed, event.serial, event.time, event.touch);
++    break;
++  case PointerEvent::Type::Axis:
++    m_input.pointerAxis(
++        x, y, event.axis, event.axisSource, event.axisValue, event.axisDiscrete, event.axisValue120, event.axisLines
++    );
++    break;
++  }
++  if (m_scene && m_scene->layoutDirty())
++    m_surface->requestLayout();
++  else if (m_scene && m_scene->paintDirty())
++    m_surface->requestRedraw();
++  return here || m_pointerInside;
++}
++void DisplayWindow::onKeyboardEvent(const KeyboardEvent& event) {
++  if (m_popup && m_popup->isSelectDropdownOpen()) {
++    m_popup->onKeyboardEvent(event);
++    return;
++  }
++  if (event.pressed && KeybindMatcher::matches(KeybindAction::Cancel, event.sym, event.modifiers)) {
++    close();
++    return;
++  }
++  if (event.pressed && !event.preedit && (event.modifiers & KeyMod::Ctrl) != 0) {
++    if (event.sym == XKB_KEY_s) {
++      m_model.save(m_saveName);
++      return;
++    }
++    if (event.sym == XKB_KEY_Return) {
++      m_model.preview(false);
++      return;
++    }
++  }
++  m_input.keyEvent(event.sym, event.utf32, event.modifiers, event.pressed, event.preedit);
++  if (m_surface)
++    m_surface->requestLayout();
++}
++
++void DisplayWindow::openTui() {
++  const auto environment = [](const char* key, std::string fallback) {
++    const char* value = std::getenv(key);
++    return value && *value ? std::string(value) : std::move(fallback);
++  };
++  const auto home = environment("HOME", "");
++  const auto backend = environment(
++      "NOCTALIA_DISPLAY_BACKEND",
++      environment("XDG_CONFIG_HOME", home + "/.config") + "/quickshell/shared/display/backend"
++  );
++  const auto terminal = environment("NOCTALIA_DISPLAY_TERMINAL", home + "/bin/launch-terminal");
++  if (!std::filesystem::path(backend).is_absolute()
++      || !std::filesystem::path(terminal).is_absolute()
++      || !process::runAsync(std::vector<std::string>{terminal, backend, "tui"})) {
++    m_model.error = "Could not open the display TUI.";
++    rebuild();
++  }
++}
+diff --git a/src/shell/display/display_window.h b/src/shell/display/display_window.h
+new file mode 100644
+index 0000000..fb79170
+--- /dev/null
++++ b/src/shell/display/display_window.h
+@@ -0,0 +1,89 @@
++#pragma once
++#include "core/files/file_watcher.h"
++#include "render/animation/animation_manager.h"
++#include "render/scene/input_dispatcher.h"
++#include "shell/display/display_identify.h"
++#include "shell/display/display_model.h"
++#include "ui/controls/scroll_view.h"
++#include "wayland/toplevel_surface.h"
++
++#include <memory>
++#include <unordered_map>
++#include <vector>
++
++class ConfigService;
++class BrightnessService;
++class Slider;
++class RenderContext;
++class WaylandConnection;
++class SelectDropdownPopup;
++class Flex;
++struct PointerEvent;
++struct KeyboardEvent;
++
++class DisplayWindow {
++public:
++  DisplayWindow();
++  ~DisplayWindow();
++  void initialize(WaylandConnection& wayland, ConfigService& config, RenderContext& render, FileWatcher& watcher);
++  void open();
++  void close();
++  bool isOpen() const;
++  bool ownsKeyboardSurface(wl_surface* surface) const;
++  bool onPointerEvent(const PointerEvent& event);
++  void onKeyboardEvent(const KeyboardEvent& event);
++  void onAppearanceChanged();
++  void onBrightnessChanged();
++  void setBrightnessService(BrightnessService* service) { m_brightness = service; }
++  display::Client& client() { return m_model.client; }
++
++private:
++  void destroyWindow();
++  void rebuild();
++  void prepareFrame(bool update, bool layout);
++  void buildScene();
++  void openTui();
++  std::unique_ptr<Node> buildCanvas(float width, float height);
++  std::unique_ptr<Flex> buildInspector();
++  std::unique_ptr<Flex> buildWorkspaces();
++  void buildWorkspaceOrder(Flex& parent, const display::Json& workspaces);
++  void buildWorkspaceRules(Flex& parent, const display::Json& workspaces);
++  std::unique_ptr<Flex> buildProfiles();
++  void
++  numericField(Flex& parent, const std::string& title, const std::string& key, double fallback, bool integer = false);
++  void textField(Flex& parent, const std::string& title, const std::string& key);
++  void selectField(
++      Flex& parent, const std::string& title, const std::string& key, const std::vector<std::string>& labels,
++      const std::vector<display::Json>& values, display::Json fallback
++  );
++  float scale() const;
++  bool m_syncBrightness = false;
++  Slider* m_brightnessSlider = nullptr;
++  std::string m_brightnessConnector;
++  BrightnessService* m_brightness = nullptr;
++  WaylandConnection* m_wayland = nullptr;
++  ConfigService* m_config = nullptr;
++  RenderContext* m_render = nullptr;
++  FileWatcher* m_watcher = nullptr;
++  FileWatcher::WatchId m_nicknameWatch = 0;
++  display::Model m_model;
++  DisplayIdentify m_identify;
++  Timer m_previewClock;
++  AnimationManager m_animations;
++  std::unique_ptr<ToplevelSurface> m_surface;
++  std::unique_ptr<Node> m_scene;
++  std::unique_ptr<SelectDropdownPopup> m_popup;
++  InputDispatcher m_input;
++  Flex* m_main = nullptr;
++  ScrollViewState m_scroll;
++  std::unordered_map<std::string, std::string> m_textBuffers;
++  std::string m_page = "layout";
++  std::string m_saveName;
++  std::string m_deleteName;
++  bool m_rebuild = true;
++  bool m_rebuildingScene = false;
++  bool m_pointerInside = false;
++  bool m_confirmationOnly = false;
++  bool m_wasPreview = false;
++  std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
++};
+diff --git a/src/shell/settings/settings_registry.cpp b/src/shell/settings/settings_registry.cpp
+index 88d9b00..bd0d6f2 100644
+--- a/src/shell/settings/settings_registry.cpp
++++ b/src/shell/settings/settings_registry.cpp
+@@ -51,6 +51,7 @@ namespace settings {
+     constexpr auto kLauncherProviderSettings = std::to_array<LauncherProviderSettingSpec>({
+         {.name = "calculator", .prefixPlaceholder = "calc", .globalByDefault = true},
+         {.name = "settings", .prefixPlaceholder = "settings"},
++        {.name = "displays", .prefixPlaceholder = "Displays"},
+         {.name = "emoji", .prefixPlaceholder = "emo"},
+         {.name = "panels", .prefixPlaceholder = "pan"},
+         {.name = "session", .prefixPlaceholder = "session"},
+diff --git a/src/shell/settings/settings_window.h b/src/shell/settings/settings_window.h
+index c30e941..3aeff22 100644
+--- a/src/shell/settings/settings_window.h
++++ b/src/shell/settings/settings_window.h
+@@ -103,6 +103,7 @@ public:
+   void setOpenLockscreenWidgetEditor(std::function<void()> callback) {
+     m_openLockscreenWidgetEditor = std::move(callback);
+   }
++  void setOpenDisplayWindow(std::function<void()> callback) { m_openDisplayWindow = std::move(callback); }
+   void setOpenWallpaperPanel(std::function<void()> callback) { m_openWallpaperPanel = std::move(callback); }
+   void setPluginManager(scripting::PluginManager* manager) { m_pluginManager = manager; }
+   void setSyncGreeterAppearance(std::function<void()> callback) { m_syncGreeterAppearance = std::move(callback); }
+@@ -358,6 +359,7 @@ private:
+   std::function<void()> m_openDesktopWidgetEditor;
+   std::function<void()> m_openLockscreenWidgetEditor;
+   std::function<void()> m_openWallpaperPanel;
++  std::function<void()> m_openDisplayWindow;
+   std::function<void()> m_syncGreeterAppearance;
+   std::function<void()> m_resetLauncherUsage;
+   std::function<void()> m_resetScreenTime;
+diff --git a/src/shell/settings/settings_window_scene.cpp b/src/shell/settings/settings_window_scene.cpp
+index 5f7e317..75ac79a 100644
+--- a/src/shell/settings/settings_window_scene.cpp
++++ b/src/shell/settings/settings_window_scene.cpp
+@@ -1863,6 +1863,23 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
+     m_settingsRegistry.insert(it, std::move(btn));
+   }
+ 
++  if (m_openDisplayWindow) {
++    m_settingsRegistry.push_back(
++        settings::SettingEntry{
++            .section = settings::SettingsSection::System,
++            .group = "general",
++            .title = "Display",
++            .subtitle = "Arrange monitors, assign workspaces, and manage shared display profiles.",
++            .path = {},
++            .control =
++                settings::ButtonSetting{
++                    .label = "Open Layout Editor", .action = m_openDisplayWindow, .glyph = "device-desktop"
++                },
++            .searchText = "display monitor layout resolution scale workspaces hyprmoncfg profiles",
++        }
++    );
++  }
++
+   if (m_openWallpaperPanel) {
+     auto it = std::ranges::find_if(m_settingsRegistry, [](const settings::SettingEntry& e) {
+       return e.section == settings::SettingsSection::Wallpaper
+diff --git a/tests/display_editor_test.cpp b/tests/display_editor_test.cpp
+new file mode 100644
+index 0000000..d7392f9
+--- /dev/null
++++ b/tests/display_editor_test.cpp
+@@ -0,0 +1,229 @@
++#include "shell/display/display_model.h"
++#include "test_check.h"
++
++#include <array>
++#include <cerrno>
++#include <cstring>
++#include <fstream>
++#include <iostream>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++using display::Json;
++namespace {
++  class Daemon {
++  public:
++    Daemon() {
++      std::array<char, 64> path{};
++      std::strcpy(path.data(), "/tmp/noctalia-display-test.XXXXXX");
++      TEST_CHECK(::mkdtemp(path.data()) != nullptr);
++      directory = path.data();
++      ::setenv("XDG_RUNTIME_DIR", directory.c_str(), 1);
++      ::setenv("HYPRMONCFG_CONFIG_DIR", directory.c_str(), 1);
++      server = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
++      TEST_CHECK(server >= 0);
++      sockaddr_un address{};
++      address.sun_family = AF_UNIX;
++      const auto socket = directory + "/hyprmoncfgd.sock";
++      std::memcpy(address.sun_path, socket.c_str(), socket.size() + 1);
++      TEST_CHECK(::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
++      TEST_CHECK(::listen(server, 1) == 0);
++    }
++    ~Daemon() {
++      if (peer >= 0)
++        ::close(peer);
++      ::close(server);
++      ::unlink((directory + "/hyprmoncfgd.sock").c_str());
++      ::unlink((directory + "/display-settings.json").c_str());
++      ::rmdir(directory.c_str());
++    }
++    void accept() {
++      peer = ::accept4(server, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
++      TEST_CHECK(peer >= 0);
++    }
++    Json next() {
++      for (int count = 0; count < 100; ++count) {
++        const auto end = buffer.find('\n');
++        if (end != std::string::npos) {
++          const auto line = buffer.substr(0, end);
++          buffer.erase(0, end + 1);
++          return Json::parse(line);
++        }
++        pollfd ready{.fd = peer, .events = POLLIN, .revents = 0};
++        TEST_CHECK(::poll(&ready, 1, 50) > 0);
++        char chunk[8192];
++        const auto size = ::recv(peer, chunk, sizeof(chunk), 0);
++        TEST_CHECK(size > 0);
++        buffer.append(chunk, static_cast<std::size_t>(size));
++      }
++      TEST_CHECK(false);
++      return {};
++    }
++    void send(const Json& value) {
++      const auto text = value.dump() + "\n";
++      TEST_CHECK(::send(peer, text.data(), text.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(text.size()));
++    }
++    void reply(const Json& request, Json result) {
++      send({{"type", "response"}, {"protocol_version", 1}, {"id", request.at("id")}, {"result", std::move(result)}});
++    }
++    void status(Json value) {
++      send({{"type", "event"}, {"protocol_version", 1}, {"event", "status"}, {"data", std::move(value)}});
++    }
++    void pump(display::Client& client) {
++      std::vector<pollfd> fds;
++      const auto start = client.addPollFds(fds);
++      TEST_CHECK(!fds.empty());
++      TEST_CHECK(::poll(fds.data(), static_cast<nfds_t>(fds.size()), 100) > 0);
++      client.dispatch(fds, start);
++    }
++    std::string directory;
++    int peer = -1;
++
++  private:
++    int server = -1;
++    std::string buffer;
++  };
++  Json profile(int x = 0) {
++    return {
++        {"name", "Desk"},
++        {"outputs", Json::array({{{"key", "panel"}, {"name", "DP-1"}, {"enabled", true}, {"x", x}, {"y", 0}}})},
++        {"workspaces", {{"enabled", false}}}
++    };
++  }
++  Json status(const std::string& hash = "one") { return {{"monitor_set_hash", hash}, {"daemon", {{"running", true}}}}; }
++  Json editor(int x = 0, const std::string& hash = "one") {
++    return {
++        {"monitor_set_hash", hash},
++        {"profile", profile(x)},
++        {"profiles", Json::array({profile()})},
++        {"workspace_plan", Json::array()}
++    };
++  }
++  void initial(Daemon& daemon, display::Model& model) {
++    model.open();
++    daemon.accept();
++    auto subscribe = daemon.next();
++    TEST_CHECK(subscribe.at("method") == "subscribe");
++    auto read = daemon.next();
++    TEST_CHECK(read.at("method") == "editor_state");
++    daemon.reply(subscribe, status());
++    daemon.reply(read, editor());
++    daemon.pump(model.client);
++    read = daemon.next();
++    daemon.reply(read, editor());
++    daemon.pump(model.client);
++    TEST_CHECK(model.ready);
++    TEST_CHECK(model.editable());
++  }
++} // namespace
++int main() {
++  Daemon daemon;
++  display::Model model;
++  initial(daemon, model);
++  TEST_CHECK(model.selected == "panel");
++  std::ofstream(daemon.directory + "/display-settings.json") << R"({"nicknames":{"DP-1":"Desk display"},"unknown":42})";
++  model.readNicknames();
++  TEST_CHECK(model.label("DP-1") == "Desk display");
++  TEST_CHECK(model.label("eDP-1") == "eDP-1");
++  model.edit({{"x", 100}});
++  auto request = daemon.next();
++  TEST_CHECK(request.at("method") == "edit_profile");
++  TEST_CHECK(request.at("params").at("edit").at("output_key") == "panel");
++  TEST_CHECK(model.pending);
++  TEST_CHECK(!model.editable());
++  daemon.reply(request, {{"profile", profile(100)}, {"workspace_plan", Json::array()}});
++  daemon.pump(model.client);
++  TEST_CHECK(model.dirty);
++  TEST_CHECK(model.output().at("x") == 100);
++  daemon.status(status());
++  daemon.pump(model.client);
++  request = daemon.next();
++  daemon.reply(request, editor());
++  daemon.pump(model.client);
++  TEST_CHECK(model.output().at("x") == 100);
++  model.save("Saved desk");
++  request = daemon.next();
++  TEST_CHECK(request.at("method") == "save");
++  TEST_CHECK(request.at("params").at("profile").at("name") == "Saved desk");
++  daemon.reply(request, Json::object());
++  daemon.pump(model.client);
++  request = daemon.next();
++  daemon.reply(request, editor());
++  daemon.pump(model.client);
++  TEST_CHECK(model.output().at("x") == 100);
++  TEST_CHECK(!model.dirty);
++  model.draft["name"] = "";
++  model.preview(false);
++  request = daemon.next();
++  TEST_CHECK(request.at("method") == "preview");
++  TEST_CHECK(request.at("params").at("timeout_seconds") == 30);
++  TEST_CHECK(request.at("params").at("profile").at("name") == "draft");
++  auto active = status();
++  active["daemon"]["preview"] = {{"transaction_id", "preview-one"}};
++  daemon.status(active);
++  daemon.reply(request, {{"id", "preview-one"}, {"deadline", "soon"}});
++  daemon.pump(model.client);
++  TEST_CHECK(model.transaction == "preview-one");
++  TEST_CHECK(!model.foreignPreview);
++  model.finishPreview(true);
++  request = daemon.next();
++  TEST_CHECK(request.at("method") == "commit");
++  TEST_CHECK(request.at("params").at("transaction_id") == "preview-one");
++  daemon.reply(request, Json::object());
++  daemon.status(status());
++  daemon.pump(model.client);
++  request = daemon.next();
++  daemon.reply(request, editor());
++  daemon.pump(model.client);
++  request = daemon.next();
++  daemon.reply(request, editor());
++  daemon.pump(model.client);
++  TEST_CHECK(model.transaction.empty());
++  daemon.status(active);
++  daemon.pump(model.client);
++  TEST_CHECK(model.foreignPreview);
++  TEST_CHECK(!model.editable());
++  daemon.status(status());
++  daemon.pump(model.client);
++  request = daemon.next();
++  daemon.reply(request, editor());
++  daemon.pump(model.client);
++  model.edit({{"x", 200}});
++  request = daemon.next();
++  daemon.reply(request, {{"profile", profile(200)}});
++  daemon.pump(model.client);
++  daemon.status(status("two"));
++  daemon.pump(model.client);
++  request = daemon.next();
++  daemon.reply(request, editor(0, "two"));
++  daemon.pump(model.client);
++  TEST_CHECK(model.stale());
++  TEST_CHECK(!model.editable());
++  TEST_CHECK(model.output().at("x") == 200);
++  model.refresh(true);
++  request = daemon.next();
++  daemon.reply(request, editor(0, "two"));
++  daemon.pump(model.client);
++  TEST_CHECK(!model.stale());
++  TEST_CHECK(model.editable());
++  TEST_CHECK(!model.dirty);
++  model.edit({{"enabled", false}});
++  request = daemon.next();
++  daemon.send(
++      {{"type", "response"},
++       {"protocol_version", 1},
++       {"id", request.at("id")},
++       {"error", {{"message", "At least one display must stay enabled."}}}}
++  );
++  daemon.pump(model.client);
++  TEST_CHECK(!model.pending);
++  TEST_CHECK(model.output().at("enabled") == true);
++  TEST_CHECK(!model.error.empty());
++  ::close(daemon.peer);
++  daemon.peer = -1;
++  daemon.pump(model.client);
++  TEST_CHECK(!model.client.connected());
++  TEST_CHECK(!model.editable());
++  std::cout << "Native display editor IPC, drafts, previews, topology, and nickname checks passed\n";
++}

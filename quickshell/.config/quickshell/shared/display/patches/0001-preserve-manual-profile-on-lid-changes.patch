@@ -1,0 +1,137 @@
+--- a/internal/daemon/daemon.go
++++ b/internal/daemon/daemon.go
+@@ -506,7 +506,6 @@
+ 			if state != s.lidState {
+ 				s.cfg.LaptopToggle.Reset()
+ 				s.setLidState(state)
+-				s.clearManualOverride()
+ 				reason := "lid:" + string(state)
+ 				if state == lid.Open {
+ 					// Waking changes DPMS state. Older probes must not put the
+@@ -750,7 +749,6 @@
+ 	}
+ 	s.cfg.Logf("lid state: %s", state)
+ 	s.setLidState(state)
+-	s.clearManualOverride()
+ }
+ 
+ // wakeDisplays turns every output's DPMS on. Opening the lid or resuming from
+--- /dev/null
++++ b/internal/daemon/manual_lid_test.go
+@@ -0,0 +1,76 @@
++package daemon
++
++import (
++	"context"
++	"os"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/crmne/hyprmoncfg/internal/hypr"
++	"github.com/crmne/hyprmoncfg/internal/lid"
++	"github.com/crmne/hyprmoncfg/internal/profile"
++)
++
++func TestRefreshLidStatePreservesManualProfile(t *testing.T) {
++	for _, state := range []lid.State{lid.Closed, lid.Open} {
++		t.Run(string(state), func(t *testing.T) {
++			svc := New(nil, nil, Config{})
++			svc.lidSupported = true
++			svc.setLidState(lid.Open)
++			if state == lid.Open {
++				svc.setLidState(lid.Closed)
++			}
++			svc.readLid = func(context.Context) (lid.State, error) { return state, nil }
++			svc.setManualOverride("desk", profile.Profile{Name: "External Only"})
++			svc.refreshLidState(context.Background())
++			if svc.lidState != state {
++				t.Fatalf("lid state = %q, want %q", svc.lidState, state)
++			}
++			chosen, held := svc.manualOverride("desk")
++			if !held || chosen.Name != "External Only" {
++				t.Fatalf("fresh lid read discarded manual profile: %+v, held=%t", chosen, held)
++			}
++		})
++	}
++}
++
++func TestRunManualProfileSurvivesLidChanges(t *testing.T) {
++	monitors := []hypr.Monitor{
++		{Name: "eDP-2", Make: "Laptop", Model: "Panel", Serial: "internal", Width: 1920, Height: 1080, RefreshRate: 60, Scale: 1, Disabled: true},
++		{Name: "HDMI-A-1", Make: "External", Model: "Panel", Serial: "desk", Width: 1920, Height: 1080, RefreshRate: 60, Scale: 1, DPMSStatus: true},
++	}
++	chosen := profile.FromMonitors("Home", monitors)
++	env := newRunTestEnv(t, monitors, func(svc *Service) {
++		svc.setManualOverride(profile.MonitorSetHash(monitors), chosen)
++		automatic := append([]hypr.Monitor(nil), monitors...)
++		automatic[0].Disabled = false
++		if err := svc.store.Save(profile.FromMonitors("Current Layout", automatic)); err != nil {
++			t.Fatal(err)
++		}
++	})
++	defer env.stop()
++	waitFor(t, time.Second, func() bool {
++		return env.logs.contains("automatic reconciliation completed")
++	}, "startup reconciliation")
++
++	for _, state := range []lid.State{lid.Closed, lid.Open} {
++		baseline := strings.Count(env.logs.all(), "automatic reconciliation completed")
++		env.setLid(state)
++		env.lidStates <- state
++		waitFor(t, 2*time.Second, func() bool {
++			return strings.Count(env.logs.all(), "automatic reconciliation completed") > baseline
++		}, "lid reconciliation")
++		got, held := env.svc.manualOverride(profile.MonitorSetHash(monitors))
++		if !held || got.Name != chosen.Name {
++			t.Fatalf("lid %s discarded manual choice: %+v, held=%t\n%s", state, got, held, env.logs.all())
++		}
++		content, err := os.ReadFile(env.monitorsConfPath)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !strings.Contains(string(content), "output = eDP-2\n  disabled = 1") {
++			t.Fatalf("lid %s enabled the deliberately disabled laptop panel:\n%s", state, content)
++		}
++	}
++}
+--- a/DESIGN.md
++++ b/DESIGN.md
+@@ -159,6 +159,11 @@
+ Interleaved plan. Never silently migrate existing profiles to the preferred default.
+ 
+ ### Disconnect, lid, sleep, and recovery
++
++A manual profile selection remains authoritative across lid events and fresh
++lid reads while the connected monitor set is unchanged. Hardware changes or an
++explicit return to automatic selection release it. Closing the lid still applies
++the existing panel safety policy without changing the saved profile.
+ 
+ Removing the temporary screen restores the original saved layout when that setup
+ matches again. Do not save the temporary expansion over `Laptop`. Editor changes
+--- a/README.md
++++ b/README.md
+@@ -175,7 +175,7 @@
+ 
+ Omarchy's lock/wake script reads `~/.config/hypr/monitors.lua` directly, before its remembered scale. To prevent it from resetting the laptop's scale and position, hyprmoncfg keeps a marked, connector-specific wake rule at the top of that file, alongside Omarchy's remembered scale. Your existing rules and defaults stay intact. Canceling a preview restores the previous wake settings; turning management off removes the marked block. Read-only dotfiles are left alone with a diagnostic. Omarchy still controls lid recovery and uses its preferred mode when re-enabling an entirely disabled panel; hyprmoncfg then restores the full profile.
+ 
+-When the daemon is running, it is the canonical monitor-config writer. The TUI, CLI, and desktop integrations use its versioned Unix-socket IPC; when it is absent, the TUI and CLI keep working through the same core engine in direct mode. A profile selected interactively stays selected until the next monitor hotplug or lid change, when automatic matching resumes.
++When the daemon is running, it is the canonical monitor-config writer. The TUI, CLI, and desktop integrations use its versioned Unix-socket IPC; when it is absent, the TUI and CLI keep working through the same core engine in direct mode. A profile selected interactively stays selected across lid changes until the connected monitor set changes or automatic selection is explicitly enabled. Lid-close safety adjustments still apply without changing the saved profile.
+ 
+ ## Omarchy Quattro panel
+ 
+--- a/docs/_guide/daemon.md
++++ b/docs/_guide/daemon.md
+@@ -54,6 +54,12 @@
+ 7. Re-read monitor state and verify the result matches what was intended
+ 
+ If the winning profile is the same one that's already applied, the daemon skips re-applying it. You won't see unnecessary reloads.
++
++An interactively selected profile takes precedence over automatic matching while
++the connected monitor set stays the same. Opening or closing the lid, including
++a fresh lid read after resume, preserves that choice. Changing the connected
++hardware or explicitly enabling automatic selection releases it. Lid-close
++safety adjustments still apply without rewriting the saved profile.
+ 
+ An output absent from a non-strict profile is added to its right edge, vertically
+ centered against the adjacent independent display using logical dimensions. For

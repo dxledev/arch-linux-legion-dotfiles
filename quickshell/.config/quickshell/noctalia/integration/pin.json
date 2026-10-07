@@ -30,7 +30,8 @@
     "0026-shell-padding-color-update.patch",
     "0027-shell-padding-opacity.patch",
     "0028-workspaces-pill-gap.patch",
-    "0029-settings-theme-wallpaper-sync.patch"
+    "0029-settings-theme-wallpaper-sync.patch",
+    "0030-native-display-editor.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

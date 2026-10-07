@@ -4,14 +4,15 @@ set -euo pipefail
 shell_root="${QUICKSHELL_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell}"
 runtime="${QUICKSHELL_RUNTIME:-$shell_root/.runtime}"
 version=1.22.1
-checksum=9c3ca975d1fef23e07d9fef101405d6a654837e05b696dbeb538a1e4a63d96a6
-archive="${HYPRMONCFG_ARCHIVE:-${TMPDIR:-/tmp}/hyprmoncfg_${version}_linux_amd64.tar.gz}"
+source_commit=7e096f2d28147ab33def3570fe4d7443c446c7a8
+checksum=38891924b9f16bc99c0ef919af3f161f4f48a330c9a95f38edbea2978c6ef2c8
+archive="${HYPRMONCFG_SOURCE_ARCHIVE:-${TMPDIR:-/tmp}/hyprmoncfg_${source_commit}_source.tar.gz}"
 enable_service=0
 configure_only=0
 dry_run=0
 
 usage() {
-    printf 'Usage: install-hyprmoncfg [--enable-service] [--configure-only] [--dry-run]\nInstall hyprmoncfg %s into the shared runtime.\n--configure-only wires the installed backend into Hyprland and its user service.\n' "$version"
+    printf 'Usage: install-hyprmoncfg [--enable-service] [--configure-only] [--dry-run]\nBuild hyprmoncfg %s with shared patches (requires Go 1.26.1 or newer).\n--configure-only wires the installed backend into Hyprland and its user service.\n' "$version"
 }
 
 run() {
@@ -28,18 +29,54 @@ install_backend() {
         printf 'install-hyprmoncfg: this pin requires x86_64\n' >&2
         exit 1
     }
+    [[ -x /usr/bin/go ]] || {
+        printf 'install-hyprmoncfg: Go 1.26.1 or newer is required\n' >&2
+        exit 1
+    }
     if [[ ! -f "$archive" ]]; then
         run /usr/bin/curl --fail --location --silent --show-error \
-            "https://github.com/crmne/hyprmoncfg/releases/download/v$version/hyprmoncfg_${version}_linux_amd64.tar.gz" -o "$archive"
+            "https://codeload.github.com/crmne/hyprmoncfg/tar.gz/$source_commit" -o "$archive"
     fi
     if (( dry_run )); then
         printf 'Verify SHA256: %s\n' "$checksum"
     else
         printf '%s  %s\n' "$checksum" "$archive" | /usr/bin/sha256sum --check --status
     fi
-    run /usr/bin/mkdir -p -- "$runtime/hyprmoncfg/bin"
-    run /usr/bin/tar -xzf "$archive" -C "$runtime/hyprmoncfg/bin" hyprmoncfg hyprmoncfgd
+    build_backend
     run "$runtime/hyprmoncfg/bin/hyprmoncfg" version
+}
+
+build_backend() (
+    local build_dir patch_file
+    local patches=("$shell_root"/shared/display/patches/*.patch)
+    [[ -f "${patches[0]}" ]] || {
+        printf 'install-hyprmoncfg: shared backend patches are missing\n' >&2
+        exit 1
+    }
+    if (( dry_run )); then
+        build_dir="${TMPDIR:-/tmp}/hyprmoncfg-build.<temporary>"
+    else
+        build_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/hyprmoncfg-build.XXXXXX")"
+        trap '/usr/bin/rm -rf -- "$build_dir"' EXIT
+    fi
+    run /usr/bin/tar -xzf "$archive" --strip-components=1 -C "$build_dir"
+    for patch_file in "${patches[@]}"; do
+        run /usr/bin/patch --batch --forward --fuzz=0 -p1 -d "$build_dir" -i "$patch_file"
+    done
+    run /usr/bin/mkdir -p -- "$build_dir/bin"
+    run /usr/bin/env CGO_ENABLED=0 /usr/bin/go -C "$build_dir" build -trimpath -buildvcs=false -mod=readonly \
+        -ldflags "-s -w -X github.com/crmne/hyprmoncfg/internal/buildinfo.Version=$version+lid-profile -X github.com/crmne/hyprmoncfg/internal/buildinfo.Commit=$source_commit+lid-profile" \
+        -o "$build_dir/bin/" ./cmd/hyprmoncfg ./cmd/hyprmoncfgd
+    install_built_backend "$build_dir/bin"
+)
+
+install_built_backend() {
+    local source_dir="$1" binary
+    run /usr/bin/mkdir -p -- "$runtime/hyprmoncfg/bin"
+    for binary in hyprmoncfg hyprmoncfgd; do
+        run /usr/bin/install -m 755 -- "$source_dir/$binary" "$runtime/hyprmoncfg/bin/$binary.next"
+        run /usr/bin/mv -f -- "$runtime/hyprmoncfg/bin/$binary.next" "$runtime/hyprmoncfg/bin/$binary"
+    done
 }
 
 install_service() {

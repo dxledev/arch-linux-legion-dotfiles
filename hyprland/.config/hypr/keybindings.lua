@@ -216,6 +216,10 @@ bind("bindd", mainMod, "F5", "Focus Workspace 11", "workspace", "11")
 bind("bindd", mainMod .. " SHIFT", "F5", "Move To Workspace 11", "movetoworkspace", "11")
 bind("bindd", mainMod .. " ALT SHIFT", "F5", "Silently Move To Workspace 11", "movetoworkspacesilent", "11")
 
+bind("bindd", mainMod, "F6", "Focus Workspace 12", "workspace", "12")
+bind("bindd", mainMod .. " SHIFT", "F6", "Move To Workspace 12", "movetoworkspace", "12")
+bind("bindd", mainMod .. " ALT SHIFT", "F6", "Silently Move To Workspace 12", "movetoworkspacesilent", "12")
+
 bind_exec(mainMod .. " ALT", "equal", "Move Window To Empty Workspace", "~/bin/hypr-move-to-empty-workspace")
 
 bind("bind", mainMod, "KP_Next", "", "exec", "~/bin/hypr-focus-special-workspace scratchpad")
