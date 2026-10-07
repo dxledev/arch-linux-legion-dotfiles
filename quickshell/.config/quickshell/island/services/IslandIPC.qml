@@ -37,6 +37,8 @@ IpcHandler {
     function openSettingsSection(section: string): void {
         IslandController.toggleSettingsSection(section);
     }
+    function openDisplays(): void { IslandController.openDisplays(); }
+    function closeDisplays(): void { DisplayService.close(); }
     function openSettings(): void {
         IslandController.toggleMode(IslandState.settingsMode, [
             IslandState.settingsSectionMode, IslandState.clockSettingsMode, IslandState.osdSettingsMode

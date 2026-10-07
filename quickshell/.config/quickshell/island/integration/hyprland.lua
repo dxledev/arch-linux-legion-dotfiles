@@ -3,6 +3,14 @@ local home = os.getenv("HOME")
 local root = config_home .. "/quickshell/island"
 local ipc = config_home .. "/quickshell/scripts/quickshell -p " .. root .. "/shell.qml ipc call island "
 
+hl.window_rule({
+    name = "island-display-editor",
+    match = { title = "^Display — Layout Editor$" },
+    float = true,
+    center = true,
+    size = { 1600, 900 },
+})
+
 local mode_owned_keys = {
     "SUPER + A",
     "SUPER + SHIFT + ALT + V", "SUPER + SHIFT + CTRL + C", "SUPER + SHIFT + CTRL + A",

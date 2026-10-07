@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+shell_root="$(/usr/bin/readlink -f -- "$script_dir/../../..")"
+exec "$shell_root/shared/display/backend" "$@"

@@ -58,8 +58,23 @@ ShellRoot {
             ];
             check(WorkspaceService.workspacesForMonitor(fixtures, "HDMI-A-1", false).length === 1, "Filter current monitor");
             check(WorkspaceService.workspacesForMonitor(fixtures, "HDMI-A-1", true).length === 2, "Include all monitors");
-            check(JSON.stringify(WorkspaceService.persistentForMonitor(pins, "DP-1", false)) === "[10,11]", "Respect monitor persistent rules");
-            check(JSON.stringify(WorkspaceService.persistentForMonitor(pins, "DP-1", true)) === "[1,10,11]", "Include all persistent rules");
+            const secondary = {name: "DP-1", description: "Secondary display"};
+            const primary = {name: "HDMI-A-1", description: "Primary display"};
+            check(JSON.stringify(WorkspaceService.persistentForMonitor(pins, secondary, false)) === "[10,11]", "Respect connector persistent rules");
+            check(JSON.stringify(WorkspaceService.persistentForMonitor(pins, secondary, true)) === "[1,10,11]", "Include all persistent rules");
+            const describedPins = [
+                ...Array.from({length: 5}, (_, index) => ({workspaceString: String(index + 1), monitor: "desc:Primary display", persistent: true})),
+                {workspaceString: "10", monitor: "desc:Secondary display", persistent: true},
+                {workspaceString: "11", monitor: "desc:Secondary display", persistent: true},
+                {workspaceString: "12", monitor: "desc:Disconnected display", persistent: true},
+                {workspaceString: "6", monitor: "desc:Primary display", persistent: false},
+                {workspaceString: "7", monitor: "desc:Primary display", persistent: true, enabled: false},
+                {workspaceString: "special:scratchpad", monitor: "desc:Primary display", persistent: true}
+            ];
+            check(JSON.stringify(WorkspaceService.persistentForMonitor(describedPins, primary, false)) === "[1,2,3,4,5]", "Shared backend primary persistent rules");
+            check(JSON.stringify(WorkspaceService.persistentForMonitor(describedPins, secondary, false)) === "[10,11]", "Keep other monitor persistent rules separate");
+            check(WorkspaceService.persistentForMonitor(describedPins, null, false).length === 0, "Missing monitor cannot match description rules");
+            check(JSON.stringify(WorkspaceService.persistentForMonitor(describedPins, primary, true)) === "[1,2,3,4,5,10,11,12]", "All monitors includes described persistent rules");
             expectIds([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14]);
             check(child(dots, "workspace-dot-3").width === 18, "Active dot width");
             check(child(dots, "workspace-dot-3").color.toString() === Theme.accent.toString(), "Active dot color");

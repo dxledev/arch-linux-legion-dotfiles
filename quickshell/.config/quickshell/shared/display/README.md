@@ -45,14 +45,18 @@ remain compatibility entry points to these shared files.
 The installer builds pinned hyprmoncfg 1.22.1 source with the patches in
 `shared/display/patches`, requiring Go 1.26.1 or newer. The source archive is
 checked against SHA256 before applying patches; `HYPRMONCFG_SOURCE_ARCHIVE`
-can supply a cached archive. The local build reports `1.22.1+lid-profile`.
+can supply a cached archive. The local build reports `1.22.1+manual-profile`.
 Running the installer without `--enable-service` replaces only the binaries.
 A running daemon uses the update after its next restart.
 
 Manual profile selection survives lid-open, lid-close and fresh lid reads after
-resume while the connected hardware stays the same. Changing that hardware or
-explicitly enabling automatic selection releases the manual choice. Existing
-lid-close and display-recovery policies still apply. Saved profiles stay intact.
+resume, configuration reloads, shell switches and daemon restarts while the
+connected hardware stays the same. The daemon saves the selected layout in
+`~/.config/hyprmoncfg/manual-profile.json`. Status reads cannot discard that
+choice during an incomplete monitor snapshot. Recovery respects the manual
+profile's disabled outputs, including the laptop panel. Changing that hardware or
+explicitly enabling automatic selection releases the manual choice. Lid-close
+safety and automatic-mode recovery policies still apply. Saved profiles stay intact.
 
 ## Future shell editors
 

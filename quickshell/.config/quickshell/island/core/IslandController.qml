@@ -9,7 +9,7 @@ import "../services"
 QtObject {
     id: root
 
-    readonly property var settingsSections: ["launcher", "appearance", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
+    readonly property var settingsSections: ["launcher", "appearance", "displays", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
 
     function focusedPanelMonitorName() {
         const screen = ThemeService.islandScreens.find(screen => screen.name === Hyprland.focusedMonitor?.name)
@@ -42,6 +42,10 @@ QtObject {
 
     function toggleSettingsSection(section, monitorName = focusedPanelMonitorName()) {
         if (!settingsSections.includes(section)) return
+        if (section === "displays") {
+            openDisplays()
+            return
+        }
         preparePanelToggle(monitorName)
         if (IslandState.mode === IslandState.settingsSectionMode && IslandState.settingsSection === section) {
             reset()
@@ -63,11 +67,20 @@ QtObject {
 
     function openSettingsSection(section) {
         if (!settingsSections.includes(section)) return
+        if (section === "displays") {
+            openDisplays()
+            return
+        }
         IslandState.settingsSection = section
         setMode(IslandState.settingsSectionMode)
     }
 
     function openLauncher() { setMode(IslandState.launcherMode) }
+
+    function openDisplays() {
+        DisplayService.open()
+        reset()
+    }
 
     function openSettings() { setMode(IslandState.settingsMode) }
     function openClockSettings() { setMode(IslandState.clockSettingsMode) }

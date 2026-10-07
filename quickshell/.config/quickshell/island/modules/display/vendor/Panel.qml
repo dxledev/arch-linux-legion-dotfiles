@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls as Controls
 import Quickshell
 import Quickshell.Io
-import qs.services as Services
-import qs.modules.display.compat
+import "../../../services" as Services
+import "../compat"
 import "Model.js" as Model
 
 EditorHost {
@@ -462,18 +462,20 @@ EditorHost {
     return false
   }
 
-  readonly property var brightnessMonitor: Services.Brightness.getMonitor(root.brightnessConnector) ?? null
+  readonly property var brightnessMonitor: Services.BrightnessService.getMonitor(root.brightnessConnector) ?? null
 
   function refreshBrightness() {
     root.brightnessLoading = false
-    root.brightnessAvailable = !!root.brightnessMonitor
+    root.brightnessAvailable = !!root.brightnessMonitor?.supported && root.brightnessMonitor.initialized
     if (root.brightnessMonitor)
-      root.brightnessPercent = Math.round(root.brightnessMonitor.brightness * 100)
+      root.brightnessPercent = Math.round(root.brightnessMonitor.brightness)
   }
 
   Connections {
     target: root.brightnessMonitor
     function onBrightnessChanged() { root.refreshBrightness() }
+    function onInitializedChanged() { root.refreshBrightness() }
+    function onSupportedChanged() { root.refreshBrightness() }
   }
   function previewBrightness(value) {
     if (root.brightnessConnector === "" || !root.brightnessAvailable) return
@@ -484,7 +486,7 @@ EditorHost {
   function setBrightness(value) {
     if (!root.brightnessMonitor) return
     root.brightnessPercent = Model.clampBrightness(value)
-    root.brightnessMonitor.setBrightness(root.brightnessPercent / 100)
+    root.brightnessMonitor.setBrightness(root.brightnessPercent)
   }
 
   function checkInstallation() {
@@ -3499,7 +3501,7 @@ EditorHost {
                           color: modelData.recommended ? Color.accent : root.dim
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.bodySmall
-                          font.bold: modelData.recommended
+                          font.bold: !!modelData.recommended
                         }
                       }
 
@@ -4083,7 +4085,7 @@ EditorHost {
                       id: workspaceInfo
                       required property var modelData
                       labelWidth: {
-                        const availableWidth = workspaceInfo.width * 0.5
+                        const availableWidth = (workspaceInfo.width ?? 0) * 0.5
                         return Math.min(availableWidth, Style.space(220))
                       }
                       label: Services.DisplaySettings.nameFor(String(modelData.name || "Display"))
@@ -4529,7 +4531,7 @@ EditorHost {
     property bool valueBold: false
     property real labelWidth: Math.min(width * 0.34, Style.space(105))
 
-    width: parent ? parent.width : 0
+    width: parent?.width ?? 0
     implicitHeight: Math.max(infoLabel.implicitHeight, infoValue.implicitHeight)
 
     Text {

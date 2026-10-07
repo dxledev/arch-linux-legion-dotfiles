@@ -18,6 +18,7 @@ ShellRoot {
             readonly property var notifications: NotificationService
             StatusWatcher {}
             readonly property var workspaces: WorkspaceService
+            readonly property var displays: DisplayService
             KeyboardService {}
             IslandIPC {}
 

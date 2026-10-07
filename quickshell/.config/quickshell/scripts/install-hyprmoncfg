@@ -65,7 +65,7 @@ build_backend() (
     done
     run /usr/bin/mkdir -p -- "$build_dir/bin"
     run /usr/bin/env CGO_ENABLED=0 /usr/bin/go -C "$build_dir" build -trimpath -buildvcs=false -mod=readonly \
-        -ldflags "-s -w -X github.com/crmne/hyprmoncfg/internal/buildinfo.Version=$version+lid-profile -X github.com/crmne/hyprmoncfg/internal/buildinfo.Commit=$source_commit+lid-profile" \
+        -ldflags "-s -w -X github.com/crmne/hyprmoncfg/internal/buildinfo.Version=$version+manual-profile -X github.com/crmne/hyprmoncfg/internal/buildinfo.Commit=$source_commit+manual-profile" \
         -o "$build_dir/bin/" ./cmd/hyprmoncfg ./cmd/hyprmoncfgd
     install_built_backend "$build_dir/bin"
 )

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+shell_root="$(/usr/bin/readlink -f -- "$test_dir/../../..")"
+test_root="$(/usr/bin/mktemp -d /tmp/display-workspace-overflow.XXXXXX)"
+
+copy_editor() {
+    local shell_name="$1" target="$test_root/$1/modules/display"
+    /usr/bin/mkdir -p "$target/vendor" "$target/services"
+    /usr/bin/cp -a "$shell_root/$shell_name/modules/display/compat" "$target/compat"
+    /usr/bin/cp "$shell_root/$shell_name/modules/display/vendor/"{DisplayCanvas.qml,WorkspaceInfoRow.qml,Model.js} "$target/vendor/"
+    /usr/bin/sed -i \
+        -e 's|import qs.services as Services|import "../services" as Services|' \
+        -e 's|import "../../../services" as Services|import "../services" as Services|' \
+        -e 's|import qs.modules.display.compat|import "../compat"|' "$target/vendor/"*.qml
+    /usr/bin/sed -i '/^module /d' "$target/compat/qmldir"
+    /usr/bin/sed -i \
+        -e 's|import qs.modules.display.compat|import "."|' \
+        -e 's|import qs.services$|import "../services"|' "$target/compat/"*.qml
+    printf '%s\n' 'singleton DisplaySettings 1.0 DisplaySettings.qml' 'singleton Colours 1.0 Colours.qml' > "$target/services/qmldir"
+    cat > "$target/services/DisplaySettings.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { function nameFor(connector) { return connector } }
+QML
+    cat > "$target/services/Colours.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    property var palette: ({
+        m3surface: "#101010", m3onSurface: "#eeeeee", m3onSurfaceVariant: "#aaaaaa",
+        m3primary: "#ffab91", m3onPrimary: "#101010", m3error: "#ee5555",
+        m3outlineVariant: "#555555", m3surfaceContainerHigh: "#202020"
+    })
+}
+QML
+}
+
+copy_editor caelestia
+copy_editor island
+/usr/bin/mkdir -p "$test_root/island/styles" "$test_root/runtime"
+/usr/bin/cp "$shell_root/island/styles/"{Theme.qml,qmldir} "$test_root/island/styles/"
+/usr/bin/chmod 700 "$test_root/runtime"
+/usr/bin/cp "$test_dir/workspace-overflow.qml" "$test_root/shell.qml"
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    DISPLAY_WORKSPACE_IMAGE="$test_root/workspaces.png" \
+    /usr/bin/timeout 25s "$shell_root/scripts/quickshell" -p "$test_root/shell.qml" > "$test_root/run.log" 2>&1; then
+    /usr/bin/cat "$test_root/run.log" >&2
+    exit 1
+fi
+if ! /usr/bin/rg -q 'PASS: workspace overflow' "$test_root/run.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/run.log"; then
+    /usr/bin/cat "$test_root/run.log" >&2
+    exit 1
+fi
+printf 'PASS: workspace overflow in both editors; rendered artifact %s/workspaces.png\n' "$test_root"

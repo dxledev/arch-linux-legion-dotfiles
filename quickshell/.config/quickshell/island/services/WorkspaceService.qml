@@ -13,7 +13,7 @@ Singleton {
     readonly property var monitor: screen ? Hyprland.monitorFor(screen) : null
     readonly property var visibleWorkspaces: workspacesForMonitor(Hyprland.workspaces.values, monitor?.name, showAllMonitors)
     readonly property int activeWorkspace: (showAllMonitors ? Hyprland.focusedWorkspace : monitor?.activeWorkspace)?.id ?? 1
-    readonly property var persistentIds: rules.length === 0 ? null : persistentForMonitor(rules, monitor?.name, showAllMonitors)
+    readonly property var persistentIds: rules.length === 0 ? null : persistentForMonitor(rules, monitor, showAllMonitors)
 
     function hasFullscreen(screenMonitor) {
         const specialName = screenMonitor?.lastIpcObject.specialWorkspace?.name;
@@ -27,10 +27,18 @@ Singleton {
         return workspaces.filter(workspace => allMonitors || workspace.monitor?.name === monitorName);
     }
 
-    function persistentForMonitor(workspaceRules, monitorName, allMonitors) {
+    function ruleMatchesMonitor(selector, screenMonitor) {
+        if (!selector) return true;
+        if (!screenMonitor) return false;
+        if (selector === screenMonitor.name) return true;
+        const description = screenMonitor.description || screenMonitor.lastIpcObject?.description || "";
+        return !!description && selector === "desc:" + description;
+    }
+
+    function persistentForMonitor(workspaceRules, screenMonitor, allMonitors) {
         return workspaceRules
             .filter(rule => rule.enabled !== false && rule.persistent && Number(rule.workspaceString) > 0
-                && (allMonitors || !rule.monitor || rule.monitor === monitorName))
+                && (allMonitors || ruleMatchesMonitor(rule.monitor, screenMonitor)))
             .map(rule => Number(rule.workspaceString));
     }
 

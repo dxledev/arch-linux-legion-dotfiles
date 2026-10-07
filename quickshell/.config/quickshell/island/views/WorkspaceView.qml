@@ -31,7 +31,7 @@ Item {
         workspaces: WorkspaceService.workspacesForMonitor(Hyprland.workspaces.values, root.monitor?.name, WorkspaceService.showAllMonitors)
         activeWorkspace: root.activeWorkspace?.id ?? 1
         persistentIds: WorkspaceService.rules.length === 0 ? null
-            : WorkspaceService.persistentForMonitor(WorkspaceService.rules, root.monitor?.name, WorkspaceService.showAllMonitors)
+            : WorkspaceService.persistentForMonitor(WorkspaceService.rules, root.monitor, WorkspaceService.showAllMonitors)
         persistent: ThemeService.settings.workspacePersistent ?? true
         persistentCount: ThemeService.settings.workspaceCount ?? 11
         animationDuration: ThemeService.settings.workspaceAnimationDuration ?? 160

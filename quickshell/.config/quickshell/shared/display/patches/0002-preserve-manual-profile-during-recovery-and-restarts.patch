@@ -1,0 +1,337 @@
+--- a/internal/daemon/daemon.go
++++ b/internal/daemon/daemon.go
+@@ -182,7 +182,7 @@
+ 	if cfg.Logf == nil {
+ 		cfg.Logf = func(string, ...any) {}
+ 	}
+-	return &Service{
++	service := &Service{
+ 		client: client,
+ 		store:  store,
+ 		engine: apply.Engine{
+@@ -201,6 +201,8 @@
+ 		watchLid:     lid.Watch,
+ 		watchSuspend: suspend.Watch,
+ 	}
++	service.restoreManualOverride()
++	return service
+ }
+ 
+ func (s *Service) Run(ctx context.Context) error {
+@@ -861,6 +863,7 @@
+ 
+ 	hash := profile.MonitorStateHash(monitors)
+ 	monitorSet := profile.MonitorSetHash(monitors)
++	s.releaseManualOverrideForMonitorSet(monitorSet)
+ 	var rules []hypr.WorkspaceRule
+ 	rulesReady := false
+ 
+@@ -982,7 +985,10 @@
+ 	}
+ 
+ 	effective = s.fallbacks.apply(effective, monitors)
+-	effective, litPanels := profile.KeepBuiltInPanelOn(effective, monitors)
++	var litPanels []string
++	if !manualHold {
++		effective, litPanels = profile.KeepBuiltInPanelOn(effective, monitors)
++	}
+ 	if len(litPanels) > 0 {
+ 		s.cfg.Logf("no external display shows a picture; keeping %s on until one does", strings.Join(litPanels, ", "))
+ 	}
+@@ -1056,6 +1062,7 @@
+ 	s.manualMu.Lock()
+ 	s.manualSet = monitorSet
+ 	s.manualProfile = chosen
++	s.persistManualOverride()
+ 	s.manualMu.Unlock()
+ }
+ 
+@@ -1063,6 +1070,7 @@
+ 	s.manualMu.Lock()
+ 	s.manualSet = ""
+ 	s.manualProfile = profile.Profile{}
++	s.persistManualOverride()
+ 	s.manualMu.Unlock()
+ }
+ 
+@@ -1076,8 +1084,6 @@
+ 		return profile.Profile{}, false
+ 	}
+ 	if s.manualSet != monitorSet {
+-		s.manualSet = ""
+-		s.manualProfile = profile.Profile{}
+ 		return profile.Profile{}, false
+ 	}
+ 	return s.manualProfile, true
+--- a/internal/daemon/daemon_test.go
++++ b/internal/daemon/daemon_test.go
+@@ -163,6 +163,7 @@
+ 	if !ok || chosen.Name != "desk" {
+ 		t.Fatalf("expected the chosen profile to remain in force, got %+v (ok=%v)", chosen, ok)
+ 	}
++	svc.releaseManualOverrideForMonitorSet("projector-set")
+ 	if _, ok := svc.manualOverride("projector-set"); ok {
+ 		t.Fatal("expected monitor hotplug to clear the manual profile override")
+ 	}
+--- /dev/null
++++ b/internal/daemon/manual_state.go
+@@ -0,0 +1,71 @@
++package daemon
++
++import (
++	"encoding/json"
++	"errors"
++	"os"
++	"path/filepath"
++
++	"github.com/crmne/hyprmoncfg/internal/config"
++	"github.com/crmne/hyprmoncfg/internal/profile"
++)
++
++type manualProfileState struct {
++	MonitorSet string          `json:"monitor_set"`
++	Profile    profile.Profile `json:"profile"`
++}
++
++func (s *Service) releaseManualOverrideForMonitorSet(monitorSet string) {
++	s.manualMu.Lock()
++	defer s.manualMu.Unlock()
++	if s.manualSet == "" || s.manualSet == monitorSet {
++		return
++	}
++	// Status reads can see an incomplete topology during a config reload.
++	// Only the daemon's reconciliation may release a choice for new hardware.
++	s.manualSet, s.manualProfile = "", profile.Profile{}
++	s.persistManualOverride()
++}
++
++func (s *Service) manualStatePath() string {
++	return filepath.Join(s.cfg.ConfigDir, "manual-profile.json")
++}
++
++func (s *Service) persistManualOverride() {
++	if s.cfg.ConfigDir == "" {
++		return
++	}
++	data, err := json.Marshal(manualProfileState{MonitorSet: s.manualSet, Profile: s.manualProfile})
++	if err == nil {
++		err = config.WriteFileAtomic(s.manualStatePath(), append(data, '\n'), 0o600)
++	}
++	if err != nil {
++		s.cfg.Logf("could not persist manual profile selection: %v", err)
++	}
++}
++
++func (s *Service) restoreManualOverride() {
++	if s.cfg.ConfigDir == "" {
++		return
++	}
++	data, err := os.ReadFile(s.manualStatePath())
++	if errors.Is(err, os.ErrNotExist) {
++		return
++	}
++	var saved manualProfileState
++	if err == nil {
++		err = json.Unmarshal(data, &saved)
++	}
++	if err != nil {
++		s.cfg.Logf("could not restore manual profile selection: %v", err)
++		return
++	}
++	if saved.MonitorSet == "" || saved.Profile.Name == "" {
++		return
++	}
++	if err := saved.Profile.Validate(); err != nil {
++		s.cfg.Logf("invalid persisted manual profile selection: %v", err)
++		return
++	}
++	s.manualSet, s.manualProfile = saved.MonitorSet, saved.Profile
++}
+--- /dev/null
++++ b/internal/daemon/manual_state_test.go
+@@ -0,0 +1,103 @@
++package daemon
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"strings"
++	"testing"
++
++	"github.com/crmne/hyprmoncfg/internal/hypr"
++	"github.com/crmne/hyprmoncfg/internal/profile"
++)
++
++func TestManualProfileDoesNotEnablePanelDuringExternalRecovery(t *testing.T) {
++	restored := wakeMonitors()
++	restored[0].Disabled = true
++	chosen := profile.FromMonitors("External Only", restored)
++	for _, panelEnabled := range []bool{false, true} {
++		name := "panel stays disabled"
++		if panelEnabled {
++			name = "panel disabled after config drift"
++		}
++		t.Run(name, func(t *testing.T) {
++			before := append([]hypr.Monitor(nil), restored...)
++			before[0].Disabled = !panelEnabled
++			for i := 1; i < len(before); i++ {
++				before[i].Width, before[i].Height = 0, 0
++			}
++			beforeJSON, _ := json.Marshal(before)
++			afterJSON, _ := json.Marshal(restored)
++			env := newApplyBestTestEnvWithMonitors(t, string(beforeJSON), string(afterJSON))
++			svc := New(env.client, env.store, Config{MonitorsConf: env.monitorsConfPath, HyprConfig: env.hyprlandConfigPath})
++			svc.setManualOverride(profile.MonitorSetHash(restored), chosen)
++			if err := svc.applyBest(context.Background()); err != nil {
++				t.Fatalf("manual profile recovery: %v", err)
++			}
++			if !strings.Contains(readMonitorsConf(t, env), "output = eDP-1\n  disabled = 1") {
++				t.Fatal("recovery enabled the deliberately disabled panel")
++			}
++		})
++	}
++}
++
++func TestManualProfileSurvivesDaemonRestart(t *testing.T) {
++	configDir := t.TempDir()
++	monitors := wakeMonitors()
++	monitors[0].Disabled = true
++	chosen := profile.FromMonitors("External Only", monitors)
++	monitorSet := profile.MonitorSetHash(monitors)
++	svc := New(nil, nil, Config{ConfigDir: configDir})
++	svc.setManualOverride(monitorSet, chosen)
++
++	restarted := New(nil, nil, Config{ConfigDir: configDir})
++	got, held := restarted.manualOverride(monitorSet)
++	panel, found := got.OutputByKey(monitors[0].HardwareKey())
++	if !held || got.Name != chosen.Name || !found || panel.Enabled {
++		t.Fatalf("restart discarded manual layout: %+v, held=%t", got, held)
++	}
++	restarted.clearManualOverride()
++	if _, held := New(nil, nil, Config{ConfigDir: configDir}).manualOverride(monitorSet); held {
++		t.Fatal("explicit automatic selection was lost on restart")
++	}
++}
++
++func TestManualProfileDoesNotReturnAfterHardwareChangeAndRestart(t *testing.T) {
++	configDir := t.TempDir()
++	monitors := wakeMonitors()
++	svc := New(nil, nil, Config{ConfigDir: configDir})
++	svc.setManualOverride(profile.MonitorSetHash(monitors), profile.FromMonitors("Desk", monitors))
++	svc.releaseManualOverrideForMonitorSet("different hardware")
++	if _, held := svc.manualOverride("different hardware"); held {
++		t.Fatal("manual layout held for unrelated hardware")
++	}
++	if _, held := New(nil, nil, Config{ConfigDir: configDir}).manualOverride(profile.MonitorSetHash(monitors)); held {
++		t.Fatal("released manual layout returned after restart")
++	}
++}
++
++func TestMonitorStatusReadDoesNotReleaseManualProfile(t *testing.T) {
++	configDir := t.TempDir()
++	monitors := wakeMonitors()
++	monitorSet := profile.MonitorSetHash(monitors)
++	svc := New(nil, nil, Config{ConfigDir: configDir})
++	svc.setManualOverride(monitorSet, profile.FromMonitors("Desk", monitors))
++	if _, held := svc.manualOverride("incomplete status snapshot"); held {
++		t.Fatal("manual layout reported for unrelated hardware")
++	}
++	for _, current := range []*Service{svc, New(nil, nil, Config{ConfigDir: configDir})} {
++		if got, held := current.manualOverride(monitorSet); !held || got.Name != "Desk" {
++			t.Fatal("a status read discarded the manual choice")
++		}
++	}
++}
++
++func TestManualProfileRejectsInvalidPersistedState(t *testing.T) {
++	configDir := t.TempDir()
++	if err := os.WriteFile(configDir+"/manual-profile.json", []byte(`{"monitor_set":"desk","profile":{"name":"Broken"}}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, held := New(nil, nil, Config{ConfigDir: configDir}).manualOverride("desk"); held {
++		t.Fatal("invalid persisted layout became authoritative")
++	}
++}
+--- a/internal/appstatus/status.go
++++ b/internal/appstatus/status.go
+@@ -58,8 +58,8 @@
+ 	Unmanaged bool `json:"unmanaged,omitempty"`
+ 	// ProfileOverride names the profile a person confirmed manually for the
+ 	// current connected monitor set. Empty means automatic best-match selection.
+-	// The override is intentionally session-scoped and disappears when the
+-	// hardware set changes or the daemon restarts.
++	// The override survives daemon restarts and is released by reconciliation
++	// when the hardware set changes or automatic selection is explicitly enabled.
+ 	ProfileOverride string `json:"profile_override,omitempty"`
+ 	// Preview keeps an interactive display change discoverable while the bar is
+ 	// rebuilt for the new monitor layout. A replacement panel can present the
+--- a/README.md
++++ b/README.md
+@@ -175,7 +175,7 @@
+ 
+ Omarchy's lock/wake script reads `~/.config/hypr/monitors.lua` directly, before its remembered scale. To prevent it from resetting the laptop's scale and position, hyprmoncfg keeps a marked, connector-specific wake rule at the top of that file, alongside Omarchy's remembered scale. Your existing rules and defaults stay intact. Canceling a preview restores the previous wake settings; turning management off removes the marked block. Read-only dotfiles are left alone with a diagnostic. Omarchy still controls lid recovery and uses its preferred mode when re-enabling an entirely disabled panel; hyprmoncfg then restores the full profile.
+ 
+-When the daemon is running, it is the canonical monitor-config writer. The TUI, CLI, and desktop integrations use its versioned Unix-socket IPC; when it is absent, the TUI and CLI keep working through the same core engine in direct mode. A profile selected interactively stays selected across lid changes until the connected monitor set changes or automatic selection is explicitly enabled. Lid-close safety adjustments still apply without changing the saved profile.
++When the daemon is running, it is the canonical monitor-config writer. The TUI, CLI, and desktop integrations use its versioned Unix-socket IPC; when it is absent, the TUI and CLI keep working through the same core engine in direct mode. A profile selected interactively stays selected across lid changes, configuration reloads, shell switches, and daemon restarts until the connected monitor set changes or automatic selection is explicitly enabled. Manual selection is persisted in `manual-profile.json`; status reads cannot clear it. Recovery respects outputs deliberately disabled in a manual profile. Lid-close safety adjustments still apply without changing the saved profile.
+ 
+ ## Omarchy Quattro panel
+ 
+--- a/DESIGN.md
++++ b/DESIGN.md
+@@ -161,9 +161,13 @@
+ ### Disconnect, lid, sleep, and recovery
+ 
+ A manual profile selection remains authoritative across lid events and fresh
+-lid reads while the connected monitor set is unchanged. Hardware changes or an
+-explicit return to automatic selection release it. Closing the lid still applies
+-the existing panel safety policy without changing the saved profile.
++lid reads, configuration reloads, shell switches and daemon restarts while the
++connected monitor set is unchanged. Persist the choice atomically in the shared
++configuration directory. Status reads must not release it on incomplete snapshots.
++Hardware reconciliation or an explicit return to automatic selection releases it.
++Recovery must respect deliberately disabled outputs in a manual profile. Closing
++the lid still applies the existing panel safety policy without changing the saved
++profile.
+ 
+ Removing the temporary screen restores the original saved layout when that setup
+ matches again. Do not save the temporary expansion over `Laptop`. Editor changes
+--- a/docs/_guide/daemon.md
++++ b/docs/_guide/daemon.md
+@@ -57,9 +57,13 @@
+ 
+ An interactively selected profile takes precedence over automatic matching while
+ the connected monitor set stays the same. Opening or closing the lid, including
+-a fresh lid read after resume, preserves that choice. Changing the connected
+-hardware or explicitly enabling automatic selection releases it. Lid-close
+-safety adjustments still apply without rewriting the saved profile.
++a fresh lid read after resume, preserves that choice. Configuration reloads,
++shell switches and daemon restarts also preserve it. The daemon records the
++choice atomically in `manual-profile.json` in its configuration directory.
++Only reconciliation for changed hardware or explicitly enabling automatic
++selection releases it; status reads do not. Recovery respects outputs
++deliberately disabled by the manual profile. Lid-close safety adjustments
++still apply without rewriting the saved profile.
+ 
+ An output absent from a non-strict profile is added to its right edge, vertically
+ centered against the adjacent independent display using logical dimensions. For
+@@ -164,7 +168,7 @@
+ 
+ Lid state is not a separate profile type. Save the profile for the monitor setup you actually have attached. When the lid is closed and an external output has an awake, nonzero mode and remains enabled in the target profile, hyprmoncfg treats internal laptop-panel outputs like `eDP-1`, `LVDS-1`, or `DSI-1` as forced off for that apply. Modeless, disabled, sleeping, and synthetic fallback outputs do not qualify. Saved profiles are not rewritten. If workspace rules target the forced-off internal panel, those workspaces are moved to the first enabled external output in the selected profile.
+ 
+-The built-in panel stays off only while an external display actually shows a picture. When every external the profile keeps on is modeless, asleep, or missing, and a connected built-in panel would be off, whether because the lid is closed or because the profile turns it off, the daemon turns the panel on, to the right of the other displays. It logs `no external display shows a picture` when it does. Some drivers only give a modeless external its mode back once another output is lit, so without this a clamshell setup could stay dark until the lid is opened. Once an external has a mode, the next pass applies the profile as saved and the panel goes off again. While nothing is lit, a missing mode also doesn't count toward stepping the external's settings down.
++During automatic selection, the built-in panel stays off only while an external display actually shows a picture. When every external the profile keeps on is modeless, asleep, or missing, and a connected built-in panel would be off, whether because the lid is closed or because the profile turns it off, the daemon turns the panel on, to the right of the other displays. It logs `no external display shows a picture` when it does. Some drivers only give a modeless external its mode back once another output is lit, so without this a clamshell setup could stay dark until the lid is opened. Once an external has a mode, the next pass applies the profile as saved and the panel goes off again. While nothing is lit, a missing mode also doesn't count toward stepping the external's settings down.
+ 
+ {% include alert.html type="warning" title="Remove Throwaway Profiles" content="The daemon does not know which profiles are \"real\" and which were temporary experiments. Any profile with a positive hardware match can be eligible. An old throwaway profile with a high enough score can win over the one you actually want." %}
+ 
+--- a/docs/_reference/ipc.md
++++ b/docs/_reference/ipc.md
+@@ -109,7 +109,7 @@
+ {"type":"event","protocol_version":1,"event":"status","data":{}}
+ ```
+ 
+-The document schema is versioned independently with `schema_version`. `daemon.profile_override` names the session-scoped manual profile for the current monitor set; when it is absent, profile choice is automatic. While an interactive change is awaiting confirmation, `daemon.preview` contains its `transaction_id`, `profile_name`, `deadline`, full effective `profile`, and optional `save_on_commit` intent. The profile lets a screen-bound integration reconstruct the target layout after the monitor change replaces its process or panel. Each profile summary includes `connected_outputs`, `connected_enabled_outputs`, `exact_display_match`, `match_score`, and a `match_reasons` breakdown with the count and score contribution for each connection state. With the lid closed and an external connected, built-in panels appear as `lid_closed_kept_off` (+100 each) or `lid_closed_on` (+50 each) instead of `connected_kept_off` or `connected`. Older clients that don't know a kind should still show its count and points. `exact_display_match` is true when the profile accounts for every connected display and has no saved display missing; a connected display deliberately kept off still counts as part of that setup. Integrations should only offer a profile for manual selection when `connected_enabled_outputs` is greater than zero. This guarantees that applying the profile leaves at least one currently connected output enabled. The two connection counts let a browser distinguish all available saved outputs from the subset the profile enables.
++The document schema is versioned independently with `schema_version`. `daemon.profile_override` names the persisted manual profile for the current monitor set; it survives lid events, configuration reloads, shell switches and daemon restarts. Status reads do not release a choice on incomplete hardware snapshots. Reconciliation for changed hardware or an explicit request for automatic selection releases it; when it is absent, profile choice is automatic. While an interactive change is awaiting confirmation, `daemon.preview` contains its `transaction_id`, `profile_name`, `deadline`, full effective `profile`, and optional `save_on_commit` intent. The profile lets a screen-bound integration reconstruct the target layout after the monitor change replaces its process or panel. Each profile summary includes `connected_outputs`, `connected_enabled_outputs`, `exact_display_match`, `match_score`, and a `match_reasons` breakdown with the count and score contribution for each connection state. With the lid closed and an external connected, built-in panels appear as `lid_closed_kept_off` (+100 each) or `lid_closed_on` (+50 each) instead of `connected_kept_off` or `connected`. Older clients that don't know a kind should still show its count and points. `exact_display_match` is true when the profile accounts for every connected display and has no saved display missing; a connected display deliberately kept off still counts as part of that setup. Integrations should only offer a profile for manual selection when `connected_enabled_outputs` is greater than zero. This guarantees that applying the profile leaves at least one currently connected output enabled. The two connection counts let a browser distinguish all available saved outputs from the subset the profile enables.
+ 
+ Monitor summaries include the connector, make, model, serial, output `key`, hardware `match_key`, active mode, physical and logical dimensions, position, scale, transform, internal/focused flags, and enabled state. Integrations can therefore render the same monitor identity and layout information as the TUI without querying Hyprland separately. `hyprmoncfg status --json` prints the same shape without requiring clients to speak the socket protocol.
+ 

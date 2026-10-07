@@ -2,6 +2,8 @@ singleton AudioService 1.0 AudioService.qml
 BatteryService 1.0 BatteryService.qml
 singleton BluetoothService 1.0 BluetoothService.qml
 singleton BrightnessService 1.0 BrightnessService.qml
+singleton DisplayService 1.0 DisplayService.qml
+singleton DisplaySettings 1.0 DisplaySettings.qml
 MonitorBrightness 1.0 MonitorBrightness.qml
 singleton CavaService 1.0 CavaService.qml
 singleton IdleLockService 1.0 IdleLockService.qml

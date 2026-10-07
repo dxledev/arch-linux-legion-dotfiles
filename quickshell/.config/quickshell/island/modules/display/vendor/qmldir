@@ -1,4 +1,3 @@
-module qs.modules.display.vendor
 BrightnessControl 1.0 BrightnessControl.qml
 CoordinateField 1.0 CoordinateField.qml
 DisplayCanvas 1.0 DisplayCanvas.qml

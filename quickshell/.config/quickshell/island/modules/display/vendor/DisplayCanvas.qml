@@ -1,6 +1,6 @@
 import QtQuick
-import qs.services as Services
-import qs.modules.display.compat
+import "../../../services" as Services
+import "../compat"
 import "Model.js" as Model
 
 // Direction B: the arrangement is a stage. Each display is drawn as a screen
