@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/caelestia-brightness.XXXXXX)"
+fixture_pid=''
+trap 'if [[ -n $fixture_pid ]]; then kill "$fixture_pid" 2>/dev/null || true; fi' EXIT
+
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root"/{services,integration,components/misc,runtime,cache}
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp "$test_dir/brightness-views.qml" "$test_root/views.qml"
+    /usr/bin/cp "$test_dir/../monitor-brightness" "$test_root/integration/monitor-brightness"
+    # Only the screen model and theme dependencies are mocked; brightness logic stays intact.
+    /usr/bin/sed -e '/import Caelestia.Config/d' -e 's/ShellScreen/var/g' \
+        -e 's/model: Quickshell.screens/model: Fixture.screens/' \
+        "$test_dir/../../services/Brightness.qml" > "$test_root/services/Brightness.qml"
+    printf 'singleton Brightness 1.0 Brightness.qml\nsingleton Fixture 1.0 Fixture.qml\nsingleton DisplaySettings 1.0 DisplaySettings.qml\nsingleton GlobalConfig 1.0 GlobalConfig.qml\n' > "$test_root/services/qmldir"
+    cat > "$test_root/services/Fixture.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    property list<QtObject> screens: [
+        QtObject { property string name: "DP-1"; property string model: "DP" },
+        QtObject { property string name: "HDMI-A-1"; property string model: "HDMI" },
+        QtObject { property string name: "DP-2"; property string model: "DP" }
+    ]
+}
+QML
+    cat > "$test_root/services/DisplaySettings.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    function layoutFor(count) { return "combined"; }
+    function nameFor(connector) { return connector; }
+    function nickname(connector) { return ""; }
+}
+QML
+    cat > "$test_root/services/GlobalConfig.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { property var services: ({brightnessIncrement: 0.05}) }
+QML
+    printf 'singleton System 1.0 System.qml\n' > "$test_root/integration/qmldir"
+    cat > "$test_root/integration/System.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    property var brightnessMonitors: []
+    property int brightnessWriteDelay: 50
+    property int brightnessPollInterval: 200
+    property bool brightnessDdcPolling: false
+}
+QML
+    cat > "$test_root/components/misc/CustomShortcut.qml" <<'QML'
+import QtQuick
+QtObject { property string name; property string description; signal pressed() }
+QML
+    cat > "$test_root/ddcutil" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $1 == detect ]]; then
+    /usr/bin/sleep 0.2
+    if [[ -f $TEST_ROOT/fail-detect ]]; then
+        /usr/bin/mv "$TEST_ROOT/fail-detect" "$TEST_ROOT/failed-detect"
+        exit 1
+    fi
+    printf 'Display 1\n I2C bus: /dev/i2c-2\n DRM connector: card1-DP-1\n\nDisplay 2\n I2C bus: /dev/i2c-4\n DRM connector: card1-HDMI-A-1\n\nDisplay 3\n I2C bus: /dev/i2c-8\n DRM connector: card1-DP-2\n'
+    exit
+fi
+bus=${1#--bus=}
+case $2 in
+    getvcp)
+        printf '%s\n' "$bus" >> "$TEST_ROOT/reads"
+        if [[ -f $TEST_ROOT/fail-$bus ]]; then
+            /usr/bin/mv "$TEST_ROOT/fail-$bus" "$TEST_ROOT/failed-$bus"
+            /usr/bin/sleep 0.6
+            printf 'VCP 10 C 0 100\n'
+            exit 1
+        fi
+        /usr/bin/sleep 0.05
+        maximum=100
+        [[ $bus != 2 ]] || maximum=50
+        printf 'VCP 10 C %s %s\n' "$(<"$TEST_ROOT/device-$bus")" "$maximum"
+        ;;
+    setvcp)
+        printf '%s %s\n' "$bus" "$4" >> "$TEST_ROOT/writes"
+        printf '%s\n' "$4" > "$TEST_ROOT/device-$bus"
+        ;;
+    *) exit 2 ;;
+esac
+MOCK
+    /usr/bin/chmod +x "$test_root/ddcutil"
+    printf '15\n' > "$test_root/device-2"
+    printf '42\n' > "$test_root/device-4"
+    printf '33\n' > "$test_root/device-6"
+    printf '76\n' > "$test_root/device-8"
+    : > "$test_root/fail-4"
+    : > "$test_root/fail-detect"
+}
+
+ipc() { /usr/bin/quickshell -p "$test_root/views.qml" ipc call brightnessTest "$@" 2>/dev/null; }
+
+expect() {
+    local snapshot
+    snapshot="$(ipc snapshot)"
+    /usr/bin/jq -e "$1" <<< "$snapshot" >/dev/null || fail "Failed: $1; $snapshot"
+}
+
+wait_for() {
+    local attempt
+    for ((attempt=0; attempt<100; attempt++)); do
+        if ipc snapshot | /usr/bin/jq -e "$1" >/dev/null 2>&1; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    /usr/bin/cat "$test_root/views.log" >&2
+    expect "$1"
+}
+
+start_fixture() {
+    /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
+    fixture_pid=$!
+    wait_for '.monitors | length == 3'
+}
+
+make_fixture
+export TEST_ROOT="$test_root" CAELESTIA_DDCUTIL_BIN="$test_root/ddcutil"
+export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" PATH="$test_root:$PATH"
+export QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= QT_NO_XDG_DESKTOP_PORTAL=1
+helper="$test_root/integration/monitor-brightness"
+output="$(/usr/bin/bash "$helper" --dry-run DP-1 2 set 40)"
+[[ $output == "$test_root/ddcutil --bus=2 setvcp 10 20 --noverify" ]] || fail 'Wrong dry-run conversion.'
+[[ ! -e $test_root/writes && ! -e $XDG_RUNTIME_DIR/system-brightness-ddc ]] || fail 'Dry-run changed state.'
+/usr/bin/mkdir -p "$XDG_RUNTIME_DIR/system-brightness-ddc"
+printf -v cache_time '%(%s)T' -1
+printf '2\n50\n80\n%s\n' "$cache_time" > "$XDG_RUNTIME_DIR/system-brightness-ddc/DP.state"
+printf '4\n100\n0\n%s\n' "$cache_time" > "$XDG_RUNTIME_DIR/system-brightness-ddc/HDMI-A.state"
+start_fixture
+wait_for '.monitors[1].supported and (.monitors[1].initialized | not)'
+ipc set HDMI-A-1 0.05
+wait_for 'all(.monitors[]; .initialized)'
+expect '.initialReadings == {"DP-1":30,"HDMI-A-1":42,"DP-2":76}'
+[[ ! -e $test_root/writes ]] || fail 'Initialization wrote brightness.'
+/usr/bin/sleep 0.3
+read_count="$(/usr/bin/wc -l < "$test_root/reads")"
+/usr/bin/sleep 0.8
+[[ $(/usr/bin/wc -l < "$test_root/reads") == "$read_count" ]] || fail 'Idle DDC polling continued after initialization.'
+ipc burst
+wait_for '.monitors[0].brightness == 40 and (.monitors[0].writing | not) and (.monitors[0].pending | not)'
+[[ $(<"$test_root/device-2") == 20 && $(<"$test_root/device-8") == 76 && $(<"$test_root/device-4") == 42 ]] || fail 'Writes targeted the wrong monitor.'
+if /usr/bin/rg -q '^[0-9]+ 0$' "$test_root/writes"; then fail 'A slider write used zero.'; fi
+printf '64\n' > "$test_root/device-4"
+ipc refresh
+wait_for '.monitors[1].brightness == 64'
+ipc setPolling true
+printf '65\n' > "$test_root/device-4"
+wait_for '.monitors[1].brightness == 65'
+ipc setPolling false
+/usr/bin/sleep 0.3
+read_count="$(/usr/bin/wc -l < "$test_root/reads")"
+/usr/bin/sleep 0.8
+[[ $(/usr/bin/wc -l < "$test_root/reads") == "$read_count" ]] || fail 'DDC polling did not stop when disabled.'
+printf '4\n100\n66\n%s\n' "$cache_time" > "$XDG_RUNTIME_DIR/system-brightness-ddc/HDMI-A.state"
+wait_for '.monitors[1].brightness == 66'
+ipc changeBus
+wait_for '.monitors[0].initialized and .monitors[0].brightness == 33'
+kill "$fixture_pid"
+wait "$fixture_pid" || true
+fixture_pid=''
+printf '25\n' > "$test_root/device-2"
+printf '71\n' > "$test_root/device-4"
+start_fixture
+wait_for 'all(.monitors[]; .initialized)'
+expect '.initialReadings == {"DP-1":50,"HDMI-A-1":71,"DP-2":76}'
+if /usr/bin/rg -q 'ERROR|ReferenceError|TypeError' "$test_root/views.log"; then /usr/bin/cat "$test_root/views.log" >&2; exit 1; fi
+printf 'PASS: startup reads and retries, idle DDC reads disabled, polling opt-in, cache synchronization, independent brightness writes, manual refresh, bus changes, shell restart, and dry-run\n'

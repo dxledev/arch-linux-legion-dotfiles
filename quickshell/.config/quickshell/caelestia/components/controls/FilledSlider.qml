@@ -148,7 +148,7 @@ Slider {
     }
 
     Behavior on value {
-        enabled: !root.pressed
+        enabled: root.initialized && !root.pressed
 
         Anim {
             type: Anim.StandardLarge

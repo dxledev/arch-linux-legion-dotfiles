@@ -60,6 +60,13 @@ hl.window_rule({
   size = { 1200, 800 },
 })
 
+hl.window_rule({
+  name = "float-noctalia-display",
+  match = { class = "^dev\\.noctalia\\.Noctalia$", title = "^Display — Noctalia$" },
+  float = true,
+  size = { 1600, 900 },
+})
+
 local floating_rules = {
   { name = "float-localsend", class = "localsend", size = { 410, 580 } },
   { name = "float-qalculate", class = "io.github.Qalculate.qalculate-qt", size = { 400, 620 } },

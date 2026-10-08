@@ -9,6 +9,7 @@ import "Model.js" as Model
 EditorHost {
   id: root
   readonly property alias window: panel
+  property size initialWindowSize: Qt.size(1600, 900)
   moduleName: "crmne.hyprmoncfg"
   ipcTarget: "crmne.hyprmoncfg"
   manageIpc: false
@@ -1541,6 +1542,8 @@ EditorHost {
 
   onOpenedChanged: {
     if (opened) {
+      panel.implicitWidth = root.initialWindowSize.width
+      panel.implicitHeight = root.initialWindowSize.height
       root.cursorIndex = 0
       root.cursorActive = false
       root.keyboardLayoutPane = "canvas"
@@ -1902,12 +1905,8 @@ EditorHost {
     centerOnBar: false
     focusTarget: keyCatcher
     onCloseRequested: root.close()
-    contentWidth: root.expanded
-      ? panel.fittedContentWidth(root.appliedPanelWidth + root.panelHorizontalInset)
-      : panel.fittedContentWidth(Style.space(430))
-    contentHeight: root.expanded
-      ? panel.fittedContentHeight(root.appliedPanelHeight)
-      : panel.fittedContentHeight(root.compactLayout.height)
+    contentWidth: root.initialWindowSize.width
+    contentHeight: root.initialWindowSize.height - panel.verticalContentInset
 
     Item {
       width: 0

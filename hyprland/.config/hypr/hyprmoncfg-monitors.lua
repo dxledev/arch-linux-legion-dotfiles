@@ -36,7 +36,7 @@ hl.workspace_rule({ workspace = "8", monitor = "desc:Acer Technologies KG271U N3
 hl.workspace_rule({ workspace = "9", monitor = "desc:Acer Technologies KG271U N3 3511036353W01" })
 hl.workspace_rule({ workspace = "10", monitor = "desc:ASUSTek COMPUTER INC ASUS VG277Q1A T1LMTF101706", persistent = true })
 hl.workspace_rule({ workspace = "11", monitor = "desc:ASUSTek COMPUTER INC ASUS VG277Q1A T1LMTF101706", persistent = true })
-hl.workspace_rule({ workspace = "12", monitor = "desc:BOE 0x0A2D", persistent = true })
+hl.workspace_rule({ workspace = "12", monitor = "desc:ASUSTek COMPUTER INC ASUS VG277Q1A T1LMTF101706", persistent = true })
 hl.workspace_rule({ workspace = "special:aether", monitor = "desc:Acer Technologies KG271U N3 3511036353W01" })
 hl.workspace_rule({ workspace = "special:discordspace", monitor = "desc:Acer Technologies KG271U N3 3511036353W01" })
 hl.workspace_rule({ workspace = "special:mediaspace", monitor = "desc:Acer Technologies KG271U N3 3511036353W01" })

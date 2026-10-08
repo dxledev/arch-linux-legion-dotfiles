@@ -1,0 +1,148 @@
+diff --git a/src/shell/display/display_controls.cpp b/src/shell/display/display_controls.cpp
+index ae279b7..d54734e 100644
+--- a/src/shell/display/display_controls.cpp
++++ b/src/shell/display/display_controls.cpp
+@@ -118,14 +118,39 @@ std::unique_ptr<Flex> DisplayWindow::buildInspector() {
+        .fill = colorSpecFromRole(ColorRole::SurfaceVariant),
+        .radius = 9}
+   );
+-  const auto output = m_model.output(), hardware = m_model.hardware();
++  const auto output = m_model.output();
+   if (output.empty()) {
+     panel->addChild(label("Select a display"));
+     return panel;
+   }
+   panel->addChild(label(m_model.label(output.value("name", ""))));
+   panel->addChild(label(output.value("description", ""), ColorRole::OnSurfaceVariant));
+-  panel->addChild(
++  auto tabs = ui::row({.gap = 8});
++  for (const std::string page : {"display", "color"})
++    tabs->addChild(
++        ui::button(
++            {.text = page == "display" ? "Display" : "Color",
++             .selected = m_inspectorPage == page,
++             .variant = m_inspectorPage == page ? ButtonVariant::Primary : ButtonVariant::Outline,
++             .onClick = [this, page]() {
++               if (m_inspectorPage == page)
++                 return;
++               m_inspectorPage = page;
++               m_scroll = {};
++               rebuild();
++             }}
++        )
++    );
++  panel->addChild(std::move(tabs));
++  if (m_inspectorPage == "color")
++    buildColorControls(*panel);
++  else
++    buildDisplayControls(*panel);
++  return panel;
++}
++void DisplayWindow::buildDisplayControls(Flex& panel) {
++  const auto output = m_model.output(), hardware = m_model.hardware();
++  panel.addChild(
+       row("Enabled",
+           ui::toggle(
+               {.checked = output.value("enabled", true), .enabled = m_model.editable(), .onChange = [this](bool value) {
+@@ -138,12 +163,12 @@ std::unique_ptr<Flex> DisplayWindow::buildInspector() {
+   if (std::ranges::find(modes, mode) == modes.end())
+     modes.insert(modes.begin(), mode);
+   std::vector<Json> modeValues(modes.begin(), modes.end());
+-  selectField(*panel, "Resolution / refresh", "mode", modes, modeValues, mode);
+-  numericField(*panel, "Scale", "scale", 1);
+-  numericField(*panel, "Position X", "x", 0, true);
+-  numericField(*panel, "Position Y", "y", 0, true);
++  selectField(panel, "Resolution / refresh", "mode", modes, modeValues, mode);
++  numericField(panel, "Scale", "scale", 1);
++  numericField(panel, "Position X", "x", 0, true);
++  numericField(panel, "Position Y", "y", 0, true);
+   selectField(
+-      *panel, "Rotation / flip", "transform",
++      panel, "Rotation / flip", "transform",
+       {"Normal", "90°", "180°", "270°", "Flipped", "Flipped 90°", "Flipped 180°", "Flipped 270°"},
+       {0, 1, 2, 3, 4, 5, 6, 7}, 0
+   );
+@@ -155,14 +180,14 @@ std::unique_ptr<Flex> DisplayWindow::buildInspector() {
+       mirrorValues.push_back(other.value("key", ""));
+     }
+   }
+-  selectField(*panel, "Mirror", "mirror_of", mirrors, mirrorValues, "");
+-  selectField(*panel, "Variable refresh rate", "vrr", {"Off", "On", "Fullscreen"}, {0, 1, 2}, 0);
++  selectField(panel, "Mirror", "mirror_of", mirrors, mirrorValues, "");
++  selectField(panel, "Variable refresh rate", "vrr", {"Off", "On", "Fullscreen"}, {0, 1, 2}, 0);
+   if (m_brightness) {
+     if (const auto* brightness = m_brightness->findDisplay(output.value("name", ""));
+         brightness && brightness->controllable) {
+       const auto connector = brightness->id;
+       m_brightnessConnector = connector;
+-      panel->addChild(
++      panel.addChild(
+           row("Brightness",
+               ui::slider(
+                   {.out = &m_brightnessSlider,
+@@ -179,29 +204,28 @@ std::unique_ptr<Flex> DisplayWindow::buildInspector() {
+       );
+     }
+   }
+-  panel->addChild(ui::separator({}));
+-  panel->addChild(label("Color and signal"));
+-  selectField(*panel, "Color depth", "bitdepth", {"8 bit", "10 bit"}, {8, 10}, 8);
++}
++void DisplayWindow::buildColorControls(Flex& panel) {
++  selectField(panel, "Color depth", "bitdepth", {"8 bit", "10 bit"}, {8, 10}, 8);
+   selectField(
+-      *panel, "Color space / EOTF", "cm",
++      panel, "Color space / EOTF", "cm",
+       {"sRGB", "Auto", "Wide", "HDR", "HDR EDID", "DCI-P3", "Display P3", "Adobe RGB", "EDID"},
+       {"srgb", "auto", "wide", "hdr", "hdredid", "dcip3", "dp3", "adobe", "edid"}, "srgb"
+   );
+-  textField(*panel, "ICC profile", "icc");
+-  selectField(*panel, "Wide color support", "supports_wide_color", {"Auto", "Force off", "Force on"}, {0, -1, 1}, 0);
+-  selectField(*panel, "HDR support", "supports_hdr", {"Auto", "Force off", "Force on"}, {0, -1, 1}, 0);
+-  numericField(*panel, "SDR brightness", "sdr_brightness", 1);
+-  numericField(*panel, "SDR saturation", "sdr_saturation", 1);
+-  numericField(*panel, "SDR black level", "sdr_min_luminance", 0.2);
+-  numericField(*panel, "SDR white level", "sdr_max_luminance", 80, true);
++  textField(panel, "ICC profile", "icc");
++  selectField(panel, "Wide color support", "supports_wide_color", {"Auto", "Force off", "Force on"}, {0, -1, 1}, 0);
++  selectField(panel, "HDR support", "supports_hdr", {"Auto", "Force off", "Force on"}, {0, -1, 1}, 0);
++  numericField(panel, "SDR brightness", "sdr_brightness", 1);
++  numericField(panel, "SDR saturation", "sdr_saturation", 1);
++  numericField(panel, "SDR black level", "sdr_min_luminance", 0.2);
++  numericField(panel, "SDR white level", "sdr_max_luminance", 80, true);
+   selectField(
+-      *panel, "SDR transfer curve", "sdr_eotf", {"Default", "Gamma 2.2", "sRGB"}, {"default", "gamma22", "srgb"},
++      panel, "SDR transfer curve", "sdr_eotf", {"Default", "Gamma 2.2", "sRGB"}, {"default", "gamma22", "srgb"},
+       "default"
+   );
+-  numericField(*panel, "Display black level", "min_luminance", 0);
+-  numericField(*panel, "Peak luminance", "max_luminance", 0, true);
+-  numericField(*panel, "Maximum frame average", "max_avg_luminance", 0, true);
+-  return panel;
++  numericField(panel, "Display black level", "min_luminance", 0);
++  numericField(panel, "Peak luminance", "max_luminance", 0, true);
++  numericField(panel, "Maximum frame average", "max_avg_luminance", 0, true);
+ }
+ std::unique_ptr<Flex> DisplayWindow::buildWorkspaces() {
+   auto panel = ui::column(
+diff --git a/src/shell/display/display_window.h b/src/shell/display/display_window.h
+index fb79170..377e236 100644
+--- a/src/shell/display/display_window.h
++++ b/src/shell/display/display_window.h
+@@ -45,6 +45,8 @@ private:
+   void openTui();
+   std::unique_ptr<Node> buildCanvas(float width, float height);
+   std::unique_ptr<Flex> buildInspector();
++  void buildDisplayControls(Flex& panel);
++  void buildColorControls(Flex& panel);
+   std::unique_ptr<Flex> buildWorkspaces();
+   void buildWorkspaceOrder(Flex& parent, const display::Json& workspaces);
+   void buildWorkspaceRules(Flex& parent, const display::Json& workspaces);
+@@ -78,6 +80,7 @@ private:
+   ScrollViewState m_scroll;
+   std::unordered_map<std::string, std::string> m_textBuffers;
+   std::string m_page = "layout";
++  std::string m_inspectorPage = "display";
+   std::string m_saveName;
+   std::string m_deleteName;
+   bool m_rebuild = true;

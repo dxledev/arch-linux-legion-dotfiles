@@ -12,6 +12,8 @@ Singleton {
     id: root
 
     property list<var> ddcMonitors: []
+    property bool detectionPending: false
+    property bool detectionFailed: false
     readonly property var ddcMonitorMap: {
         const map = {};
         for (const m of ddcMonitors)
@@ -72,10 +74,14 @@ Singleton {
             monitor.setBrightness(monitor.brightness - GlobalConfig.services.brightnessIncrement);
     }
 
-    onMonitorsChanged: {
-        ddcMonitors = [];
-        ddcProc.running = true;
+    function detectMonitors(): void {
+        if (ddcProc.running)
+            detectionPending = true;
+        else
+            ddcProc.running = true;
     }
+
+    onMonitorsChanged: Qt.callLater(detectMonitors)
 
     Variants {
         id: variants
@@ -97,12 +103,33 @@ Singleton {
         id: ddcProc
 
         command: ["ddcutil", "detect", "--brief"]
-        stdout: StdioCollector {
-            onStreamFinished: root.ddcMonitors = text.trim().split("\n\n").filter(d => d.startsWith("Display ")).map(d => ({
-                        busNum: d.match(/I2C bus:[ ]*\/dev\/i2c-([0-9]+)/)[1],
-                        connector: d.match(/DRM connector:\s+(.*)/)[1].replace(/^card\d+-/, "") // strip "card1-"
-                    }))
+        stdout: StdioCollector { id: detectionOutput }
+        onExited: code => {
+            root.detectionFailed = code !== 0;
+            if (code === 0) {
+                const monitors = [];
+                for (const block of detectionOutput.text.trim().split(/\n\s*\n/)) {
+                    if (!block.startsWith("Display "))
+                        continue;
+                    const bus = block.match(/I2C bus:\s*\/dev\/i2c-(\d+)/);
+                    const connector = block.match(/DRM connector:\s*(\S+)/);
+                    if (bus && connector)
+                        monitors.push({busNum: bus[1], connector: connector[1].replace(/^card\d+-/, "")});
+                }
+                root.ddcMonitors = monitors;
+            }
+            if (root.detectionPending) {
+                root.detectionPending = false;
+                Qt.callLater(root.detectMonitors);
+            }
         }
+    }
+
+    Timer {
+        interval: System.brightnessPollInterval
+        repeat: true
+        running: root.detectionFailed
+        onTriggered: root.detectMonitors()
     }
 
     // qmllint disable unresolved-type
@@ -161,6 +188,8 @@ Singleton {
                 return "Invalid monitor: " + query;
             if (!monitor.supported)
                 return "Brightness unavailable for monitor: " + query;
+            if (!monitor.initialized)
+                return "Brightness not ready for monitor: " + query;
 
             let targetBrightness;
             if (value.endsWith("%-")) {
@@ -212,16 +241,17 @@ Singleton {
         property real queuedBrightness: NaN
         property bool initialized: false
         readonly property string ddcScript: Quickshell.shellPath("integration/monitor-brightness")
-        readonly property string statePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp")
-                + "/system-brightness-ddc/" + modelData.name.replace(/-\d+$/, "") + ".state"
+        readonly property string stateDirectory: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/system-brightness-ddc/"
 
         readonly property Process initProc: Process {
-            stdout: StdioCollector {
-                onStreamFinished: {
+            property string bus
+            stdout: StdioCollector { id: initialOutput }
+            onExited: code => {
+                if (code === 0 && bus === monitor.busNum && !writeProc.running && isNaN(monitor.queuedBrightness)) {
+                    const text = initialOutput.text;
                     if (monitor.isDdc) {
                         const percent = Number(text.trim());
-                        if (text.trim() && Number.isFinite(percent) && percent >= 0 && percent <= 100
-                                && !writeProc.running && isNaN(monitor.queuedBrightness)) {
+                        if (text.trim() && Number.isFinite(percent) && percent >= 0 && percent <= 100) {
                             monitor.brightness = percent / 100;
                             monitor.initialized = true;
                         }
@@ -240,7 +270,16 @@ Singleton {
                         }
                     }
                 }
+                if (!isNaN(monitor.queuedBrightness))
+                    timer.restart();
             }
+        }
+
+        readonly property Timer refreshTimer: Timer {
+            interval: System.brightnessPollInterval
+            repeat: true
+            running: monitor.supported && (!monitor.isDdc || !monitor.initialized || System.brightnessDdcPolling)
+            onTriggered: monitor.initBrightness()
         }
 
         readonly property Timer timer: Timer {
@@ -260,20 +299,28 @@ Singleton {
         }
 
         readonly property FileView cachedState: FileView {
-            path: monitor.isDdc ? monitor.statePath : ""
+            path: monitor.isDdc ? monitor.stateDirectory + monitor.modelData.name + ".state" : ""
             watchChanges: true
             printErrors: false
             onFileChanged: reload()
-            onLoaded: {
-                const fields = text().trim().split("\n");
-                const percent = Number(fields[2]);
-                if (fields.length === 4 && fields[0] === monitor.busNum && fields[2].trim()
-                        && Number.isFinite(percent) && percent >= 0 && percent <= 100
-                        && !writeProc.running && isNaN(monitor.queuedBrightness)) {
-                    monitor.brightness = percent / 100;
-                    monitor.initialized = true;
-                }
-            }
+            onLoaded: monitor.readCache(text())
+        }
+
+        readonly property FileView shortcutState: FileView {
+            path: monitor.isDdc ? monitor.stateDirectory + monitor.modelData.name.replace(/-\d+$/, "") + ".state" : ""
+            watchChanges: true
+            printErrors: false
+            onFileChanged: reload()
+            onLoaded: monitor.readCache(text())
+        }
+
+        function readCache(text: string): void {
+            const fields = text.trim().split("\n");
+            const percent = Number(fields[2]);
+            if (initialized && fields.length === 4 && fields[0] === busNum && fields[2].trim()
+                    && Number.isFinite(percent) && percent >= 0 && percent <= 100
+                    && !initProc.running && !writeProc.running && isNaN(queuedBrightness))
+                brightness = percent / 100;
         }
 
         function flushBrightness(): void {
@@ -289,7 +336,7 @@ Singleton {
         }
 
         function setBrightness(value: real): void {
-            if (!supported || !Number.isFinite(value))
+            if (!supported || !initialized || !Number.isFinite(value))
                 return;
             value = Math.max(0, Math.min(1, value));
             const rounded = Math.round(value * 100);
@@ -308,8 +355,9 @@ Singleton {
         }
 
         function initBrightness(): void {
-            if (!supported || initProc.running || writeProc.running)
+            if (!supported || (isDdc && !busNum) || initProc.running || writeProc.running || !isNaN(queuedBrightness))
                 return;
+            initProc.bus = busNum;
             if (isAppleDisplay)
                 initProc.command = ["asdbctl", "get"];
             else if (isDdc)
@@ -320,8 +368,15 @@ Singleton {
             initProc.running = true;
         }
 
-        onBusNumChanged: initBrightness()
-        onSupportedChanged: initBrightness()
-        Component.onCompleted: initBrightness()
+        onBusNumChanged: {
+            initialized = false;
+            queuedBrightness = NaN;
+            Qt.callLater(initBrightness);
+        }
+        onSupportedChanged: {
+            initialized = false;
+            Qt.callLater(initBrightness);
+        }
+        Component.onCompleted: Qt.callLater(initBrightness)
     }
 }

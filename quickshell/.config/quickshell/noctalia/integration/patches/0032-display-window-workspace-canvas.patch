@@ -1,0 +1,174 @@
+diff --git a/src/shell/display/display_controls.cpp b/src/shell/display/display_controls.cpp
+index d54734e..d719c98 100644
+--- a/src/shell/display/display_controls.cpp
++++ b/src/shell/display/display_controls.cpp
+@@ -293,15 +293,24 @@ std::unique_ptr<Flex> DisplayWindow::buildWorkspaces() {
+   panel->addChild(ui::separator({}));
+   panel->addChild(label("Workspace plan"));
+   for (const auto& entry : m_model.workspacePlan) {
++    const auto summary = workspaceSummary(entry.value("output_key", ""));
++    panel->addChild(label(m_model.label(entry.value("output_name", "")) + ": " + (summary.empty() ? "—" : summary)));
++  }
++  return panel;
++}
++std::string DisplayWindow::workspaceSummary(const std::string& outputKey) const {
++  for (const auto& entry : m_model.workspacePlan) {
++    if (entry.value("output_key", "") != outputKey)
++      continue;
+     std::string summary;
+     for (const auto& workspace : entry.value("workspaces", Json::array())) {
+       if (!summary.empty())
+         summary += ", ";
+       summary += workspace.get<std::string>();
+     }
+-    panel->addChild(label(m_model.label(entry.value("output_name", "")) + ": " + (summary.empty() ? "—" : summary)));
++    return summary;
+   }
+-  return panel;
++  return {};
+ }
+ std::unique_ptr<Flex> DisplayWindow::buildProfiles() {
+   auto panel = ui::column(
+diff --git a/src/shell/display/display_scene.cpp b/src/shell/display/display_scene.cpp
+index c09366a..1538960 100644
+--- a/src/shell/display/display_scene.cpp
++++ b/src/shell/display/display_scene.cpp
+@@ -126,7 +126,8 @@ void DisplayWindow::buildScene() {
+       if (m_saveName.empty())
+         m_saveName = m_model.draft.value("name", "Current Layout");
+       auto body = ui::column({.align = FlexAlign::Stretch, .gap = 12});
+-      if (m_page == "layout") {
++      if (m_page == "layout" || m_page == "workspaces") {
++        const bool layout = m_page == "layout";
+         auto canvasRow = ui::row({.align = FlexAlign::Stretch, .gap = 14});
+         const bool narrow = contentWidth < 1000;
+         if (narrow)
+@@ -134,33 +135,35 @@ void DisplayWindow::buildScene() {
+         const float canvasWidth = std::max(280.0F, narrow ? contentWidth - 70 : contentWidth * 0.59F - 45);
+         auto left = ui::column({.align = FlexAlign::Stretch, .gap = 10, .width = canvasWidth});
+         left->addChild(text(
+-            "Drag displays to arrange them. Positions snap to neighboring edges.", ColorRole::OnSurfaceVariant,
+-            Style::fontSizeCaption
++            layout ? "Drag displays to arrange them. Positions snap to neighboring edges."
++                   : "Workspace assignments follow the display arrangement.",
++            ColorRole::OnSurfaceVariant, Style::fontSizeCaption
+         ));
+-        left->addChild(buildCanvas(canvasWidth, std::max(230.0F, contentHeight * 0.4F)));
+-        for (const auto& output : m_model.draft.value("outputs", Json::array())) {
+-          const auto key = output.value("key", "");
+-          left->addChild(
+-              ui::button(
+-                  {.text =
+-                       m_model.label(output.value("name", "")) + (output.value("enabled", true) ? "" : " · Disabled"),
+-                   .selected = key == m_model.selected,
+-                   .onClick = [this, key]() {
+-                     m_model.selected = key;
+-                     m_textBuffers.clear();
+-                     rebuild();
+-                   }}
+-              )
+-          );
+-        }
++        left->addChild(buildCanvas(canvasWidth, std::max(230.0F, contentHeight * 0.4F), layout));
++        if (layout)
++          for (const auto& output : m_model.draft.value("outputs", Json::array())) {
++            const auto key = output.value("key", "");
++            left->addChild(
++                ui::button(
++                    {.text =
++                         m_model.label(output.value("name", "")) + (output.value("enabled", true) ? "" : " · Disabled"),
++                     .selected = key == m_model.selected,
++                     .onClick = [this, key]() {
++                       m_model.selected = key;
++                       m_textBuffers.clear();
++                       rebuild();
++                     }}
++                )
++            );
++          }
+         canvasRow->addChild(std::move(left));
+-        auto inspector = buildInspector();
++        auto inspector = layout ? buildInspector() : buildWorkspaces();
+         if (!narrow)
+           inspector->setFlexGrow(1);
+         canvasRow->addChild(std::move(inspector));
+         body->addChild(std::move(canvasRow));
+       } else
+-        body->addChild(m_page == "workspaces" ? buildWorkspaces() : buildProfiles());
++        body->addChild(buildProfiles());
+       auto scroll = ui::scrollView({.state = &m_scroll, .flexGrow = 1});
+       scroll->content()->setAlign(FlexAlign::Stretch);
+       scroll->content()->addChild(std::move(body));
+@@ -204,7 +207,7 @@ void DisplayWindow::buildScene() {
+   m_rebuild = false;
+   m_rebuildingScene = false;
+ }
+-std::unique_ptr<Node> DisplayWindow::buildCanvas(float width, float height) {
++std::unique_ptr<Node> DisplayWindow::buildCanvas(float width, float height, bool interactive) {
+   auto canvas = ui::node({.width = width, .height = height, .clipChildren = true});
+   canvas->addChild(
+       ui::box({.fill = colorSpecFromRole(ColorRole::SurfaceVariant), .radius = 9, .width = width, .height = height})
+@@ -245,7 +248,8 @@ std::unique_ptr<Node> DisplayWindow::buildCanvas(float width, float height) {
+     const float h = static_cast<float>(output.value(transform % 2 ? "width" : "height", 1080) / factor * zoom);
+     const float x = static_cast<float>(offsetX + (output.value("x", 0) - minX) * zoom);
+     const float y = static_cast<float>(offsetY + (output.value("y", 0) - minY) * zoom);
+-    auto card = ui::inputArea({.focusable = true, .x = x, .y = y, .width = w, .height = h});
++    auto card =
++        ui::inputArea({.enabled = interactive, .focusable = interactive, .x = x, .y = y, .width = w, .height = h});
+     auto* cardPtr = card.get();
+     card->addChild(
+         ui::box(
+@@ -267,7 +271,24 @@ std::unique_ptr<Node> DisplayWindow::buildCanvas(float width, float height) {
+         number(factor) + "× · " + std::to_string(output.value("x", 0)) + ", " + std::to_string(output.value("y", 0)),
+         role, Style::fontSizeMini
+     ));
++    if (!interactive && m_model.draft.value("workspaces", Json::object()).value("enabled", false)) {
++      const auto summary = workspaceSummary(key);
++      if (!summary.empty())
++        contents->addChild(
++            ui::label(
++                {.text = summary,
++                 .fontSize = Style::fontSizeBody,
++                 .color = colorSpecFromRole(role),
++                 .maxWidth = std::max(1.0F, w - 12),
++                 .textAlign = TextAlign::Center}
++            )
++        );
++    }
+     card->addChild(std::move(contents));
++    if (!interactive) {
++      canvas->addChild(std::move(card));
++      continue;
++    }
+     struct Drag {
+       bool active = false;
+       float startX = 0, startY = 0;
+diff --git a/src/shell/display/display_window.cpp b/src/shell/display/display_window.cpp
+index 939a554..bb69869 100644
+--- a/src/shell/display/display_window.cpp
++++ b/src/shell/display/display_window.cpp
+@@ -122,8 +122,8 @@ void DisplayWindow::open() {
+   auto output = m_wayland->lastPointerOutput();
+   if (!output && !m_wayland->outputs().empty())
+     output = m_wayland->outputs().front().output;
+-  std::uint32_t width = static_cast<std::uint32_t>((m_confirmationOnly ? 580 : 1200) * scale());
+-  std::uint32_t height = static_cast<std::uint32_t>((m_confirmationOnly ? 230 : 800) * scale());
++  std::uint32_t width = static_cast<std::uint32_t>((m_confirmationOnly ? 580 : 1600) * scale());
++  std::uint32_t height = static_cast<std::uint32_t>((m_confirmationOnly ? 230 : 900) * scale());
+   if (const auto* info = m_wayland->findOutputByWl(output); info && info->hasUsableGeometry()) {
+     width = std::min(width, static_cast<std::uint32_t>(info->effectiveLogicalWidth()));
+     height = std::min(height, static_cast<std::uint32_t>(info->effectiveLogicalHeight()));
+diff --git a/src/shell/display/display_window.h b/src/shell/display/display_window.h
+index 377e236..7e489ad 100644
+--- a/src/shell/display/display_window.h
++++ b/src/shell/display/display_window.h
+@@ -43,7 +43,8 @@ private:
+   void prepareFrame(bool update, bool layout);
+   void buildScene();
+   void openTui();
+-  std::unique_ptr<Node> buildCanvas(float width, float height);
++  std::unique_ptr<Node> buildCanvas(float width, float height, bool interactive = true);
++  std::string workspaceSummary(const std::string& outputKey) const;
+   std::unique_ptr<Flex> buildInspector();
+   void buildDisplayControls(Flex& panel);
+   void buildColorControls(Flex& panel);

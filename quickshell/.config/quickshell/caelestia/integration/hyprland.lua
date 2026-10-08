@@ -46,6 +46,7 @@ hl.window_rule({
     name = "caelestia-display-editor",
     match = { title = "^Display — Layout Editor$" },
     float = true,
+    size = { 1600, 900 },
     center = true,
 })
 

@@ -21,6 +21,8 @@ Singleton {
     property var workspaceStarts: ({})
     property var brightnessMonitors: []
     property int brightnessWriteDelay: 100
+    property int brightnessPollInterval: 5000
+    property bool brightnessDdcPolling: false
     property int aiUsageRefreshIntervalSeconds: 300
     readonly property var protonVpnDefaults: ({
         cliPath: "/usr/bin/protonvpn",
@@ -95,6 +97,8 @@ Singleton {
             root.workspaceStarts = config.workspaceStarts || {};
             root.brightnessMonitors = config.brightnessMonitors || [];
             root.brightnessWriteDelay = Math.max(50, config.brightnessWriteDelay ?? 100);
+            root.brightnessPollInterval = Math.max(1000, config.brightnessPollInterval ?? 5000);
+            root.brightnessDdcPolling = config.brightnessDdcPolling === true;
             const aiUsageInterval = Number(config.aiUsageRefreshIntervalSeconds ?? 300);
             root.aiUsageRefreshIntervalSeconds = Number.isFinite(aiUsageInterval) ? Math.max(2, Math.round(aiUsageInterval)) : 300;
             root.wallpaperSlideshowIntervalSeconds = Math.max(1, config.wallpaperSlideshowIntervalSeconds ?? 300);
