@@ -15,13 +15,14 @@ StyledClippingRect {
     required property ShellScreen screen
     required property bool fullscreen
 
-    readonly property bool onSpecial: (GlobalConfig.bar.workspaces.perMonitorWorkspaces ? Hypr.monitorFor(screen) : Hypr.focusedMonitor)?.lastIpcObject.specialWorkspace?.name !== ""
-    readonly property int activeWsId: GlobalConfig.bar.workspaces.perMonitorWorkspaces ? (Hypr.monitorFor(screen).activeWorkspace?.id ?? 1) : Hypr.activeWsId
+    readonly property var monitorState: WorkspaceState.monitorFor(screen, GlobalConfig.bar.workspaces.perMonitorWorkspaces)
+    readonly property bool onSpecial: (monitorState?.specialWorkspace?.name ?? "") !== ""
+    readonly property int activeWsId: monitorState?.activeWorkspace?.id ?? 1
 
     readonly property var occupied: {
         const occ = {};
-        for (const ws of Hypr.workspaces.values)
-            occ[ws.id] = ws.lastIpcObject.windows > 0;
+        for (const ws of WorkspaceState.workspaces)
+            occ[ws.id] = ws.windows > 0;
         return occ;
     }
     readonly property var workspaceIds: WorkspaceAppearance.visibleIds(screen, Config.bar.workspaces.shown)

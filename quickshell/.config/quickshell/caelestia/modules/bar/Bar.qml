@@ -94,13 +94,15 @@ ColumnLayout {
         const ch = childAt(width / 2, y) as EntryWrapper;
         if (ch?.entryId === "workspaces" && Config.bar.scrollActions.workspaces) {
             // Workspace scroll
-            const mon = (GlobalConfig.bar.workspaces.perMonitorWorkspaces ? Hypr.monitorFor(screen) : Hypr.focusedMonitor);
-            const specialWs = mon?.lastIpcObject.specialWorkspace.name;
+            const mon = WorkspaceState.monitorFor(screen, GlobalConfig.bar.workspaces.perMonitorWorkspaces);
+            const specialWs = mon?.specialWorkspace?.name ?? "";
             if (specialWs?.length > 0)
                 Hypr.dispatch(Hypr.usingLua ? `hl.dsp.workspace.toggle_special("${specialWs.slice(8)}")` : `togglespecialworkspace ${specialWs.slice(8)}`);
             else {
                 const ids = WorkspaceAppearance.visibleIds(screen, Config.bar.workspaces.shown);
-                const current = mon.activeWorkspace?.id ?? ids[0];
+                if (ids.length === 0)
+                    return;
+                const current = mon?.activeWorkspace?.id ?? ids[0];
                 const index = Math.max(0, ids.indexOf(current));
                 const next = ids[Math.max(0, Math.min(ids.length - 1, index + (angleDelta.y > 0 ? -1 : 1)))];
                 if (next !== current)

@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/caelestia-workspace-state.XXXXXX)"
+fixture_pid=''
+trap 'if [[ -n $fixture_pid ]]; then kill "$fixture_pid" 2>/dev/null || true; fi' EXIT
+
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root"/{services,integration,runtime,cache}
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp "$test_dir/workspace-state-views.qml" "$test_root/views.qml"
+    /usr/bin/cp "$test_dir/../../services/WorkspaceModel.js" "$test_root/services/WorkspaceModel.js"
+    /usr/bin/sed -e '/import Quickshell.Hyprland/d' -e 's/HyprlandEvent/var/g' -e 's/ShellScreen/var/g' \
+        -e 's#"/usr/bin/hyprctl"#Quickshell.env("TEST_ROOT") + "/hyprctl"#' \
+        "$test_dir/../../services/WorkspaceState.qml" > "$test_root/services/WorkspaceState.qml"
+    /usr/bin/sed -e '/import Caelestia.Config/d' -e '/import qs.integration/d' \
+        -e 's/ShellScreen/var/g' -e 's/System.workspaceStarts/Fixture.workspaceStarts/g' \
+        "$test_dir/../../services/WorkspaceAppearance.qml" > "$test_root/services/WorkspaceAppearance.qml"
+    printf 'singleton WorkspaceState 1.0 WorkspaceState.qml\nsingleton WorkspaceAppearance 1.0 WorkspaceAppearance.qml\nsingleton Hyprland 1.0 Hyprland.qml\nsingleton Fixture 1.0 Fixture.qml\nsingleton GlobalConfig 1.0 GlobalConfig.qml\n' > "$test_root/services/qmldir"
+    cat > "$test_root/services/Hyprland.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { signal rawEvent(var event) }
+QML
+    cat > "$test_root/services/Fixture.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    property string screenName: "USB-C-23"
+    property var workspaceStarts: ({})
+    readonly property var targetScreen: ({ name: screenName })
+}
+QML
+    cat > "$test_root/services/GlobalConfig.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { property var bar: ({ workspaces: { perMonitorWorkspaces: true } }) }
+QML
+    printf 'singleton System 1.0 System.qml\n' > "$test_root/integration/qmldir"
+    cat > "$test_root/integration/System.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { property var workspaceStarts: ({}) }
+QML
+    cat > "$test_root/hyprctl" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+request=${2:?}
+printf '%s\n' "$request" >> "$TEST_ROOT/requests"
+while [[ -e $TEST_ROOT/hold-$request && ! -e $TEST_ROOT/release-$request ]]; do
+    /usr/bin/sleep 0.02
+done
+if [[ -e $TEST_ROOT/fail-$request ]]; then
+    /usr/bin/mv -- "$TEST_ROOT/fail-$request" "$TEST_ROOT/consumed-fail-$request"
+    exit 1
+fi
+if [[ -e $TEST_ROOT/invalid-$request ]]; then
+    /usr/bin/mv -- "$TEST_ROOT/invalid-$request" "$TEST_ROOT/consumed-invalid-$request"
+    printf '{"not":"an array"}\n'
+    exit
+fi
+/usr/bin/cat "$TEST_ROOT/$request.json"
+MOCK
+    /usr/bin/chmod +x "$test_root/hyprctl"
+    printf '[{"id":9,"name":"USB-C-23","description":"Unknown dock","focused":true,"activeWorkspace":{"id":42},"specialWorkspace":{"name":""}}]\n' > "$test_root/monitors.json"
+    printf '[{"id":42,"monitor":"USB-C-23","ispersistent":true,"windows":0}]\n' > "$test_root/workspaces.json"
+    printf '[{"workspaceString":"42","monitor":"USB-C-23","persistent":true}]\n' > "$test_root/workspacerules.json"
+}
+
+status() { /usr/bin/cat "$test_root/status.json"; }
+event() { printf '%s:%s\n' "$1" "$2" > "$test_root/event"; }
+
+wait_for_file() {
+    local path=$1 attempt
+    for ((attempt=0; attempt<100; attempt++)); do
+        [[ -e $path ]] && return
+        /usr/bin/sleep 0.02
+    done
+    fail "Timed out waiting for $path"
+}
+
+wait_for() {
+    local query=$1 attempt
+    for ((attempt=0; attempt<120; attempt++)); do
+        if status | /usr/bin/jq -e "$query" >/dev/null 2>&1; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    /usr/bin/rg -n 'ERROR|WARN|Could not|Failed|hyprctl|Process' "$test_root/views.log" >&2 || true
+    [[ ! -f $test_root/requests ]] || /usr/bin/cat "$test_root/requests" >&2
+    local state
+    state="$(status 2>/dev/null || true)"
+    fail "Timed out waiting for $query; last snapshot: $state"
+}
+
+start_fixture() {
+    /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
+    fixture_pid=$!
+}
+
+make_fixture
+export TEST_ROOT="$test_root"
+export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache"
+export QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= QT_NO_XDG_DESKTOP_PORTAL=1
+: > "$test_root/hold-workspacerules"
+: > "$test_root/event"
+start_fixture
+for ((attempt=0; attempt<100; attempt++)); do
+    [[ -f $test_root/requests ]] && /usr/bin/rg -q '^workspacerules$' "$test_root/requests" && break
+    /usr/bin/sleep 0.05
+done
+if [[ ! -f $test_root/requests ]] || ! /usr/bin/rg -q '^workspacerules$' "$test_root/requests"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    [[ ! -f $test_root/requests ]] || /usr/bin/cat "$test_root/requests" >&2
+    /usr/bin/find "$test_root/runtime" -name log.qslog -exec /usr/bin/cat {} \; >&2
+    fail 'Workspace state fixture did not start its initial queries.'
+fi
+initial="$(status)"
+/usr/bin/jq -e '.ready == false and .ids == []' <<< "$initial" >/dev/null || fail "Initial fallback appeared before rules loaded: $initial"
+: > "$test_root/release-workspacerules"
+wait_for '.ready and .screen == "USB-C-23" and .ids == [42]'
+
+# A queued monitor event must cause a second coherent read after an in-flight query.
+: > "$test_root/hold-workspaces"
+event monitoradded USB-C-23
+for ((attempt=0; attempt<100; attempt++)); do
+    [[ -f $test_root/requests ]] && [[ $(/usr/bin/rg -c '^workspaces$' "$test_root/requests" || true) -ge 2 ]] && break
+    /usr/bin/sleep 0.05
+done
+cat > "$test_root/monitors.json" <<'JSON'
+[{"id":12,"name":"Thunderbolt-Display-7","description":"New display","focused":true,"activeWorkspace":{"id":88},"specialWorkspace":{"name":""}}]
+JSON
+cat > "$test_root/workspaces.json" <<'JSON'
+[{"id":88,"monitor":"Thunderbolt-Display-7","ispersistent":true,"windows":0}]
+JSON
+cat > "$test_root/workspacerules.json" <<'JSON'
+[{"workspaceString":"88","monitor":"Thunderbolt-Display-7","persistent":true}]
+JSON
+event workspacev2 Thunderbolt-Display-7
+: > "$test_root/release-workspaces"
+wait_for '.ready and .monitor.name == "Thunderbolt-Display-7" and .ids == [88] and (.history | all(.[]; (.monitor == "USB-C-23" and .workspaces[0].id == 42 and .rules[0].workspaceString == "42") or (.monitor == "Thunderbolt-Display-7" and .workspaces[0].id == 88 and .rules[0].workspaceString == "88")))'
+
+# Failed and malformed reads keep the last good snapshot until the retry succeeds.
+printf '%s\n' '[{"id":13,"name":"USB-C-23","description":"Unknown dock","focused":true,"activeWorkspace":{"id":99},"specialWorkspace":{"name":""}}]' > "$test_root/monitors.json"
+printf '%s\n' '[{"id":99,"monitor":"USB-C-23","ispersistent":true,"windows":0}]' > "$test_root/workspaces.json"
+printf '%s\n' '[{"workspaceString":"99","monitor":"USB-C-23","persistent":true}]' > "$test_root/workspacerules.json"
+: > "$test_root/fail-workspacerules"
+event configreloaded USB-C-23
+wait_for_file "$test_root/consumed-fail-workspacerules"
+/usr/bin/jq -e '.ready and .raw.monitors[0].name == "Thunderbolt-Display-7" and .raw.workspaces[0].id == 88' < <(status) >/dev/null || fail 'Failed rule read replaced the last good snapshot.'
+wait_for '.ready and .monitor.name == "USB-C-23" and .ids == [99]'
+
+printf '%s\n' '[{"id":14,"name":"HDMI-A-91","description":"Arbitrary output","focused":true,"activeWorkspace":{"id":101},"specialWorkspace":{"name":""}}]' > "$test_root/monitors.json"
+printf '%s\n' '[{"id":101,"monitor":"HDMI-A-91","ispersistent":true,"windows":0}]' > "$test_root/workspaces.json"
+printf '%s\n' '[{"workspaceString":"101","monitor":"HDMI-A-91","persistent":true}]' > "$test_root/workspacerules.json"
+: > "$test_root/invalid-workspaces"
+event monitorremoved HDMI-A-91
+wait_for_file "$test_root/consumed-invalid-workspaces"
+/usr/bin/jq -e '.ready and .raw.monitors[0].name == "USB-C-23" and .raw.workspaces[0].id == 99' < <(status) >/dev/null || fail 'Malformed workspace read replaced the last good snapshot.'
+wait_for '.ready and .monitor.name == "HDMI-A-91" and .ids == [101]'
+
+if /usr/bin/rg -q 'ReferenceError|TypeError|Could not read Hyprland' "$test_root/views.log"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Workspace state fixture logged an unexpected error.'
+fi
+printf 'PASS: startup readiness barrier, arbitrary connector lookup, queued event refresh, atomic reassignment, failed and malformed read retention/retry\n'

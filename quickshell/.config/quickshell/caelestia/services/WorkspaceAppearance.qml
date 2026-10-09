@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Caelestia.Config
 import qs.integration
+import "WorkspaceModel.js" as Model
 
 Singleton {
     id: root
@@ -23,17 +24,14 @@ Singleton {
     }
 
     function visibleIds(screen: ShellScreen, count: int): var {
+        const snapshot = WorkspaceState.snapshot;
+        if (!snapshot)
+            return [];
+
         const perMonitor = GlobalConfig.bar.workspaces.perMonitorWorkspaces;
-        const monitor = perMonitor ? Hypr.monitorFor(screen) : Hypr.focusedMonitor;
+        const monitor = WorkspaceState.monitorFor(screen, perMonitor);
         const first = perMonitor ? (System.workspaceStarts[screen.name] ?? 1) : 1;
-        const ids = Array.from({ length: Math.max(0, Math.min(5, count)) }, (_, index) => first + index);
-        for (const workspace of Hypr.workspaces.values) {
-            if (workspace.id > 0 && (!perMonitor || workspace.monitor?.name === screen.name)
-                && (workspace.lastIpcObject.windows > 0 || workspace.id === monitor?.activeWorkspace?.id)
-                && !ids.includes(workspace.id))
-                ids.push(workspace.id);
-        }
-        return ids.sort((a, b) => a - b);
+        return Model.visibleIds(monitor, snapshot.workspaces, snapshot.rules, count, first, perMonitor);
     }
 
     FileView {

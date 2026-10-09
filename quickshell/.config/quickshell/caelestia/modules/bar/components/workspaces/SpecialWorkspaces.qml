@@ -15,7 +15,7 @@ Item {
 
     required property ShellScreen screen
     readonly property HyprlandMonitor monitor: Hypr.monitorFor(screen)
-    readonly property string activeSpecial: (GlobalConfig.bar.workspaces.perMonitorWorkspaces ? monitor : Hypr.focusedMonitor)?.lastIpcObject.specialWorkspace?.name ?? ""
+    readonly property string activeSpecial: WorkspaceState.monitorFor(screen, GlobalConfig.bar.workspaces.perMonitorWorkspaces)?.specialWorkspace?.name ?? ""
 
     layer.enabled: true
     layer.effect: Mask {
