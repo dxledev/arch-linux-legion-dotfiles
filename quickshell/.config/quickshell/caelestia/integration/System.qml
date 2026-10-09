@@ -23,6 +23,8 @@ Singleton {
     property int brightnessWriteDelay: 100
     property int brightnessPollInterval: 5000
     property bool brightnessDdcPolling: false
+    property real minimumContrast: 4.5
+    property real disabledContrast: 3.0
     property int aiUsageRefreshIntervalSeconds: 300
     readonly property var protonVpnDefaults: ({
         cliPath: "/usr/bin/protonvpn",
@@ -99,6 +101,9 @@ Singleton {
             root.brightnessWriteDelay = Math.max(50, config.brightnessWriteDelay ?? 100);
             root.brightnessPollInterval = Math.max(1000, config.brightnessPollInterval ?? 5000);
             root.brightnessDdcPolling = config.brightnessDdcPolling === true;
+            const contrast = config.contrast || {};
+            root.minimumContrast = Math.min(4.5, numberOr(contrast.minimum, 4.5, 3));
+            root.disabledContrast = Math.min(root.minimumContrast, numberOr(contrast.disabled, 3, 3));
             const aiUsageInterval = Number(config.aiUsageRefreshIntervalSeconds ?? 300);
             root.aiUsageRefreshIntervalSeconds = Number.isFinite(aiUsageInterval) ? Math.max(2, Math.round(aiUsageInterval)) : 300;
             root.wallpaperSlideshowIntervalSeconds = Math.max(1, config.wallpaperSlideshowIntervalSeconds ?? 300);

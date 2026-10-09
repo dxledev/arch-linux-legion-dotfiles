@@ -35,14 +35,18 @@ Row {
     property color textColour: type == SplitButton.Filled ? Colours.palette.m3onPrimary : Colours.palette.m3onSecondaryContainer
     property color disabledColour: Qt.alpha(Colours.palette.m3onSurface, 0.1)
     property color disabledTextColour: Qt.alpha(Colours.palette.m3onSurface, 0.38)
+    readonly property bool unavailable: disabled || !enabled
+    readonly property color preferredOnColour: unavailable ? disabledTextColour : textColour
 
     spacing: Math.floor(Tokens.spacing.extraSmall / 2)
 
     StyledRect {
+        id: mainBtn
+
         radius: implicitHeight / 2 * Math.min(1, Tokens.rounding.scale)
         topRightRadius: Tokens.rounding.medium / 2
         bottomRightRadius: Tokens.rounding.medium / 2
-        color: root.disabled ? root.disabledColour : root.colour
+        color: root.unavailable ? root.disabledColour : root.colour
 
         implicitWidth: Math.max(root.minLeftWidth, textRow.implicitWidth + root.horizontalPadding * 2)
         implicitHeight: expandBtn.implicitHeight
@@ -52,8 +56,8 @@ Row {
 
             topRightRadius: parent.topRightRadius
             bottomRightRadius: parent.bottomRightRadius
-            color: root.textColour
-            disabled: root.disabled
+            color: Colours.foreground(root.preferredOnColour, mainBtn, root.unavailable)
+            disabled: root.unavailable
             onClicked: root.active?.clicked()
         }
 
@@ -70,7 +74,7 @@ Row {
                 Layout.alignment: Qt.AlignVCenter
                 animate: true
                 text: root.active?.activeIcon ?? root.fallbackIcon
-                color: root.disabled ? root.disabledTextColour : root.textColour
+                color: Colours.foreground(root.preferredOnColour, mainBtn, root.unavailable)
                 fill: 1
             }
 
@@ -81,7 +85,7 @@ Row {
                 Layout.preferredWidth: implicitWidth
                 animate: true
                 text: root.active?.activeText ?? root.fallbackText
-                color: root.disabled ? root.disabledTextColour : root.textColour
+                color: Colours.foreground(root.preferredOnColour, mainBtn, root.unavailable)
                 clip: true
 
                 Behavior on Layout.preferredWidth {
@@ -101,7 +105,7 @@ Row {
         radius: implicitHeight / 2 * Math.min(1, Tokens.rounding.scale)
         topLeftRadius: rad
         bottomLeftRadius: rad
-        color: root.disabled ? root.disabledColour : root.colour
+        color: root.unavailable ? root.disabledColour : root.colour
 
         implicitWidth: implicitHeight
         implicitHeight: expandIcon.implicitHeight + root.verticalPadding * 2
@@ -111,8 +115,8 @@ Row {
 
             rect.topLeftRadius: parent.topLeftRadius
             rect.bottomLeftRadius: parent.bottomLeftRadius
-            color: root.textColour
-            disabled: root.disabled
+            color: Colours.foreground(root.preferredOnColour, expandBtn, root.unavailable)
+            disabled: root.unavailable
             onClicked: root.expanded = !root.expanded
         }
 
@@ -123,7 +127,7 @@ Row {
             anchors.horizontalCenterOffset: root.expanded ? 0 : -Math.floor(root.verticalPadding / 4)
 
             text: "expand_more"
-            color: root.disabled ? root.disabledTextColour : root.textColour
+            color: Colours.foreground(root.preferredOnColour, expandBtn, root.unavailable)
             rotation: root.expanded ? 180 : 0
 
             Behavior on anchors.horizontalCenterOffset {

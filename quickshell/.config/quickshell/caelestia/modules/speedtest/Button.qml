@@ -1,4 +1,5 @@
 import QtQuick
+import qs.services
 
 Rectangle {
     id: root
@@ -22,7 +23,7 @@ Rectangle {
         id: label
         anchors.centerIn: parent
         text: root.text
-        color: root.foreground
+        color: Colours.foreground(root.foreground, root, !root.enabled)
         font.family: root.fontFamily
         font.pixelSize: root.fontSize
     }

@@ -122,14 +122,7 @@ ColumnLayout {
                 icon: "qr_code_2"
                 type: IconButton.Text
                 disabled: !networkItem.modelData.active
-                opacity: disabled ? 0.38 : 1
                 onClicked: root.popouts.wifiQrRequested(networkItem.modelData.ssid, root.activeWifiInterface())
-
-                Behavior on opacity {
-                    Anim {
-                        type: Anim.DefaultEffects
-                    }
-                }
             }
 
             StyledRect {

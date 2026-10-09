@@ -1,4 +1,5 @@
 import QtQuick
+import qs.services
 import QtQuick.Controls as Controls
 
 // Render inside the layer-shell card, not Qt's separate popup overlay.
@@ -77,8 +78,7 @@ FocusScope {
             anchors.fill: parent
             anchors.margins: 8
             text: String(modelData.label)
-            color: root.foreground
-            opacity: modelData.enabled === false ? 0.4 : 1
+            color: Colours.foreground(root.foreground, parent, modelData.enabled === false)
             font.family: root.fontFamily
             font.pixelSize: root.fontSize
             verticalAlignment: Text.AlignVCenter

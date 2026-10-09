@@ -122,7 +122,7 @@ ColumnLayout {
             IconButton {
                 icon: "delete_forever"
                 type: IconButton.Text
-                label.color: Colours.palette.m3error
+                inactiveOnColour: Colours.palette.m3error
                 stateLayer.color: Colours.palette.m3error
                 onClicked: root.props.recordingConfirmDelete = recording.modelData.path
             }

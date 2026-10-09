@@ -21,6 +21,7 @@ Slider {
 
     property color fgColour: enabled ? Colours.palette.m3primary : Qt.alpha(Colours.palette.m3onSurface, 0.38)
     property color bgColour: enabled ? Colours.palette.m3secondaryContainer : Qt.alpha(Colours.palette.m3onSurface, 0.1)
+    readonly property color contrastFgColour: Colours.ensureContrast(fgColour, Qt.tint(Colours.backgroundFor(root), bgColour), enabled ? Colours.minimumContrast : Colours.disabledContrast)
 
     property real pos: visualPosition
     property real filledWidth
@@ -67,7 +68,7 @@ Slider {
             opacity: remaining.opacity
 
             radius: Tokens.rounding.full
-            color: root.fgColour
+            color: root.contrastFgColour
         }
 
         StyledRect {
@@ -85,7 +86,7 @@ Slider {
             }
 
             radius: Tokens.rounding.full
-            color: root.fgColour
+            color: root.contrastFgColour
 
             Behavior on implicitHeight {
                 Anim {
@@ -114,7 +115,7 @@ Slider {
                 radius: root.radius
                 topRightRadius: Tokens.rounding.extraSmall / 2
                 bottomRightRadius: Tokens.rounding.extraSmall / 2
-                color: root.fgColour
+                color: root.contrastFgColour
             }
         }
 
@@ -126,7 +127,7 @@ Slider {
                 frequency: root.waveFrequency
                 startX: x
                 fullLength: root.width - handle.implicitWidth - handle.anchors.leftMargin
-                color: root.fgColour
+                color: root.contrastFgColour
 
                 implicitWidth: root.filledWidth
                 implicitHeight: lineWidth * amplitudeMultiplier * 2 + lineWidth

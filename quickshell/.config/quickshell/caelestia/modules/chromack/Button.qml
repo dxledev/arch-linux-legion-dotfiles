@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls as QQC
+import qs.services
 
 QQC.Button {
     id: root
@@ -41,7 +42,7 @@ QQC.Button {
     contentItem: Label {
         id: label
         text: root.text
-        color: root.labelColor
+        color: Colours.foreground(root.labelColor, root.background, !root.enabled)
         font.family: root.glyph ? Style.iconFontFamily : Style.bodyFontFamily
         font.weight: Style.bodyFontWeight
         font.variableAxes: Style.bodyFontAxes

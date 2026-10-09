@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.modules.display.compat
+import qs.services
 
 // The button. One component for every clickable thing in the kit.
 // States compose independently and are applied in priority order:
@@ -162,7 +163,7 @@ BorderSurface {
       textFormat: Text.PlainText
       visible: root.iconText !== ""
       text: root.iconText
-      color: root.selected ? Color.accentText : root.foreground
+      color: Colours.foreground(root.selected ? Color.accentText : root.foreground, root, !root.enabled)
       font.family: root.fontFamily
       font.pixelSize: root.iconSize
       rotation: root.iconSpinning ? 0 : root.iconRotation
@@ -182,7 +183,7 @@ BorderSurface {
       textFormat: Text.PlainText
       visible: root.text !== ""
       text: root.text
-      color: root.selected ? Color.accentText : root.foreground
+      color: Colours.foreground(root.selected ? Color.accentText : root.foreground, root, !root.enabled)
       font.family: root.fontFamily
       font.pixelSize: root.fontSize
       font.bold: root.selected

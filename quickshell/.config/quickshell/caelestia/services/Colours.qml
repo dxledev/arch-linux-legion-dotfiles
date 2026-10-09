@@ -9,6 +9,7 @@ import Caelestia.Images
 import qs.services
 import qs.utils
 import qs.integration
+import "../utils/ColourContrast.js" as Contrast
 
 Singleton {
     id: root
@@ -31,6 +32,8 @@ Singleton {
     readonly property M3Palette preview: M3Palette {}
     readonly property Transparency transparency: Transparency {}
     readonly property alias wallLuminance: analyser.luminance
+    readonly property real minimumContrast: System.minimumContrast
+    readonly property real disabledContrast: System.disabledContrast
 
     property bool cooldownPending
     property real lastBaseTransparency
@@ -49,6 +52,10 @@ Singleton {
         const luminance = getLuminance(c);
 
         const offset = (!light || layer == 1 ? 1 : -layer / 2) * (light ? 0.2 : 0.3) * (1 - transparency.base) * (1 + wallLuminance * (light ? (layer == 1 ? 3 : 1) : 2.5));
+        if (luminance === 0) {
+            const value = Math.max(0, Math.min(1, offset));
+            return Qt.rgba(value, value, value, a);
+        }
         const scale = (luminance + offset) / luminance;
         const r = Math.max(0, Math.min(1, c.r * scale));
         const g = Math.max(0, Math.min(1, c.g * scale));
@@ -65,9 +72,42 @@ Singleton {
     }
 
     function on(c: color): color {
-        if (c.hslLightness < 0.5)
-            return Qt.hsla(c.hslHue, c.hslSaturation, 0.9, 1);
-        return Qt.hsla(c.hslHue, c.hslSaturation, 0.1, 1);
+        const preferred = Qt.hsla(c.hslHue, c.hslSaturation, c.hslLightness < 0.5 ? 0.9 : 0.1, 1);
+        return ensureContrast(preferred, c, minimumContrast);
+    }
+
+    function ensureContrast(foreground: color, background: color, minimum: real): color {
+        return Contrast.ensure(foreground, Contrast.composite(background, Qt.alpha(palette.m3surface, 1)), minimum);
+    }
+
+    function backgroundFor(item: Item): color {
+        return Contrast.background(item, palette.m3surface);
+    }
+
+    function foreground(preferred: color, item: Item, disabled: bool): color {
+        return Contrast.ensure(preferred, backgroundFor(item), disabled ? disabledContrast : minimumContrast);
+    }
+
+    function correctPalette(target: var): void {
+        const surface = Qt.alpha(target.m3surface, 1);
+        const correct = (foreground, background, minimum) => {
+            target[foreground] = Contrast.ensure(target[foreground], Contrast.composite(target[background], surface), minimum);
+        };
+        const surfaces = ["surface", "surfaceDim", "surfaceBright", "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest", "surfaceVariant"].map(role => Contrast.composite(target[`m3${role}`], surface));
+        correct("m3onBackground", "m3background", minimumContrast);
+        target.m3onSurface = Contrast.ensure(target.m3onSurface, surfaces, minimumContrast);
+        target.m3onSurfaceVariant = Contrast.ensure(target.m3onSurfaceVariant, surfaces, minimumContrast);
+        correct("m3inverseOnSurface", "m3inverseSurface", minimumContrast);
+        target.m3outline = Contrast.ensure(target.m3outline, surfaces, disabledContrast);
+        for (const role of ["primary", "secondary", "tertiary", "error", "success"]) {
+            const capital = role[0].toUpperCase() + role.slice(1);
+            correct(`m3on${capital}`, `m3${role}`, minimumContrast);
+            correct(`m3on${capital}Container`, `m3${role}Container`, minimumContrast);
+            if (["primary", "secondary", "tertiary"].includes(role)) {
+                correct(`m3on${capital}Fixed`, `m3${role}Fixed`, minimumContrast);
+                correct(`m3on${capital}FixedVariant`, `m3${role}FixedDim`, minimumContrast);
+            }
+        }
     }
 
     function load(data: string, isPreview: bool): bool {
@@ -119,6 +159,7 @@ Singleton {
         }
         if (scheme.provider === "aether")
             loadAetherPalette(scheme.colours, colours);
+        correctPalette(colours);
         if (!isPreview && root.source === "dynamic" && root.provider === "caelestia" && Quickshell.env("CAELESTIA_START_LOCKED") !== "1")
             queueAetherSync();
         if (!isPreview)
@@ -148,7 +189,8 @@ Singleton {
         const tertiary = paletteColour(colours, "yellow", current.m3tertiary);
         const error = paletteColour(colours, "red", current.m3error);
         const success = paletteColour(colours, "green", current.m3success);
-        const surface = paletteColour(colours, "term8", muted);
+        // Terminal bright black can equal the muted foreground; surfaces belong near the background.
+        const surface = Qt.tint(background, Qt.alpha(foreground, 0.12));
 
         const values = {
             m3primary_paletteKeyColor: accent,
@@ -283,6 +325,16 @@ Singleton {
         showPreview = false;
         for (const [name, color] of Object.entries(Colors.palette()))
             current[name] = color;
+        correctPalette(current);
+    }
+
+    onMinimumContrastChanged: {
+        correctPalette(current);
+        correctPalette(preview);
+    }
+    onDisabledContrastChanged: {
+        correctPalette(current);
+        correctPalette(preview);
     }
 
     function reloadHyprRules(): void {

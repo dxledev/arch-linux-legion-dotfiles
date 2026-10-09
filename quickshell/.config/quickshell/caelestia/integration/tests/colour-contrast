@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/caelestia-colour-contrast.XXXXXX)"
+fixture_pid=''
+trap 'if [[ -n $fixture_pid ]]; then kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; fi; /usr/bin/rm -rf -- "$test_root"' EXIT
+
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root"/{controls,modules/Fixture/Components,modules/Fixture/Config,modules/Fixture/Services,runtime,cache,utils}
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp "$test_dir/colour-contrast-views.qml" "$test_root/colour-contrast-views.qml"
+    /usr/bin/cp "$test_dir/../../utils/ColourContrast.js" "$test_root/utils/ColourContrast.js"
+    for source in ButtonBase SplitButton StyledRadioButton StyledSlider StyledSwitch; do
+        /usr/bin/sed \
+            -e 's#import Caelestia.Config#import Fixture.Config#' \
+            -e 's#import Caelestia.Components#import Fixture.Components#' \
+            -e 's#import Caelestia$#import Fixture.Components#' \
+            -e 's#import qs.components$#import Fixture.Components#' \
+            -e 's#import qs.services$#import Fixture.Services#' \
+            -e 's/root\.Tokens/Tokens/g' \
+            "$test_dir/../../components/controls/$source.qml" > "$test_root/controls/$source.qml"
+    done
+    /usr/bin/sed \
+        -e 's#import Caelestia.Config#import Fixture.Config#' \
+        -e 's#import qs.components$#import Fixture.Components#' \
+        -e 's#import qs.services$#import Fixture.Services#' \
+        -e 's/root\.Tokens/Tokens/g' \
+        "$test_dir/../../modules/lock/LockButtonBase.qml" > "$test_root/controls/LockButtonBase.qml"
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/qmldir" <<'QML'
+module Fixture.Components
+Anim 1.0 Anim.qml
+CAnim 1.0 CAnim.qml
+singleton CUtils 1.0 CUtils.qml
+MaterialIcon 1.0 MaterialIcon.qml
+Menu 1.0 Menu.qml
+StateLayer 1.0 StateLayer.qml
+StyledRect 1.0 StyledRect.qml
+StyledText 1.0 StyledText.qml
+WavyLine 1.0 WavyLine.qml
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/Anim.qml" <<'QML'
+import QtQuick
+NumberAnimation {
+    enum Type { DefaultEffects, FastSpatial, Emphasized }
+    property int type: Anim.DefaultEffects
+    duration: 0
+}
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/CAnim.qml" <<'QML'
+import QtQuick
+ColorAnimation { duration: 0 }
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/CUtils.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); } }
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/MaterialIcon.qml" <<'QML'
+import QtQuick
+Text { property bool animate; property int fill }
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/Menu.qml" <<'QML'
+import QtQuick
+Item {
+    property var items: []
+    property var active: null
+    property bool expanded
+    property var attachTo: null
+    property int attachSideY
+    property int thisSideY
+    property real marginY
+    visible: false
+}
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/StateLayer.qml" <<'QML'
+import QtQuick
+Item {
+    id: root
+    property alias color: base.color
+    property alias radius: base.radius
+    property alias topLeftRadius: base.topLeftRadius
+    property alias topRightRadius: base.topRightRadius
+    property alias bottomLeftRadius: base.bottomLeftRadius
+    property alias bottomRightRadius: base.bottomRightRadius
+    property bool disabled
+    property bool shapeMorph
+    readonly property alias rect: base
+    readonly property bool pressed: false
+    readonly property bool containsMouse: false
+
+    StyledRect {
+        id: base
+
+        anchors.fill: parent
+        opacity: 0
+    }
+
+    signal clicked()
+}
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/StyledRect.qml" <<'QML'
+import QtQuick
+Item {
+    id: root
+    property color color: "transparent"
+    property real radius
+    property real topLeftRadius: radius
+    property real topRightRadius: radius
+    property real bottomLeftRadius: radius
+    property real bottomRightRadius: radius
+
+    Rectangle {
+        anchors.fill: parent
+        color: root.color
+        radius: root.radius
+        z: -1
+    }
+}
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/StyledText.qml" <<'QML'
+import QtQuick
+Text { property bool animate }
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Components/WavyLine.qml" <<'QML'
+import QtQuick
+Item {
+    property real lineWidth
+    property real frequency
+    property real startX
+    property real fullLength
+    property color color
+    property real amplitudeMultiplier: 1
+    property real waveProgress
+}
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Config/qmldir" <<'QML'
+module Fixture.Config
+singleton Tokens 1.0 Tokens.qml
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Config/Tokens.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    property QtObject font: QtObject {
+        property QtObject body: QtObject {
+            property font small: Qt.font({pointSize: 12})
+            property font medium: Qt.font({pointSize: 14})
+            property font large: Qt.font({pointSize: 16})
+        }
+    }
+    property QtObject rounding: QtObject {
+        property real extraSmall: 4
+        property real small: 6
+        property real medium: 10
+        property real large: 14
+        property real full: 1000
+        property real scale: 1
+    }
+    property QtObject padding: QtObject {
+        property real extraSmall: 3
+        property real small: 6
+        property real medium: 10
+        property real extraLarge: 24
+    }
+    property QtObject spacing: QtObject {
+        property real extraSmall: 4
+        property real small: 8
+        property real medium: 12
+    }
+    property QtObject anim: QtObject {
+        property QtObject durations: QtObject { property int expressiveFastSpatial: 0 }
+        property int expressiveFastSpatial: Easing.Linear
+    }
+}
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Services/qmldir" <<'QML'
+module Fixture.Services
+singleton Colours 1.0 Colours.qml
+QML
+    /usr/bin/cat > "$test_root/modules/Fixture/Services/Colours.qml" <<'QML'
+pragma Singleton
+import QtQuick
+import "../../../utils/ColourContrast.js" as Contrast
+QtObject {
+    property real minimumContrast: 4.5
+    property real disabledContrast: 3.0
+    property QtObject palette: QtObject {
+        property color m3surface: "#ff101010"
+        property color m3surfaceContainerHighest: "#ff181818"
+        property color m3surfaceContainer: "#ff202020"
+        property color m3surfaceVariant: "#ff303030"
+        property color m3outline: "#ff505050"
+        property color m3onSurface: "#ff777777"
+        property color m3primary: "#ff555555"
+        property color m3onPrimary: "#ff555555"
+        property color m3secondaryContainer: "#ff666666"
+        property color m3onSecondaryContainer: "#ff666666"
+        property color m3primaryContainer: "#ff454545"
+        property color m3onSurfaceVariant: "#ff626262"
+        property color m3onBackground: "#ff777777"
+    }
+    function ensureContrast(foreground: color, background: color, minimum: real): color { return Contrast.ensure(foreground, background, minimum); }
+    function backgroundFor(item: Item): color { return Contrast.background(item, palette.m3surface); }
+    function foreground(foreground: color, item: Item, disabled: bool): color {
+        return ensureContrast(foreground, backgroundFor(item), disabled ? disabledContrast : minimumContrast);
+    }
+    function layer(colour: color, layer: int): color { return colour; }
+}
+QML
+}
+
+ipc() { /usr/bin/quickshell -p "$test_root/colour-contrast-views.qml" ipc call colourContrastTest "$@" 2>/dev/null; }
+
+wait_for() {
+    local query=$1 attempt snapshot
+    for ((attempt=0; attempt<120; attempt++)); do
+        snapshot="$(ipc snapshot 2>/dev/null || true)"
+        if [[ -n $snapshot ]] && /usr/bin/jq -e "$query" <<< "$snapshot" >/dev/null 2>&1; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail "Timed out waiting for $query"
+}
+
+expect() {
+    local query=$1 snapshot
+    snapshot="$(ipc snapshot)"
+    /usr/bin/jq -e "$query" <<< "$snapshot" >/dev/null || fail "Failed: $query; $snapshot"
+}
+
+make_fixture
+export TEST_ROOT="$test_root" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache"
+export QML_IMPORT_PATH="$test_root/modules" QML2_IMPORT_PATH="$test_root/modules"
+export QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= QT_NO_XDG_DESKTOP_PORTAL=1
+/usr/bin/mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CACHE_HOME"
+/usr/bin/chmod 700 "$XDG_RUNTIME_DIR"
+/usr/bin/quickshell -p "$test_root/colour-contrast-views.qml" > "$test_root/views.log" 2>&1 &
+fixture_pid=$!
+wait_for '.helper.whiteOnBlack == 21 and .helper.sameColour == 1 and .helper.grayOnWhite == 4.478 and .helper.ensured and .background.alphaComposite'
+
+expect '.helper.whiteOnBlack == 21 and .helper.sameColour == 1 and .helper.grayOnWhite == 4.478 and .helper.ensured and .background.alphaComposite and .background.midpoint'
+expect '.buttons.filledOff.ratio >= 4.5 and .buttons.tonalOff.ratio >= 4.5 and .buttons.textOff.ratio >= 4.5 and .buttons.customOff.ratio >= 4.5 and .buttons.lockOff.ratio >= 4.5'
+expect '.split.enabled.ratio >= 4.5 and .switch.off.trackRatio >= 4.5 and .switch.off.thumbRatio >= 4.5 and .switch.off.glyphRatio >= 4.5 and .radio.off.ringRatio >= 4.5 and .radio.on.ringRatio >= 4.5 and .radio.on.dotRatio >= 4.5'
+expect '.slider.enabled.fgRatio >= 4.5 and .slider.enabled.bgRatio > 1'
+ipc setChecked
+expect '.buttons.filledChecked.ratio >= 4.5 and .buttons.tonalChecked.ratio >= 4.5 and .buttons.textChecked.ratio >= 4.5 and .buttons.lockChecked.ratio >= 4.5 and .switch.on.trackRatio >= 4.5 and .switch.on.thumbRatio >= 4.5 and .switch.on.glyphRatio >= 4.5'
+expect '.buttons.filledOff.background != .buttons.textOff.background and .buttons.textOff.background == .background.colour'
+
+ipc setUnavailable
+wait_for '.buttons.filledDisabled.ratio >= 3 and .buttons.inheritedDisabled.unavailable'
+expect '.buttons.filledDisabled.ratio >= 3 and .buttons.filledDisabled.alpha != 0.38 and .buttons.inheritedDisabled.ratio >= 3 and .buttons.inheritedDisabled.unavailable and .split.disabled.ratio >= 3 and .split.disabled.alpha != 0.38 and .switch.disabled.trackRatio >= 3 and .switch.disabled.thumbRatio >= 3 and .switch.disabled.glyphRatio >= 3 and .radio.disabled.unavailable and .radio.disabled.textRatio >= 3 and .slider.disabled.fgRatio >= 3 and .slider.disabled.bgRatio < 3'
+
+ipc reloadTheme
+after="$(ipc snapshot)"
+/usr/bin/jq -e '.theme.bindingChanged and .theme.ratio >= 4.5' <<< "$after" >/dev/null || fail "Theme palette change did not update live bindings: $after"
+
+image_path="/tmp/caelestia-colour-contrast-${BASHPID}.png"
+ipc capture "$image_path"
+for ((attempt=0; attempt<100; attempt++)); do
+    [[ -s $image_path ]] && break
+    /usr/bin/sleep 0.05
+done
+[[ -s $image_path ]] || fail 'The offscreen control matrix did not render a screenshot.'
+if /usr/bin/rg -q 'ReferenceError|TypeError|Cannot assign|Unable to assign|Failed to load' "$test_root/views.log"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'The control fixture logged a QML error.'
+fi
+printf 'PASS: helper alpha composition and contrast math, filled/tonal/text/custom and lock buttons, split buttons, switch and radio states, slider enabled/disabled colors, inherited disabled state, live theme bindings, and offscreen render (%s)\n' "$image_path"

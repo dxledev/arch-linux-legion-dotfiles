@@ -18,6 +18,7 @@ ConnectedRect {
     readonly property alias iconLabel: iconLabel
     readonly property alias label: label
     readonly property alias subLabel: subLabel
+    readonly property bool unavailable: disabled || !enabled
 
     signal clicked(event: MouseEvent)
 
@@ -39,16 +40,10 @@ ConnectedRect {
         anchors.margins: Tokens.padding.largeIncreased
 
         spacing: Tokens.spacing.medium
-        opacity: root.disabled ? 0.5 : 1
-
-        Behavior on opacity {
-            Anim {}
-        }
-
         MaterialIcon {
             id: iconLabel
 
-            color: Colours.palette.m3onSurfaceVariant
+            color: Colours.foreground(Colours.palette.m3onSurfaceVariant, root, root.unavailable)
             fontStyle: Tokens.font.icon.medium
             fill: 1
         }
@@ -66,6 +61,7 @@ ConnectedRect {
                 anchors.right: parent.right
 
                 font: Tokens.font.body.small
+                color: Colours.foreground(Colours.palette.m3onSurface, root, root.unavailable)
                 elide: Text.ElideRight
             }
 
@@ -76,7 +72,7 @@ ConnectedRect {
                 anchors.right: parent.right
 
                 visible: text
-                color: Colours.palette.m3outline
+                color: Colours.foreground(Colours.palette.m3outline, root, root.unavailable)
                 font: Tokens.font.label.small
                 elide: Text.ElideRight
             }
@@ -89,7 +85,7 @@ ConnectedRect {
 
             sourceComponent: MaterialIcon {
                 text: root.trailingIcon
-                color: Colours.palette.m3onSurfaceVariant
+                color: Colours.foreground(Colours.palette.m3onSurfaceVariant, root, root.unavailable)
                 fontStyle: Tokens.font.icon.medium
             }
         }

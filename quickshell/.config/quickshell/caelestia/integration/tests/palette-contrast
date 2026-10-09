@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root="$(/usr/bin/readlink -f -- "$test_dir/../../..")"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/caelestia-palette-contrast.XXXXXX")"
+fixture_pid=''
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+cleanup() {
+    if [[ -n "$fixture_pid" ]]; then
+        /usr/bin/kill "$fixture_pid" 2>/dev/null || true
+        /usr/bin/wait "$fixture_pid" 2>/dev/null || true
+    fi
+    /usr/bin/rm -rf -- "$test_root"
+}
+trap cleanup EXIT
+
+fail() { printf 'palette contrast: %s\n' "$*" >&2; exit 1; }
+
+make_fixture() {
+    /usr/bin/mkdir -p "$test_root/qml/qs/services" "$test_root/qml/qs/integration" \
+        "$test_root/qml/qs/utils" "$test_root/qml/Caelestia/Config" \
+        "$test_root/qml/Caelestia/Images" "$test_root/runtime" "$test_root/cache" \
+        "$test_root/state/caelestia" "$test_root/static"
+    /usr/bin/chmod 700 "$test_root/runtime"
+    /usr/bin/cp "$test_dir/palette-contrast-views.qml" "$test_root/views.qml"
+    /usr/bin/cp "$root/caelestia/services/Colours.qml" "$test_root/qml/qs/services/Colours.qml"
+    /usr/bin/cp "$root/caelestia/integration/Colors.qml" "$test_root/qml/qs/integration/Colors.qml"
+    /usr/bin/cp "$root/caelestia/utils/ColourContrast.js" "$test_root/qml/ColourContrast.js"
+    /usr/bin/cp "$root/caelestia/utils/ColourContrast.js" "$test_root/qml/qs/utils/ColourContrast.js"
+    printf 'module qs.services\nsingleton Aether 1.0 Aether.qml\nsingleton Colours 1.0 Colours.qml\nsingleton Hypr 1.0 Hypr.qml\nsingleton Wallpapers 1.0 Wallpapers.qml\n' > "$test_root/qml/qs/services/qmldir"
+    printf 'module qs.integration\nsingleton Colors 1.0 Colors.qml\nsingleton System 1.0 System.qml\n' > "$test_root/qml/qs/integration/qmldir"
+    printf 'module qs.utils\nsingleton Paths 1.0 Paths.qml\n' > "$test_root/qml/qs/utils/qmldir"
+    printf 'module Caelestia.Config\nsingleton Tokens 1.0 Tokens.qml\n' > "$test_root/qml/Caelestia/Config/qmldir"
+    printf 'module Caelestia.Images\nImageAnalyser 1.0 ImageAnalyser.qml\n' > "$test_root/qml/Caelestia/Images/qmldir"
+
+    cat > "$test_root/qml/qs/integration/System.qml" <<'QML'
+pragma Singleton
+import QtQuick
+import Quickshell
+QtObject {
+    property string themeFile: Quickshell.env("SHELL_THEME_FILE")
+    property real minimumContrast: 4.5
+    property real disabledContrast: 3.0
+}
+QML
+    cat > "$test_root/qml/qs/utils/Paths.qml" <<'QML'
+pragma Singleton
+import QtQuick
+import Quickshell
+QtObject { readonly property string state: Quickshell.env("TEST_STATE") }
+QML
+    cat > "$test_root/qml/qs/services/Aether.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { function quit(): void {} }
+QML
+    cat > "$test_root/qml/qs/services/Hypr.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    property bool usingLua: false
+    readonly property QtObject extras: QtObject { function batchMessage(messages: var): void {} }
+}
+QML
+    cat > "$test_root/qml/qs/services/Wallpapers.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject { property string current: "" }
+QML
+    cat > "$test_root/qml/Caelestia/Config/Tokens.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    readonly property var transparency: ({enabled: false, base: 0.9, layers: 0.9})
+    readonly property var anim: ({durations: {expressiveSlowEffects: 1}})
+}
+QML
+    cat > "$test_root/qml/Caelestia/Images/ImageAnalyser.qml" <<'QML'
+import QtQuick
+QtObject { property real luminance: 0; property url source }
+QML
+
+    cat > "$test_root/static/initial.qml" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    readonly property color background: "#151515"
+    readonly property color foreground: "#eeeeee"
+    readonly property color primary: "#607d8b"
+}
+QML
+    /usr/bin/jq -cn '{source:"dynamic",provider:"caelestia",name:"dynamic",flavour:"fixture",mode:"dark",variant:"tonalspot",colours:{background:"101010",onBackground:"eeeeee",surface:"101010",surfaceDim:"101010",surfaceBright:"303030",surfaceContainerLowest:"101010",surfaceContainerLow:"161616",surfaceContainer:"202020",surfaceContainerHigh:"282828",surfaceContainerHighest:"303030",onSurface:"eeeeee",surfaceVariant:"303030",onSurfaceVariant:"aaaaaa",primary:"336699",onPrimary:"ffffff",primaryContainer:"224466",onPrimaryContainer:"ffffff",secondary:"336699",onSecondary:"ffffff",secondaryContainer:"224466",onSecondaryContainer:"ffffff",tertiary:"336699",onTertiary:"ffffff",tertiaryContainer:"224466",onTertiaryContainer:"ffffff",error:"993333",onError:"ffffff",errorContainer:"662222",onErrorContainer:"ffffff",success:"336633",onSuccess:"ffffff",successContainer:"224422",onSuccessContainer:"ffffff",outline:"aaaaaa",term0:"010203",term8:"808080"}}' > "$test_root/state/caelestia/shell-theme-palette.json"
+}
+
+ipc() { /usr/bin/quickshell -p "$test_root/views.qml" ipc call paletteContrast "$@"; }
+
+wait_for() {
+    local query="$1" attempt snapshot
+    for ((attempt=0; attempt<100; attempt++)); do
+        snapshot="$(ipc snapshot false 2>/dev/null || true)"
+        if [[ -n "$snapshot" ]] && /usr/bin/jq -e "$query" <<< "$snapshot" >/dev/null 2>&1; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    /usr/bin/cat "$test_root/views.log" >&2
+    snapshot="$(ipc snapshot false 2>/dev/null || true)"
+    fail "timed out waiting for $query; last snapshot: $snapshot"
+}
+
+assert_palette() {
+    local snapshot="$1" label="$2" minimum="$3"
+    /usr/bin/jq -e --argjson minimum "$minimum" '
+        (.selected.ratios.onBackground >= $minimum) and
+        (.selected.ratios.onSurface >= $minimum) and
+        (.selected.ratios.onSurfaceVariant >= $minimum) and
+        (.selected.ratios.inverseOnSurface >= $minimum) and
+        (.selected.ratios.outline >= 3) and
+        all(.selected.ratios | to_entries[]; if (.key == "outline") or (.key | startswith("outline:")) then .value >= 3 else .value >= $minimum end)
+    ' <<< "$snapshot" >/dev/null || fail "$label has a below-target role: $snapshot"
+}
+
+normalise_hex() {
+    local value="${1,,}"
+    [[ "$value" == \#* ]] || value="#$value"
+    printf '%s\n' "$value"
+}
+
+assert_source_palette() {
+    local snapshot="$1" data="$2" label="$3" expected_background expected_surface expected_primary expected_secondary expected_tertiary expected_error expected_success
+    expected_background="$(normalise_hex "$(/usr/bin/jq -r '.colours.background' <<< "$data")")"
+    expected_surface="$(normalise_hex "$(/usr/bin/jq -r '.colours.surface // .colours.background' <<< "$data")")"
+    expected_primary="$(normalise_hex "$(/usr/bin/jq -r '.colours.primary // .colours.accent // .colours.blue' <<< "$data")")"
+    expected_secondary="$(normalise_hex "$(/usr/bin/jq -r '.colours.secondary // .colours.cyan' <<< "$data")")"
+    expected_tertiary="$(normalise_hex "$(/usr/bin/jq -r '.colours.tertiary // .colours.yellow' <<< "$data")")"
+    expected_error="$(normalise_hex "$(/usr/bin/jq -r '.colours.error // .colours.red' <<< "$data")")"
+    expected_success="$(normalise_hex "$(/usr/bin/jq -r '.colours.success // .colours.green' <<< "$data")")"
+    /usr/bin/jq -e \
+        --arg background "$expected_background" --arg surface "$expected_surface" \
+        --arg primary "$expected_primary" --arg secondary "$expected_secondary" \
+        --arg tertiary "$expected_tertiary" --arg error "$expected_error" \
+        --arg success "$expected_success" '
+        .selected.colours.background == $background and
+        .selected.colours.surface == $surface and
+        .selected.colours.primary == $primary and
+        .selected.colours.secondary == $secondary and
+        .selected.colours.tertiary == $tertiary and
+        .selected.colours.error == $error and
+        .selected.colours.success == $success
+    ' <<< "$snapshot" >/dev/null || fail "$label changed a source surface or accent: $snapshot"
+
+    local encoded name source_color expected actual
+    while IFS= read -r encoded; do
+        name="$(/usr/bin/base64 -d <<< "$encoded" | /usr/bin/jq -r '.key')"
+        source_color="$(/usr/bin/base64 -d <<< "$encoded" | /usr/bin/jq -r '.value')"
+        case "$name" in
+            on*|outline|muted|foreground|inverseOnSurface|accent|cyan|yellow|red|green|blue|magenta)
+                continue
+                ;;
+        esac
+        actual="$(/usr/bin/jq -r --arg name "$name" '.selected.colours[$name] // empty' <<< "$snapshot")"
+        [[ -n "$actual" ]] || continue
+        expected="$(normalise_hex "$source_color")"
+        [[ "$actual" == "$expected" ]] || fail "$label changed source role $name from $expected to $actual"
+    done < <(/usr/bin/jq -r '.colours | to_entries[] | @base64' <<< "$data")
+
+    local slot expected_term actual_term
+    for ((slot=0; slot<16; slot++)); do
+        expected_term="$(/usr/bin/jq -r --arg key "term$slot" '.colours[$key] // empty' <<< "$data")"
+        [[ -n "$expected_term" ]] || continue
+        expected_term="$(normalise_hex "$expected_term")"
+        actual_term="$(/usr/bin/jq -r --arg key "term$slot" '.selected.colours[$key]' <<< "$snapshot")"
+        [[ "$actual_term" == "$expected_term" ]] || fail "$label changed source terminal slot term$slot from $expected_term to $actual_term"
+    done
+}
+
+check_dynamic_palette() {
+    local data="$1" label="$2" preview="${3:-false}" before after data_argument
+    before="$(ipc snapshot false)"
+    data_argument="$data"
+    local loaded
+    loaded="$(ipc loadPalette "$data_argument" "$preview")"
+    [[ "$loaded" == true ]] || fail "$label did not load through the real service: $loaded"
+    after="$(ipc snapshot "$preview")"
+    assert_palette "$after" "$label" 4.5
+    assert_source_palette "$after" "$data" "$label"
+    [[ -n "$before" ]] || fail "$label did not retain a readable previous palette"
+}
+
+make_fixture
+export TEST_STATE="$test_root/state/caelestia"
+export SHELL_THEME_FILE="$test_root/static/initial.qml"
+export CAELESTIA_START_LOCKED=1
+export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache"
+export QML_IMPORT_PATH="$test_root/qml" QML2_IMPORT_PATH="$test_root/qml"
+export QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= QT_NO_XDG_DESKTOP_PORTAL=1
+/usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
+fixture_pid=$!
+wait_for '.source == "dynamic" and .provider == "caelestia"'
+
+initial_data="$(/usr/bin/cat -- "$test_root/state/caelestia/shell-theme-palette.json")"
+initial="$(ipc snapshot false)"
+assert_palette "$initial" 'initial passing palette' 4.5
+assert_source_palette "$initial" "$initial_data" 'initial passing palette'
+/usr/bin/jq -e '
+    .current.colours.onSurface == "#eeeeee" and
+    .current.colours.onSurfaceVariant == "#aaaaaa" and
+    .current.colours.outline == "#aaaaaa"
+' <<< "$initial" >/dev/null || fail "already-passing foreground roles changed: $initial"
+
+altered_black="$(ipc blackAlter)"
+/usr/bin/jq -e 'all([.r, .g, .b, .a][]; type == "number" and . >= 0 and . <= 1) and (.a - 0.8 | fabs) < 0.001' <<< "$altered_black" >/dev/null || fail "black alterColour result is invalid: $altered_black"
+
+synthetic="$(/usr/bin/jq -cn '{source:"dynamic",provider:"caelestia",name:"dynamic",flavour:"fixture",mode:"dark",variant:"tonalspot",colours:{background:"777777",onBackground:"777777",surface:"777777",surfaceDim:"777777",surfaceBright:"777777",surfaceContainerLowest:"777777",surfaceContainerLow:"777777",surfaceContainer:"777777",surfaceContainerHigh:"777777",surfaceContainerHighest:"777777",onSurface:"777777",surfaceVariant:"777777",onSurfaceVariant:"777777",inverseSurface:"777777",inverseOnSurface:"777777",primary:"777777",onPrimary:"777777",primaryContainer:"777777",onPrimaryContainer:"777777",secondary:"777777",onSecondary:"777777",secondaryContainer:"777777",onSecondaryContainer:"777777",tertiary:"777777",onTertiary:"777777",tertiaryContainer:"777777",onTertiaryContainer:"777777",error:"777777",onError:"777777",errorContainer:"777777",onErrorContainer:"777777",success:"777777",onSuccess:"777777",successContainer:"777777",onSuccessContainer:"777777",outline:"777777",term0:"010203",term8:"808080"}}')"
+check_dynamic_palette "$synthetic" 'synthetic low-contrast palette'
+
+# Exercise cached Caelestia generator output from both modes without invoking its controller.
+cached_count=0
+if [[ -d "$cache_home/caelestia/shell-theme/palettes" ]]; then
+    for mode in dark light; do
+        cached="$(/usr/bin/rg --files "$cache_home/caelestia/shell-theme/palettes" 2>/dev/null | /usr/bin/rg "/$mode/tonalspot\.json$" | /usr/bin/sort | /usr/bin/head -n 1 || true)"
+        if [[ -n "$cached" ]]; then
+            check_dynamic_palette "$(/usr/bin/cat -- "$cached")" "cached Caelestia $mode tonalspot"
+            cached_count=$((cached_count + 1))
+        fi
+    done
+fi
+
+# Check every saved Aether snapshot through the real service loader.
+aether_count=0
+aether_dir="$state_home/caelestia/aether-palettes"
+if [[ -d "$aether_dir" ]]; then
+    while IFS= read -r record; do
+        while IFS= read -r encoded; do
+            palette="$(/usr/bin/base64 -d <<< "$encoded")"
+            style="$(/usr/bin/jq -r '.style // "saved"' <<< "$palette")"
+            mode="$(/usr/bin/jq -r '.mode // "unknown"' <<< "$palette")"
+            check_dynamic_palette "$palette" "saved Aether $style/$mode"
+            aether_count=$((aether_count + 1))
+        done < <(/usr/bin/jq -r '.snapshots | to_entries[] | .value | to_entries[] | .value.palette | @base64' "$record")
+    done < <(/usr/bin/rg --files "$aether_dir" | /usr/bin/rg '\.json$' | /usr/bin/sort)
+fi
+
+# Static integration uses the real Colors parser and Colours.loadSystemPalette path.
+static_count=0
+if [[ -d "$config_home/themes" ]]; then
+    declare -A seen_static=()
+    while IFS= read -r static_file; do
+        resolved="$(/usr/bin/readlink -f -- "$static_file" 2>/dev/null || true)"
+        [[ -n "$resolved" && -f "$resolved" ]] || continue
+        [[ -z "${seen_static[$resolved]:-}" ]] || continue
+        seen_static[$resolved]=1
+        previous_revision="$(/usr/bin/jq -r '.staticRevision' <<< "$(ipc snapshot false)")"
+        ipc setThemeFile "$resolved" >/dev/null
+        wait_for ".staticRevision > $previous_revision"
+        ipc loadSystem >/dev/null
+        snapshot="$(ipc snapshot false)"
+        assert_palette "$snapshot" "static $(/usr/bin/basename -- "$(/usr/bin/dirname -- "$resolved")")" 4.5
+        /usr/bin/jq -e '
+            .current.colours.primary == .staticSource.primary and
+            .current.colours.background == .staticSource.background and
+            .current.colours.surface == .staticSource.background and
+            .current.colours.surfaceVariant == .staticSource.surface and
+            .current.colours.surfaceContainerHighest == .staticSource.surface and
+            .current.colours.term0 == .staticSource.term0 and
+            .current.colours.term8 == .staticSource.term8
+        ' <<< "$snapshot" >/dev/null || fail "static source colors changed during correction: $resolved; $(/usr/bin/jq '{current:.current.colours,source:.staticSource}' <<< "$snapshot")"
+        /usr/bin/jq -e '
+            . as $snapshot |
+            (all($snapshot.staticSource.palette.ratios | to_entries[] | select((.key | startswith("onSurface:")) or .key == "onSurface"); .value >= 4.5)) as $on_surface_passes |
+            (all($snapshot.staticSource.palette.ratios | to_entries[] | select((.key | startswith("onSurfaceVariant:")) or .key == "onSurfaceVariant"); .value >= 4.5)) as $on_variant_passes |
+            (all($snapshot.staticSource.palette.ratios | to_entries[] | select((.key | startswith("outline:")) or .key == "outline"); .value >= 3)) as $outline_passes |
+            (($on_surface_passes | not) or $snapshot.current.colours.onSurface == $snapshot.staticSource.palette.colours.onSurface) and
+            (($on_variant_passes | not) or $snapshot.current.colours.onSurfaceVariant == $snapshot.staticSource.palette.colours.onSurfaceVariant) and
+            (($outline_passes | not) or $snapshot.current.colours.outline == $snapshot.staticSource.palette.colours.outline)
+        ' <<< "$snapshot" >/dev/null || fail "static source foreground is missing: $resolved"
+        static_count=$((static_count + 1))
+    done < <(/usr/bin/rg --files --hidden "$config_home/themes" | /usr/bin/rg '/[^/]+/Colors\.qml$' | /usr/bin/sort)
+fi
+
+if (( static_count == 0 )); then
+    fallback="$test_root/static/fallback.qml"
+    /usr/bin/cat > "$fallback" <<'QML'
+pragma Singleton
+import QtQuick
+QtObject {
+    readonly property color background: "#171717"
+    readonly property color foreground: "#eeeeee"
+    readonly property color backgroundGray: "#555555"
+    readonly property color muted: "#555555"
+    readonly property color primary: "#777777"
+}
+QML
+    previous_revision="$(/usr/bin/jq -r '.staticRevision' <<< "$(ipc snapshot false)")"
+    ipc setThemeFile "$fallback" >/dev/null
+    wait_for ".staticRevision > $previous_revision"
+    ipc loadSystem >/dev/null
+    snapshot="$(ipc snapshot false)"
+    assert_palette "$snapshot" 'fallback static palette' 4.5
+fi
+
+# Preview loading must use the same correction without changing the selected palette.
+preview_data="$synthetic"
+before="$(ipc snapshot false)"
+preview_argument="$preview_data"
+preview_loaded="$(ipc loadPalette "$preview_argument" true)"
+[[ "$preview_loaded" == true ]] || fail "preview palette did not load through the real service: $preview_loaded"
+after="$(ipc snapshot true)"
+assert_palette "$after" 'synthetic preview palette' 4.5
+assert_source_palette "$after" "$preview_data" 'synthetic preview palette'
+/usr/bin/jq -e --arg surface "$(/usr/bin/jq -r '.current.colours.surface' <<< "$before")" '
+    .current.colours.surface == $surface and .preview.colours.surface == "#777777"
+' <<< "$after" >/dev/null || fail 'preview correction changed the selected palette or did not populate preview'
+
+ipc setPreview true >/dev/null
+wait_for '.mode == "dark"'
+if /usr/bin/rg -n 'ReferenceError|TypeError|Could not load|Unable to load' "$test_root/views.log"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'palette fixture logged an unexpected QML error'
+fi
+
+printf 'PASS: low-contrast and passing palettes, finite black alterColour, %s cached Caelestia palettes, %s saved Aether snapshots, %s named Static palettes, and previews\n' "$cached_count" "$aether_count" "$static_count"

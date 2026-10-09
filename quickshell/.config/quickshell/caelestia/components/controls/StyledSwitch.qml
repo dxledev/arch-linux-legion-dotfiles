@@ -10,6 +10,25 @@ Switch {
 
     property int cLayer: 1
     property bool disabled
+    readonly property bool unavailable: disabled || !enabled
+    readonly property color preferredTrackColour: {
+        if (unavailable)
+            return checked ? Qt.alpha(Colours.palette.m3onSurface, 0.12) : Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.38);
+        return checked ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHighest, cLayer);
+    }
+    readonly property color preferredThumbColour: {
+        if (unavailable)
+            return checked ? Colours.palette.m3surface : Qt.alpha(Colours.palette.m3onSurface, 0.12);
+        return checked ? Colours.palette.m3onPrimary : Colours.layer(Colours.palette.m3outline, cLayer + 1);
+    }
+    readonly property color preferredGlyphColour: {
+        if (unavailable)
+            return checked ? Colours.palette.m3outline : Colours.palette.m3surfaceContainer;
+        return checked ? Colours.palette.m3primary : Colours.palette.m3surfaceContainerHighest;
+    }
+    readonly property color trackColour: Colours.foreground(preferredTrackColour, root, unavailable)
+    readonly property color thumbColour: Colours.foreground(preferredThumbColour, indicatorRect, unavailable)
+    readonly property color glyphColour: Colours.foreground(preferredGlyphColour, thumb, unavailable)
 
     enabled: !disabled
 
@@ -17,25 +36,21 @@ Switch {
     implicitHeight: implicitIndicatorHeight
 
     indicator: StyledRect {
+        id: indicatorRect
+
         radius: Tokens.rounding.full
-        color: {
-            if (root.disabled)
-                return root.checked ? Qt.alpha(Colours.palette.m3onSurface, 0.12) : Qt.alpha(Colours.palette.m3surfaceContainerHighest, 0.38);
-            return root.checked ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHighest, root.cLayer);
-        }
+        color: root.trackColour
 
         implicitWidth: implicitHeight * 1.7
         implicitHeight: Tokens.font.body.medium.pointSize + Tokens.padding.small * 2
 
         StyledRect {
+            id: thumb
+
             readonly property real nonAnimWidth: root.pressed ? implicitHeight * 1.2 : implicitHeight
 
             radius: Tokens.rounding.full
-            color: {
-                if (root.disabled)
-                    return root.checked ? Colours.palette.m3surface : Qt.alpha(Colours.palette.m3onSurface, 0.12);
-                return root.checked ? Colours.palette.m3onPrimary : Colours.layer(Colours.palette.m3outline, root.cLayer + 1);
-            }
+            color: root.thumbColour
 
             x: root.checked ? parent.implicitWidth - nonAnimWidth - Tokens.padding.extraSmall / 2 : Tokens.padding.extraSmall / 2
             implicitWidth: nonAnimWidth
@@ -102,11 +117,7 @@ Switch {
 
                 ShapePath {
                     strokeWidth: root.Tokens.font.body.large.pointSize * 0.15
-                    strokeColor: {
-                        if (root.disabled)
-                            return root.checked ? Colours.palette.m3outline : Colours.palette.m3surfaceContainer;
-                        return root.checked ? Colours.palette.m3primary : Colours.palette.m3surfaceContainerHighest;
-                    }
+                    strokeColor: root.glyphColour
                     fillColor: "transparent"
                     capStyle: root.Tokens.rounding.scale === 0 ? ShapePath.SquareCap : ShapePath.RoundCap
 

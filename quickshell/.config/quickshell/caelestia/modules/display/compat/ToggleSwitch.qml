@@ -1,5 +1,6 @@
 import QtQuick
 import qs.modules.display.compat
+import qs.services
 
 // Bare on/off switch: a track with a sliding knob and no label. This is the
 // switch `Toggle` parks at the end of its labeled row, factored out so panel
@@ -92,7 +93,7 @@ Item {
       radius: root.rounded ? height / 2 : 0
       x: root.checked ? track.width - width - root.knobInset : root.knobInset
       anchors.verticalCenter: parent.verticalCenter
-      color: root.checked ? Style.selectedStateColor(root.foreground, root.accent) : Qt.darker(root.foreground, 1.25)
+      color: Colours.foreground(root.checked ? Style.selectedStateColor(root.foreground, root.accent) : Qt.darker(root.foreground, 1.25), track, !root.enabled)
 
       Behavior on x { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
       Behavior on color { ColorAnimation { duration: Style.duration(120) } }

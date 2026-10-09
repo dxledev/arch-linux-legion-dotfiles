@@ -145,7 +145,7 @@ StackView {
                             anchors.leftMargin: icon.active ? Tokens.spacing.medium : 0
 
                             text: labelMetrics.elidedText
-                            color: item.modelData.enabled ? Colours.palette.m3onSurface : Colours.palette.m3outline
+                            color: Colours.foreground(item.modelData.enabled ? Colours.palette.m3onSurface : Colours.palette.m3outline, item, !item.modelData.enabled)
                         }
 
                         TextMetrics {
@@ -169,7 +169,7 @@ StackView {
 
                             sourceComponent: MaterialIcon {
                                 text: "chevron_right"
-                                color: item.modelData.enabled ? Colours.palette.m3onSurface : Colours.palette.m3outline
+                                color: Colours.foreground(item.modelData.enabled ? Colours.palette.m3onSurface : Colours.palette.m3outline, item, !item.modelData.enabled)
                             }
                         }
                     }

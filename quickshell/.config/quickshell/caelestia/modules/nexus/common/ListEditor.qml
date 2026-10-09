@@ -121,8 +121,8 @@ ListView {
                 placeholder.opacity: 0.1
                 elevation.opacity: 1
                 itemBg.color: Colours.palette.m3primaryContainer
-                dragIcon.color: Colours.palette.m3onPrimaryContainer
-                label.color: Colours.palette.m3onPrimaryContainer
+                dragIcon.color: Colours.foreground(Colours.palette.m3onPrimaryContainer, itemBg, false)
+                label.color: Colours.foreground(Colours.palette.m3onPrimaryContainer, itemBg, false)
             }
         }
 
@@ -290,7 +290,7 @@ ListView {
                     id: dragIcon
 
                     text: "drag_indicator"
-                    color: Qt.alpha(Colours.palette.m3onSurfaceVariant, enabledSwitch.checked ? 1 : 0.5)
+                    color: Colours.foreground(Qt.alpha(Colours.palette.m3onSurfaceVariant, enabledSwitch.checked ? 1 : 0.5), itemBg, !enabledSwitch.checked)
                     fontStyle: Tokens.font.icon.medium
                 }
 
@@ -299,7 +299,7 @@ ListView {
 
                     Layout.fillWidth: true
                     text: root.labelFor(item.modelData)
-                    color: Qt.alpha(Colours.palette.m3onSurface, enabledSwitch.checked ? 1 : 0.5)
+                    color: Colours.foreground(Qt.alpha(Colours.palette.m3onSurface, enabledSwitch.checked ? 1 : 0.5), itemBg, !enabledSwitch.checked)
                     elide: Text.ElideRight
                 }
 

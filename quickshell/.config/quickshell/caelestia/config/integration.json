@@ -5,6 +5,7 @@
     {"connector": "DP-1", "label": "Secondary"}
   ],
   "aiUsageRefreshIntervalSeconds": 300,
+  "contrast": {"minimum": 4.5, "disabled": 3.0},
   "protonVpn": {
     "cliPath": "/usr/bin/protonvpn",
     "nmcliPath": "/usr/bin/nmcli",

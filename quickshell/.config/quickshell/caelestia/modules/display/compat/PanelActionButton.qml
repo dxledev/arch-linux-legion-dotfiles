@@ -1,5 +1,6 @@
 import QtQuick
 import qs.modules.display.compat
+import qs.services
 
 // Small (22×22 by default) icon button used at the right edge of panel rows
 // for inline actions — forget network, confirm passphrase, unpair device,
@@ -72,9 +73,9 @@ BorderSurface {
     textFormat: Text.PlainText
     anchors.centerIn: parent
     text: root.iconText
-    color: root.enabled
+    color: Colours.foreground(root.enabled
       ? (root._hot ? root.hoverColor : root.foreground)
-      : Qt.darker(root.foreground, 2.0)
+      : Qt.darker(root.foreground, 2.0), root, !root.enabled)
     font.family: root.fontFamily
     font.pixelSize: root.fontSize
   }

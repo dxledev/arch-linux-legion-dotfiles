@@ -146,6 +146,8 @@ ColumnLayout {
     }
 
     component Button: StyledRect {
+        id: button
+
         property color onColor: Colours.palette.m3onSurface
         property alias disabled: stateLayer.disabled
         property alias text: label.text
@@ -160,7 +162,7 @@ ColumnLayout {
         StateLayer {
             id: stateLayer
 
-            color: parent.onColor
+            color: Colours.foreground(button.onColor, button, button.disabled || !button.enabled)
             onClicked: parent.clicked()
         }
 
@@ -170,7 +172,7 @@ ColumnLayout {
             anchors.centerIn: parent
 
             animate: true
-            color: parent.onColor
+            color: Colours.foreground(button.onColor, button, button.disabled || !button.enabled)
             font: Tokens.font.body.medium
         }
     }

@@ -35,7 +35,8 @@ StyledRect {
     property color disabledOnColour: Qt.alpha(Colours.palette.m3onSurface, 0.38)
     property bool internalChecked
     property real shapeMorphExpansion: shapeMorph && pressed ? 24 : 0
-    readonly property color onColour: disabled ? disabledOnColour : internalChecked ? activeOnColour : inactiveOnColour
+    readonly property bool unavailable: disabled || !enabled
+    readonly property color onColour: Colours.foreground(unavailable ? disabledOnColour : internalChecked ? activeOnColour : inactiveOnColour, root, unavailable)
     property real pressedRadius: Tokens.rounding.small
     property real checkedRadius: Tokens.rounding.medium
     property real defaultRadius: Tokens.rounding.large
@@ -53,7 +54,7 @@ StyledRect {
             return (height || implicitHeight) / 2 * Math.min(1, Tokens.rounding.scale);
         return defaultRadius;
     }
-    color: type === LockButtonBase.Text ? "transparent" : disabled ? disabledColour : internalChecked ? activeColour : inactiveColour
+    color: type === LockButtonBase.Text ? "transparent" : unavailable ? disabledColour : internalChecked ? activeColour : inactiveColour
 
     required implicitWidth
     required implicitHeight
