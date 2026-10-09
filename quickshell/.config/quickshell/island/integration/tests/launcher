@@ -10,7 +10,9 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 source "$test_dir/../theme-functions"
 
 check_settings() {
-    read_settings | /usr/bin/jq -e '.launcherShowAllApps and .launcherMatching == "Fuzzy" and .launcherSearchOrder == "Relevance"' >/dev/null
+    read_settings | /usr/bin/jq -e '.launcherShowAllApps and (.launcherColorizeIcons | not) and .launcherMatching == "Fuzzy" and .launcherSearchOrder == "Relevance"' >/dev/null
+    save_setting launcherColorizeIcons true
+    read_settings | /usr/bin/jq -e '.launcherColorizeIcons == true' >/dev/null
     save_setting launcherShowAllApps false
     save_setting launcherSearchDescriptions true
     save_setting launcherDefaultOrder 'App list order'
@@ -19,13 +21,14 @@ check_settings() {
     local before
     before="$(/usr/bin/sha256sum "$settings_file")"
     dry_run=1
-    save_setting launcherShowAllApps true >/dev/null
+    save_setting launcherColorizeIcons false >/dev/null
     [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
     dry_run=0
-    for invalid in 'launcherShowAllApps yes' 'launcherMatching invalid' 'launcherSearchOrder invalid' 'launcherDefaultOrder Relevance'; do
+    for invalid in 'launcherShowAllApps yes' 'launcherColorizeIcons yes' 'launcherMatching invalid' 'launcherSearchOrder invalid' 'launcherDefaultOrder Relevance'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
     done
     save_setting launcherShowAllApps true
+    save_setting launcherColorizeIcons false
     save_setting launcherMatching Fuzzy
     save_setting launcherSearchOrder Relevance
 }
@@ -65,6 +68,7 @@ APPS
 check_settings
 make_fixture
 if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
     ISLAND_APP_LIST_SCRIPT="$test_root/app-list" ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then

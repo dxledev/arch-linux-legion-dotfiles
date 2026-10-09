@@ -23,13 +23,7 @@ Singleton {
     }
 
     function openWebUi(): void {
-        const browser = Quickshell.env("BROWSER").trim();
-        const url = "https://localhost:47990";
-
-        if (browser.length > 0)
-            Quickshell.execDetached(["/usr/bin/env", browser, url]);
-        else
-            Quickshell.execDetached(["/usr/bin/xdg-open", url]);
+        Quickshell.execDetached(["/usr/bin/xdg-open", "https://localhost:47990"]);
     }
 
     Process {

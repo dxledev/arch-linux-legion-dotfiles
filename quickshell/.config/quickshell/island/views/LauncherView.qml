@@ -49,16 +49,6 @@ FocusScope {
             Keys.onUpPressed: root.moveSelection(-1)
             onAccepted: root.launchSelected()
         }
-        Row {
-            width: parent.width
-            spacing: 12
-            SettingToggle { width: parent.width - 48; text: "Show all apps"; setting: "launcherShowAllApps" }
-            IconButton {
-                iconSource: "../assets/icons/settings.svg"
-                description: "Launcher settings"
-                onClicked: IslandController.openSettingsSection("launcher")
-            }
-        }
         ListView {
             id: apps
             objectName: "launcher-results"
@@ -85,14 +75,14 @@ FocusScope {
                     Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 32; height: 32
-                        Image {
+                        ColouredAppIcon {
                             id: appIcon
                             anchors.fill: parent
+                            colorize: ThemeService.settings.launcherColorizeIcons ?? false
+                            light: Theme.background.hslLightness > 0.5
+                            colour: light ? Theme.textPrimary : Theme.textSecondary
                             source: row.modelData.icon.startsWith("/") ? "file:" + row.modelData.icon
                                 : Quickshell.hasThemeIcon(row.modelData.icon) ? Quickshell.iconPath(row.modelData.icon) : ""
-                            sourceSize.width: 32; sourceSize.height: 32
-                            fillMode: Image.PreserveAspectFit
-                            visible: status === Image.Ready
                         }
                         SvgIcon {
                             anchors.centerIn: parent

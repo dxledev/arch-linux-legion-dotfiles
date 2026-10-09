@@ -8,6 +8,7 @@ SettingsPanel {
         title: "Apps"
         iconSource: "../assets/icons/apps.svg"
         SettingToggle { text: "Show all apps"; setting: "launcherShowAllApps" }
+        SettingToggle { text: "Colorize app icons"; setting: "launcherColorizeIcons" }
         SettingChoice {
             label: "Default order"
             choices: ["App list order", "Alphabetical", "Most used", "Recently used"]
