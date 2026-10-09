@@ -68,7 +68,7 @@ hl.window_rule({
 })
 
 local floating_rules = {
-  { name = "float-localsend", class = "localsend", size = { 410, 580 } },
+  { name = "float-localsend", class = "^(localsend|org\\.localsend\\.localsend_app)$", size = { 410, 580 } },
   { name = "float-qalculate", class = "io.github.Qalculate.qalculate-qt", size = { 400, 620 } },
   { name = "move-discord-to-discordspace", title = "Discord", workspace = "special:discordspace", size = { 1200, 800 } },
   { name = "move-discord-to-discordspace-two", title = "^(\\(\\d+\\)\\s*)?Discord.*", workspace = "special:discordspace", size = { 1200, 800 } },
