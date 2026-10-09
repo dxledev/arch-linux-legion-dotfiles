@@ -103,12 +103,15 @@
             }
         ],
         "tray": {
+            "background": false,
+            "compact": false,
             "iconSubs": [
                 {
                     "icon": "discord-tray",
                     "id": "vesktop_status_icon_1"
                 }
-            ]
+            ],
+            "recolour": false
         },
         "workspaces": {
             "activeTrail": true,
