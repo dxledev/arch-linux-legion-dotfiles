@@ -9,9 +9,13 @@ Item {
     property string subtitle: ""
     property string trailingText: ""
     property bool trailingClickable: false
+    property url titleActionIcon: ""
+    property string titleActionDescription: ""
+    property bool titleActionActive: false
     property var scrollTargets: []
     signal back()
     signal trailingClicked()
+    signal titleActionClicked()
     width: parent.width
     implicitHeight: subtitle ? 64 : 48
     IconButton {
@@ -28,22 +32,39 @@ Item {
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
         spacing: 4
-        UiText {
-            id: titleLabel
-            objectName: "panel-title"
+        Item {
             width: parent.width
-            text: root.title
-            color: Theme.textPrimary
-            font.pixelSize: 25
-            font.weight: Font.DemiBold
-            elide: Text.ElideRight
-            ScrollProgress {
-                anchors.left: parent.left
-                anchors.top: parent.bottom
-                anchors.topMargin: 1
-                width: Math.min(titleLabel.contentWidth, titleLabel.width)
-                height: implicitHeight
-                scrollTargets: root.scrollTargets
+            height: Math.max(titleLabel.implicitHeight, titleAction.visible ? titleAction.implicitHeight : 0)
+            UiText {
+                id: titleLabel
+                objectName: "panel-title"
+                anchors.verticalCenter: parent.verticalCenter
+                width: titleAction.visible ? Math.min(implicitWidth, parent.width - titleAction.width - 8) : parent.width
+                text: root.title
+                color: Theme.textPrimary
+                font.pixelSize: 25
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                ScrollProgress {
+                    anchors.left: parent.left
+                    anchors.top: parent.bottom
+                    anchors.topMargin: 1
+                    width: Math.min(titleLabel.contentWidth, titleLabel.width)
+                    height: implicitHeight
+                    scrollTargets: root.scrollTargets
+                }
+            }
+            IconButton {
+                id: titleAction
+                objectName: "panel-title-action"
+                anchors.left: titleLabel.right
+                anchors.leftMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.titleActionIcon.toString().length > 0
+                iconSource: root.titleActionIcon
+                iconColor: root.titleActionActive ? Theme.accent : Theme.textPrimary
+                description: root.titleActionDescription
+                onClicked: root.titleActionClicked()
             }
         }
         UiText {

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-menu-pins.XXXXXX)"
+cleanup() { /usr/bin/rm -rf -- "$test_root"; }
+trap cleanup EXIT
+config_home="$test_root/config"
+settings_file="$test_root/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$test_dir/../theme-functions"
+
+read_settings | /usr/bin/jq -e '.menuPinnedEntries == []' >/dev/null || fail 'Pinned menu entries default was not empty.'
+
+check_round_trip() {
+    local entries="$1"
+    save_setting menuPinnedEntries "$entries" >/dev/null
+    read_settings | /usr/bin/jq -e --argjson expected "$entries" '.menuPinnedEntries == $expected' >/dev/null || fail "Pinned menu entries did not round-trip: $entries"
+}
+
+check_round_trip '[]'
+check_round_trip '["settings-dynamicPalette"]'
+check_round_trip '["settings-dynamicPalette","themes"]'
+check_round_trip '["settings-dynamicPalette","themes","control-center"]'
+check_round_trip '["settings-dynamicPalette","themes","control-center","future_entry"]'
+
+/usr/bin/jq -c '. + {futureSetting:{enabled:true}}' "$settings_file" > "$settings_file.tmp"
+/usr/bin/mv -- "$settings_file.tmp" "$settings_file"
+save_setting menuPinnedEntries '["settings-dynamicPalette"]' >/dev/null
+read_settings | /usr/bin/jq -e '.futureSetting.enabled and .menuPinnedEntries == ["settings-dynamicPalette"]' >/dev/null || fail 'Saving pinned menu entries dropped an unknown setting.'
+
+check_invalid() {
+    local value="$1" before
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    if (save_setting menuPinnedEntries "$value") >/dev/null 2>&1; then fail "Accepted invalid pinned menu entries: $value"; fi
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]] || fail "Invalid pinned menu entries changed settings: $value"
+}
+
+for invalid in 'null' '{}' '"themes"' '["a","b","c","d","e"]' '["themes","themes"]' '["1theme"]' '["has space"]' '["bad.id"]' '[null]' '["a\nb"]' '{broken'; do
+    check_invalid "$invalid"
+done
+
+before="$(/usr/bin/sha256sum "$settings_file")"
+dry_run=1
+save_setting menuPinnedEntries '["themes","control-center"]' >/dev/null
+[[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]] || fail 'Dry-run changed saved pinned menu entries.'
+
+printf 'PASS: pinned menu defaults, four-entry round trips, unknown setting preservation, validation and dry-run\n'

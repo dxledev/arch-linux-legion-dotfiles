@@ -19,7 +19,9 @@ Switch with `/home/dxle/bin/toggle-shell-mode --island`, or select **Island** in
 | Super + Alt + P | Power menu |
 | Super + Shift + L | Island lock screen |
 
-The compact Island displays only the clock. The theme section shows the static theme name, or `dynamic`. The expanded view has a control center button with a sliders icon and a three-dot menu. It opens a dedicated panel for themes, wallpapers, settings, and shell switching.
+The compact Island displays only the clock. The theme section shows the static theme name, or `dynamic`. The expanded view has a control center button with a sliders icon and a three-dot Menu panel.
+
+Menu displays four cards. Pin up to four submenus with their pin buttons; filled pins are saved automatically in Island's `menuPinnedEntries` setting. Unfilled slots use random submenus selected each time Menu opens. The search icon beside **Menu** reveals a search field and slightly extends the panel. Search starts hidden and finds every submenu, including Session, Control Center, Audio devices, all Settings pages, and Shell mode. Search matches titles, descriptions, and related terms. Use **Ctrl+F** to reveal or focus search, **Down** to focus results, arrows to select, and **Enter** to open. **Escape** first hides search, then closes Menu. Run `bash island/integration/tests/menu` for isolated menu interaction and persistence checks.
 
 Settings → App launcher includes **Show all apps** and **Colorize app icons**. Icon coloring defaults to off; enabling it uses Caelestia's shading-preserving foreground tint with Island's theme colors. The launcher popup contains only search, results and keyboard hints. The renderer uses the shared `Shell.AppIcons` runtime module installed by `./scripts/build-app-icons`.
 

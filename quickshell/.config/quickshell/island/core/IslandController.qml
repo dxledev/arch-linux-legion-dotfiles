@@ -5,11 +5,19 @@ import Quickshell.Hyprland
 
 import "../island"
 import "../services"
+import "../services/MenuEntries.js" as MenuEntries
 
 QtObject {
     id: root
 
-    readonly property var settingsSections: ["launcher", "appearance", "displays", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
+    readonly property var settingsSections: MenuEntries.settingsSections.map(section => section.key)
+
+    function openMenuEntry(id) {
+        const entry = MenuEntries.findEntryById(id);
+        if (!entry) return;
+        if (entry.route.type === "settings") openSettingsSection(entry.route.section);
+        else if (typeof root[entry.route.action] === "function") root[entry.route.action]();
+    }
 
     function focusedPanelMonitorName() {
         const screen = ThemeService.islandScreens.find(screen => screen.name === Hyprland.focusedMonitor?.name)

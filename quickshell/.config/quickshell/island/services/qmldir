@@ -12,6 +12,7 @@ IslandIPC 1.0 IslandIPC.qml
 FilteredListModel 1.0 FilteredListModel.qml
 KeyboardService 1.0 KeyboardService.qml
 singleton MediaService 1.0 MediaService.qml
+singleton MenuService 1.0 MenuService.qml
 singleton MicrophoneService 1.0 MicrophoneService.qml
 singleton NightLightService 1.0 NightLightService.qml
 singleton NotificationService 1.0 NotificationService.qml
