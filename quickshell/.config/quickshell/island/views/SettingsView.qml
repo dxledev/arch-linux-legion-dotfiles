@@ -8,6 +8,7 @@ SettingsPanel {
     id: root
     title: "Settings"
     contentSpacing: 8
+    maximumHeight: 635
     scrollObjectName: "settings-scroll"
     backAction: () => IslandController.openNavigation()
     escapeAction: () => IslandController.reset()

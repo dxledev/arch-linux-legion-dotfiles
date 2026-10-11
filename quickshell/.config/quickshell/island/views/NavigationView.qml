@@ -25,6 +25,13 @@ FocusScope {
         }
     }
 
+    function handleSearchToggle(event) {
+        if (event.key !== Qt.Key_Slash || event.modifiers !== Qt.NoModifier) return false;
+        toggleSearch();
+        event.accepted = true;
+        return true;
+    }
+
     function focusCards() {
         searchField.focus = false;
         menuGrid.forceActiveFocus();
@@ -63,6 +70,7 @@ FocusScope {
             placeholderText: "Search submenus…"
             onNavigateDown: root.focusCards()
             onAccepted: root.openSelected()
+            Keys.onPressed: event => root.handleSearchToggle(event)
         }
         GridView {
             id: menuGrid
@@ -74,6 +82,9 @@ FocusScope {
             cellWidth: width / 2
             cellHeight: 144
             contentHeight: Math.max(height, Math.ceil(count / 2) * cellHeight - 12)
+            // GridView includes the last cell's gutter in its native scroll extent.
+            bottomMargin: -12
+            interactive: count > 4
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             keyNavigationEnabled: true
@@ -113,6 +124,7 @@ FocusScope {
         }
     }
     Keys.onPressed: function(event) {
+        if (handleSearchToggle(event)) return;
         if (event.key === Qt.Key_F && (event.modifiers & Qt.ControlModifier)) {
             if (!searchVisible) toggleSearch();
             else searchField.forceActiveFocus();

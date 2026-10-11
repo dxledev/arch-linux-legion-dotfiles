@@ -10,6 +10,7 @@ import "../../services/MenuEntries.js" as MenuEntries
 ShellRoot {
     id: root
     property int phase: 0
+    property int scrollSettleTicks: 0
     property int pinIndex: 0
     property var randomizedAtOpen: null
     property string pendingId: ""
@@ -55,6 +56,23 @@ ShellRoot {
         else search.forceActiveFocus();
         check(view.searchVisible && search.activeFocus, "Search opens and receives focus");
         return search;
+    }
+    function testSlashToggle(view) {
+        const search = named(view, "menu-search");
+        const grid = named(view, "menu-grid");
+        grid.forceActiveFocus();
+        input.keyClick(Qt.Key_Slash, Qt.NoModifier, 0);
+        check(view.searchVisible && search.activeFocus, "Slash opens search and focuses the field");
+        input.keyClick(Qt.Key_Slash, Qt.NoModifier, 0);
+        check(!view.searchVisible && search.text === "", "Slash in the focused field closes and clears search without typing");
+        grid.forceActiveFocus();
+        input.keyClick(Qt.Key_Slash, Qt.NoModifier, 0);
+        check(view.searchVisible, "Slash opens search from grid focus");
+        grid.forceActiveFocus();
+        input.keyClick(Qt.Key_Slash, Qt.NoModifier, 0);
+        check(!view.searchVisible && search.text === "", "Slash from grid focus closes search");
+        input.keyClick(Qt.Key_Slash, Qt.ControlModifier, 0);
+        check(!view.searchVisible && search.text === "", "Modified slash does not toggle search");
     }
     function queryFor(id) {
         const entry = MenuEntries.findEntryById(id);
@@ -112,10 +130,46 @@ ShellRoot {
             check(firstCard.background.radius === 26, "Navigation cards keep 26 px corners");
             check(JSON.stringify(secondMenu.entries.map(entry => entry.id)) === JSON.stringify(menu.entries.map(entry => entry.id)), "Both views display the same randomized choices");
             randomizedAtOpen = MenuService.randomizedIds;
+            grid.forceActiveFocus();
+            check(grid.currentIndex === 0, "Closed menu starts keyboard navigation at the first card");
+            input.keyClick(Qt.Key_Down, Qt.NoModifier, 0);
+            check(grid.currentIndex >= 2 && grid.contentY === 0, "Down to the last row keeps the four-card grid at the top");
+            check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over the closed four-card grid");
+            scrollSettleTicks = 0;
+            phase = 100;
+        } else if (phase === 100) {
+            if (++scrollSettleTicks < 4) return;
+            check(named(menu, "menu-grid").contentY === 0, "Wheel input cannot scroll the closed four-card grid");
             click(named(menu, "panel-title-action"));
-            check(menu.searchVisible && named(menu, "menu-search").activeFocus, "Search action focuses the search field");
+            phase = 101;
+        } else if (phase === 101) {
+            const grid = named(menu, "menu-grid");
+            check(menu.searchVisible && menu.entries.length === 22, "Search opens with all menu entries");
+            check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over all search results");
+            scrollSettleTicks = 0;
+            phase = 102;
+        } else if (phase === 102) {
+            if (++scrollSettleTicks < 4) return;
+            check(named(menu, "menu-grid").contentY > 0, "All search results remain scrollable");
+            click(named(menu, "panel-title-action"));
+            scrollSettleTicks = 0;
+            phase = 103;
+        } else if (phase === 103) {
+            if (++scrollSettleTicks < 4) return;
+            const grid = named(menu, "menu-grid");
+            check(!menu.searchVisible && grid.contentY === 0, "Closing scrolled search resets the grid to the top");
+            click(named(menu, "panel-title-action"));
+            named(menu, "menu-search").text = "session";
+            scrollSettleTicks = 0;
+            phase = 104;
+        } else if (phase === 104) {
+            if (++scrollSettleTicks < 2) return;
+            const grid = named(menu, "menu-grid");
+            check(menu.entries.length <= 4 && grid.contentY === 0, "Four or fewer filtered entries stay fixed at the top");
+            named(menu, "menu-search").clear();
             phase = 2;
         } else if (phase === 2) {
+            check(menu.searchVisible && named(menu, "menu-search").activeFocus, "Search action focuses the search field");
             check(menu.height === 452, "Open search adds 60 px to menu height: " + menu.height);
             check(menu.entries.length === 22, "Empty query shows all 22 entries");
             named(menu, "menu-search").text = "session";
@@ -155,6 +209,7 @@ ShellRoot {
             openMenu();
             check(MenuService.randomizedIds !== randomizedAtOpen, "Reentry initializes a fresh randomized order");
             randomizedAtOpen = MenuService.randomizedIds;
+            testSlashToggle(menu);
             setQuery(menu, pinChoices[pinIndex]);
             phase = 9;
         } else if (phase === 9) {
