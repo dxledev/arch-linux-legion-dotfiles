@@ -21,15 +21,15 @@ FocusScope {
     readonly property string lastError: WifiService.lastError
 
     // SSID of the network whose inline password prompt is open, or "".
-    property string passwordSsid: ""
+    property string promptSsid: ""
     property real spinAngle: 0
 
     function openPasswordFor(ssid) {
-        passwordSsid = ssid;
+        promptSsid = ssid;
     }
 
     function closePassword() {
-        passwordSsid = "";
+        promptSsid = "";
         root.forceActiveFocus();
     }
 
@@ -92,7 +92,7 @@ FocusScope {
     }
 
     Keys.onEscapePressed: {
-        if (root.passwordSsid.length > 0)
+        if (root.promptSsid.length > 0)
             root.closePassword();
         else
             IslandController.openControlCenter();
@@ -247,7 +247,7 @@ FocusScope {
                 readonly property bool saved: !!modelData.saved
                 readonly property bool secured: !!modelData.secured
                 readonly property bool busy: root.busySsid !== "" && root.busySsid === ssid
-                readonly property bool prompting: root.passwordSsid !== "" && root.passwordSsid === ssid
+                readonly property bool prompting: root.promptSsid !== "" && root.promptSsid === ssid
                 readonly property string detail: {
                     const parts = [];
                     if (entry.busy) parts.push("Connecting…");
