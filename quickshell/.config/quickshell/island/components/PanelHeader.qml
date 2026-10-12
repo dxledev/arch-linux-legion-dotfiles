@@ -76,6 +76,7 @@ Item {
     }
     Button {
         id: trailingLabel
+        focusPolicy: Qt.TabFocus
         anchors.right: closeButton.left
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter

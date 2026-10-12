@@ -7,6 +7,7 @@ Column {
     id: root
     required property string label
     required property string setting
+    property string prefix: ""
     property string suffix: " px"
     property real minimum: 0
     property real maximum: 100
@@ -25,7 +26,7 @@ Column {
         UiText { width: parent.width - 85; text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
         UiText {
             width: 85
-            text: (Math.round(slider.value * 100) / 100) + root.suffix
+            text: root.prefix + (Math.round(slider.value * 100) / 100) + root.suffix
             color: Theme.textSecondary
             font.pixelSize: 13
             horizontalAlignment: Text.AlignRight

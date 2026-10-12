@@ -18,7 +18,7 @@ const controllerPath = path.join(islandRoot, "core/IslandController.qml");
 const controllerSource = fs.readFileSync(controllerPath, "utf8");
 const controllerActions = new Set(Array.from(controllerSource.matchAll(/function\s+(\w+)\s*\(/g), match => match[1]));
 const expectedSections = [
-    "launcher", "appearance", "displays", "clock", "lock", "osd", "workspaces",
+    "launcher", "menu", "appearance", "displays", "clock", "lock", "osd", "workspaces",
     "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"
 ];
 
@@ -59,11 +59,23 @@ for (const query of ["system stats", "statistics", "hardware", "cpu", "memory", 
     assert.ok(registry.filterEntries(query).some(entry => entry.id === "system"), `System can be found by ${query}`);
 assert.ok(registry.filterEntries("provider credits").some(entry => entry.id === "ai-usage"), "AI Usage can be found by provider keywords");
 assert.ok(registry.filterEntries("anthropic").some(entry => entry.id === "ai-usage"), "AI Usage can be found by provider names");
+for (const query of ["bluetooth", "headphones", "pairing"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "bluetooth"), `Bluetooth can be found by ${query}`);
+for (const query of ["clipboard", "cliphist", "paste", "copy history"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "clipboard"), `Clipboard can be found by ${query}`);
+for (const query of ["chromack", "color picker", "eyedropper", "hex", "shades", "color theory"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "chromack"), `Chromack can be found by ${query}`);
 assert.equal(JSON.stringify(allEntries), allBeforeSearch, "search does not mutate the registry");
+assert.deepEqual(JSON.parse(JSON.stringify(registry.filterEntries("", undefined, ["launcher", "settings"]).slice(0, 3).map(entry => entry.id))), ["launcher", "settings", "themes"], "pinned entries lead search results in pin order");
+assert.deepEqual(JSON.parse(JSON.stringify(registry.filterEntries("session", undefined, ["launcher"]).map(entry => entry.id))), ["session"], "pinned entries that do not match the query stay hidden");
 
 const invalidPins = inRegistry('["themes", "missing", "themes", null, "settings", "shell-mode", "launcher", "system"]');
 const invalidPinsBefore = JSON.stringify(invalidPins);
-assert.deepEqual(JSON.parse(JSON.stringify(registry.sanitizePinnedIds(invalidPins))), ["themes", "settings", "shell-mode", "launcher"]);
+assert.deepEqual(JSON.parse(JSON.stringify(registry.sanitizePinnedIds(invalidPins))), ["themes", "settings", "shell-mode", "launcher", "system"]);
+const allIds = inRegistry('menuEntries.map(entry => entry.id)');
+assert.equal(registry.sanitizePinnedIds(allIds).length, 16, "pins are capped at a full 4x4 grid");
+for (const [value, expected] of [[undefined, 2], ["", 2], [1, 2], [2, 2], [3, 3], [3.7, 3], [4, 4], [9, 4], ["4", 4], ["bad", 2]])
+    assert.equal(registry.gridSize(value), expected, `grid size ${value} clamps to ${expected}`);
 assert.equal(JSON.stringify(invalidPins), invalidPinsBefore, "pin sanitizing does not mutate input");
 const nonPinnableEntries = inRegistry('menuEntries.map(entry => entry.id === "settings-launcher" ? Object.assign({}, entry, { pinnable: false }) : entry)');
 assert.deepEqual(JSON.parse(JSON.stringify(registry.sanitizePinnedIds(inRegistry('["settings-launcher", "themes"]'), nonPinnableEntries))), ["themes"], "non-pinnable entries are discarded");
@@ -82,5 +94,21 @@ assert.deepEqual(JSON.parse(JSON.stringify(registry.chooseDisplayedIds(pins, eli
 assert.deepEqual(JSON.parse(JSON.stringify(registry.chooseDisplayedIds(inRegistry('["themes", "themes"]'), inRegistry('["themes", "wallpapers", "wallpapers"]'), 4, randomizeToKeepOrder))), ["themes", "wallpapers"], "fillers exclude pinned and duplicate IDs");
 assert.equal(JSON.stringify(pins), pinsBefore, "chooser does not mutate pinned input");
 assert.equal(JSON.stringify(eligible), eligibleBefore, "chooser does not mutate eligible input");
+assert.equal(registry.chooseDisplayedIds([], allIds, 16, randomizeToKeepOrder).length, 16, "a 4x4 grid fills sixteen cards");
+assert.equal(registry.chooseDisplayedIds([], allIds, 99, randomizeToKeepOrder).length, 16, "card limit is capped at sixteen");
+
+const toPlain = value => JSON.parse(JSON.stringify(value));
+const pinOrder = inRegistry('["themes", "wallpapers", "settings", "shell-mode"]');
+const pinOrderBefore = JSON.stringify(pinOrder);
+assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "themes", 2)), ["wallpapers", "settings", "themes", "shell-mode"], "pin moves forward");
+assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "shell-mode", 0)), ["shell-mode", "themes", "wallpapers", "settings"], "pin moves backward");
+assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "settings", 2)), ["themes", "wallpapers", "settings", "shell-mode"], "pin at its own index is a no-op");
+assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "settings", -5)), ["settings", "themes", "wallpapers", "shell-mode"], "target index clamps below zero");
+assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "themes", 99)), ["wallpapers", "settings", "shell-mode", "themes"], "target index clamps above length");
+assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "launcher", 0)), ["themes", "wallpapers", "settings", "shell-mode"], "unpinned id leaves order unchanged");
+for (const index of ["2", NaN, Infinity, undefined, null])
+    assert.deepEqual(toPlain(registry.movePinnedId(pinOrder, "themes", index)), ["themes", "wallpapers", "settings", "shell-mode"], `non-numeric index ${String(index)} leaves order unchanged`);
+assert.notEqual(registry.movePinnedId(pinOrder, "launcher", 0), pinOrder, "unchanged move returns a new array");
+assert.equal(JSON.stringify(pinOrder), pinOrderBefore, "move does not mutate pinned input");
 
 console.log("PASS: menu registry routes, assets, labels, search, pins, deterministic random fill, cached order, and input immutability");

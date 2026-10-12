@@ -43,6 +43,10 @@ QtObject {
 
     property Notification notification
     property string notificationId
+    property string storeKey
+    property real storeId
+    // The sender closing a notification keeps its shared history record.
+    property bool keepStored: false
     property string summary
     property string body
     readonly property var formattedSummary: NotificationFormat.format(summary)
@@ -174,7 +178,7 @@ QtObject {
         dummyImageLoader.active = false;
     }
 
-    onImageChanged: Notifs.persist()
+    onImageChanged: Notifs.persist(notif)
 
     readonly property bool hasFullscreen: {
         const monitor = Hypr.focusedMonitor;
@@ -263,6 +267,7 @@ QtObject {
 
     readonly property Connections conn: Connections {
         function onClosed(): void {
+            notif.keepStored = true;
             notif.close();
         }
 
@@ -359,6 +364,8 @@ QtObject {
     function close(): void {
         closed = true;
         if (locks.size === 0 && Notifs.list.includes(this)) {
+            if (!keepStored)
+                Notifs.forget(this);
             Notifs.list = Notifs.list.filter(n => n !== this);
             notification?.dismiss();
             destroy();

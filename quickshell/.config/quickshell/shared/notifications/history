@@ -1,0 +1,288 @@
+#!/usr/bin/python3 -I
+"""Shared notification history for Caelestia, Island, Noctalia and Waybar.
+
+The store is wardnc's JSON Lines history, oldest record first. Each record has
+time (UTC ISO 8601), app, summary, body, icon and id; image and urgency are
+optional. Unknown fields are preserved.
+"""
+
+import argparse
+import fcntl
+import html
+import json
+import os
+import re
+import sys
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+MAX_ENTRIES = 2000
+DUPLICATE_SECONDS = 2
+DUPLICATE_SCAN = 50
+
+
+def expand(path):
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    path = path.replace("${XDG_RUNTIME_DIR}", runtime).replace("$XDG_RUNTIME_DIR", runtime)
+    path = path.replace("${HOME}", str(Path.home())).replace("$HOME", str(Path.home()))
+    return Path(os.path.expanduser(path))
+
+
+def history_path():
+    override = os.environ.get("SHELL_NOTIFICATION_HISTORY") or os.environ.get("WARDNC_HISTORY_FILE")
+    if override:
+        return expand(override)
+    config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    config = Path(config_home) / "wardnc" / "config.toml"
+    try:
+        for line in config.read_text().splitlines():
+            match = re.match(r'\s*history_file\s*=\s*"([^"]+)"', line)
+            if match:
+                return expand(match.group(1))
+    except OSError:
+        pass
+    return Path.home() / ".local/state/wardnc/notification-history.jsonl"
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def parse_time(value):
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def plain(text):
+    return " ".join(html.unescape(re.sub(r"<[^>]*>", "", str(text or ""))).split())
+
+
+def record_key(record):
+    return f"{record.get('time', '')}|{record.get('id', '')}"
+
+
+@contextmanager
+def locked(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_name(path.name + ".lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def read_records(path):
+    """Parses records; each keeps its original line under _raw until it changes."""
+    records = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return records
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and (plain(record.get("summary")) or plain(record.get("body"))):
+            if parse_time(record.get("time")) is None:
+                record["time"] = "1970-01-01T00:00:00.000Z"
+            else:
+                record["_raw"] = line
+            records.append(record)
+    return records
+
+
+def serialize(record):
+    # Unchanged lines stay byte-identical: wardnc identifies loaded records by their text.
+    if "_raw" in record:
+        return record["_raw"]
+    return json.dumps({key: value for key, value in record.items() if key != "_raw"},
+                      ensure_ascii=False, separators=(",", ":"))
+
+
+def write_records(path, records):
+    records = records[-MAX_ENTRIES:]
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            for record in records:
+                output.write(serialize(record) + "\n")
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def duplicate_of(records, candidate):
+    """Returns the recent record that describes the same notification."""
+    when = parse_time(candidate.get("time"))
+    summary, body = plain(candidate.get("summary")), plain(candidate.get("body"))
+    for record in reversed(records[-DUPLICATE_SCAN:]):
+        other = parse_time(record.get("time"))
+        if when is None or other is None or abs((when - other).total_seconds()) > DUPLICATE_SECONDS:
+            continue
+        if plain(record.get("summary")) == summary and plain(record.get("body")) == body:
+            return record
+    return None
+
+
+def normalize(record):
+    record = {key: value for key, value in record.items()
+              if value is not None and key not in ("key", "epochMs", "_raw")}
+    record["time"] = record.get("time") or now_iso()
+    if parse_time(record["time"]) is None:
+        record["time"] = now_iso()
+    for field in ("app", "summary", "body", "icon"):
+        record[field] = str(record.get(field) or "")
+    try:
+        record["id"] = int(record.get("id"))
+    except (TypeError, ValueError):
+        record["id"] = int(parse_time(record["time"]).timestamp() * 1_000_000_000)
+    return record
+
+
+def deduplicated(records):
+    result = []
+    for record in sorted(records, key=lambda item: parse_time(item.get("time")) or datetime.min.replace(tzinfo=timezone.utc)):
+        existing = duplicate_of(result, record)
+        if existing is None:
+            result.append(record)
+        else:
+            for field in ("icon", "image", "app"):
+                if not existing.get(field) and record.get(field):
+                    existing[field] = record[field]
+                    existing.pop("_raw", None)
+    return result
+
+
+def command_list(path, arguments):
+    records = deduplicated(read_records(path))
+    records.reverse()
+    if arguments.limit > 0:
+        records = records[:arguments.limit]
+    json.dump([{**{key: value for key, value in record.items() if key != "_raw"}, "key": record_key(record),
+                "epochMs": int(parse_time(record["time"]).timestamp() * 1000)}
+               for record in records], sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+
+
+def command_append(path, arguments):
+    candidate = normalize(json.loads(arguments.record))
+    if not plain(candidate["summary"]) and not plain(candidate["body"]):
+        return
+    with locked(path):
+        records = read_records(path)
+        existing = duplicate_of(records, candidate)
+        if existing is None:
+            if len(records) < MAX_ENTRIES:
+                with open(path, "a", encoding="utf-8") as output:
+                    output.write(serialize(candidate) + "\n")
+            else:
+                write_records(path, records + [candidate])
+            print(record_key(candidate))
+            return
+        changed = False
+        for field in ("icon", "image", "app"):
+            if not existing.get(field) and candidate.get(field):
+                existing[field] = candidate[field]
+                existing.pop("_raw", None)
+                changed = True
+        if changed:
+            write_records(path, records)
+    print(record_key(existing))
+
+
+def command_remove(path, arguments):
+    keys, matches = set(), []
+    for value in arguments.records:
+        if value.startswith("{"):
+            match = json.loads(value)
+            keys.add(match.get("key") or "")
+            matches.append(match)
+        else:
+            keys.add(value)
+    with locked(path):
+        records = read_records(path)
+        removed = [record for record in records
+                   if record_key(record) in keys or any(duplicate_of([record], match) for match in matches)]
+        keys.update(record_key(record) for record in removed)
+        kept = [record for record in records if record_key(record) not in keys]
+        # Also drop duplicates folded into a removed record by list.
+        kept = [record for record in kept if not any(duplicate_of([gone], record) for gone in removed)]
+        if len(kept) != len(records):
+            write_records(path, kept)
+
+
+def command_clear(path, _arguments):
+    with locked(path):
+        if path.exists():
+            write_records(path, [])
+
+
+def caelestia_records(data):
+    for item in data:
+        yield {
+            "time": item.get("time"), "app": item.get("appName"), "summary": item.get("summary"),
+            "body": item.get("body"), "icon": item.get("appIcon"), "image": item.get("image") or None,
+            "urgency": item.get("urgency"),
+        }
+
+
+def noctalia_records(data):
+    for item in data.get("entries", []):
+        notification = item.get("notification") or {}
+        received = notification.get("received_wall_ms")
+        if received is None:
+            continue
+        yield {
+            "time": datetime.fromtimestamp(received / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "app": notification.get("app_name"), "summary": notification.get("summary"),
+            "body": notification.get("body"), "icon": notification.get("icon"),
+            "urgency": {"low": 0, "normal": 1, "critical": 2}.get(notification.get("urgency")),
+        }
+
+
+def command_import(path, arguments):
+    data = json.loads(Path(arguments.file).read_text())
+    imported = list(caelestia_records(data) if isinstance(data, list) else noctalia_records(data))
+    with locked(path):
+        records = read_records(path)
+        merged = deduplicated(records + [normalize(record) for record in imported])
+        if not arguments.dry_run:
+            write_records(path, merged)
+    print(f"{len(merged) - len(records)} new of {len(imported)} records")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="history", description=__doc__.splitlines()[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("path", help="print the history file")
+    listing = commands.add_parser("list", help="print records as JSON, newest first")
+    listing.add_argument("--limit", type=int, default=0)
+    append = commands.add_parser("append", help="add one JSON record and print its key")
+    append.add_argument("record")
+    remove = commands.add_parser("remove", help="remove records by key or matching JSON record")
+    remove.add_argument("records", nargs="+")
+    commands.add_parser("clear", help="remove every record")
+    importer = commands.add_parser("import", help="merge a Caelestia or Noctalia history file")
+    importer.add_argument("file")
+    importer.add_argument("--dry-run", action="store_true")
+    arguments = parser.parse_args()
+
+    path = history_path()
+    if arguments.command == "path":
+        print(path)
+        return
+    {"list": command_list, "append": command_append, "remove": command_remove,
+     "clear": command_clear, "import": command_import}[arguments.command](path, arguments)
+
+
+if __name__ == "__main__":
+    main()

@@ -38,7 +38,7 @@ Rectangle {
         padding: 0
         enabled: root.panelEnabled
         hoverEnabled: true
-        focusPolicy: Qt.StrongFocus
+        focusPolicy: Qt.TabFocus
 
         Accessible.name: "Open " + root.title
         Accessible.description: root.subtitle
@@ -84,7 +84,7 @@ Rectangle {
             padding: 0
             enabled: root.iconEnabled
             hoverEnabled: true
-            focusPolicy: Qt.StrongFocus
+            focusPolicy: Qt.TabFocus
             opacity: enabled ? 1 : 0.5
 
             Accessible.name: "Toggle " + root.title
@@ -146,7 +146,7 @@ Rectangle {
             anchors.top: parent.top
             anchors.topMargin: 1
             spacing: 2
-            width: 80
+            width: parent.width - iconButton.width - parent.spacing
 
             UiText {
                 width: parent.width

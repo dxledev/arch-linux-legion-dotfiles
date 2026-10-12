@@ -26,7 +26,8 @@ SettingsPanel {
             label: "Palette"
             choices: ["tonalspot", "vibrant", "expressive", "fidelity", "fruitsalad", "monochrome", "neutral", "rainbow", "content"]
             selected: ThemeService.state.variant
-            choiceLabel: value => value.charAt(0).toUpperCase() + value.slice(1)
+            choiceLabel: value => ({tonalspot: "Tonal Spot", fruitsalad: "Fruit Salad"})[value]
+                ?? value.charAt(0).toUpperCase() + value.slice(1)
             onChosen: value => ThemeService.execute(["variant", value])
         }
     }

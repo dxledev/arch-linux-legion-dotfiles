@@ -69,7 +69,8 @@ Item {
                 objectName: "osd-percentage"
                 visible: OsdSettings.showPercentage || root.value < 0
                 text: root.value < 0 ? "Muted" : Math.round(root.value) + "%"
-                color: Theme.textPrimary
+                // Over-amplified volume is the only way past 100%, so flag it.
+                color: Math.round(root.value) > 100 ? Theme.warning : Theme.textPrimary
                 font.family: OsdSettings.fontFamily
                 font.pixelSize: OsdSettings.fontSize
                 font.bold: OsdSettings.fontBold

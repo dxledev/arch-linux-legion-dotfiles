@@ -20,7 +20,7 @@ Rectangle {
     color: tap.pressed ? (active ? Theme.accentPressed : Theme.buttonPressed)
         : hover.hovered ? (active ? Theme.accentHover : Theme.buttonHover)
         : active ? Theme.accent : Theme.buttonBackground
-    border.width: selected ? 2 : 0
+    border.width: selected && !active ? 2 : 0
     border.color: Theme.accent
 
     scale: hover.hovered ? 1.04 : 1.0
@@ -36,6 +36,18 @@ Rectangle {
         ColorAnimation {
             duration: 130
         }
+    }
+
+    // Toggled-on buttons are already accent-filled, so draw the keyboard
+    // selection as an inset ring in the on-accent color instead.
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: 3
+        radius: root.radius - 3
+        color: "transparent"
+        border.width: 2
+        border.color: Theme.background
+        visible: root.selected && root.active
     }
 
     HoverHandler { id: hover }

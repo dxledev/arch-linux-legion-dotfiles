@@ -266,6 +266,7 @@ FocusScope {
 
                 Button {
                     id: networkRow
+                    focusPolicy: Qt.TabFocus
                     width: parent.width
                     height: 54
                     padding: 12

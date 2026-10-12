@@ -1,0 +1,522 @@
+diff --git a/meson.build b/meson.build
+index cf6776ca3..4bd6fa7a3 100644
+--- a/meson.build
++++ b/meson.build
+@@ -530,6 +530,7 @@ _noctalia_sources = files(
+   'src/notification/notification_filter.cpp',
+   'src/notification/notification_display_name.cpp',
+   'src/notification/notification_history_store.cpp',
++  'src/notification/shared_notification_history.cpp',
+   'src/notification/notification_markup.cpp',
+   'src/pipewire/pipewire_service.cpp',
+   'src/pipewire/audio_glyphs.cpp',
+@@ -1231,6 +1232,7 @@ if build_tests
+     'notification_filter',
+     'notification_history_dismiss',
+     'notification_history_utf8',
++    'notification_shared_history',
+     'notification_markup',
+     'path_browse',
+     'plugin_bindings',
+diff --git a/src/notification/notification_manager.cpp b/src/notification/notification_manager.cpp
+index 2fe7f3e35..48f85aac2 100644
+--- a/src/notification/notification_manager.cpp
++++ b/src/notification/notification_manager.cpp
+@@ -4,6 +4,7 @@
+ #include "core/log.h"
+ #include "notification/notification_filter.h"
+ #include "notification/notification_history_store.h"
++#include "notification/shared_notification_history.h"
+ #include "pipewire/sound_player.h"
+ #include "util/file_utils.h"
+ #include "util/string_utils.h"
+@@ -16,6 +17,7 @@
+ namespace {
+   constexpr Logger kLog("notification");
+   constexpr auto kImplicitDuplicateWindow = std::chrono::seconds(1);
++  constexpr std::size_t kMaxHistoryEntries = 100;
+   constexpr std::string_view urgencyStr(Urgency u) noexcept {
+     switch (u) {
+     case Urgency::Low:
+@@ -166,6 +168,8 @@ void NotificationManager::upsertHistory(
+   if (const auto it = m_historyIndex.find(notification.id); it != m_historyIndex.end()) {
+     seen = m_history[it->second].seen;
+     m_history.erase(m_history.begin() + static_cast<std::ptrdiff_t>(it->second));
++  } else if (m_sharedHistory) {
++    shared_notification_history::append(notification);
+   }
+ 
+   m_history.push_back(
+@@ -178,7 +182,6 @@ void NotificationManager::upsertHistory(
+       }
+   );
+ 
+-  constexpr std::size_t kMaxHistoryEntries = 100;
+   while (m_history.size() > kMaxHistoryEntries) {
+     const NotificationHistoryEntry evicted = m_history.front();
+     emitPendingDBusClose(evicted.notification.id, evicted.closeReason.value_or(CloseReason::Expired));
+@@ -626,6 +629,9 @@ void NotificationManager::removeHistoryEntry(uint32_t id, std::optional<CloseRea
+   const CloseReason reason =
+       dbusCloseReason.value_or(m_history[it->second].closeReason.value_or(CloseReason::Dismissed));
+   emitPendingDBusClose(id, reason);
++  if (m_sharedHistory) {
++    shared_notification_history::remove(m_history[it->second].notification);
++  }
+   m_history.erase(m_history.begin() + static_cast<std::ptrdiff_t>(it->second));
+   ++m_changeSerial;
+   rebuildHistoryIndex();
+@@ -644,6 +650,9 @@ void NotificationManager::clearHistory() {
+ 
+   m_history.clear();
+   m_historyIndex.clear();
++  if (m_sharedHistory) {
++    shared_notification_history::clear();
++  }
+   ++m_changeSerial;
+   markNotificationHistorySeen();
+   schedulePersistHistory();
+@@ -835,14 +844,69 @@ void NotificationManager::loadPersistedHistory() {
+   std::uint32_t nextId = m_nextId;
+   std::uint64_t serial = m_changeSerial;
+   std::deque<NotificationHistoryEntry> loaded;
+-  if (!loadNotificationHistoryFromFile(path, loaded, nextId, serial)) {
++  if (loadNotificationHistoryFromFile(path, loaded, nextId, serial)) {
++    std::erase_if(loaded, [](const NotificationHistoryEntry& entry) { return !shouldRetainHistoryEntry(entry); });
++    m_history = std::move(loaded);
++    m_nextId = nextId;
++    m_changeSerial = serial;
++  }
++  syncSharedHistory();
++  rebuildHistoryIndex();
++}
++
++void NotificationManager::syncSharedHistory() {
++  // Other shells add and remove records while Noctalia is stopped. Keep local entries (with their
++  // images and actions) that are still shared, drop removed ones, and add records from other shells.
++  const auto records = shared_notification_history::list(kMaxHistoryEntries);
++  if (!records) {
+     return;
+   }
+-  std::erase_if(loaded, [](const NotificationHistoryEntry& entry) { return !shouldRetainHistoryEntry(entry); });
+-  m_history = std::move(loaded);
+-  m_nextId = nextId;
+-  m_changeSerial = serial;
+-  rebuildHistoryIndex();
++  m_sharedHistory = true;
++  std::vector<bool> used(records->size(), false);
++  std::erase_if(m_history, [&](const NotificationHistoryEntry& entry) {
++    for (std::size_t i = 0; i < records->size(); ++i) {
++      if (!used[i] && shared_notification_history::matches(entry.notification, (*records)[i])) {
++        used[i] = true;
++        return false;
++      }
++    }
++    return true;
++  });
++  for (std::size_t i = 0; i < records->size(); ++i) {
++    if (used[i]) {
++      continue;
++    }
++    const auto& record = (*records)[i];
++    const auto icon = !record.icon.empty() ? record.icon : record.image;
++    m_history.push_back(
++        NotificationHistoryEntry{
++            .notification =
++                Notification{
++                    .id = m_nextId++,
++                    .origin = NotificationOrigin::External,
++                    .appName = record.app,
++                    .summary = record.summary,
++                    .body = record.body,
++                    .timeout = 0,
++                    .urgency = record.urgency,
++                    .icon = icon.empty() ? std::nullopt : std::optional<std::string>(icon),
++                    .receivedTime = Clock::now(),
++                    .receivedWallClock = record.time,
++                },
++            .active = false,
++            .seen = true,
++            .closeReason = CloseReason::Expired,
++            .eventSerial = ++m_changeSerial,
++        }
++    );
++  }
++  std::ranges::stable_sort(m_history, {}, [](const NotificationHistoryEntry& entry) {
++    return entry.notification.receivedWallClock.value_or(WallTimePoint{});
++  });
++  while (m_history.size() > kMaxHistoryEntries) {
++    m_history.pop_front();
++  }
++  ++m_changeSerial;
+ }
+ 
+ void NotificationManager::flushPersistedHistory() {
+diff --git a/src/notification/notification_manager.h b/src/notification/notification_manager.h
+index 9301cc9c5..e19aceab2 100644
+--- a/src/notification/notification_manager.h
++++ b/src/notification/notification_manager.h
+@@ -151,6 +151,7 @@ public:
+ 
+ private:
+   void cleanupOldHistoryEntries();
++  void syncSharedHistory();
+   void upsertHistory(const Notification& notification, bool active, std::optional<CloseReason> closeReason);
+   void markHistoryClosed(uint32_t id, CloseReason reason);
+   void rebuildHistoryIndex();
+@@ -177,6 +178,8 @@ private:
+   int m_historyRetentionHours = 0;
+   bool m_keepDismissedInHistory = true;
+   bool m_persistScheduled = false;
++  // Set once persisted history loads, so managers without it (tests) leave the shared store alone.
++  bool m_sharedHistory = false;
+   Timer m_historyRetentionTimer;
+ 
+   std::deque<Notification> m_notifications;
+diff --git a/src/notification/shared_notification_history.cpp b/src/notification/shared_notification_history.cpp
+new file mode 100644
+index 000000000..a80e5fc6c
+--- /dev/null
++++ b/src/notification/shared_notification_history.cpp
+@@ -0,0 +1,178 @@
++#include "notification/shared_notification_history.h"
++
++#include "core/log.h"
++#include "core/process/process.h"
++
++#include <algorithm>
++#include <chrono>
++#include <cstdlib>
++#include <filesystem>
++#include <format>
++#include <nlohmann/json.hpp>
++#include <unistd.h>
++
++namespace shared_notification_history {
++
++  namespace {
++    constexpr Logger kLog("notification");
++    constexpr auto kDuplicateWindow = std::chrono::seconds(2);
++
++    std::string environment(const char* key, std::string fallback) {
++      const char* value = std::getenv(key);
++      return value && *value ? std::string(value) : std::move(fallback);
++    }
++
++    std::optional<std::string> scriptPath() {
++      const auto home = environment("HOME", "");
++      const auto path = environment(
++          "NOCTALIA_NOTIFICATION_HISTORY",
++          environment("XDG_CONFIG_HOME", home + "/.config") + "/quickshell/shared/notifications/history"
++      );
++      if (!std::filesystem::path(path).is_absolute() || ::access(path.c_str(), X_OK) != 0) {
++        return std::nullopt;
++      }
++      return path;
++    }
++
++    void run(std::vector<std::string> args) {
++      const auto script = scriptPath();
++      if (!script) {
++        return;
++      }
++      args.insert(args.begin(), *script);
++      if (!process::runAsync(args)) {
++        kLog.warn("could not update shared notification history");
++      }
++    }
++
++    std::string isoTime(WallTimePoint time) {
++      return std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(time));
++    }
++
++    WallTimePoint receivedAt(const Notification& notification) {
++      return notification.receivedWallClock.value_or(WallClock::now());
++    }
++
++    // Plain text comparison: tags removed, common entities decoded, whitespace collapsed.
++    std::string plain(std::string_view text) {
++      std::string stripped;
++      bool inTag = false;
++      for (const char c : text) {
++        if (c == '<') {
++          inTag = true;
++        } else if (c == '>' && inTag) {
++          inTag = false;
++        } else if (!inTag) {
++          stripped += c;
++        }
++      }
++      constexpr std::pair<std::string_view, char> kEntities[] = {
++          {"&amp;", '&'}, {"&lt;", '<'}, {"&gt;", '>'}, {"&quot;", '"'}, {"&apos;", '\''}, {"&#39;", '\''},
++          {"&nbsp;", ' '},
++      };
++      std::string decoded;
++      for (std::size_t i = 0; i < stripped.size();) {
++        bool replaced = false;
++        if (stripped[i] == '&') {
++          for (const auto& [entity, character] : kEntities) {
++            if (std::string_view(stripped).substr(i, entity.size()) == entity) {
++              decoded += character;
++              i += entity.size();
++              replaced = true;
++              break;
++            }
++          }
++        }
++        if (!replaced) {
++          decoded += stripped[i++];
++        }
++      }
++      std::string result;
++      bool space = false;
++      for (const char c : decoded) {
++        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
++          space = !result.empty();
++        } else {
++          if (space) {
++            result += ' ';
++          }
++          space = false;
++          result += c;
++        }
++      }
++      return result;
++    }
++
++    std::string text(const nlohmann::json& object, const char* key) {
++      const auto it = object.find(key);
++      return it != object.end() && it->is_string() ? it->get<std::string>() : std::string();
++    }
++  } // namespace
++
++  std::optional<std::vector<Record>> list(std::size_t limit) {
++    const auto script = scriptPath();
++    if (!script) {
++      return std::nullopt;
++    }
++    const auto result = process::runSyncWithTimeout(
++        std::vector<std::string>{*script, "list", "--limit", std::to_string(limit)}, std::chrono::seconds(3)
++    );
++    if (!result) {
++      kLog.warn("could not read shared notification history");
++      return std::nullopt;
++    }
++    const auto data = nlohmann::json::parse(result.out, nullptr, false);
++    if (!data.is_array()) {
++      return std::nullopt;
++    }
++    std::vector<Record> records;
++    for (const auto& item : data) {
++      if (!item.is_object() || !item.contains("epochMs") || !item["epochMs"].is_number_integer()) {
++        continue;
++      }
++      Record record{
++          .time = WallTimePoint(std::chrono::milliseconds(item["epochMs"].get<std::int64_t>())),
++          .app = text(item, "app"),
++          .summary = text(item, "summary"),
++          .body = text(item, "body"),
++          .icon = text(item, "icon"),
++          .image = text(item, "image"),
++      };
++      if (const auto urgency = item.find("urgency"); urgency != item.end() && urgency->is_number_integer()) {
++        record.urgency = static_cast<Urgency>(std::clamp(urgency->get<int>(), 0, 2));
++      }
++      records.push_back(std::move(record));
++    }
++    return records;
++  }
++
++  void append(const Notification& notification) {
++    nlohmann::json record{
++        {"time", isoTime(receivedAt(notification))},
++        {"app", notification.appName},
++        {"summary", notification.summary},
++        {"body", notification.body},
++        {"icon", notification.icon.value_or("")},
++        {"urgency", static_cast<int>(notification.urgency)},
++    };
++    run({"append", record.dump()});
++  }
++
++  void remove(const Notification& notification) {
++    nlohmann::json match{
++        {"time", isoTime(receivedAt(notification))},
++        {"summary", notification.summary},
++        {"body", notification.body},
++    };
++    run({"remove", match.dump()});
++  }
++
++  void clear() { run({"clear"}); }
++
++  bool matches(const Notification& notification, const Record& record) {
++    const auto difference = receivedAt(notification) - record.time;
++    return std::chrono::abs(difference) <= kDuplicateWindow && plain(notification.summary) == plain(record.summary)
++        && plain(notification.body) == plain(record.body);
++  }
++
++} // namespace shared_notification_history
+diff --git a/src/notification/shared_notification_history.h b/src/notification/shared_notification_history.h
+new file mode 100644
+index 000000000..7b0f47ce0
+--- /dev/null
++++ b/src/notification/shared_notification_history.h
+@@ -0,0 +1,31 @@
++#pragma once
++
++#include "notification/notification.h"
++
++#include <cstddef>
++#include <optional>
++#include <string>
++#include <vector>
++
++// Notification history shared with Caelestia, Island and Waybar through
++// ~/.config/quickshell/shared/notifications/history (see its README).
++namespace shared_notification_history {
++
++  struct Record {
++    WallTimePoint time;
++    std::string app;
++    std::string summary;
++    std::string body;
++    std::string icon;
++    std::string image;
++    Urgency urgency = Urgency::Normal;
++  };
++
++  // Newest records first; nullopt when the shared store cannot be read.
++  [[nodiscard]] std::optional<std::vector<Record>> list(std::size_t limit);
++  void append(const Notification& notification);
++  void remove(const Notification& notification);
++  void clear();
++  [[nodiscard]] bool matches(const Notification& notification, const Record& record);
++
++} // namespace shared_notification_history
+diff --git a/tests/notification_shared_history_test.cpp b/tests/notification_shared_history_test.cpp
+new file mode 100644
+index 000000000..1b8ca5413
+--- /dev/null
++++ b/tests/notification_shared_history_test.cpp
+@@ -0,0 +1,121 @@
++#include "notification/notification_history_store.h"
++#include "notification/notification_manager.h"
++#include "tests/test_check.h"
++
++#include <chrono>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <iterator>
++#include <sstream>
++#include <string>
++#include <thread>
++#include <unistd.h>
++
++namespace {
++
++  namespace fs = std::filesystem;
++
++  std::string readFile(const fs::path& path) {
++    std::ifstream input(path);
++    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
++  }
++
++  // Waits for the asynchronous script call that contains `needle`.
++  bool waitForCall(const fs::path& log, const std::string& needle) {
++    for (int attempt = 0; attempt < 200; ++attempt) {
++      if (readFile(log).find(needle) != std::string::npos) {
++        return true;
++      }
++      std::this_thread::sleep_for(std::chrono::milliseconds(10));
++    }
++    return false;
++  }
++
++  NotificationHistoryEntry nativeEntry(uint32_t id, std::string summary, WallTimePoint received) {
++    return NotificationHistoryEntry{
++        .notification =
++            Notification{
++                .id = id,
++                .origin = NotificationOrigin::External,
++                .appName = "native",
++                .summary = std::move(summary),
++                .body = "body",
++                .timeout = 0,
++                .urgency = Urgency::Normal,
++                .receivedTime = Clock::now(),
++                .receivedWallClock = received,
++            },
++        .active = false,
++        .seen = false,
++        .closeReason = CloseReason::Expired,
++    };
++  }
++
++} // namespace
++
++int main() {
++  const fs::path root = fs::temp_directory_path() / ("noctalia-shared-history-" + std::to_string(::getpid()));
++  fs::remove_all(root);
++  fs::create_directories(root / "noctalia");
++  const fs::path script = root / "history";
++  const fs::path calls = root / "calls.log";
++  {
++    std::ofstream output(script);
++    output << "#!/bin/sh\n"
++           << "if [ \"$1\" = list ]; then cat '" << (root / "list.json").string() << "'; exit; fi\n"
++           << "printf '%s\\n' \"$*\" >> '" << calls.string() << "'\n";
++  }
++  fs::permissions(script, fs::perms::owner_all);
++  ::setenv("NOCTALIA_STATE_HOME", root.c_str(), 1);
++  ::setenv("NOCTALIA_NOTIFICATION_HISTORY", script.c_str(), 1);
++
++  using std::chrono::milliseconds;
++  const WallTimePoint kept{milliseconds(1'790'000'000'000)};
++  const WallTimePoint removed{milliseconds(1'790'000'100'000)};
++  std::deque<NotificationHistoryEntry> native{nativeEntry(7, "kept", kept), nativeEntry(8, "removed", removed)};
++  TEST_CHECK(saveNotificationHistoryToFile(root / "noctalia" / "notification_history.json", native, 9, 2));
++
++  // Another shell removed "removed", added "other", and the wrapper saved "kept" half a second later.
++  {
++    std::ofstream output(root / "list.json");
++    output << R"([{"epochMs":1790000200000,"app":"Island","summary":"other","body":"<b>shared</b>","icon":"bell","urgency":2},)"
++           << R"({"epochMs":1790000000500,"app":"notify-send","summary":"kept","body":"body","icon":""}])";
++  }
++
++  NotificationManager manager;
++  manager.loadPersistedHistory();
++  const auto& history = manager.history();
++  TEST_CHECK(history.size() == 2);
++  TEST_CHECK(history.front().notification.id == 7);
++  TEST_CHECK(history.front().notification.appName == "native");
++  TEST_CHECK(!history.front().seen);
++  const auto& other = history.back().notification;
++  TEST_CHECK(other.summary == "other");
++  TEST_CHECK(other.body == "<b>shared</b>");
++  TEST_CHECK(other.icon == std::optional<std::string>("bell"));
++  TEST_CHECK(other.urgency == Urgency::Critical);
++  TEST_CHECK(other.id >= 9);
++  TEST_CHECK(history.back().seen);
++  TEST_CHECK(!history.back().active);
++
++  // New notifications, removals and clearing reach the shared store.
++  manager.addOrReplace(NotificationRequest{.appName = "app", .summary = "fresh", .body = "new body", .timeout = 0});
++  TEST_CHECK(waitForCall(calls, R"("summary":"fresh")"));
++  TEST_CHECK(readFile(calls).starts_with("append "));
++  manager.removeHistoryEntry(7);
++  TEST_CHECK(waitForCall(calls, R"(remove {"body":"body","summary":"kept","time":"2026-09-21T)"));
++  manager.clearHistory();
++  TEST_CHECK(waitForCall(calls, "clear\n"));
++
++  // A manager that never loaded persisted history leaves the shared store alone.
++  fs::remove(calls);
++  NotificationManager detached;
++  detached.addOrReplace(NotificationRequest{.appName = "app", .summary = "local", .timeout = 0});
++  detached.clearHistory();
++  std::this_thread::sleep_for(milliseconds(200));
++  TEST_CHECK(!fs::exists(calls));
++
++  fs::remove_all(root);
++  return 0;
++}

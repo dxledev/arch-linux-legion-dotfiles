@@ -9,6 +9,8 @@ Rectangle {
 
     property string imageSource: ""
     property bool selected: false
+    // The applied wallpaper is dimmed; the keyboard selection gets the outline.
+    property bool active: false
 
     width: 160
     height: 100
@@ -60,7 +62,7 @@ Rectangle {
 
         radius: root.radius
 
-        color: selected
+        color: active
            ? Theme.wallpaperOverlay
            : "transparent"
     }

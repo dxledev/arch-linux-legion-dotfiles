@@ -24,6 +24,36 @@ check_round_trip '["settings-dynamicPalette"]'
 check_round_trip '["settings-dynamicPalette","themes"]'
 check_round_trip '["settings-dynamicPalette","themes","control-center"]'
 check_round_trip '["settings-dynamicPalette","themes","control-center","future_entry"]'
+check_round_trip '["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"]'
+
+read_settings | /usr/bin/jq -e '.menuRows == 2 and .menuColumns == 2' >/dev/null || fail 'Menu grid did not default to 2x2.'
+for size in 2 3 4; do
+    save_setting menuRows "$size" >/dev/null
+    save_setting menuColumns "$size" >/dev/null
+    read_settings | /usr/bin/jq -e --argjson size "$size" '.menuRows == $size and .menuColumns == $size' >/dev/null || fail "Menu grid size $size did not round-trip."
+done
+for invalid in 'menuRows 1' 'menuRows 5' 'menuColumns 1' 'menuColumns 5' 'menuColumns 2.5' 'menuRows abc'; do
+    read -r key value <<< "$invalid"
+    if (save_setting "$key" "$value") >/dev/null 2>&1; then fail "Accepted invalid menu grid size: $invalid"; fi
+done
+
+read_settings | /usr/bin/jq -e '.wallpaperRows == 3 and .wallpaperColumns == 3 and .wallpaperScrollDirection == "vertical" and .wallpaperInfiniteScroll == true' >/dev/null || fail 'Wallpaper gallery did not default to 3x3 vertical with infinite scroll.'
+for size in 1 5; do
+    save_setting wallpaperRows "$size" >/dev/null
+    read_settings | /usr/bin/jq -e --argjson size "$size" '.wallpaperRows == $size' >/dev/null || fail "Wallpaper rows $size did not round-trip."
+done
+for size in 2 5; do
+    save_setting wallpaperColumns "$size" >/dev/null
+    read_settings | /usr/bin/jq -e --argjson size "$size" '.wallpaperColumns == $size' >/dev/null || fail "Wallpaper columns $size did not round-trip."
+done
+save_setting wallpaperScrollDirection horizontal >/dev/null
+read_settings | /usr/bin/jq -e '.wallpaperScrollDirection == "horizontal"' >/dev/null || fail 'Wallpaper scroll direction did not round-trip.'
+save_setting wallpaperInfiniteScroll false >/dev/null
+read_settings | /usr/bin/jq -e '.wallpaperInfiniteScroll == false' >/dev/null || fail 'Wallpaper infinite scroll did not round-trip.'
+for invalid in 'wallpaperRows 0' 'wallpaperRows 6' 'wallpaperColumns 1' 'wallpaperColumns 6' 'wallpaperRows 2.5' 'wallpaperScrollDirection diagonal' 'wallpaperInfiniteScroll maybe'; do
+    read -r key value <<< "$invalid"
+    if (save_setting "$key" "$value") >/dev/null 2>&1; then fail "Accepted invalid wallpaper gallery setting: $invalid"; fi
+done
 
 /usr/bin/jq -c '. + {futureSetting:{enabled:true}}' "$settings_file" > "$settings_file.tmp"
 /usr/bin/mv -- "$settings_file.tmp" "$settings_file"
@@ -37,7 +67,7 @@ check_invalid() {
     [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]] || fail "Invalid pinned menu entries changed settings: $value"
 }
 
-for invalid in 'null' '{}' '"themes"' '["a","b","c","d","e"]' '["themes","themes"]' '["1theme"]' '["has space"]' '["bad.id"]' '[null]' '["a\nb"]' '{broken'; do
+for invalid in 'null' '{}' '"themes"' '["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q"]' '["themes","themes"]' '["1theme"]' '["has space"]' '["bad.id"]' '[null]' '["a\nb"]' '{broken'; do
     check_invalid "$invalid"
 done
 
@@ -46,4 +76,4 @@ dry_run=1
 save_setting menuPinnedEntries '["themes","control-center"]' >/dev/null
 [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]] || fail 'Dry-run changed saved pinned menu entries.'
 
-printf 'PASS: pinned menu defaults, four-entry round trips, unknown setting preservation, validation and dry-run\n'
+printf 'PASS: pinned menu defaults, sixteen-entry round trips, grid sizes, unknown setting preservation, validation and dry-run\n'

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-chromack.XXXXXX)"
+fail() {
+    printf '%s\n' "$*" >&2
+    [[ ! -f "$test_root/views.log" ]] || /usr/bin/cat "$test_root/views.log" >&2
+    [[ ! -f "$test_root/commands.log" ]] || /usr/bin/cat "$test_root/commands.log" >&2
+    printf 'Fixture retained at %s\n' "$test_root" >&2
+    exit 1
+}
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/state" "$test_root/bin" "$test_root/chromack"
+/usr/bin/chmod 700 "$test_root/runtime"
+/usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/chromack-views.qml" > "$test_root/views.qml"
+
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+
+# Chromack config with every persistence path inside the fixture.
+chromack="$test_root/chromack"
+cat > "$chromack/config.toml" <<CONFIG
+[paths]
+style_css = "$chromack/style.css"
+colors_css = "$chromack/colors.css"
+material_css = "$chromack/material.css"
+active_color_file = "$test_root/cache/chromack/active-color.txt"
+recent_colors_file = "$test_root/cache/chromack/recent-colors.txt"
+palette_directory = "$test_root/data/chromack/palettes"
+CONFIG
+printf ':root {\n    --color-primary: #7aa2f7;\n}\n' > "$chromack/colors.css"
+/usr/bin/mkdir -p "$test_root/cache/chromack"
+printf -- '--color-material-01\n#336699\n' > "$test_root/cache/chromack/active-color.txt"
+
+cat > "$test_root/bin/hyprpicker" <<'PICKER'
+#!/usr/bin/env bash
+printf 'hyprpicker %s\n' "$*" >> "$TEST_ROOT/commands.log"
+printf '#12AB34\n'
+PICKER
+# ChromackModel prefers ~/bin/notify-send; HOME points at the fixture.
+cat > "$test_root/bin/notify-send" <<'NOTIFY'
+#!/usr/bin/env bash
+printf 'notify-send %s\n' "$*" >> "$TEST_ROOT/commands.log"
+NOTIFY
+/usr/bin/chmod +x "$test_root/bin/"*
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= HOME="$test_root" \
+    PATH="$test_root/bin:$PATH" QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
+    XDG_CACHE_HOME="$test_root/cache" XDG_DATA_HOME="$test_root/data" XDG_CONFIG_HOME="$test_root/config" \
+    ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    SHELL_CHROMACK_CONFIG_DIR="$chromack" ISLAND_EYEDROPPER_BIN="$test_root/bin/hyprpicker" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" \
+    > "$test_root/views.log" 2>&1; then
+    fail 'Could not run chromack views.'
+fi
+
+if ! /usr/bin/rg -q 'PASS: chromack panel' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop|Cannot assign' "$test_root/views.log"; then
+    fail 'Chromack panel test failed.'
+fi
+/usr/bin/rg -q '^hyprpicker ' "$test_root/commands.log" || fail 'The eyedropper did not run.'
+/usr/bin/rg -q '^notify-send .*Color Picker #12ab34' "$test_root/commands.log" || fail 'Picked color was not copied with a notification.'
+/usr/bin/rg -q -- '--color-material-01: #ff0000;' "$chromack/material.css" || fail 'Edited material slot was not saved.'
+/usr/bin/rg -q -- '--color-material-06: #12ab34;' "$chromack/material.css" || fail 'Picked material slot was not saved.'
+/usr/bin/rg -q -- '--color-primary: #7aa2f7;' "$chromack/colors.css" || fail 'Saving material slots changed theme colors.'
+[[ "$(/usr/bin/head -n 1 "$test_root/cache/chromack/recent-colors.txt")" == '#12ab34' ]] || fail 'Recent colors were not persisted.'
+/usr/bin/rg -q '^name = "Island Test"' "$test_root/data/chromack/palettes/island-test.toml" || fail 'Palette was not saved.'
+
+printf 'PASS: chromack panel picker, inputs, material slots, tabs, palette save, eyedropper and persistence\n'

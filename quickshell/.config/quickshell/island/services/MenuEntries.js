@@ -1,7 +1,11 @@
 .pragma library
 
+var maximumGridSize = 4
+var maximumPins = maximumGridSize * maximumGridSize
+
 var settingsSections = [
     { key: "launcher", title: "App launcher", icon: "../assets/icons/apps.svg" },
+    { key: "menu", title: "Menu", icon: "../assets/icons/grid.svg" },
     { key: "appearance", title: "Appearance", icon: "../assets/icons/display.svg" },
     { key: "displays", title: "Displays", icon: "../assets/icons/display.svg" },
     { key: "clock", title: "Clock", icon: "../assets/icons/clock.svg" },
@@ -11,7 +15,7 @@ var settingsSections = [
     { key: "dynamicPalette", title: "Dynamic palette", icon: "../assets/icons/palette.svg" },
     { key: "notifications", title: "Notifications", icon: "../assets/icons/bell.svg" },
     { key: "interaction", title: "Interaction", icon: "../assets/icons/touch.svg" },
-    { key: "wallpaperAnimation", title: "Wallpaper animation", icon: "../assets/icons/sparkles.svg" }
+    { key: "wallpaperAnimation", title: "Wallpaper", menuTitle: "Wallpaper Settings", icon: "../assets/icons/sparkles.svg" }
 ]
 
 var menuEntries = [
@@ -23,6 +27,9 @@ var menuEntries = [
     { id: "control-center", title: "Control Center", subtitle: "Quick controls and status", keywords: ["wifi", "bluetooth", "microphone", "night light", "idle lock", "brightness", "volume", "notifications"], icon: "../assets/icons/control-center.svg", route: { type: "controller", action: "openControlCenter" } },
     { id: "audio-devices", title: "Audio devices", subtitle: "Choose output and input", keywords: ["audio", "sound", "speaker", "headphones", "microphone", "output", "input"], icon: "../assets/icons/volume-2.svg", route: { type: "controller", action: "openAudioDevices" } },
     { id: "wifi", title: "Wi-Fi", subtitle: "Networks and connections", keywords: ["wifi", "wi-fi", "wireless", "network", "internet", "ssid", "connect"], icon: "../assets/icons/wifi.svg", route: { type: "controller", action: "openWifi" } },
+    { id: "bluetooth", title: "Bluetooth", subtitle: "Devices and pairing", keywords: ["bluetooth", "bt", "pair", "pairing", "headphones", "earbuds", "speaker", "controller", "mouse", "keyboard", "devices", "wireless"], icon: "../assets/icons/bluetooth.svg", route: { type: "controller", action: "openBluetooth" } },
+    { id: "clipboard", title: "Clipboard", subtitle: "History, pins and previews", keywords: ["clipboard", "clip", "cliphist", "copy", "paste", "history", "pinned", "favorites", "snippets", "images", "links"], icon: "../assets/icons/clipboard.svg", route: { type: "controller", action: "openClipboard" } },
+    { id: "chromack", title: "Chromack", subtitle: "Color picker, shades, palettes and theory", keywords: ["chromack", "color", "colour", "picker", "color picker", "eyedropper", "hex", "rgba", "shades", "tints", "tones", "palette", "theory", "complementary", "swatch"], icon: "../assets/icons/pipette.svg", route: { type: "controller", action: "openChromack" } },
     { id: "network-speed-test", title: "Network speed test", subtitle: "Measure download and upload", keywords: ["speed", "speedtest", "speed test", "internet", "bandwidth", "download", "upload", "mbps", "network", "wifi", "fast.com"], icon: "../assets/icons/gauge.svg", route: { type: "controller", action: "openNetworkSpeedTest" } },
     { id: "disk-speed-test", title: "Disk speed test", subtitle: "Measure read and write throughput", keywords: ["speed", "speedtest", "speed test", "disk", "drive", "ssd", "nvme", "storage", "read", "write", "benchmark"], icon: "../assets/icons/disk.svg", route: { type: "controller", action: "openDiskSpeedTest" } },
     { id: "session", title: "Session", subtitle: "Power and session actions", keywords: ["power", "reboot", "restart", "shutdown", "lock", "nightlight", "system"], icon: "../assets/icons/power.svg", route: { type: "controller", action: "openPowerMenu" } },
@@ -35,7 +42,7 @@ var menuEntries = [
 settingsSections.forEach(function(section) {
     menuEntries.push({
         id: "settings-" + section.key,
-        title: section.title,
+        title: section.menuTitle || section.title,
         subtitle: settingsSubtitle(section.key),
         keywords: settingsKeywords(section.key),
         icon: section.icon,
@@ -46,6 +53,7 @@ settingsSections.forEach(function(section) {
 function settingsSubtitle(key) {
     var descriptions = {
         launcher: "App search preferences",
+        menu: "Card rows and columns",
         appearance: "Fonts and Island layout",
         displays: "Monitors and workspaces",
         clock: "Clock format and typography",
@@ -55,7 +63,7 @@ function settingsSubtitle(key) {
         dynamicPalette: "Wallpaper-derived colors",
         notifications: "Alerts and popup behavior",
         interaction: "Clicks and hover behavior",
-        wallpaperAnimation: "Backdrop transitions"
+        wallpaperAnimation: "Gallery layout and transitions"
     }
     return descriptions[key] || "Island preferences"
 }
@@ -63,6 +71,7 @@ function settingsSubtitle(key) {
 function settingsKeywords(key) {
     var keywords = {
         launcher: ["apps", "search", "matching", "sort"],
+        menu: ["grid", "rows", "columns", "cards", "submenus", "layout"],
         appearance: ["size", "font", "width", "height", "style"],
         displays: ["monitor", "layout", "workspace", "resolution"],
         clock: ["time", "12 hour", "24 hour", "font"],
@@ -72,19 +81,25 @@ function settingsKeywords(key) {
         dynamicPalette: ["dynamic colors", "wallpaper colors", "palette"],
         notifications: ["alerts", "popup", "notification"],
         interaction: ["click", "hover", "gesture", "behavior"],
-        wallpaperAnimation: ["transition", "wallpaper", "animation", "effects"]
+        wallpaperAnimation: ["transition", "wallpaper", "animation", "effects", "gallery", "grid", "rows", "columns", "scroll", "layout", "infinite", "wrap"]
     }
     return keywords[key] || []
 }
 
-function filterEntries(query, entries) {
+function filterEntries(query, entries, pinnedIds) {
     var source = entries || menuEntries
     var terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(function(term) { return term.length > 0 })
-    if (terms.length === 0) return source.slice()
-    return source.filter(function(entry) {
+    var matches = terms.length === 0 ? source.slice() : source.filter(function(entry) {
         var searchable = [entry.title, entry.subtitle].concat(entry.keywords || []).join(" ").toLowerCase()
         return terms.every(function(term) { return searchable.indexOf(term) !== -1 })
     })
+    var pins = sanitizePinnedIds(pinnedIds)
+    var pinnedMatches = []
+    for (var index = 0; index < pins.length; index++) {
+        var pinned = findEntryById(pins[index], matches)
+        if (pinned) pinnedMatches.push(pinned)
+    }
+    return pinnedMatches.concat(matches.filter(function(entry) { return pins.indexOf(entry.id) === -1 }))
 }
 
 function findEntryById(id, entries) {
@@ -95,16 +110,31 @@ function findEntryById(id, entries) {
     return null
 }
 
+function gridSize(value) {
+    var size = Math.floor(Number(value))
+    return size >= 2 ? Math.min(maximumGridSize, size) : 2
+}
+
 function sanitizePinnedIds(ids, entries) {
     var source = Array.isArray(ids) ? ids : []
     var result = []
-    for (var index = 0; index < source.length && result.length < 4; index++) {
+    for (var index = 0; index < source.length && result.length < maximumPins; index++) {
         var id = source[index]
         var entry = findEntryById(id, entries)
         if (entry && entry.pinnable !== false && result.indexOf(id) === -1)
             result.push(id)
     }
     return result
+}
+
+function movePinnedId(pinnedIds, id, toIndex) {
+    var pins = sanitizePinnedIds(pinnedIds)
+    var fromIndex = pins.indexOf(id)
+    if (fromIndex === -1 || typeof toIndex !== "number" || !isFinite(toIndex)) return pins
+    var targetIndex = Math.max(0, Math.min(pins.length - 1, Math.floor(toIndex)))
+    pins.splice(fromIndex, 1)
+    pins.splice(targetIndex, 0, id)
+    return pins
 }
 
 function shuffleIds(ids, randomFn) {
@@ -123,7 +153,7 @@ function shuffleIds(ids, randomFn) {
 }
 
 function chooseDisplayedIds(pinnedIds, eligibleIds, limit, randomFn, shuffleEligible) {
-    var maximum = limit === undefined ? 4 : Math.min(4, Math.max(0, Math.floor(Number(limit) || 0)))
+    var maximum = limit === undefined ? 4 : Math.min(maximumPins, Math.max(0, Math.floor(Number(limit) || 0)))
     var pins = sanitizePinnedIds(pinnedIds)
     var candidates = []
     var seen = pins.slice()

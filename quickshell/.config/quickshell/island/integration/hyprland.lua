@@ -50,13 +50,15 @@ local panels = {
     { "SUPER + ALT + V", "Island Audio", "openAudioDevices" },
     { "SUPER + ALT + A", "Island Controls", "openControlCenter" },
     { "SUPER + SHIFT + N", "Island Notifications", "openNotifications" },
+    { "SUPER + SHIFT + P", "Island Displays", "openDisplays" },
+    { "SUPER + ALT + C", "Island Clipboard", "openClipboard" },
+    { "SUPER + SHIFT + C", "Island Chromack", "openChromack" },
     { "CTRL + ALT + SPACE", "Next Wallpaper", "nextWallpaper" },
     { "CTRL + ALT + SHIFT + SPACE", "Previous Wallpaper", "previousWallpaper" },
 }
 for _, item in ipairs(panels) do bind(item[1], item[2], ipc .. item[3]) end
 
 local desktop = {
-    { "SUPER + ALT + C", "Clipboard", home .. "/bin/menu-clipboard" },
     { "SUPER + SHIFT + L", "Island Lock Screen", home .. "/bin/system-lock --wait" },
     { "SUPER + S", "Region Screenshot", home .. "/bin/launch-screenshot-clipboard" },
     { "SUPER + SHIFT + S", "Monitor Screenshot", home .. "/bin/launch-screenshot-active-monitor-clipboard" },

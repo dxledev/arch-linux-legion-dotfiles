@@ -45,6 +45,8 @@ ShellRoot {
         function snapshot(): string {
             return JSON.stringify({
                 history: NotificationService.history.count,
+                historySummaries: [...Array(NotificationService.history.count).keys()]
+                    .map(index => NotificationService.history.get(index).summary),
                 unread: NotificationService.unreadCount,
                 popups: NotificationService.popups.count,
                 tooltip: {opened: tooltip.opened, background: tooltip.background.color.toString(),
@@ -88,6 +90,7 @@ ShellRoot {
         function moveAway(): void { NotificationService.entries[0].monitorName = "other-monitor"; }
         function moveBack(): void { NotificationService.entries[0].monitorName = window.monitorName; }
         function clear(): void { NotificationService.clear(); }
+        function removeFirst(): void { NotificationService.remove(0); }
         function expanded(): void { window.islandBottom = 200; window.islandWidth = 560; }
         function settings(): void {
             ThemeService.settings = Object.assign({}, ThemeService.settings, {

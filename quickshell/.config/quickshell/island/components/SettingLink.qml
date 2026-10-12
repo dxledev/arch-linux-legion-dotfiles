@@ -10,6 +10,7 @@ Button {
     implicitHeight: 54
     padding: 16
     hoverEnabled: true
+    focusPolicy: Qt.TabFocus
     HoverHandler {
         enabled: root.enabled && root.hovered
         cursorShape: Qt.PointingHandCursor

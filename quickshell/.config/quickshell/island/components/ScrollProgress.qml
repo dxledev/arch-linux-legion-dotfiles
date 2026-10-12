@@ -25,11 +25,19 @@ Item {
         let totalHeight = 0;
         let revealedHeight = 0;
         for (const target of scrollTargets) {
-            if (!target || target.height <= 0 || target.contentHeight <= target.height + 1) continue;
-            const scrollRange = target.contentHeight - target.height;
-            const offset = Math.max(0, Math.min(scrollRange, target.contentY - target.originY));
-            totalHeight += target.contentHeight;
-            revealedHeight += target.height + offset;
+            if (!target) continue;
+            // Targets that scroll sideways opt in with a scrollHorizontal property.
+            const horizontal = target.scrollHorizontal === true;
+            const viewport = horizontal ? target.width : target.height;
+            const extent = horizontal ? target.leftMargin + target.contentWidth + target.rightMargin
+                : target.topMargin + target.contentHeight + target.bottomMargin;
+            if (viewport <= 0 || extent <= viewport + 1) continue;
+            const scrollRange = extent - viewport;
+            const position = horizontal ? target.contentX - target.originX + target.leftMargin
+                : target.contentY - target.originY + target.topMargin;
+            const offset = Math.max(0, Math.min(scrollRange, position));
+            totalHeight += extent;
+            revealedHeight += viewport + offset;
         }
         return {scrollable: totalHeight > 0, progress: totalHeight > 0 ? revealedHeight / totalHeight : 1};
     }

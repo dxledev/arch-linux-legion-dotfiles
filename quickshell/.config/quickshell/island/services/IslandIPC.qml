@@ -32,6 +32,9 @@ IpcHandler {
     function openNotifications(): void { IslandController.toggleMode(IslandState.notificationsMode); }
     function openAudioDevices(): void { IslandController.toggleMode(IslandState.audioDevicesMode); }
     function openWifi(): void { IslandController.toggleMode(IslandState.wifiMode); }
+    function openBluetooth(): void { IslandController.toggleMode(IslandState.bluetoothMode); }
+    function openClipboard(): void { IslandController.toggleMode(IslandState.clipboardMode); }
+    function openChromack(): void { IslandController.toggleMode(IslandState.chromackMode); }
     function openNetworkSpeedTest(): void { IslandController.openNetworkSpeedTest(); }
     function openDiskSpeedTest(): void { IslandController.openDiskSpeedTest(); }
     function openLauncher(): void { IslandController.toggleMode(IslandState.launcherMode); }

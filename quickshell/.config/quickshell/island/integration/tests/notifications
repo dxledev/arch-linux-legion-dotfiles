@@ -82,21 +82,50 @@ wait_for() {
     expect "$1"
 }
 
-run_session() {
-    /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 &
-    fixture_pid=$!
-    trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
-    local attempt id
+wait_store() {
+    local attempt
     for (( attempt=0; attempt<60; attempt++ )); do
-        if ipc ready | /usr/bin/rg -qx true; then break; fi
+        if "$ISLAND_NOTIFICATION_HISTORY" list | /usr/bin/jq -e "$1" >/dev/null; then return; fi
         /usr/bin/sleep 0.05
     done
-    ipc ready | /usr/bin/rg -qx true || fail 'Notification fixture did not become ready.'
+    printf 'Failed shared history assertion: %s\n' "$1" >&2
+    "$ISLAND_NOTIFICATION_HISTORY" list >&2
+    fail 'Shared notification history check failed.'
+}
+
+start_fixture() {
+    /usr/bin/quickshell -p "$test_root/views.qml" >> "$test_root/views.log" 2>&1 &
+    fixture_pid=$!
+    trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+    local attempt
+    for (( attempt=0; attempt<60; attempt++ )); do
+        if ipc ready | /usr/bin/rg -qx true; then return; fi
+        /usr/bin/sleep 0.05
+    done
+    fail 'Notification fixture did not become ready.'
+}
+
+check_restart() {
+    kill "$fixture_pid"
+    wait "$fixture_pid" 2>/dev/null || true
+    "$ISLAND_NOTIFICATION_HISTORY" append '{"time":"2026-01-02T03:04:05.000Z","app":"wardnc","summary":"Older","body":"From Waybar"}' >/dev/null
+    "$ISLAND_NOTIFICATION_HISTORY" append '{"app":"Caelestia","summary":"Newer","body":"From another shell","icon":"dialog-information"}' >/dev/null
+    start_fixture
+    wait_for '.history == 2 and .unread == 0 and .historySummaries == ["Newer", "Older"]'
+    ipc removeFirst
+    wait_store 'length == 1 and .[0].summary == "Older"'
+}
+
+run_session() {
+    : > "$test_root/views.log"
+    start_fixture
+    local attempt id
     /usr/bin/busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications org.freedesktop.Notifications GetCapabilities > "$test_root/capabilities"
     /usr/bin/rg -q 'actions' "$test_root/capabilities"
     id="$(notify 0 Title '<b>Body</b>' 0 0 2200)"
     id="${id#u }"
     /usr/bin/sleep 0.03
+    wait_store 'length == 1 and .[0].summary == "Title" and .[0].body == "<b>Body</b>" and .[0].app == "Island Test" and .[0].icon == "dialog-information"'
     expect '.history == 1 and .unread == 1 and .popups == 1 and .window.visible and .window.active and .window.top == 10 and .window.zone == 0 and (.window.focusable | not) and .window.regions == 2 and .capsules[0].opacity == 1 and .capsules[0].width >= 80 and .capsules[0].width < 400 and .capsules[0].originY == 0 and .capsules[0].startHeight == 33 and .capsules[0].height < .capsules[0].fullHeight and .capsules[0].y < .window.islandHeight'
     /usr/bin/sleep 0.65
     expect '.capsules[0].width == 400 and .capsules[0].y == 67 and .capsules[0].height == .capsules[0].fullHeight and .capsules[0].radius == 23 and .capsules[0].background == "#101010"'
@@ -174,8 +203,13 @@ run_session() {
     notify "$resident_id" 'Resident updated' 'Move the replacement to the front' 2 test Test 1 resident b true 0 >/dev/null
     /usr/bin/sleep 0.2
     expect ".popups == 7 and .window.front == $resident_id and ([.capsules[] | select(.id == $resident_id)][0].depth == 0)"
+    local count
+    count="$(snapshot | /usr/bin/jq '.history')"
+    wait_store "length == $count and all(.[]; .summary != \"Actions\")"
     ipc clear
     wait_for '.popups == 0 and .history == 0 and .unread == 0'
+    wait_store 'length == 0'
+    check_restart
 }
 
 if [[ "${1:-}" == --session ]]; then
@@ -187,7 +221,8 @@ else
     make_fixture
     if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
         XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
-        ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        ISLAND_NOTIFICATION_HISTORY="$test_dir/../../../shared/notifications/history" \
         /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a -s '-screen 0 1280x1024x24' /usr/bin/timeout 25s /usr/bin/bash "$test_dir/notifications" --session "$test_root"; then
         [[ ! -f "$test_root/views.log" ]] || /usr/bin/cat "$test_root/views.log" >&2
         fail "Notification tests failed; artifacts: $test_root"
@@ -196,5 +231,5 @@ else
         /usr/bin/cat "$test_root/views.log" >&2
         fail 'Notification fixture logged errors.'
     fi
-    printf 'PASS: notification settings, dry-run, private D-Bus delivery, animation, monitor routing, stacking, replacements, hover pause, expiry, dismissal, actions, and history\n'
+    printf 'PASS: notification settings, dry-run, private D-Bus delivery, animation, monitor routing, stacking, replacements, hover pause, expiry, dismissal, actions, history, and shared history persistence\n'
 fi

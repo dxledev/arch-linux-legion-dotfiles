@@ -1,0 +1,9 @@
+singleton ChromackService 1.0 ChromackService.qml
+ChromackSwatch 1.0 ChromackSwatch.qml
+ChromackInput 1.0 ChromackInput.qml
+ChromackPicker 1.0 ChromackPicker.qml
+ChromackShades 1.0 ChromackShades.qml
+ChromackPalette 1.0 ChromackPalette.qml
+ChromackTheory 1.0 ChromackTheory.qml
+ChromackWheel 1.0 ChromackWheel.qml
+ChromackPanel 1.0 ChromackPanel.qml

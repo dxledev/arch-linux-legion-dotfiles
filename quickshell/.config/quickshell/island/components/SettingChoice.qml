@@ -16,6 +16,7 @@ Column {
     UiText { text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
     ComboBox {
         id: choice
+        focusPolicy: Qt.TabFocus
         objectName: "setting-choice-" + root.label
         width: root.width
         height: 40

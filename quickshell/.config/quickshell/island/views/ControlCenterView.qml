@@ -12,7 +12,7 @@ Item {
 
     clip: true
     
-    implicitWidth: 520
+    implicitWidth: 560
     implicitHeight: content.implicitHeight + 44
 
     ColumnLayout {
@@ -38,6 +38,7 @@ Item {
             rowSpacing: 12
 
             ControlCard {
+                Layout.fillWidth: true
                 objectName: "wifi-control-card"
                 iconSource: WifiService.svgIcon
 
@@ -53,6 +54,7 @@ Item {
             }
 
             ControlCard {
+                Layout.fillWidth: true
                 objectName: "bluetooth-control-card"
                 iconSource: BluetoothService.icon
 
@@ -62,11 +64,13 @@ Item {
 
                 active: BluetoothService.enabled
                 iconEnabled: true
-                panelEnabled: false
+                panelEnabled: true
                 onIconToggled: BluetoothService.toggle()
+                onClicked: IslandController.openBluetooth()
             }
 
             ControlCard {
+                Layout.fillWidth: true
                 objectName: "microphone-control-card"
                 iconSource: MicrophoneService.icon
 
@@ -82,6 +86,7 @@ Item {
             }
 
             ControlCard {
+                Layout.fillWidth: true
 
                 objectName: "nightlight-button"
                 iconSource: NightLightService.icon
@@ -97,6 +102,7 @@ Item {
             }
 
             ControlCard {
+                Layout.fillWidth: true
 
                 objectName: "idle-lock-button"
                 iconSource: IdleLockService.icon
@@ -112,6 +118,7 @@ Item {
             }
 
             ControlCard {
+                Layout.fillWidth: true
                 objectName: "media-control-card"
                 iconSource: Qt.resolvedUrl(MediaService.isPlaying
                     ? "../assets/icons/player-play.svg"

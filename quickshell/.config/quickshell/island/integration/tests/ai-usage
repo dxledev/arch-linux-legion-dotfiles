@@ -151,7 +151,7 @@ printf '%s\n' valid > "$test_root/catalog-mode"
 if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
-    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_AI_USAGE_BIN="$test_root/ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/ai-usage.toml" ISLAND_AI_USAGE_REFRESH_INTERVAL_SECONDS="" ISLAND_AI_USAGE_TIMEOUT_SECONDS="" AI_USAGE_TEST_CATALOG_MODE_FILE="$test_root/catalog-mode" \
+    ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_AI_USAGE_BIN="$test_root/ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/ai-usage.toml" ISLAND_AI_USAGE_REFRESH_INTERVAL_SECONDS="" ISLAND_AI_USAGE_TIMEOUT_SECONDS="" AI_USAGE_TEST_CATALOG_MODE_FILE="$test_root/catalog-mode" \
     AI_USAGE_TEST_PIPELINE=1 AI_USAGE_TEST_CALLS_DIR="$test_root/calls" \
     ISLAND_AI_USAGE_SINGLE_SCREENSHOT="$test_root/single.png" ISLAND_AI_USAGE_MULTI_SCREENSHOT="$test_root/multiple.png" \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 60s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
@@ -235,7 +235,7 @@ if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     TEST_ROOT="$test_root" TEST_DIR="$test_dir" \
     XDG_CONFIG_HOME="$test_root/config" XDG_DATA_HOME="$test_root/state" XDG_STATE_HOME="$test_root/state" \
     XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
-    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_THEME_SCRIPT="$test_root/controller" \
     ISLAND_AI_USAGE_BIN="$test_root/root-ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/root-ai-usage.toml" \
     ISLAND_AI_USAGE_REFRESH_INTERVAL_SECONDS="" ISLAND_AI_USAGE_TIMEOUT_SECONDS="" \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 15s /usr/bin/quickshell -p "$smoke_root/ai-usage-motion.qml" > "$test_root/motion.log" 2>&1; then

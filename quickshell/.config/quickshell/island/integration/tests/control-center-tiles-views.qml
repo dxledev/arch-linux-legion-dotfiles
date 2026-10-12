@@ -76,7 +76,7 @@ ShellRoot {
             objectName: "control-center-loader"
             x: 220
             y: 24
-            width: 520
+            width: 560
             source: "../../views/ControlCenterView.qml"
             onLoaded: item.objectName = "control-center-view"
         }
@@ -160,7 +160,7 @@ ShellRoot {
                     const media = root.named(controlCenter, "media-control-card");
                     root.check(wifi && bluetooth && microphone && nightlight && idleLock && media,
                                "All six Control Center tiles render");
-                    for (const tile of [bluetooth, nightlight, idleLock]) {
+                    for (const tile of [nightlight, idleLock]) {
                         root.check(!root.named(tile, "control-card-navigation").enabled,
                                    tile.objectName + " keeps its outer route reserved");
                         root.check(root.named(tile, "control-card-toggle").enabled,
@@ -170,6 +170,10 @@ ShellRoot {
                                "Wi-Fi keeps its inner toggle enabled");
                     root.check(root.named(wifi, "control-card-navigation").enabled,
                                "Wi-Fi outer route is enabled");
+                    root.check(root.named(bluetooth, "control-card-toggle").enabled,
+                               "Bluetooth keeps its inner toggle enabled");
+                    root.check(root.named(bluetooth, "control-card-navigation").enabled,
+                               "Bluetooth outer route is enabled");
                     root.check(root.named(microphone, "control-card-navigation").enabled,
                                "Microphone outer route is enabled");
                     root.check(root.named(media, "control-card-navigation").enabled,
@@ -182,6 +186,11 @@ ShellRoot {
                     root.click(root.named(root.named(root.controlCenter, "wifi-control-card"), "control-card-navigation"));
                     root.check(IslandState.mode === IslandState.wifiMode,
                                "Wi-Fi outer action opens the Wi-Fi panel");
+                    IslandController.reset();
+                    IslandController.openControlCenter();
+                    root.click(root.named(root.named(root.controlCenter, "bluetooth-control-card"), "control-card-navigation"));
+                    root.check(IslandState.mode === IslandState.bluetoothMode,
+                               "Bluetooth outer action opens the Bluetooth panel");
                     IslandController.reset();
                     IslandController.openControlCenter();
                     root.next();

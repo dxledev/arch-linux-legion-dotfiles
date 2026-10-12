@@ -236,7 +236,6 @@ bind("bind", mainMod .. " SHIFT CTRL", "EQUAL", "", "togglespecialworkspace", "f
 
 local environment_binds = {
   { mainMod .. " SHIFT CTRL", "R", "Reload Hyprland", "~/bin/reload-hyprland" },
-  { mainMod .. " SHIFT", "P", "Display Manager", "~/bin/launch-window-floating 1200 800 nwg-displays" },
   { mainMod, "I", "Toggle Idle Lock", "~/bin/system-toggle-idle-lock" },
   { mainMod .. " CTRL", "S", "Toggle Sleep", "~/bin/system-toggle-sleep" },
 }

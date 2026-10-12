@@ -124,7 +124,7 @@ if [[ ${1:-} == --session ]]; then test_root=$2; run_session; exit; fi
 test_root="$(/usr/bin/mktemp -d /tmp/island-control-center.XXXXXX)"
 make_fixture
 export TEST_ROOT="$test_root" ISLAND_DDCUTIL_BIN="$test_root/ddcutil" ISLAND_BRIGHTNESSCTL_BIN="$test_root/brightnessctl"
-export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state"
+export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl"
 export ISLAND_NIGHTLIGHT_SCRIPT="$test_root/nightlight"
 check_helper
 if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \

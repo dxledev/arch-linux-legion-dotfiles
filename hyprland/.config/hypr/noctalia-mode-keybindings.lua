@@ -87,6 +87,7 @@ end
 bind_panel("SUPER + SHIFT + ALT + V", "NoctaProton VPN", "riversyx/noctaproton-vpn:panel")
 
 bind_message("SUPER + SHIFT + CTRL + C", "Settings", "settings-toggle")
+bind_message("SUPER + SHIFT + P", "Display Layout Editor", "display-open")
 bind_panel("SUPER + ALT + V", "Audio Menu", "control-center audio")
 bind_message("CTRL + ALT + SPACE", "Next Wallpaper", "wallpaper-next")
 bind_message("CTRL + ALT + SHIFT + SPACE", "Previous Wallpaper", "wallpaper-previous")

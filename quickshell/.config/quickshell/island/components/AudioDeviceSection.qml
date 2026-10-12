@@ -40,6 +40,7 @@ ColumnLayout {
 
         delegate: Button {
             id: deviceButton
+            focusPolicy: Qt.TabFocus
             required property var modelData
             readonly property bool selected: modelData.id === root.currentDevice?.id
             readonly property string deviceLabel: modelData.description || modelData.name || "Unknown device"

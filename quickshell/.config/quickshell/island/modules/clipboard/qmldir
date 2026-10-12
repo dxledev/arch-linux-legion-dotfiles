@@ -1,0 +1,5 @@
+singleton ClipboardService 1.0 ClipboardService.qml
+ClipboardEntryRow 1.0 ClipboardEntryRow.qml
+ClipboardEntryList 1.0 ClipboardEntryList.qml
+ClipboardPreview 1.0 ClipboardPreview.qml
+ClipboardPanel 1.0 ClipboardPanel.qml

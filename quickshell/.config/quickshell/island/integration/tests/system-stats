@@ -33,7 +33,7 @@ run_views() {
     if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
         QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
         TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
-        XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
+        XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
         ISLAND_THEME_SCRIPT="$test_root/controller" \
         /usr/bin/dbus-run-session -- /usr/bin/timeout 15s /usr/bin/quickshell -p "$test_root/views.qml" \
         > "$log_file" 2>&1; then

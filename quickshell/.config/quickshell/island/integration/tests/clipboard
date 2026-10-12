@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-clipboard.XXXXXX)"
+fail() {
+    printf '%s\n' "$*" >&2
+    [[ ! -f "$test_root/views.log" ]] || /usr/bin/cat "$test_root/views.log" >&2
+    [[ ! -f "$test_root/commands.log" ]] || /usr/bin/cat "$test_root/commands.log" >&2
+    printf 'Fixture retained at %s\n' "$test_root" >&2
+    exit 1
+}
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/data" "$test_root/state" "$test_root/bin"
+/usr/bin/chmod 700 "$test_root/runtime"
+/usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/clipboard-views.qml" > "$test_root/views.qml"
+
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+
+# Fake cliphist: three entries until wiped.
+cat > "$test_root/bin/cliphist" <<'CLIPHIST'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'cliphist %s\n' "$*" >> "$TEST_ROOT/commands.log"
+case "${1:-}" in
+    list)
+        [[ -f "$TEST_ROOT/wiped" ]] && exit 0
+        printf '3\thttps://example.com/page\n2\t{"name":"island","ok":true}\n1\thello clipboard world\n' ;;
+    decode)
+        case "${2:-}" in
+            3) printf 'https://example.com/page' ;;
+            2) printf '{"name":"island","ok":true}' ;;
+            1) printf 'hello clipboard world' ;;
+            *) exit 1 ;;
+        esac ;;
+    wipe) : > "$TEST_ROOT/wiped" ;;
+    delete) /usr/bin/cat >> "$TEST_ROOT/commands.log" ;;
+    *) exit 2 ;;
+esac
+CLIPHIST
+cat > "$test_root/bin/wl-copy" <<'WLCOPY'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'wl-copy %s\n' "$*" >> "$TEST_ROOT/commands.log"
+/usr/bin/cat > "$TEST_ROOT/copied"
+WLCOPY
+cat > "$test_root/bin/notify-send" <<'NOTIFY'
+#!/usr/bin/env bash
+printf 'notify-send %s\n' "$*" >> "$TEST_ROOT/commands.log"
+NOTIFY
+/usr/bin/chmod +x "$test_root/bin/"*
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    PATH="$test_root/bin:$PATH" QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
+    XDG_CACHE_HOME="$test_root/cache" XDG_DATA_HOME="$test_root/data" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
+    ISLAND_THEME_SCRIPT="$test_root/controller" \
+    ISLAND_CLIPHIST_BIN="$test_root/bin/cliphist" ISLAND_WL_COPY_BIN="$test_root/bin/wl-copy" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" \
+    > "$test_root/views.log" 2>&1; then
+    fail 'Could not run clipboard views.'
+fi
+
+if ! /usr/bin/rg -q 'PASS: clipboard panel' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop|Cannot assign' "$test_root/views.log"; then
+    fail 'Clipboard panel test failed.'
+fi
+[[ "$(/usr/bin/cat "$test_root/copied")" == 'hello clipboard world' ]] || fail 'Enter did not copy the selected entry.'
+/usr/bin/rg -q '^cliphist wipe' "$test_root/commands.log" || fail 'Confirmed clear did not wipe history.'
+[[ -f "$test_root/data/caelestia/clipboard/favorites.json" ]] || fail 'Pinning did not use the shared favorites store.'
+
+printf 'PASS: clipboard panel history, search, filters, preview, pinning, copy-and-close and clear confirmation\n'

@@ -33,7 +33,8 @@
     "0029-settings-theme-wallpaper-sync.patch",
     "0030-native-display-editor.patch",
     "0031-display-inspector-tabs.patch",
-    "0032-display-window-workspace-canvas.patch"
+    "0032-display-window-workspace-canvas.patch",
+    "0033-shared-notification-history.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

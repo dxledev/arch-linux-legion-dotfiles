@@ -21,12 +21,15 @@ ShellRoot {
         ["themes", "wallpapers", "settings"],
         ["themes", "wallpapers", "settings", "ai-usage"]
     ]
-    property var inlineSections: ["launcher", "appearance", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
+    property var inlineSections: ["launcher", "menu", "appearance", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
     property var controllerRoutes: [
         ["session", IslandState.powerMenuMode],
         ["control-center", IslandState.controlCenterMode],
         ["audio-devices", IslandState.audioDevicesMode],
         ["wifi", IslandState.wifiMode],
+        ["bluetooth", IslandState.bluetoothMode],
+        ["clipboard", IslandState.clipboardMode],
+        ["chromack", IslandState.chromackMode],
         ["shell-mode", IslandState.shellSwitcherMode],
         ["ai-usage", IslandState.aiUsageMode],
         ["system", IslandState.systemMode]
@@ -125,7 +128,7 @@ ShellRoot {
             check(menu.implicitHeight === 392 && menu.height === 392, "Menu is 392 px tall when search is closed: " + menu.height);
             const grid = named(menu, "menu-grid");
             check(grid.height === 276, "Menu card grid keeps its height");
-            check(grid.contentHeight === grid.height && grid.contentY === 0, "Four cards do not create blank scroll space");
+            check(grid.contentHeight + grid.bottomMargin === grid.height && grid.contentY === 0, "Four cards do not create blank scroll space");
             const firstCard = card(menu, menu.entries[0].id);
             const secondColumnCard = card(menu, menu.entries[1].id);
             check(firstCard && firstCard.height === 132, "Navigation cards are 132 px tall");
@@ -145,6 +148,8 @@ ShellRoot {
             if (++scrollSettleTicks < 4) return;
             check(named(menu, "menu-grid").contentY === 0, "Wheel input cannot scroll the closed four-card grid");
             click(named(menu, "panel-title-action"));
+            check(menu.implicitHeight === 452, "Opening search reports the final menu height immediately");
+            check(named(menu, "menu-grid").y === 0, "Cards slide down with the search reveal instead of jumping");
             phase = 101;
         } else if (phase === 101) {
             const grid = named(menu, "menu-grid");
@@ -171,10 +176,13 @@ ShellRoot {
             const grid = named(menu, "menu-grid");
             check(menu.entries.length <= 4 && grid.contentY === 0, "Four or fewer filtered entries stay fixed at the top");
             named(menu, "menu-search").clear();
+            scrollSettleTicks = 0;
             phase = 2;
         } else if (phase === 2) {
+            if (++scrollSettleTicks < 4) return;
             check(menu.searchVisible && named(menu, "menu-search").activeFocus, "Search action focuses the search field");
             check(menu.height === 452, "Open search adds 60 px to menu height: " + menu.height);
+            check(named(menu, "menu-grid").y === 60 && named(menu, "menu-search").opacity === 1, "Search reveal settles above the cards");
             check(menu.entries.length === MenuEntries.menuEntries.length, "Empty query shows every entry");
             named(menu, "menu-search").text = "session";
             phase = 3;
@@ -292,8 +300,29 @@ ShellRoot {
             phase = 14;
         } else if (phase === 90) {
             openMenu();
+            // Route tests can leave search open; the pinned checks below need the unsearched grid.
+            if (menu.searchVisible) menu.toggleSearch();
             check(JSON.stringify(MenuService.pinnedIds) === JSON.stringify(["themes", "settings", "ai-usage", "control-center"]), "Saved pins survive reopening Menu");
             check(MenuService.randomizedIds !== randomizedAtOpen, "A new open gets a new order after route transitions");
+            scrollSettleTicks = 0;
+            phase = 89;
+        } else if (phase === 89) {
+            if (++scrollSettleTicks < 3) return;
+            const pinned = ["themes", "settings", "ai-usage", "control-center"];
+            check(pinned.every(id => card(menu, id).reorderable), "Pinned cards are reorderable outside search");
+            check(!card(menu, "themes").dropTarget && !card(menu, "themes").reordering, "Pinned cards start without a drop target");
+            startSearch(menu).text = queryFor("themes");
+            scrollSettleTicks = 0;
+            phase = 893;
+        } else if (phase === 893) {
+            if (++scrollSettleTicks < 3) return;
+            check(card(menu, "themes") && !card(menu, "themes").reorderable, "Pinned cards are not reorderable while searching");
+            menu.toggleSearch();
+            scrollSettleTicks = 0;
+            phase = 894;
+        } else if (phase === 894) {
+            if (++scrollSettleTicks < 3) return;
+            check(card(menu, "themes").reorderable, "Pinned cards become reorderable again after search closes");
             check(MenuService.togglePin("themes"), "Rapid unpin of Themes is accepted");
             check(MenuService.togglePin("themes"), "Rapid re-pin of Themes is accepted");
             check(MenuService.togglePin("settings"), "Rapid unpin of Settings is accepted");
@@ -307,7 +336,39 @@ ShellRoot {
                 || MenuService.pendingPinnedIds !== null) return;
             check(!ThemeService.busy && ThemeService.pending.length === 0, "Rapid writes fully drain before optimistic pins reconcile");
             check(JSON.stringify(MenuService.pinnedIds) === JSON.stringify(expected), "Latest rapid pin order remains after reconciliation");
-            console.log("PASS: menu layout, search, shared views, persistent pins, cap and refill, rapid queued toggles, keyboard routing, settings routes, and mode transitions");
+            secondMenu.visible = false;
+            if (menu.searchVisible) menu.toggleSearch();
+            ThemeService.setSetting("menuRows", 3);
+            ThemeService.setSetting("menuColumns", 4);
+            scrollSettleTicks = 0;
+            phase = 92;
+        } else if (phase === 92) {
+            if (ThemeService.settings.menuRows !== 3 || ThemeService.settings.menuColumns !== 4) return;
+            if (++scrollSettleTicks < 4) return;
+            const grid = named(menu, "menu-grid");
+            check(MenuService.cardLimit === 12 && menu.entries.length === 12, "A 3x4 grid shows twelve cards");
+            check(menu.implicitWidth === 884 && menu.width === 884, "Four columns widen the menu: " + menu.width);
+            
+            const first = card(menu, menu.entries[0].id);
+            const fourth = card(menu, menu.entries[3].id);
+            const fifth = card(menu, menu.entries[4].id);
+            check(grid.height === 420 && grid.contentHeight + grid.bottomMargin === grid.height, "Three rows fill the grid without blank scroll space");
+            check(first.width === 200 && fourth.x - first.x === 636 && fifth.y - first.y === 144, "Larger grids keep 200 px cards and 12 px gaps");
+            check(pinButton(menu, menu.entries[4].id).enabled, "A larger grid allows more pins");
+            click(named(menu, "panel-title-action"));
+            scrollSettleTicks = 0;
+            phase = 93;
+        } else if (phase === 93) {
+            if (++scrollSettleTicks < 4) return;
+            const grid = named(menu, "menu-grid");
+            check(menu.searchVisible && grid.interactive && grid.contentY === 0, "Search results scroll in the larger grid");
+            check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over the larger grid");
+            scrollSettleTicks = 0;
+            phase = 94;
+        } else if (phase === 94) {
+            if (++scrollSettleTicks < 5) return;
+            check(named(menu, "menu-grid").contentY === 144, "One wheel step scrolls one row of four results: " + named(menu, "menu-grid").contentY);
+            console.log("PASS: menu layout, search, shared views, persistent pins, cap and refill, rapid queued toggles, keyboard routing, settings routes, mode transitions, and configurable grid size");
             Qt.quit();
         }
     }
@@ -315,8 +376,8 @@ ShellRoot {
     FloatingWindow {
         visible: true
         implicitWidth: 980
-        implicitHeight: 640
-        NavigationView { id: menu; width: 460; height: implicitHeight }
+        implicitHeight: 760
+        NavigationView { id: menu; width: implicitWidth; height: implicitHeight }
         NavigationView { id: secondMenu; x: 500; width: 460; height: implicitHeight }
     }
     Timer {

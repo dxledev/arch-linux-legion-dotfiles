@@ -27,6 +27,9 @@ QtObject {
     readonly property int systemMode: 16
     readonly property int aiUsageMode: 17
     readonly property int wifiMode: 18
+    readonly property int bluetoothMode: 19
+    readonly property int clipboardMode: 20
+    readonly property int chromackMode: 21
 
     // =========================================================
     // STATE
@@ -60,5 +63,8 @@ QtObject {
         mode === wallpaperSelectorMode ||
         mode === notificationsMode ||
         mode === audioDevicesMode ||
-        mode === wifiMode
+        mode === wifiMode ||
+        mode === bluetoothMode ||
+        mode === clipboardMode ||
+        mode === chromackMode
 }

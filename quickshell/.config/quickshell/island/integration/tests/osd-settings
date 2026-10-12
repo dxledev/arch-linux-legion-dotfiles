@@ -26,6 +26,12 @@ check_settings() {
     save_setting scrollProgressShowOnNonScrollable false
     save_setting scrollProgressAnimationDuration 180
     read_settings | /usr/bin/jq -e '.scrollAnimationDuration == 180 and .scrollWheelStep == 64' >/dev/null
+    read_settings | /usr/bin/jq -e '(.audioAllowOverAmplification | not) and .audioOverAmplificationLimit == 50' >/dev/null
+    save_setting audioAllowOverAmplification true
+    save_setting audioOverAmplificationLimit 25
+    read_settings | /usr/bin/jq -e '.audioAllowOverAmplification and .audioOverAmplificationLimit == 25' >/dev/null
+    save_setting audioAllowOverAmplification false
+    save_setting audioOverAmplificationLimit 50
     save_setting clockFontFamily 'Noto Sans'
     save_setting osdFontFamily 'JetBrainsMono Nerd Font'
     save_setting clockFontSize 24
@@ -59,7 +65,7 @@ check_settings() {
     for invalid in 'clockInheritUiFont yes' 'osdInheritUiFont 1'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
     done
-    for invalid in 'scrollProgressAlwaysVisible yes' 'scrollProgressShowOnNonScrollable 1' 'scrollProgressVisibleDuration 99' 'scrollProgressVisibleDuration 10001' 'scrollProgressVisibleDuration 100.5' 'scrollProgressAnimationDuration -1' 'scrollProgressAnimationDuration 1001' 'scrollAnimationDuration -1' 'scrollAnimationDuration 1001' 'scrollWheelStep 15' 'scrollWheelStep 201'; do
+    for invalid in 'scrollProgressAlwaysVisible yes' 'scrollProgressShowOnNonScrollable 1' 'scrollProgressVisibleDuration 99' 'scrollProgressVisibleDuration 10001' 'scrollProgressVisibleDuration 100.5' 'scrollProgressAnimationDuration -1' 'scrollProgressAnimationDuration 1001' 'scrollAnimationDuration -1' 'scrollAnimationDuration 1001' 'scrollWheelStep 15' 'scrollWheelStep 201' 'audioAllowOverAmplification yes' 'audioOverAmplificationLimit 0' 'audioOverAmplificationLimit 51' 'audioOverAmplificationLimit 10.5'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
     done
 }
@@ -328,7 +334,7 @@ make_fixture
 check_settings
 check_publishers
 export ISLAND_DDCUTIL_BIN=/usr/bin/true
-export TEST_ROOT="$test_root" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller"
+export TEST_ROOT="$test_root" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_THEME_SCRIPT="$test_root/controller"
 if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a /usr/bin/timeout 35s /usr/bin/bash "$0" --session "$test_root"; then
     /usr/bin/cat "$test_root/views.log" >&2

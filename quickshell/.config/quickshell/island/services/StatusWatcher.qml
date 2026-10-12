@@ -31,7 +31,7 @@ Item {
         if (parts.length < 2 || parts.length > 4 || !parts[1]) return;
         const type = parts[0];
         const value = Number(parts[1]);
-        if (!Number.isFinite(value) || value < (type === "volume" ? -1 : 0) || value > 100) return;
+        if (!Number.isFinite(value) || value < (type === "volume" ? -1 : 0) || value > (type === "volume" ? 150 : 100)) return;
         if (type === "volume") {
             StatusManager.show({mode: "volume", icon: volumeIcon(value), title: value < 0 ? "Muted" : value + "%", value: value});
         } else if (type === "brightness") {

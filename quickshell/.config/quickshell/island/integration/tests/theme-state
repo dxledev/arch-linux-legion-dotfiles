@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
-export THEMES_DIR="$XDG_CONFIG_HOME/themes" ISLAND_STATE_DIR="$XDG_STATE_HOME/island"
+export THEMES_DIR="$XDG_CONFIG_HOME/themes" ISLAND_STATE_DIR="$XDG_STATE_HOME/island" SHELL_NOTIFICATION_HISTORY="$XDG_STATE_HOME/notification-history.jsonl"
 export ISLAND_DYNAMIC_WALLPAPERS_DIR="$test_root/dynamic"
 export ISLAND_THEME_PREWARM=0 THEME_APPLY_ACTIVATE_ONLY=1
 export THEME_APPLY="$integration_dir/desktop/theme-apply"

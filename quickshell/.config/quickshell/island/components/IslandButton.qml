@@ -10,6 +10,7 @@ Button {
     property int cursorShape: Qt.ArrowCursor
     implicitHeight: 38
     padding: 10
+    focusPolicy: Qt.TabFocus
     contentItem: UiText {
         text: root.text
         color: !root.enabled ? Theme.textMuted : root.hovered ? root.hoverTextColor : root.textColor

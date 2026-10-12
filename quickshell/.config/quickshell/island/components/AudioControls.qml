@@ -46,8 +46,8 @@ ColumnLayout {
         Layout.fillWidth: true
         enabled: !!AudioService.sink?.ready
         iconSource: AudioService.volumeIcon
-        value: Math.min(1, AudioService.volume / 100)
+        value: Math.min(1, AudioService.volume / AudioService.maxVolume)
         Accessible.name: AudioService.outputLabel + " volume"
-        onValueChangedByUser: value => AudioService.setVolume(value * 100)
+        onValueChangedByUser: value => AudioService.setVolume(value * AudioService.maxVolume)
     }
 }

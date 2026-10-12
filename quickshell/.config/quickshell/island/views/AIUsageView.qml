@@ -101,6 +101,7 @@ FocusScope {
 
             ComboBox {
                 id: providerPicker
+                focusPolicy: Qt.TabFocus
                 objectName: "ai-usage-provider-picker"
                 visible: root.showProviderPicker
                 Layout.fillWidth: true

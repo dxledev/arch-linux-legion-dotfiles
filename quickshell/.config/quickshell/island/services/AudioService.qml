@@ -14,6 +14,8 @@ Singleton {
     readonly property string outputLabel: sink?.description || sink?.name || "No audio output"
     readonly property int volume: Math.round((sink?.audio?.volume ?? 0) * 100)
     readonly property bool muted: !!sink?.audio?.muted
+    readonly property bool overAmplification: ThemeService.settings.audioAllowOverAmplification ?? false
+    readonly property int maxVolume: overAmplification ? 100 + (ThemeService.settings.audioOverAmplificationLimit ?? 50) : 100
 
     readonly property url volumeIcon: {
         if (muted)
@@ -31,7 +33,13 @@ Singleton {
 
     function setVolume(value) {
         if (sink?.ready && sink.audio && Number.isFinite(value))
-            sink.audio.volume = Math.max(0, Math.min(100, value)) / 100
+            sink.audio.volume = Math.max(0, Math.min(maxVolume, value)) / 100
+    }
+
+    // Drop back within the limit when over-amplification is lowered or turned off.
+    onMaxVolumeChanged: {
+        if (ThemeService.ready && volume > maxVolume)
+            setVolume(maxVolume)
     }
 
     function toggleMute() {

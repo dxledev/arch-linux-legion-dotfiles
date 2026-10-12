@@ -101,6 +101,7 @@ Item {
             case IslandState.settingsSectionMode:
                 switch (IslandState.settingsSection) {
                 case "launcher": return launcherSettingsView
+                case "menu": return menuSettingsView
                 case "appearance": return appearanceSettingsView
                 case "clock": return clockSettingsView
                 case "lock": return lockSettingsView
@@ -146,6 +147,15 @@ Item {
             case IslandState.wifiMode:
                 return wifiView
 
+            case IslandState.bluetoothMode:
+                return bluetoothView
+
+            case IslandState.clipboardMode:
+                return clipboardView
+
+            case IslandState.chromackMode:
+                return chromackView
+
             case IslandState.themeSelectorMode:
                 return themeSelectorView
 
@@ -165,6 +175,7 @@ Item {
     Component { id: systemView; SystemView {} }
     Component { id: aiUsageView; AIUsageView {} }
     Component { id: launcherSettingsView; LauncherSettingsView {} }
+    Component { id: menuSettingsView; MenuSettingsView {} }
     Component { id: navigationView; NavigationView {} }
     Component { id: settingsView; SettingsView {} }
     Component { id: wallpaperAnimationSettingsView; WallpaperAnimationSettingsView {} }
@@ -180,6 +191,9 @@ Item {
     Component { id: notificationsView; NotificationsPanelView {} }
     Component { id: audioDevicesView; AudioDevicesView {} }
     Component { id: wifiView; WifiView {} }
+    Component { id: bluetoothView; BluetoothView {} }
+    Component { id: clipboardView; ClipboardView {} }
+    Component { id: chromackView; ChromackView {} }
 
     Component {
         id: defaultView

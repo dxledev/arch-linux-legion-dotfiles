@@ -9,7 +9,7 @@ Button {
     implicitHeight: 28
     padding: 10
     hoverEnabled: true
-    focusPolicy: Qt.StrongFocus
+    focusPolicy: Qt.TabFocus
 
     HoverHandler {
         enabled: root.enabled && root.hovered

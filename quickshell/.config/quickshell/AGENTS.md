@@ -15,3 +15,11 @@
 - Monitor nicknames live in the shared profile directory's
   `display-settings.json`. Future shell integrations must read and watch its
   `nicknames` map, preserve unknown settings, and keep connector IDs for routing.
+
+# Shared notification history
+
+- Caelestia, Island, Noctalia and Waybar share notification history through
+  `shared/notifications/history` and wardnc's JSONL store. Follow
+  `shared/notifications/README.md`; do not add a per-shell history file.
+- New shells load it at startup, append received non-transient notifications,
+  and remove or clear records when the user does.

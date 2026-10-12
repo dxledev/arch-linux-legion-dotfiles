@@ -11,19 +11,68 @@ Button {
     property bool pinned: false
     property bool pinEnabled: true
     property bool selected: false
+    property bool reorderable: false
+    property bool dropTarget: false
+    readonly property bool reordering: reorderHandler.active
+    property real shiftX: 0
+    property real shiftY: 0
+    // A drag steals the pointer grab, so the Button never sees the release and stays down.
+    property bool pressSuppressed: false
+    down: pressed && !pressSuppressed
+    focusPolicy: Qt.TabFocus
     signal pinClicked()
+    signal reorderStarted()
+    signal reorderMoved(point scenePosition)
+    signal reorderFinished(bool committed)
     implicitHeight: 132
     padding: 18
     hoverEnabled: true
+    onPressed: pressSuppressed = false
+    onReleased: pressSuppressed = false
+    // Lifted while dragged; the grid's layout is untouched so other cards stay put.
+    z: reordering ? 2 : 0
+    scale: reordering ? 1.04 : 1
+    opacity: reordering ? 0.85 : 1
+    transform: Translate { x: root.shiftX; y: root.shiftY }
+    Behavior on scale { NumberAnimation { duration: Theme.animationFast; easing.type: Theme.animationVertical } }
+    Behavior on opacity { NumberAnimation { duration: Theme.animationFast } }
+    Behavior on shiftX { enabled: !root.reordering; NumberAnimation { duration: Theme.animationFast; easing.type: Theme.animationVertical } }
+    Behavior on shiftY { enabled: !root.reordering; NumberAnimation { duration: Theme.animationFast; easing.type: Theme.animationVertical } }
     HoverHandler {
         enabled: root.enabled && root.hovered
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: root.reordering ? Qt.ClosedHandCursor : root.reorderable ? Qt.OpenHandCursor : Qt.PointingHandCursor
+    }
+    // The default drag threshold keeps clicks and pin taps as plain Button input.
+    DragHandler {
+        id: reorderHandler
+        enabled: root.reorderable
+        target: null
+        property bool canceled: false
+        onActiveChanged: {
+            if (active) {
+                canceled = false;
+                root.pressSuppressed = true;
+                root.reorderStarted();
+                return;
+            }
+            // Snap back before the view may rebuild this delegate on commit.
+            root.shiftX = 0;
+            root.shiftY = 0;
+            root.reorderFinished(!canceled);
+        }
+        onCanceled: canceled = true
+        onTranslationChanged: {
+            if (!active) return;
+            root.shiftX = centroid.scenePosition.x - centroid.scenePressPosition.x;
+            root.shiftY = centroid.scenePosition.y - centroid.scenePressPosition.y;
+            root.reorderMoved(centroid.scenePosition);
+        }
     }
     Accessible.name: title
     background: Rectangle {
         radius: 26
         color: root.down ? Theme.buttonPressed : root.hovered ? Theme.surfaceVariant : Theme.surface
-        border.width: root.activeFocus || root.selected ? 2 : 0
+        border.width: root.activeFocus || root.selected || root.dropTarget ? 2 : 0
         border.color: Theme.accent
         Behavior on color { ColorAnimation { duration: Theme.animationFast } }
     }

@@ -46,6 +46,21 @@ Singleton {
         reader.running = true;
     }
 
+    // Some palettes (notably Dynamic) derive "warning" from the accent and land near white.
+    // Keep a yellow-ish palette warning; otherwise generate an amber matched to the accent.
+    function warningColor(warning, accent, background) {
+        const base = Qt.color(warning || accent);
+        const hue = base.hsvHue * 360;
+        if (base.hsvSaturation >= 0.25 && hue >= 30 && hue <= 65)
+            return base;
+        const tint = Qt.color(accent);
+        const dark = Qt.color(background).hslLightness < 0.5;
+        const saturation = Math.max(0.65, Math.min(0.95, tint.hslSaturation));
+        const lightness = dark ? Math.max(0.6, Math.min(0.72, tint.hslLightness))
+            : Math.max(0.38, Math.min(0.48, tint.hslLightness));
+        return Qt.hsla(45 / 360, saturation, lightness, 1);
+    }
+
     function load(data) {
         state = data.theme;
         settings = data.settings;
@@ -81,7 +96,7 @@ Singleton {
         Theme.buttonText = c.foreground;
         Theme.danger = c.danger;
         Theme.dangerHover = Qt.lighter(c.danger, 1.1);
-        Theme.warning = c.warning;
+        Theme.warning = warningColor(c.warning, c.primary, c.background);
         Theme.success = c.success;
         Theme.sliderBackground = Theme.surfaceVariant;
         Theme.sliderFill = c.primary;

@@ -123,7 +123,8 @@ Rectangle {
 
         anchors.horizontalCenter: panelArea.horizontalCenter
         anchors.alignWhenCentered: false
-        y: root.mode === IslandState.aiUsageMode ? 0 : (panelArea.height - height) / 2
+        // Keep content pinned to the top edge so height changes only move the bottom edge.
+        y: 0
     }
 
     MouseArea {

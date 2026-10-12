@@ -10,8 +10,11 @@ dry_run=0
 if [[ "${1:-}" =~ ^[0-9]+$ ]]; then step="$1"; shift; fi
 [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
 [[ $# == 0 && "$step" -ge 1 && "$step" -le 20 ]] || { usage >&2; exit 2; }
+settings_file="${ISLAND_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island}/settings.json"
+limit="$(/usr/bin/jq -r 'if .audioAllowOverAmplification == true then (100 + ((.audioOverAmplificationLimit // 50) | if type == "number" and . >= 1 and . <= 50 then floor else 50 end)) / 100 else 1 end' "$settings_file" 2>/dev/null || true)"
+[[ "$limit" =~ ^[0-9]+([.][0-9]+)?$ ]] || limit=1.0
 case "$action" in
-    up) args=(set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ "$step%+") ;;
+    up) args=(set-volume -l "$limit" @DEFAULT_AUDIO_SINK@ "$step%+") ;;
     down) args=(set-volume @DEFAULT_AUDIO_SINK@ "$step%-") ;;
     mute) args=(set-mute @DEFAULT_AUDIO_SINK@ toggle) ;;
     *) usage >&2; exit 2 ;;

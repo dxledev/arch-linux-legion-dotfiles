@@ -9,6 +9,8 @@ SED_BIN="/usr/bin/sed"
 AWK_BIN="/usr/bin/awk"
 
 DEFAULT_HISTORY_FILE="${HOME}/.local/state/wardnc/notification-history.jsonl"
+# Shared by every shell mode; it merges this record with the one the active shell saves.
+SHARED_HISTORY="${XDG_CONFIG_HOME:-${HOME}/.config}/quickshell/shared/notifications/history"
 CONFIG_FILE="${XDG_CONFIG_HOME:-${HOME}/.config}/wardnc/config.toml"
 
 usage() {
@@ -175,8 +177,13 @@ append_history() {
     app_json="$(json_escape "$app_name")"
     icon_json="$(json_escape "$icon_name")"
 
-    printf '{"time":"%s","app":"%s","summary":"%s","body":"%s","icon":"%s","id":%s}\n' \
-        "$timestamp" "$app_json" "$summary_json" "$body_json" "$icon_json" "$generated_id" >> "$history_file"
+    local record
+    printf -v record '{"time":"%s","app":"%s","summary":"%s","body":"%s","icon":"%s","id":%s}' \
+        "$timestamp" "$app_json" "$summary_json" "$body_json" "$icon_json" "$generated_id"
+    if [[ -x "$SHARED_HISTORY" ]] && WARDNC_HISTORY_FILE="$history_file" "$SHARED_HISTORY" append "$record" >/dev/null 2>&1; then
+        return 0
+    fi
+    printf '%s\n' "$record" >> "$history_file"
 }
 
 main() {

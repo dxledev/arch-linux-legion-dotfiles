@@ -55,7 +55,7 @@ done
 if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     PATH="$test_root/bin:$PATH" QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
-    XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
+    XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
     ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_NIGHTLIGHT_SCRIPT=/usr/bin/true \
     ISLAND_NIGHTLIGHT_STATE_FILE="$test_root/runtime/nightlight.state" ISLAND_IDLE_LOCK_SCRIPT=/usr/bin/true \
     ISLAND_DDCUTIL_BIN=/usr/bin/true ISLAND_BRIGHTNESSCTL_BIN=/usr/bin/true \

@@ -22,6 +22,11 @@ Singleton {
     property alias dnd: props.dnd
 
     property bool loaded
+    property int storedSerial: 0
+    property var pendingRemovals: []
+    // Shared with Island, Noctalia and Waybar; see shared/notifications/README.md.
+    readonly property string historyScript: Quickshell.env("CAELESTIA_NOTIFICATION_HISTORY")
+        || Quickshell.shellPath("shared/notifications/history")
 
     function hasFullscreen(): bool {
         for (const monitor of Hypr.monitors.values) {
@@ -39,9 +44,56 @@ Singleton {
         return true;
     }
 
-    function persist(): void {
-        if (loaded)
-            saveTimer.restart();
+    function storedImage(source: string): string {
+        if (source.startsWith("/"))
+            return source;
+        return source.startsWith("file://") ? Paths.toLocalFile(source) : "";
+    }
+
+    function storedRecord(notif: NotifData): var {
+        return {
+            time: notif.time.toISOString(),
+            id: notif.storeId,
+            app: notif.appName,
+            summary: notif.summary,
+            body: notif.body,
+            icon: notif.appIcon,
+            image: root.storedImage(notif.image) || undefined,
+            urgency: notif.urgency
+        };
+    }
+
+    function store(notif: NotifData): void {
+        notif.storeId = Date.now() * 1000 + (++root.storedSerial % 1000);
+        notif.storeKey = `${notif.time.toISOString()}|${notif.storeId}`;
+        Quickshell.execDetached([root.historyScript, "append", JSON.stringify(root.storedRecord(notif))]);
+    }
+
+    // Re-appending merges a newly cached image into the existing record.
+    function persist(notif: NotifData): void {
+        if (notif.notification && notif.storeKey && root.storedImage(notif.image))
+            Quickshell.execDetached([root.historyScript, "append", JSON.stringify(root.storedRecord(notif))]);
+    }
+
+    function forget(notif: NotifData): void {
+        if (!notif.storeKey)
+            return;
+        root.pendingRemovals = [...root.pendingRemovals, JSON.stringify({
+                key: notif.storeKey,
+                time: notif.time.toISOString(),
+                summary: notif.summary,
+                body: notif.body
+            })];
+        removalTimer.restart();
+    }
+
+    function clearAll(): void {
+        for (const notif of root.list.slice()) {
+            notif.storeKey = "";
+            notif.close();
+        }
+        root.pendingRemovals = [];
+        Quickshell.execDetached([root.historyScript, "clear"]);
     }
 
     onDndChanged: {
@@ -54,28 +106,16 @@ Singleton {
             Toaster.toast(Tr.tr("Do not disturb disabled"), Tr.tr("Popup notifications are now enabled"), "do_not_disturb_off");
     }
 
-    onListChanged: {
-        persist();
-    }
-
     Timer {
-        id: saveTimer
+        id: removalTimer
 
-        interval: 1000
-        onTriggered: storage.setText(JSON.stringify(root.notClosed.map(n => ({
-                    time: n.time,
-                    id: n.id,
-                    summary: n.summary,
-                    body: n.body,
-                    appIcon: n.appIcon,
-                    appName: n.appName,
-                    image: n.image,
-                    expireTimeout: n.expireTimeout,
-                    urgency: n.urgency,
-                    resident: n.resident,
-                    hasActionIcons: n.hasActionIcons,
-                    actions: n.actions
-                }))))
+        interval: 300
+        onTriggered: {
+            // Clearing every loaded notification also clears records beyond the load limit.
+            const command = root.list.length === 0 ? ["clear"] : ["remove", ...root.pendingRemovals];
+            root.pendingRemovals = [];
+            Quickshell.execDetached([root.historyScript, ...command]);
+        }
     }
 
     PersistentProperties {
@@ -105,6 +145,8 @@ Singleton {
                 notification: notif
             });
             root.list = [comp, ...root.list];
+            if (!notif.transient)
+                root.store(comp);
         }
     }
 
@@ -122,30 +164,30 @@ Singleton {
         }
     }
 
-    FileView {
-        id: storage
-
-        printErrors: false
-        path: `${Paths.state}/notifs.json`
-        onLoaded: {
-            const data = JSON.parse(text());
-            for (const notif of data) {
-                const properties = Object.assign({}, notif);
-
-                // Backwards compatibility for old notifications
-                if (properties.notificationId === undefined && properties.id !== undefined)
-                    properties.notificationId = properties.id;
-
-                delete properties.id;
-                root.list.push(notifComp.createObject(root, properties));
-            }
-            root.list.sort((a, b) => b.time - a.time);
-            root.loaded = true;
-        }
-        onLoadFailed: err => {
-            if (err === FileViewError.FileNotFound) {
+    Process {
+        running: true
+        command: [root.historyScript, "list", "--limit", "500"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let records = [];
+                try {
+                    records = JSON.parse(text);
+                } catch (error) {
+                    console.warn("Notifs: could not read shared notification history");
+                }
+                const stored = records.map(record => notifComp.createObject(root, {
+                        time: new Date(record.time),
+                        notificationId: record.key,
+                        storeKey: record.key,
+                        summary: record.summary ?? "",
+                        body: record.body ?? "",
+                        appIcon: record.icon ?? "",
+                        appName: record.app ?? "",
+                        image: record.image ?? "",
+                        urgency: record.urgency ?? NotificationUrgency.Normal
+                    }));
+                root.list = [...root.list, ...stored].sort((a, b) => b.time - a.time);
                 root.loaded = true;
-                Qt.callLater(() => setText("[]"));
             }
         }
     }
@@ -155,16 +197,12 @@ Singleton {
         // qmllint enable unresolved-type
         name: "clearNotifs"
         description: "Clear all notifications"
-        onPressed: {
-            for (const notif of root.list.slice())
-                notif.close();
-        }
+        onPressed: root.clearAll()
     }
 
     IpcHandler {
         function clear(): void {
-            for (const notif of root.list.slice())
-                notif.close();
+            root.clearAll();
         }
 
         function isDndEnabled(): bool {
