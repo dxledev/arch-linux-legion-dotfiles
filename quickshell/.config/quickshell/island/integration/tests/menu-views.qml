@@ -14,19 +14,22 @@ ShellRoot {
     property int pinIndex: 0
     property var randomizedAtOpen: null
     property string pendingId: ""
-    property var pinChoices: ["themes", "wallpapers", "settings", "shell-mode"]
+    property var pinChoices: ["themes", "wallpapers", "settings", "ai-usage"]
     property var nextPins: [
         ["themes"],
         ["themes", "wallpapers"],
         ["themes", "wallpapers", "settings"],
-        ["themes", "wallpapers", "settings", "shell-mode"]
+        ["themes", "wallpapers", "settings", "ai-usage"]
     ]
     property var inlineSections: ["launcher", "appearance", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"]
     property var controllerRoutes: [
         ["session", IslandState.powerMenuMode],
         ["control-center", IslandState.controlCenterMode],
         ["audio-devices", IslandState.audioDevicesMode],
-        ["shell-mode", IslandState.shellSwitcherMode]
+        ["wifi", IslandState.wifiMode],
+        ["shell-mode", IslandState.shellSwitcherMode],
+        ["ai-usage", IslandState.aiUsageMode],
+        ["system", IslandState.systemMode]
     ]
     property int routeIndex: 0
 
@@ -75,6 +78,7 @@ ShellRoot {
         check(!view.searchVisible && search.text === "", "Modified slash does not toggle search");
     }
     function queryFor(id) {
+        if (id === "system") return "system stats";
         const entry = MenuEntries.findEntryById(id);
         return entry.title + " " + entry.subtitle;
     }
@@ -144,7 +148,7 @@ ShellRoot {
             phase = 101;
         } else if (phase === 101) {
             const grid = named(menu, "menu-grid");
-            check(menu.searchVisible && menu.entries.length === 22, "Search opens with all menu entries");
+            check(menu.searchVisible && menu.entries.length === MenuEntries.menuEntries.length, "Search opens with all menu entries");
             check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over all search results");
             scrollSettleTicks = 0;
             phase = 102;
@@ -171,12 +175,18 @@ ShellRoot {
         } else if (phase === 2) {
             check(menu.searchVisible && named(menu, "menu-search").activeFocus, "Search action focuses the search field");
             check(menu.height === 452, "Open search adds 60 px to menu height: " + menu.height);
-            check(menu.entries.length === 22, "Empty query shows all 22 entries");
+            check(menu.entries.length === MenuEntries.menuEntries.length, "Empty query shows every entry");
             named(menu, "menu-search").text = "session";
             phase = 3;
         } else if (phase === 3) {
             check(menu.entries.length === 1 && menu.entries[0].id === "session", "Session search result is correct");
             check(MenuService.randomizedIds === randomizedAtOpen, "Search does not change the open menu order");
+            const search = named(menu, "menu-search");
+            search.text = "provider credits";
+            check(menu.entries.length === 1 && menu.entries[0].id === "ai-usage", "Provider keywords find AI Usage");
+            search.text = "anthropic";
+            check(menu.entries.length === 1 && menu.entries[0].id === "ai-usage", "Configured provider names find AI Usage");
+            search.text = "session";
             click(named(menu, "panel-title-action"));
             phase = 4;
         } else if (phase === 4) {
@@ -258,7 +268,7 @@ ShellRoot {
             phase = 14;
         } else if (phase === 14) {
             if (ThemeService.settings.menuPinnedEntries.length !== 4 || !MenuService.isPinned("control-center")) return;
-            check(JSON.stringify(ThemeService.settings.menuPinnedEntries) === JSON.stringify(["themes", "settings", "shell-mode", "control-center"]), "Final pin order is persisted");
+            check(JSON.stringify(ThemeService.settings.menuPinnedEntries) === JSON.stringify(["themes", "settings", "ai-usage", "control-center"]), "Final pin order is persisted");
             check(MenuService.pendingPinnedIds === null, "Final optimistic pin state reconciles");
             testRoutes();
         } else if (phase === 80) {
@@ -272,22 +282,27 @@ ShellRoot {
                 const expectedMode = controllerRoutes.find(route => route[0] === pendingId)[1];
                 check(IslandState.mode === expectedMode, "Controller route opens " + pendingId);
             }
+            if (pendingId === "system") {
+                check(IslandState.systemReturnMode === IslandState.navigationMode, "System opened from Menu remembers Menu");
+                IslandController.backFromSystem();
+                check(IslandState.mode === IslandState.navigationMode, "System back returns to Menu");
+            }
             IslandController.reset();
             routeIndex++;
             phase = 14;
         } else if (phase === 90) {
             openMenu();
-            check(JSON.stringify(MenuService.pinnedIds) === JSON.stringify(["themes", "settings", "shell-mode", "control-center"]), "Saved pins survive reopening Menu");
+            check(JSON.stringify(MenuService.pinnedIds) === JSON.stringify(["themes", "settings", "ai-usage", "control-center"]), "Saved pins survive reopening Menu");
             check(MenuService.randomizedIds !== randomizedAtOpen, "A new open gets a new order after route transitions");
             check(MenuService.togglePin("themes"), "Rapid unpin of Themes is accepted");
             check(MenuService.togglePin("themes"), "Rapid re-pin of Themes is accepted");
             check(MenuService.togglePin("settings"), "Rapid unpin of Settings is accepted");
             check(MenuService.togglePin("settings"), "Rapid re-pin of Settings is accepted");
-            check(JSON.stringify(MenuService.pinnedIds) === JSON.stringify(["shell-mode", "control-center", "themes", "settings"]), "Rapid toggles expose the latest pin order immediately");
+            check(JSON.stringify(MenuService.pinnedIds) === JSON.stringify(["ai-usage", "control-center", "themes", "settings"]), "Rapid toggles expose the latest pin order immediately");
             check(IslandState.mode === IslandState.navigationMode, "Rapid pin writes keep Menu open");
             phase = 91;
         } else if (phase === 91) {
-            const expected = ["shell-mode", "control-center", "themes", "settings"];
+            const expected = ["ai-usage", "control-center", "themes", "settings"];
             if (JSON.stringify(ThemeService.settings.menuPinnedEntries) !== JSON.stringify(expected)
                 || MenuService.pendingPinnedIds !== null) return;
             check(!ThemeService.busy && ThemeService.pending.length === 0, "Rapid writes fully drain before optimistic pins reconcile");

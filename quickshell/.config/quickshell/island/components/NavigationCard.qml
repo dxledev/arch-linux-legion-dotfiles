@@ -15,6 +15,10 @@ Button {
     implicitHeight: 132
     padding: 18
     hoverEnabled: true
+    HoverHandler {
+        enabled: root.enabled && root.hovered
+        cursorShape: Qt.PointingHandCursor
+    }
     Accessible.name: title
     background: Rectangle {
         radius: 26

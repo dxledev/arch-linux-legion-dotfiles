@@ -14,6 +14,7 @@ Scope {
     property var diskHistory: []
     property string error: ""
     readonly property bool ready: sample.memoryTotal > 0
+    readonly property bool cpuReady: cpuHistory.length > 0
     readonly property real memoryUsage: ready ? sample.memoryUsed / sample.memoryTotal : 0
     readonly property real diskUsage: sample.diskTotal > 0 ? sample.diskUsed / sample.diskTotal : 0
     readonly property string hostname: host.text().trim()
@@ -24,10 +25,15 @@ Scope {
     function history(values, value) { return values.concat([value]).slice(-30); }
     function refresh() { if (!collector.running) collector.running = true; }
     function acceptSample(value) {
-        cpuUsage = Metrics.cpuUsage(previousSample, value);
-        previousSample = value;
+        const previous = previousSample;
+        if (previous && value.total > previous.total) {
+            cpuUsage = Metrics.cpuUsage(previous, value);
+            cpuHistory = history(cpuHistory, cpuUsage);
+            previousSample = value;
+        } else if (!previous || value.total < previous.total) {
+            previousSample = value;
+        }
         sample = value;
-        cpuHistory = history(cpuHistory, cpuUsage);
         memoryHistory = history(memoryHistory, memoryUsage);
         diskHistory = history(diskHistory, diskUsage);
         error = "";

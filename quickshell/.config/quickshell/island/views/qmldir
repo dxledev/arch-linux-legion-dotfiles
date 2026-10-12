@@ -22,6 +22,8 @@ CompactView 1.0 CompactView.qml
 WorkspaceView 1.0 WorkspaceView.qml
 NotificationsPanelView 1.0 NotificationsPanelView.qml
 AudioDevicesView 1.0 AudioDevicesView.qml
+WifiView 1.0 WifiView.qml
+AIUsageView 1.0 AIUsageView.qml
 AppearanceSettingsView 1.0 AppearanceSettingsView.qml
 WorkspaceSettingsView 1.0 WorkspaceSettingsView.qml
 DynamicPaletteSettingsView 1.0 DynamicPaletteSettingsView.qml

@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-ai-usage.XXXXXX)"
+island_root="$(/usr/bin/realpath "$test_dir/../..")"
+config_home="$test_root/config"
+settings_file="$test_root/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$test_dir/../theme-functions"
+
+/usr/bin/node "$test_dir/ai-usage-providers.js"
+/usr/bin/cmp "$island_root/services/AIUsageParser.js" "$island_root/../caelestia/services/AIUsageParser.js"
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache"
+/usr/bin/chmod 700 "$test_root/runtime"
+view_dir="$(/usr/bin/realpath "$test_dir/../../views")"
+service_dir="$(/usr/bin/realpath "$test_dir/../../services")"
+/usr/bin/sed -e "s|^import \"../../views\"$|import \"file://$view_dir\"|" -e "s|^import \"../../services\"$|import \"file://$service_dir\"|" "$test_dir/ai-usage-views.qml" > "$test_root/views.qml"
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+cat > "$test_root/ai-usagebar" <<'AI_USAGEBAR'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    vendors)
+        if [[ "${AI_USAGE_TEST_PIPELINE:-0}" == 1 ]]; then
+            count_file="$AI_USAGE_TEST_CALLS_DIR/vendors"
+            count=0
+            [[ ! -f "$count_file" ]] || read -r count < "$count_file"
+            count=$((count + 1))
+            printf '%s\n' "$count" > "$count_file"
+            case "$count" in
+                2) printf '%s\n' '{invalid json' ;;
+                3) exit 1 ;;
+                1|4|5|6) printf '%s\n' '{"vendors":[{"id":"openai","enabled":true,"configured":true},{"id":"gemini","enabled":true,"configured":false,"needs_credential":false},{"id":"copilot","enabled":false,"configured":true},{"id":"anthropic","enabled":true,"configured":false}]}' ;;
+                7)
+                    /usr/bin/sed -i -e '/label = "team"/{n;s/enabled = true/enabled = false/;}' -e '/id = "internal"/{n;s/enabled = true/enabled = false/;}' "$TEST_ROOT/ai-usage.toml"
+                    printf '%s\n' '{"vendors":[{"id":"openai","enabled":true,"configured":true},{"id":"gemini","enabled":true,"configured":false,"needs_credential":false},{"id":"copilot","enabled":false,"configured":true},{"id":"anthropic","enabled":true,"configured":false}]}'
+                    ;;
+                *) exit 2 ;;
+            esac
+            exit
+        fi
+        mode="$(<"$AI_USAGE_TEST_CATALOG_MODE_FILE")"
+        case "$mode" in
+            malformed) printf '%s\n' '{invalid json' ;;
+            failed) exit 1 ;;
+            *) printf '%s\n' '{"vendors":[{"id":"openai","enabled":true,"configured":true},{"id":"gemini","enabled":true,"configured":false,"needs_credential":false},{"id":"copilot","enabled":false,"configured":true},{"id":"anthropic","enabled":true,"configured":false}]}' ;;
+        esac
+        ;;
+    usage)
+        if [[ "${AI_USAGE_TEST_PIPELINE:-0}" == 1 ]]; then
+            count_file="$AI_USAGE_TEST_CALLS_DIR/usage"
+            count=0
+            [[ ! -f "$count_file" ]] || read -r count < "$count_file"
+            count=$((count + 1))
+            printf '%s\n' "$count" > "$count_file"
+            case "$count" in
+                1) printf '%s\n' '{"primary":"openai@work","entries":[{"id":"openai","display_name":"OpenAI","status":"ready","metrics":[],"sections":[]},{"id":"openai@work","display_name":"OpenAI · work","status":"ready","metrics":[],"sections":[]},{"id":"anthropic@team","display_name":"Anthropic · team","status":"error","error":"Fixture credentials unavailable","metrics":[],"sections":[]},{"id":"custom:internal","display_name":"Internal · staging","status":"error","error":"Fixture provider unavailable","metrics":[],"sections":[]}]}' ;;
+                2) exit 124 ;;
+                3) printf '%s\n' '{invalid report' ;;
+                4) printf '%s\n' '{"primary":"openai@work","entries":[{"id":"openai","display_name":"OpenAI","status":"ready","metrics":[],"sections":[]},{"id":"openai@work","display_name":"OpenAI · work","status":"ready","metrics":[],"sections":[]},{"id":"anthropic@team","display_name":"Anthropic · team","status":"error","error":"Fixture credentials unavailable","metrics":[],"sections":[]}]}' ;;
+                *) exit 2 ;;
+            esac
+            exit
+        fi
+        printf '%s\n' '{"primary":"openai@work","entries":[{"id":"openai","display_name":"OpenAI","status":"ready","metrics":[],"sections":[]},{"id":"openai@work","display_name":"OpenAI · work","status":"ready","metrics":[],"sections":[]},{"id":"anthropic@team","display_name":"Anthropic · team","status":"error","error":"Fixture credentials unavailable","metrics":[],"sections":[]},{"id":"custom:internal","display_name":"Internal · staging","status":"error","error":"Fixture provider unavailable","metrics":[],"sections":[]}]}' ;;
+    *) exit 2 ;;
+esac
+AI_USAGEBAR
+/usr/bin/chmod +x "$test_root/controller" "$test_root/ai-usagebar"
+
+mkdir -p "$test_root/anthropic-accounts/team" "$test_root/anthropic-accounts/auto-only"
+: > "$test_root/openai-work.credentials"
+: > "$test_root/anthropic-team.credentials"
+: > "$test_root/anthropic-accounts/team/.credentials.json"
+: > "$test_root/anthropic-accounts/auto-only/.credentials.json"
+: > "$test_root/custom.credentials"
+cat > "$test_root/ai-usage.toml" <<CONFIG
+[openai]
+[[openai.accounts]]
+label = "work"
+enabled = true
+credentials_path = "$test_root/openai-work.credentials"
+
+[gemini]
+api_key = "synthetic fixture value"
+
+[copilot]
+[[copilot.accounts]]
+label = "disabled-account"
+enabled = true
+credentials_path = "$test_root/openai-work.credentials"
+
+[anthropic]
+accounts_dir = "$test_root/anthropic-accounts"
+[[anthropic.accounts]]
+label = "team"
+enabled = true
+credentials_path = "$test_root/anthropic-team.credentials"
+[[anthropic.accounts]]
+label = "auto-only"
+enabled = false
+
+[[custom]]
+id = "internal"
+enabled = true
+api_key = "synthetic fixture value"
+
+[[custom]]
+id = "disabled"
+enabled = false
+credentials_path = "$test_root/custom.credentials"
+
+[[custom]]
+id = "path-only"
+enabled = true
+credentials_path = "$test_root/custom.credentials"
+CONFIG
+printf '%s\n' valid > "$test_root/catalog-mode"
+/usr/bin/mkdir -p "$test_root/calls"
+catalog_result="$(AI_USAGE_TEST_CATALOG_MODE_FILE="$test_root/catalog-mode" /usr/bin/python3 "$test_dir/../ai-usage-discovery.py" "$test_root/ai-usagebar" "$test_root/ai-usage.toml")"
+/usr/bin/jq -e '.ok and (.providerIds == ["anthropic@team","custom:internal","openai","openai@work"])' <<<"$catalog_result" >/dev/null
+printf '%s\n' malformed > "$test_root/catalog-mode"
+if catalog_result="$(AI_USAGE_TEST_CATALOG_MODE_FILE="$test_root/catalog-mode" /usr/bin/python3 "$test_dir/../ai-usage-discovery.py" "$test_root/ai-usagebar" "$test_root/ai-usage.toml")"; then
+    fail 'Malformed provider catalog unexpectedly succeeded.'
+fi
+/usr/bin/jq -e '(.ok | not) and (.message == "Configured AI providers could not be checked.")' <<<"$catalog_result" >/dev/null
+printf '%s\n' failed > "$test_root/catalog-mode"
+if catalog_result="$(AI_USAGE_TEST_CATALOG_MODE_FILE="$test_root/catalog-mode" /usr/bin/python3 "$test_dir/../ai-usage-discovery.py" "$test_root/ai-usagebar" "$test_root/ai-usage.toml")"; then
+    fail 'Failed provider catalog unexpectedly succeeded.'
+fi
+/usr/bin/jq -e '(.ok | not) and (.message == "Configured AI providers could not be checked.")' <<<"$catalog_result" >/dev/null
+printf '%s\n' valid > "$test_root/catalog-mode"
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_AI_USAGE_BIN="$test_root/ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/ai-usage.toml" ISLAND_AI_USAGE_REFRESH_INTERVAL_SECONDS="" ISLAND_AI_USAGE_TIMEOUT_SECONDS="" AI_USAGE_TEST_CATALOG_MODE_FILE="$test_root/catalog-mode" \
+    AI_USAGE_TEST_PIPELINE=1 AI_USAGE_TEST_CALLS_DIR="$test_root/calls" \
+    ISLAND_AI_USAGE_SINGLE_SCREENSHOT="$test_root/single.png" ISLAND_AI_USAGE_MULTI_SCREENSHOT="$test_root/multiple.png" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 60s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Could not run AI Usage views.'
+fi
+if ! /usr/bin/rg -q 'PASS: AI Usage' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'AI Usage views failed.'
+fi
+printf 'PASS: isolated AI Usage provider and view states\n'
+printf 'Rendered fixtures: %s/single.png %s/multiple.png\n' "$test_root" "$test_root"
+
+/usr/bin/mkdir -p "$test_root/quickshell"
+/usr/bin/cp -a "$island_root" "$test_root/quickshell/"
+smoke_root="$test_root/quickshell/island"
+cat > "$smoke_root/ai-usage-smoke.qml" <<'SMOKE_QML'
+import QtQuick
+import Quickshell
+import "services"
+
+ShellRoot {
+    Timer {
+        interval: 50
+        running: true
+        repeat: true
+        onTriggered: {
+            if (!AIUsageService.hasReport) return;
+            if (AIUsageService.availableEntries.length !== 1 || AIUsageService.selectedEntry?.id !== "openai") {
+                console.error("FAIL: Island-root AI Usage report was not normalized.");
+                Qt.quit();
+                return;
+            }
+            console.log("PASS: Island-root AI Usage service startup and local parser import");
+            Qt.quit();
+        }
+    }
+
+    Timer {
+        interval: 10000
+        running: true
+        onTriggered: {
+            console.error("FAIL: Island-root AI Usage service did not finish its fixture refresh.");
+            Qt.quit();
+        }
+    }
+}
+SMOKE_QML
+cat > "$test_root/root-ai-usagebar" <<'SMOKE_CLI'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    vendors) printf '%s\n' '{"vendors":[{"id":"openai","enabled":true,"configured":true}]}' ;;
+    usage) printf '%s\n' '{"primary":"openai","entries":[{"id":"openai","display_name":"OpenAI","status":"ready","metrics":[],"sections":[]}]}' ;;
+    *) exit 2 ;;
+esac
+SMOKE_CLI
+/usr/bin/chmod +x "$test_root/root-ai-usagebar"
+: > "$test_root/root-ai-usage.toml"
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    XDG_CONFIG_HOME="$test_root/config" XDG_DATA_HOME="$test_root/state" XDG_STATE_HOME="$test_root/state" \
+    XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    ISLAND_AI_USAGE_BIN="$test_root/root-ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/root-ai-usage.toml" \
+    ISLAND_AI_USAGE_REFRESH_INTERVAL_SECONDS="" ISLAND_AI_USAGE_TIMEOUT_SECONDS="" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 15s /usr/bin/quickshell -p "$smoke_root/ai-usage-smoke.qml" > "$test_root/root-smoke.log" 2>&1; then
+    /usr/bin/cat "$test_root/root-smoke.log" >&2
+    fail 'Could not start the copied Island-root AI Usage smoke config.'
+fi
+if ! /usr/bin/rg -q 'PASS: Island-root AI Usage service startup and local parser import' "$test_root/root-smoke.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|qs-blackhole|Type AIUsageService unavailable|TypeError|ReferenceError' "$test_root/root-smoke.log"; then
+    /usr/bin/cat "$test_root/root-smoke.log" >&2
+    fail 'Island-root AI Usage configuration-root smoke failed.'
+fi
+printf 'PASS: copied Island configuration-root startup, local parser import, and Caelestia parser byte parity\n'
+
+/usr/bin/cp "$test_dir/ai-usage-motion-views.qml" "$smoke_root/ai-usage-motion.qml"
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" \
+    XDG_CONFIG_HOME="$test_root/config" XDG_DATA_HOME="$test_root/state" XDG_STATE_HOME="$test_root/state" \
+    XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    ISLAND_AI_USAGE_BIN="$test_root/root-ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/root-ai-usage.toml" \
+    ISLAND_AI_USAGE_REFRESH_INTERVAL_SECONDS="" ISLAND_AI_USAGE_TIMEOUT_SECONDS="" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 15s /usr/bin/quickshell -p "$smoke_root/ai-usage-motion.qml" > "$test_root/motion.log" 2>&1; then
+    /usr/bin/cat "$test_root/motion.log" >&2
+    fail 'Could not run the copied Island-root AI Usage motion fixture.'
+fi
+if ! /usr/bin/rg -q 'PASS: Island AI Usage row stability, smooth height motion, rapid selection and hidden scroll reset' "$test_root/motion.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR qml:|ERROR scene:|qs-blackhole|TypeError|ReferenceError|Binding loop' "$test_root/motion.log" \
+    || /usr/bin/awk '/ERROR/ && $0 !~ /^ ERROR quickshell\.service\.pipewire\.loop: Failed to connect pipewire context\. Errno: 112$/ {failed=1} END {exit !failed}' "$test_root/motion.log"; then
+    /usr/bin/cat "$test_root/motion.log" >&2
+    fail 'Island AI Usage motion fixture failed.'
+fi
+printf 'PASS: copied Island-root AI Usage geometry and provider transition motion\n'

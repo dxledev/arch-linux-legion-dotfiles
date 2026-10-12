@@ -76,4 +76,8 @@ PanelWindow {
         islandWidth: capsule.width
         islandRadius: capsule.radius
     }
+
+    WifiQrWindow {
+        screen: root.screen
+    }
 }

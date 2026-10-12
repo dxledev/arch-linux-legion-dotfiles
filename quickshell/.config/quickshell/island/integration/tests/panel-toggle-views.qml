@@ -18,13 +18,16 @@ ShellRoot {
             ["openControlCenter", IslandState.controlCenterMode],
             ["openNotifications", IslandState.notificationsMode],
             ["openAudioDevices", IslandState.audioDevicesMode],
+            ["openWifi", IslandState.wifiMode],
             ["openThemeSelector", IslandState.themeSelectorMode],
             ["openWallpaperSelector", IslandState.wallpaperSelectorMode],
             ["openNavigation", IslandState.navigationMode],
             ["openClockSettings", IslandState.clockSettingsMode],
             ["openOsdSettings", IslandState.osdSettingsMode],
             ["openSettings", IslandState.settingsMode],
-            ["openShellSwitcher", IslandState.shellSwitcherMode]
+            ["openShellSwitcher", IslandState.shellSwitcherMode],
+            ["openAIUsage", IslandState.aiUsageMode],
+            ["openSystem", IslandState.systemMode]
         ];
         for (const [method, mode] of panels) {
             IslandController.reset();
@@ -72,6 +75,25 @@ ShellRoot {
         IslandController.toggleMode(IslandState.powerMenuMode, [], "DP-1");
         check(IslandState.mode === IslandState.powerMenuMode && IslandState.panelMonitorName === "DP-1",
             "Different shortcut transfers to its requested monitor");
+        IslandController.reset();
+        IslandController.openNavigation();
+        IslandController.openSystem();
+        check(IslandState.mode === IslandState.systemMode && IslandState.systemReturnMode === IslandState.navigationMode,
+            "System opened from Menu remembers Menu as its return view");
+        IslandController.backFromSystem();
+        check(IslandState.mode === IslandState.navigationMode, "System returns to Menu");
+        IslandController.openPowerMenu();
+        IslandController.openSystem();
+        check(IslandState.mode === IslandState.systemMode && IslandState.systemReturnMode === IslandState.powerMenuMode,
+            "System opened from Session remembers Session as its return view");
+        IslandController.backFromSystem();
+        check(IslandState.mode === IslandState.powerMenuMode, "System returns to Session");
+        IslandController.openNavigation();
+        IslandController.openSystem();
+        check(IslandState.mode === IslandState.systemMode && IslandState.systemReturnMode === IslandState.navigationMode,
+            "A later System open replaces the prior Session return target");
+        IslandController.backFromSystem();
+        check(IslandState.mode === IslandState.navigationMode, "System return target resets for a new Menu open");
         IslandController.toggleSettingsSection("appearance", "HDMI-A-1");
         IslandController.toggleSettingsSection("appearance", "DP-1");
         check(IslandState.mode === IslandState.settingsSectionMode && IslandState.panelMonitorName === "DP-1",

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-control-center-tiles.XXXXXX)"
+fail() {
+    printf '%s\n' "$*" >&2
+    [[ ! -f "$test_root/views.log" ]] || /usr/bin/cat "$test_root/views.log" >&2
+    [[ ! -f "$test_root/commands.log" ]] || /usr/bin/cat "$test_root/commands.log" >&2
+    printf 'Fixture retained at %s\n' "$test_root" >&2
+    exit 1
+}
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/state" "$test_root/bin"
+/usr/bin/chmod 700 "$test_root/runtime"
+/usr/bin/cp -a "$test_dir/../.." "$test_root/island"
+/usr/bin/cp "$test_dir/fake-services/AudioService.qml" "$test_root/island/services/AudioService.qml"
+/usr/bin/sed 's|"../../|"island/|g' "$test_dir/control-center-tiles-views.qml" > "$test_root/views.qml"
+/usr/bin/sed -i 's|import Quickshell.Services.Mpris|import "../integration/tests/fake-mpris"|' "$test_root/island/services/MediaService.qml"
+
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+
+for command_name in nmcli bluetoothctl wpctl pactl; do
+    cat > "$test_root/bin/$command_name" <<'COMMAND'
+#!/usr/bin/env bash
+set -euo pipefail
+command_name="$(/usr/bin/basename -- "$0")"
+printf '%s %s\n' "$command_name" "$*" >> "$TEST_ROOT/commands.log"
+case "$command_name:${1:-}" in
+    bluetoothctl:show) printf 'Powered: no\n' ;;
+    wpctl:get-volume) printf 'Volume: 0.50\n' ;;
+esac
+COMMAND
+    /usr/bin/chmod +x "$test_root/bin/$command_name"
+done
+
+/usr/bin/node "$test_dir/media-selection.js"
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    PATH="$test_root/bin:$PATH" QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
+    XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
+    ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_NIGHTLIGHT_SCRIPT=/usr/bin/true \
+    ISLAND_NIGHTLIGHT_STATE_FILE="$test_root/runtime/nightlight.state" ISLAND_IDLE_LOCK_SCRIPT=/usr/bin/true \
+    ISLAND_DDCUTIL_BIN=/usr/bin/true ISLAND_BRIGHTNESSCTL_BIN=/usr/bin/true \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 35s /usr/bin/quickshell -p "$test_root/views.qml" \
+    > "$test_root/views.log" 2>&1; then
+    fail 'Could not run Control Center tile views.'
+fi
+
+if ! /usr/bin/rg -q 'PASS: tile action separation' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR qml:|ReferenceError|TypeError|Binding loop|Cannot assign' "$test_root/views.log"; then
+    fail 'Control Center tile interaction test failed.'
+fi
+
+if /usr/bin/rg -q '^(nmcli radio|bluetoothctl power|wpctl set-mute)' "$test_root/commands.log" 2>/dev/null; then
+    fail 'A guarded service mutation reached a command stub.'
+fi
+
+printf 'PASS: Control Center tile actions, independent hover, reserved routes, media routing and isolated playback\n'
+printf 'Fixture retained at %s\n' "$test_root"

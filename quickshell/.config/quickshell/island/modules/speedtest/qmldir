@@ -1,0 +1,5 @@
+SpeedTest 1.0 SpeedTest.qml
+DiskPanel 1.0 DiskPanel.qml
+NetworkPanel 1.0 NetworkPanel.qml
+SpeedTestButton 1.0 SpeedTestButton.qml
+SpeedTestOverlay 1.0 SpeedTestOverlay.qml

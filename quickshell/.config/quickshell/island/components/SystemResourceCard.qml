@@ -7,6 +7,7 @@ Rectangle {
     required property string detail
     required property real usage
     required property var history
+    property bool ready: true
     property real displayedUsage: 0
     implicitHeight: 218
     radius: 18
@@ -30,7 +31,7 @@ Rectangle {
         progress: root.displayedUsage
         UiText {
             anchors.centerIn: parent
-            text: Math.round(root.displayedUsage * 100) + "%"
+            text: root.ready ? Math.round(root.displayedUsage * 100) + "%" : "…"
             font.pixelSize: 21; font.weight: Font.DemiBold
             color: Theme.textPrimary
         }

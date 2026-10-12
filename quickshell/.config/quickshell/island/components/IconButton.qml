@@ -12,6 +12,10 @@ Button {
     padding: 9
     Accessible.name: description
     hoverEnabled: true
+    HoverHandler {
+        enabled: root.enabled && root.hovered
+        cursorShape: Qt.PointingHandCursor
+    }
     contentItem: SvgIcon { source: root.iconSource; color: root.iconColor; size: 18 }
     background: Rectangle {
         radius: height / 2

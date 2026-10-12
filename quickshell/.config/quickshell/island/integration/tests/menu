@@ -39,11 +39,22 @@ case "${1:-}" in
 esac
 CONTROLLER
 /usr/bin/chmod +x "$test_root/controller"
+cat > "$test_root/ai-usagebar" <<'AI_USAGEBAR'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    vendors) printf '%s\n' '{"vendors":[{"id":"openai","enabled":true,"configured":true,"needs_credential":true}]}' ;;
+    usage) printf '%s\n' '{"primary":"openai","entries":[{"id":"openai","name":"OpenAI","display_name":"OpenAI","status":"ready","metrics":[],"sections":[]}]}' ;;
+    *) exit 2 ;;
+esac
+AI_USAGEBAR
+/usr/bin/chmod +x "$test_root/ai-usagebar"
+: > "$test_root/ai-usage.toml"
 
 if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
-    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_AI_USAGE_BIN="$test_root/ai-usagebar" ISLAND_AI_USAGE_CONFIG="$test_root/ai-usage.toml" \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 40s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
     fail 'Could not run menu views.'
 fi
@@ -51,5 +62,5 @@ if ! /usr/bin/rg -q 'PASS: menu layout' "$test_root/views.log" \
     || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
     fail 'Menu views failed.'
 fi
-/usr/bin/jq -e '.menuPinnedEntries == ["shell-mode","control-center","themes","settings"]' "$settings_file" >/dev/null
+/usr/bin/jq -e '.menuPinnedEntries == ["ai-usage","control-center","themes","settings"]' "$settings_file" >/dev/null
 printf 'PASS: menu registry, persistence, rendered navigation, real pointer/key input, pin limits and routes\n'

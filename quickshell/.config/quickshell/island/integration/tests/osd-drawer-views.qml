@@ -28,6 +28,7 @@ ShellRoot {
         {name: "Navigation", mode: IslandState.navigationMode},
         {name: "Notifications", mode: IslandState.notificationsMode},
         {name: "Audio devices", mode: IslandState.audioDevicesMode},
+        {name: "Wi-Fi", mode: IslandState.wifiMode},
         {name: "Clock settings", mode: IslandState.clockSettingsMode},
         {name: "OSD settings", mode: IslandState.osdSettingsMode},
         {name: "Launcher", mode: IslandState.launcherMode},

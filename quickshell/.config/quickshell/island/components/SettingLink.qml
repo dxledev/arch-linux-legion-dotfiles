@@ -10,6 +10,10 @@ Button {
     implicitHeight: 54
     padding: 16
     hoverEnabled: true
+    HoverHandler {
+        enabled: root.enabled && root.hovered
+        cursorShape: Qt.PointingHandCursor
+    }
     Accessible.name: textLabel
     contentItem: Item {
         SvgIcon {

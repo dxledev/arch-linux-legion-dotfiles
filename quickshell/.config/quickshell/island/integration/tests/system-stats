@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-system-stats.XXXXXX)"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache"
+/usr/bin/chmod 700 "$test_root/runtime"
+
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+
+run_views() {
+    local view_file="$1" pass_message="$2"
+    local log_file="$test_root/${view_file%.qml}.log"
+    /usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/$view_file" > "$test_root/views.qml"
+    if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+        TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
+        XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
+        ISLAND_THEME_SCRIPT="$test_root/controller" \
+        /usr/bin/dbus-run-session -- /usr/bin/timeout 15s /usr/bin/quickshell -p "$test_root/views.qml" \
+        > "$log_file" 2>&1; then
+        /usr/bin/cat "$log_file" >&2
+        fail "Could not run $view_file; fixture retained at $test_root"
+    fi
+    if ! /usr/bin/rg -q "$pass_message" "$log_file" \
+        || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$log_file"; then
+        /usr/bin/cat "$log_file" >&2
+        fail "$view_file failed; fixture retained at $test_root"
+    fi
+    printf 'PASS: %s\n' "$view_file"
+}
+
+run_views system-stats-views.qml 'PASS: real Linux first sample'
+run_views panel-toggle-views.qml 'PASS: panel toggles and pending hover cancellation'

@@ -1,0 +1,2 @@
+singleton Mpris 1.0 Mpris.qml
+singleton MprisPlaybackState 1.0 MprisPlaybackState.qml

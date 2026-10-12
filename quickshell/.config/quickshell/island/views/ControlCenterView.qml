@@ -38,7 +38,7 @@ Item {
             rowSpacing: 12
 
             ControlCard {
-
+                objectName: "wifi-control-card"
                 iconSource: WifiService.svgIcon
 
                 title: "Wi-Fi"
@@ -46,12 +46,14 @@ Item {
                 subtitle: WifiService.subtitle
 
                 active: WifiService.connected
-
-                onClicked: WifiService.toggle()
+                iconEnabled: true
+                panelEnabled: true
+                onIconToggled: WifiService.toggle()
+                onClicked: IslandController.openWifi()
             }
 
             ControlCard {
-
+                objectName: "bluetooth-control-card"
                 iconSource: BluetoothService.icon
 
                 title: "Bluetooth"
@@ -59,12 +61,13 @@ Item {
                 subtitle: BluetoothService.subtitle
 
                 active: BluetoothService.enabled
-
-                onClicked: BluetoothService.toggle()
+                iconEnabled: true
+                panelEnabled: false
+                onIconToggled: BluetoothService.toggle()
             }
 
             ControlCard {
-
+                objectName: "microphone-control-card"
                 iconSource: MicrophoneService.icon
 
                 title: "Microphone"
@@ -72,8 +75,10 @@ Item {
                 subtitle: MicrophoneService.subtitle
 
                 active: !MicrophoneService.muted
-
-                onClicked: MicrophoneService.toggle()
+                iconEnabled: true
+                panelEnabled: true
+                onIconToggled: MicrophoneService.toggle()
+                onClicked: IslandController.openAudioDevices()
             }
 
             ControlCard {
@@ -86,8 +91,9 @@ Item {
                 subtitle: NightLightService.subtitle
 
                 active: NightLightService.enabled
-
-                onClicked: NightLightService.toggle()
+                iconEnabled: true
+                panelEnabled: false
+                onIconToggled: NightLightService.toggle()
             }
 
             ControlCard {
@@ -100,22 +106,26 @@ Item {
                 subtitle: IdleLockService.subtitle
 
                 active: IdleLockService.enabled
-
-                onClicked: IdleLockService.toggle()
+                iconEnabled: true
+                panelEnabled: false
+                onIconToggled: IdleLockService.toggle()
             }
 
             ControlCard {
-                iconSource: MediaService.icon
+                objectName: "media-control-card"
+                iconSource: Qt.resolvedUrl(MediaService.isPlaying
+                    ? "../assets/icons/player-play.svg"
+                    : "../assets/icons/player-pause.svg")
 
                 title: "Media"
 
                 subtitle: MediaService.subtitle
 
-                active: MediaService.hasPlayer
-
-                onClicked: {
-                    IslandController.openMediaControls()
-                }
+                active: MediaService.isPlaying
+                iconEnabled: MediaService.canTogglePlayback
+                panelEnabled: true
+                onIconToggled: MediaService.togglePlayback()
+                onClicked: IslandController.openMediaControls()
             }
         }
 

@@ -25,12 +25,15 @@ QtObject {
     readonly property int settingsSectionMode: 14
     readonly property int launcherMode: 15
     readonly property int systemMode: 16
+    readonly property int aiUsageMode: 17
+    readonly property int wifiMode: 18
 
     // =========================================================
     // STATE
     // =========================================================
 
     property int mode: defaultMode
+    property int systemReturnMode: navigationMode
     property string panelMonitorName: ""
     property string settingsSection: ""
 
@@ -43,6 +46,7 @@ QtObject {
     // =========================================================
 
     readonly property bool modal:
+        mode === aiUsageMode ||
         mode === systemMode ||
         mode === launcherMode ||
         mode === navigationMode ||
@@ -55,5 +59,6 @@ QtObject {
         mode === themeSelectorMode ||
         mode === wallpaperSelectorMode ||
         mode === notificationsMode ||
-        mode === audioDevicesMode
+        mode === audioDevicesMode ||
+        mode === wifiMode
 }

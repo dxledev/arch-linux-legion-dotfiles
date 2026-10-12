@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: wifi-qr [--meta] [interface]\n'
+}
+
+interface=''
+emit_meta=false
+
+for argument in "$@"; do
+    case "$argument" in
+        --help)
+            usage
+            exit 0
+            ;;
+        --meta)
+            emit_meta=true
+            ;;
+        --*)
+            usage >&2
+            exit 2
+            ;;
+        *)
+            [[ -z "$interface" ]] || {
+                usage >&2
+                exit 2
+            }
+            interface=$argument
+            ;;
+    esac
+done
+
+if [[ -z "$interface" ]]; then
+    route_device=$(/usr/bin/ip route get 1.1.1.1 2>/dev/null | /usr/bin/awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+    if [[ -n "$route_device" && -d "/sys/class/net/$route_device/wireless" ]]; then
+        interface=$route_device
+    else
+        interface=$(LC_ALL=C /usr/bin/nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | /usr/bin/awk -F: '$2 == "wifi" && $3 ~ /^connected/ { print $1; exit }')
+    fi
+fi
+
+[[ -n "$interface" ]] || {
+    printf 'No active Wi-Fi connection\n' >&2
+    exit 1
+}
+[[ "$interface" =~ ^[[:alnum:]_.:-]+$ ]] || {
+    printf 'Invalid network interface\n' >&2
+    exit 2
+}
+
+uuid=$(/usr/bin/nmcli --get-values GENERAL.CON-UUID device show "$interface" | /usr/bin/head -n 1)
+[[ -n "$uuid" && "$uuid" != '--' ]] || {
+    printf 'No active Wi-Fi connection\n' >&2
+    exit 1
+}
+
+mapfile -t fields < <(/usr/bin/nmcli --show-secrets --escape no --get-values \
+    802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk,802-11-wireless.hidden,802-11-wireless-security.wep-key0 \
+    connection show uuid "$uuid")
+
+ssid=${fields[0]:-}
+key_management=${fields[1]:-}
+password=${fields[2]:-}
+hidden=${fields[3]:-no}
+wep_key=${fields[4]:-}
+
+[[ -n "$ssid" ]] || {
+    printf 'Could not read the Wi-Fi name\n' >&2
+    exit 1
+}
+[[ "$key_management" != *eap* && "$key_management" != *ieee8021x* ]] || {
+    printf 'Enterprise Wi-Fi cannot be shared with a password QR code\n' >&2
+    exit 1
+}
+
+escape_wifi_qr() {
+    local value=$1
+    value=${value//\\/\\\\}
+    value=${value//;/\\;}
+    value=${value//,/\\,}
+    value=${value//:/\\:}
+    printf '%s' "$value"
+}
+
+if [[ -n "$key_management" && "$key_management" != 'none' ]]; then
+    [[ -n "$password" ]] || {
+        printf 'Could not read the Wi-Fi password\n' >&2
+        exit 1
+    }
+    security='WPA'
+elif [[ -n "$wep_key" ]]; then
+    password=$wep_key
+    security='WEP'
+else
+    security='nopass'
+fi
+
+payload="WIFI:T:$security;S:$(escape_wifi_qr "$ssid");P:$(escape_wifi_qr "$password");"
+[[ "$hidden" == 'yes' ]] && payload+='H:true;'
+payload+=';'
+
+[[ "$emit_meta" == true ]] && printf 'meta\t%s\t%s\t%s\n' "$interface" "$security" "$ssid"
+
+ascii=$(printf '%s' "$payload" | /usr/bin/qrencode --type ASCII --margin 4 --output -)
+while IFS= read -r line; do
+    row=''
+    for ((column = 0; column < ${#line}; column += 2)); do
+        [[ ${line:column:2} == *#* ]] && row+=1 || row+=0
+    done
+    printf '%s\n' "$row"
+done <<< "$ascii"

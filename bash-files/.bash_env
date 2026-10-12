@@ -1,6 +1,7 @@
 export EDITOR=nvim
 export PATH="$HOME/bin:$PATH"
 export PATH="/opt/dart-2.19/bin:$PATH"
+export PATH="$HOME/builds/fvm/default/bin:$PATH"
 
 export NVM_DIR="$HOME/.nvm"
 
@@ -77,3 +78,5 @@ export KEYBINDINGS="$HOME/.config/hypr/keybindings.conf"
 
 export QT_QPA_PLATFORMTHEME=qt6ct
 export FZF_DEFAULT_OPTS="--ansi"
+
+export CLAUDE_CODE_SUBAGENT_MODEL="sonnet"

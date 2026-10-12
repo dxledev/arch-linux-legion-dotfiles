@@ -7,6 +7,7 @@ import "../styles"
 
 FocusScope {
     id: root
+    objectName: "system-view"
     property int panelPadding: 24
     implicitWidth: 600
     implicitHeight: content.implicitHeight + panelPadding * 2
@@ -18,24 +19,30 @@ FocusScope {
         x: root.panelPadding; y: root.panelPadding
         width: parent.width - root.panelPadding * 2
         spacing: 18
-        PanelHeader { title: "System"; onBack: IslandController.openPowerMenu() }
+        PanelHeader { title: "System"; onBack: IslandController.backFromSystem() }
         Row {
             width: parent.width
             spacing: 12
             SystemResourceCard {
+                objectName: "system-cpu"
                 width: (parent.width - parent.spacing * 2) / 3
                 title: "CPU"; usage: system.cpuUsage; history: system.cpuHistory
-                detail: system.ready ? "Processor usage" : "Sampling…"
+                ready: system.cpuReady
+                detail: system.cpuReady ? "Processor usage" : "Sampling…"
             }
             SystemResourceCard {
+                objectName: "system-memory"
                 width: (parent.width - parent.spacing * 2) / 3
                 title: "Memory"; usage: system.memoryUsage; history: system.memoryHistory
+                ready: system.ready
                 detail: system.ready ? Metrics.gibibytes(system.sample.memoryUsed) + " / " + Metrics.gibibytes(system.sample.memoryTotal) : "Sampling…"
             }
             SystemResourceCard {
+                objectName: "system-storage"
                 width: (parent.width - parent.spacing * 2) / 3
                 title: "Storage"; usage: system.diskUsage; history: system.diskHistory
-                detail: system.ready ? Metrics.gibibytes(system.sample.diskUsed) + " / " + Metrics.gibibytes(system.sample.diskTotal) : "Sampling…"
+                ready: system.sample.diskTotal > 0
+                detail: system.sample.diskTotal > 0 ? Metrics.gibibytes(system.sample.diskUsed) + " / " + Metrics.gibibytes(system.sample.diskTotal) : "Sampling…"
             }
         }
         Rectangle {

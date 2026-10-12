@@ -1,3 +1,4 @@
 IslandWindow 1.0 IslandWindow.qml
 IslandReservation 1.0 IslandReservation.qml
 NotificationWindow 1.0 NotificationWindow.qml
+WifiQrWindow 1.0 WifiQrWindow.qml

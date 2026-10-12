@@ -3,6 +3,7 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Services.Mpris
+import "MediaSelection.js" as MediaSelection
 
 Singleton {
     id: root
@@ -26,13 +27,14 @@ Singleton {
             : "Nothing Playing"
 
     readonly property bool hasPlayer: player !== null
+    readonly property bool canTogglePlayback: hasPlayer && player.canTogglePlaying
 
-    readonly property int playbackPlaying: 1
-    readonly property int playbackPaused: 2
+    readonly property int playbackPlaying: MprisPlaybackState.Playing
 
     function updatePlayer() {
 
-        if (Mpris.players.values.length === 0) {
+        const selected = MediaSelection.selectPlayer(Mpris.players.values, player, playbackPlaying)
+        if (!selected) {
 
             player = null
 
@@ -47,8 +49,11 @@ Singleton {
             return
         }
 
-        if (player !== Mpris.players.values[0])
-            player = Mpris.players.values[0]
+        if (player !== selected) {
+            player = selected
+            artUrl = ""
+            length = 0
+        }
 
         title = player.trackTitle
         artist = player.trackArtist
@@ -79,7 +84,8 @@ Singleton {
 
     function togglePlayback() {
 
-        if (!player)
+        updatePlayer()
+        if (!canTogglePlayback)
             return
 
         player.togglePlaying()

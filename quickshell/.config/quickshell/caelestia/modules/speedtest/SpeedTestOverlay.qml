@@ -29,6 +29,32 @@ PanelWindow {
 
   readonly property bool failed: error !== ""
 
+  function dismiss() {
+    if (!open || fadeOut.running) return
+    fadeOut.start()
+  }
+
+  SequentialAnimation {
+    id: fadeOut
+
+    NumberAnimation {
+      target: surface
+      property: "opacity"
+      to: 0
+      duration: 150
+    }
+
+    ScriptAction {
+      script: root.closeRequested()
+    }
+
+    PropertyAction {
+      target: surface
+      property: "opacity"
+      value: 1
+    }
+  }
+
   function resetScale() {
     fullScale = scaleStops[0]
   }
@@ -58,6 +84,10 @@ PanelWindow {
 
   visible: open
   onOpenChanged: {
+    if (open && fadeOut.running) {
+      fadeOut.stop()
+      surface.opacity = 1
+    }
     if (open) Qt.callLater(function() {
       if (!root.open) return
       keyCatcher.forceActiveFocus()
@@ -72,102 +102,107 @@ PanelWindow {
   WlrLayershell.layer: WlrLayer.Overlay
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-  Rectangle {
-    anchors.fill: parent
-    color: Qt.alpha(Colours.palette.m3background, 0.78)
-
-    MouseArea {
-      anchors.fill: parent
-      onClicked: root.closeRequested()
-    }
-  }
-
   Item {
-    id: keyCatcher
+    id: surface
     anchors.fill: parent
-    focus: true
 
-    Keys.onEscapePressed: root.closeRequested()
-    Keys.onReturnPressed: if (!root.running) root.runAgainRequested()
-    Keys.onEnterPressed: if (!root.running) root.runAgainRequested()
+    Rectangle {
+      anchors.fill: parent
+      color: Qt.alpha(Colours.palette.m3background, 0.78)
+
+      MouseArea {
+        anchors.fill: parent
+        onClicked: root.dismiss()
+      }
+    }
 
     Item {
-      id: cluster
-      anchors.centerIn: parent
-      width: content.implicitWidth
-      height: content.implicitHeight
-      scale: Math.min(1,
-        (keyCatcher.width - 32) / Math.max(1, width),
-        (keyCatcher.height - 32) / Math.max(1, height))
+      id: keyCatcher
+      anchors.fill: parent
+      focus: true
 
-      MouseArea { anchors.fill: parent; onClicked: {} }
+      Keys.onEscapePressed: root.dismiss()
+      Keys.onReturnPressed: if (!root.running) root.runAgainRequested()
+      Keys.onEnterPressed: if (!root.running) root.runAgainRequested()
 
-      ColumnLayout {
-        id: content
-        anchors.fill: parent
-        spacing: 16
+      Item {
+        id: cluster
+        anchors.centerIn: parent
+        width: content.implicitWidth
+        height: content.implicitHeight
+        scale: Math.min(1,
+          (keyCatcher.width - 32) / Math.max(1, width),
+          (keyCatcher.height - 32) / Math.max(1, height))
 
-        Text {
-          textFormat: Text.PlainText
-          visible: root.title !== ""
-          text: root.title.toUpperCase()
-          color: root.onScrimDim
-          font.family: root.fontFamily
-          font.pixelSize: 10
-          font.bold: true
-          font.letterSpacing: 2
-          Layout.fillWidth: true
-          horizontalAlignment: Text.AlignHCenter
-        }
+        MouseArea { anchors.fill: parent; onClicked: {} }
 
-        Row {
-          spacing: 48
-          Layout.alignment: Qt.AlignHCenter
+        ColumnLayout {
+          id: content
+          anchors.fill: parent
+          spacing: 16
 
-          SpeedDial {
-            id: leftDial
-            label: root.leftLabel
-            value: root.leftValue
-            live: root.leftLive
+          Text {
+            textFormat: Text.PlainText
+            visible: root.title !== ""
+            text: root.title.toUpperCase()
+            color: root.onScrimDim
+            font.family: root.fontFamily
+            font.pixelSize: 10
+            font.bold: true
+            font.letterSpacing: 2
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
           }
 
-          SpeedDial {
-            id: rightDial
-            label: root.rightLabel
-            value: root.rightValue
-            live: root.rightLive
+          Row {
+            spacing: 48
+            Layout.alignment: Qt.AlignHCenter
+
+            SpeedDial {
+              id: leftDial
+              label: root.leftLabel
+              value: root.leftValue
+              live: root.leftLive
+            }
+
+            SpeedDial {
+              id: rightDial
+              label: root.rightLabel
+              value: root.rightValue
+              live: root.rightLive
+            }
           }
-        }
 
-        Button {
-          text: "Run Again"
-          bordered: true
-          enabled: !root.running
-          opacity: root.running ? 0 : 1
-          foreground: root.onScrim
-          fontFamily: root.fontFamily
-          fontSize: 11
-          horizontalPadding: 14
-          verticalPadding: 4
-          Layout.alignment: Qt.AlignHCenter
-          onClicked: root.runAgainRequested()
+          Button {
+            text: "Run Again"
+            bordered: true
+            enabled: !root.running
+            opacity: root.running ? 0 : 1
+            foreground: root.onScrim
+            fontFamily: root.fontFamily
+            fontSize: 11
+            horizontalPadding: 14
+            verticalPadding: 4
+            Layout.alignment: Qt.AlignHCenter
+            onClicked: root.runAgainRequested()
 
-          Behavior on opacity {
-            NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+            Behavior on opacity {
+              NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+            }
           }
-        }
 
-        Text {
-          textFormat: Text.PlainText
-          visible: root.failed
-          text: root.error
-          color: root.onScrimUrgent
-          font.family: root.fontFamily
-          font.pixelSize: 11
-          wrapMode: Text.Wrap
-          Layout.fillWidth: true
-          Layout.maximumWidth: 440
-          horizontalAlignment: Text.AlignHCenter
+          Text {
+            textFormat: Text.PlainText
+            visible: root.failed
+            text: root.error
+            color: root.onScrimUrgent
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+            Layout.maximumWidth: 440
+            horizontalAlignment: Text.AlignHCenter
+          }
         }
       }
     }

@@ -55,6 +55,10 @@ const allBeforeSearch = JSON.stringify(allEntries);
 assert.ok(registry.filterEntries("MoNiToRs workspaces").some(entry => entry.id === "settings-displays"), "multi-term search spans description and ignores case");
 assert.ok(registry.filterEntries("wallpaper colors").some(entry => entry.id === "settings-dynamicPalette"), "multi-term search includes keywords");
 assert.ok(registry.filterEntries("LOCKSCREEN blur").some(entry => entry.id === "settings-lock"), "multi-term search finds settings keywords");
+for (const query of ["system stats", "statistics", "hardware", "cpu", "memory", "ram", "uptime"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "system"), `System can be found by ${query}`);
+assert.ok(registry.filterEntries("provider credits").some(entry => entry.id === "ai-usage"), "AI Usage can be found by provider keywords");
+assert.ok(registry.filterEntries("anthropic").some(entry => entry.id === "ai-usage"), "AI Usage can be found by provider names");
 assert.equal(JSON.stringify(allEntries), allBeforeSearch, "search does not mutate the registry");
 
 const invalidPins = inRegistry('["themes", "missing", "themes", null, "settings", "shell-mode", "launcher", "system"]');

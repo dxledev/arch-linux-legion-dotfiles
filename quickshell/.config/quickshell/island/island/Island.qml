@@ -55,8 +55,10 @@ Rectangle {
 
     Behavior on panelHeight {
         NumberAnimation {
-            duration: root.mode === IslandState.defaultMode && ["volume", "brightness", "nightlight", "keyboard"].includes(StatusManager.mode)
-                ? StatusManager.animationDuration : (ThemeService.settings.islandAnimationDuration ?? 300)
+            duration: root.mode === IslandState.aiUsageMode
+                ? Math.min(Theme.animationFast, ThemeService.settings.islandAnimationDuration ?? 300)
+                : root.mode === IslandState.defaultMode && ["volume", "brightness", "nightlight", "keyboard"].includes(StatusManager.mode)
+                    ? StatusManager.animationDuration : (ThemeService.settings.islandAnimationDuration ?? 300)
             easing.type: Theme.animationVertical
         }
     }
@@ -119,8 +121,9 @@ Rectangle {
         monitorActive: root.monitorActive
         monitorName: root.monitorName
 
-        anchors.centerIn: panelArea
+        anchors.horizontalCenter: panelArea.horizontalCenter
         anchors.alignWhenCentered: false
+        y: root.mode === IslandState.aiUsageMode ? 0 : (panelArea.height - height) / 2
     }
 
     MouseArea {
@@ -129,6 +132,7 @@ Rectangle {
         z: 1
         enabled: root.panelActive && root.monitorActive && root.mode === IslandState.defaultMode
             && !islandInteraction.hoverToExpand
+        visible: enabled
         acceptedButtons: Qt.LeftButton
         cursorShape: Qt.PointingHandCursor
         onClicked: islandInteraction.expandFromClick()

@@ -1,0 +1,469 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+
+import "../components"
+import "../core"
+import "../styles"
+import "../services/WifiQrModel.js" as WifiQrModel
+
+// Full-screen Wi-Fi QR overlay, ported from Caelestia's WifiQrModal.
+Item {
+    id: root
+
+    required property ShellScreen screen
+
+    property bool opened: false
+    property string iface: ""
+    property string ssid: ""
+    property bool secured: false
+    property var qrRows: []
+    property int qrSize: 0
+    property string error: ""
+    property bool loading: false
+    property bool expectedStop: false
+    property bool pendingShow: false
+    property string pendingIface: ""
+    property string password: ""
+    property bool passwordHovered: false
+    property string passwordError: ""
+    property bool passwordExpectedStop: false
+
+    readonly property int screenPadding: 30
+    readonly property bool showingQr: qrSize > 0 && !loading && error === ""
+    readonly property color onScrim: Theme.textPrimary
+    readonly property color onScrimDim: Qt.alpha(Theme.textPrimary, 0.55)
+    readonly property color onScrimUrgent: Theme.danger
+    readonly property string qrScript: Quickshell.shellPath("integration/wifi-qr")
+    readonly property string passwordScript: Quickshell.shellPath("integration/wifi-password")
+
+    Connections {
+        target: IslandController
+
+        function onWifiQrRequested(ssid, iface, monitorName) {
+            if (monitorName === root.screen?.name)
+                root.open(ssid, iface)
+        }
+    }
+
+    function open(requestedSsid, requestedIface) {
+        if (modalFadeOut.running) {
+            modalFadeOut.stop();
+            modalSurface.opacity = 1;
+        }
+
+        root.ssid = requestedSsid;
+        generate(requestedIface);
+        root.opened = true;
+        Qt.callLater(() => {
+            if (root.opened)
+                keyCatcher.forceActiveFocus();
+        });
+    }
+
+    function close() {
+        if (!root.opened || modalFadeOut.running)
+            return;
+
+        modalFadeOut.start();
+    }
+
+    function finishClose() {
+        root.opened = false;
+        root.pendingShow = false;
+        if (qrProc.running) {
+            root.expectedStop = true;
+            qrProc.running = false;
+        }
+        if (passwordProc.running) {
+            root.passwordExpectedStop = true;
+            passwordProc.running = false;
+        }
+        root.qrSize = 0;
+        root.qrRows = [];
+        root.error = "";
+        root.loading = false;
+        root.iface = "";
+        root.ssid = "";
+        root.secured = false;
+        root.password = "";
+        root.passwordHovered = false;
+        root.passwordError = "";
+    }
+
+    SequentialAnimation {
+        id: modalFadeOut
+
+        NumberAnimation {
+            target: modalSurface
+            property: "opacity"
+            to: 0
+            duration: 150
+        }
+
+        ScriptAction {
+            script: root.finishClose()
+        }
+
+        PropertyAction {
+            target: modalSurface
+            property: "opacity"
+            value: 1
+        }
+    }
+
+    function generate(requestedIface) {
+        if (qrProc.running) {
+            root.pendingShow = true;
+            root.pendingIface = requestedIface;
+            if (!root.expectedStop) {
+                root.expectedStop = true;
+                qrProc.running = false;
+            }
+            return;
+        }
+
+        root.qrSize = 0;
+        root.qrRows = [];
+        root.error = "";
+        root.loading = true;
+        root.expectedStop = false;
+        root.iface = "";
+        root.secured = false;
+        root.password = "";
+        root.passwordHovered = false;
+        root.passwordError = "";
+        if (passwordProc.running) {
+            root.passwordExpectedStop = true;
+            passwordProc.running = false;
+        }
+        qrProc.command = requestedIface ? ["/usr/bin/bash", root.qrScript, "--meta", requestedIface] : ["/usr/bin/bash", root.qrScript, "--meta"];
+        qrProc.running = true;
+    }
+
+    function updateQr(raw) {
+        const parsed = WifiQrModel.parseQrOutput(raw);
+        root.qrRows = parsed.matrix.rows;
+        root.qrSize = parsed.matrix.size;
+        if (parsed.meta.ssid !== "")
+            root.ssid = parsed.meta.ssid;
+        if (parsed.meta.iface !== "")
+            root.iface = parsed.meta.iface;
+        root.secured = parsed.meta.security !== "" && parsed.meta.security !== "nopass";
+        if (root.qrSize > 0)
+            root.error = "";
+    }
+
+    function revealPassword() {
+        if (root.password !== "")
+            return;
+        if (passwordProc.running || !root.iface)
+            return;
+
+        root.passwordError = "";
+        root.passwordExpectedStop = false;
+        passwordProc.command = ["/usr/bin/bash", root.passwordScript, root.iface];
+        passwordProc.running = true;
+    }
+
+    Process {
+        id: qrProc
+
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                if (!root.expectedStop)
+                    root.updateQr(text);
+            }
+        }
+
+        stderr: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                if (!root.expectedStop)
+                    root.error = String(text || "").trim();
+            }
+        }
+
+        onExited: exitCode => {
+            root.loading = false;
+            if (root.pendingShow) {
+                root.pendingShow = false;
+                Qt.callLater(() => root.generate(root.pendingIface));
+                return;
+            }
+            if (root.expectedStop)
+                return;
+            if (exitCode !== 0 || root.qrSize === 0) {
+                root.qrSize = 0;
+                root.qrRows = [];
+                if (root.error === "")
+                    root.error = "Could not generate the Wi-Fi QR code";
+            }
+        }
+    }
+
+    Process {
+        id: passwordProc
+
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                if (root.opened && !root.passwordExpectedStop)
+                    root.password = String(text || "").trim();
+            }
+        }
+
+        onExited: exitCode => {
+            if (root.passwordExpectedStop || !root.opened)
+                return;
+            if (exitCode !== 0 || root.password === "")
+                root.passwordError = "Could not read the Wi-Fi password";
+        }
+    }
+
+    PanelWindow {
+        visible: root.opened
+        screen: root.screen
+        color: "transparent"
+
+        anchors.top: true
+        anchors.bottom: true
+        anchors.left: true
+        anchors.right: true
+
+        WlrLayershell.namespace: "island-wifi-qr"
+        WlrLayershell.exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+
+        Item {
+            id: modalSurface
+
+            anchors.fill: parent
+            opacity: 1
+
+            Rectangle {
+                anchors.fill: parent
+                color: Qt.alpha(Theme.background, 0.78)
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.close()
+                }
+            }
+
+            Item {
+                id: keyCatcher
+
+                anchors.fill: parent
+                focus: true
+                Keys.onEscapePressed: root.close()
+
+                Item {
+                    anchors.centerIn: parent
+                    width: content.implicitWidth
+                    height: content.implicitHeight
+                    scale: Math.min(1, (keyCatcher.width - root.screenPadding * 2) / Math.max(1, width), (keyCatcher.height - root.screenPadding * 2) / Math.max(1, height))
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {}
+                    }
+
+                    ColumnLayout {
+                        id: content
+
+                        anchors.fill: parent
+                        spacing: 15
+
+                        UiText {
+                            Layout.maximumWidth: 320
+                            Layout.alignment: Qt.AlignHCenter
+                            text: (root.ssid || "Wi-Fi").toUpperCase()
+                            color: root.onScrimDim
+                            font.pixelSize: 14
+                            font.bold: true
+                            font.letterSpacing: 2
+                            elide: Text.ElideRight
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Rectangle {
+                            id: qrCanvas
+
+                            objectName: "wifi-qr-canvas"
+
+                            readonly property int moduleSize: root.qrSize > 0 ? Math.max(4, Math.floor(240 / root.qrSize)) : 0
+
+                            visible: root.showingQr
+                            width: root.qrSize * moduleSize
+                            height: width
+                            color: "white"
+                            radius: 25
+                            Layout.alignment: Qt.AlignHCenter
+
+                            Grid {
+                                anchors.fill: parent
+                                columns: root.qrSize
+
+                                Repeater {
+                                    model: root.qrSize * root.qrSize
+
+                                    Rectangle {
+                                        required property int index
+
+                                        readonly property int matrixRow: Math.floor(index / root.qrSize)
+                                        readonly property int matrixColumn: index % root.qrSize
+
+                                        width: qrCanvas.moduleSize
+                                        height: qrCanvas.moduleSize
+                                        color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
+                                    }
+                                }
+                            }
+                        }
+
+                        UiText {
+                            visible: root.loading
+                            Layout.fillWidth: true
+                            text: "Generating QR code…"
+                            color: root.onScrimDim
+                            font.pixelSize: 14
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        UiText {
+                            visible: root.error !== ""
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 320
+                            text: root.error
+                            color: root.onScrimUrgent
+                            font.pixelSize: 14
+                            wrapMode: Text.Wrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        UiText {
+                            visible: root.showingQr
+                            Layout.fillWidth: true
+                            text: "Scan to join this network"
+                            color: root.onScrimDim
+                            font.pixelSize: 14
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Item {
+                            id: passwordArea
+
+                            visible: root.showingQr && root.secured
+
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 320
+                            Layout.preferredHeight: passwordText.implicitHeight
+
+                            property bool displayedRevealed: false
+                            property bool targetRevealed: false
+
+                            function setRevealed(revealed) {
+                                if (revealed && root.password === "")
+                                    return;
+
+                                if (displayedRevealed === revealed && !passwordSwap.running)
+                                    return;
+
+                                targetRevealed = revealed;
+                                passwordSwap.stop();
+                                passwordSwap.start();
+                            }
+
+                            UiText {
+                                id: passwordText
+
+                                anchors.fill: parent
+
+                                text: root.passwordError !== ""
+                                    ? root.passwordError
+                                    : passwordArea.displayedRevealed
+                                        ? root.password
+                                        : "••••••••"
+
+                                color: root.passwordError !== ""
+                                    ? root.onScrimUrgent
+                                    : root.onScrim
+
+                                opacity: 0.6
+                                font.pixelSize: 14
+
+                                wrapMode: Text.WrapAnywhere
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+
+                            SequentialAnimation {
+                                id: passwordSwap
+
+                                NumberAnimation {
+                                    target: passwordText
+                                    property: "opacity"
+                                    to: 0
+                                    duration: 120
+                                    easing.type: Easing.OutQuad
+                                }
+
+                                ScriptAction {
+                                    script: {
+                                        passwordArea.displayedRevealed =
+                                            passwordArea.targetRevealed;
+                                    }
+                                }
+
+                                NumberAnimation {
+                                    target: passwordText
+                                    property: "opacity"
+                                    to: passwordArea.targetRevealed ? 1 : 0.6
+                                    duration: 120
+                                    easing.type: Easing.InQuad
+                                }
+                            }
+
+                            MouseArea {
+                                id: passwordHoverArea
+
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+
+                                onEntered: {
+                                    root.passwordHovered = true;
+
+                                    if (root.password !== "")
+                                        passwordArea.setRevealed(true);
+                                    else
+                                        root.revealPassword();
+                                }
+
+                                onExited: {
+                                    root.passwordHovered = false;
+                                    passwordArea.setRevealed(false);
+                                }
+                            }
+
+                            Connections {
+                                target: root
+
+                                function onPasswordChanged() {
+                                    if (passwordHoverArea.containsMouse && root.password !== "")
+                                        passwordArea.setRevealed(true);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

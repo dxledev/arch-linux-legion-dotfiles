@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import "windows"
+import "modules/speedtest"
 import "services"
 
 ShellRoot {
@@ -21,6 +22,7 @@ ShellRoot {
             readonly property var displays: DisplayService
             KeyboardService {}
             IslandIPC {}
+            SpeedTest {}
 
             Variants {
                 model: ThemeService.islandScreens

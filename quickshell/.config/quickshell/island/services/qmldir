@@ -1,4 +1,5 @@
 singleton AudioService 1.0 AudioService.qml
+singleton AIUsageService 1.0 AIUsageService.qml
 BatteryService 1.0 BatteryService.qml
 singleton BluetoothService 1.0 BluetoothService.qml
 singleton BrightnessService 1.0 BrightnessService.qml

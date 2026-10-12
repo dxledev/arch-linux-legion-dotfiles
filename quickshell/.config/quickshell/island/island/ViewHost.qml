@@ -17,6 +17,8 @@ Item {
         : showingControlCenter ? controlCenterLoader.item : viewLoader.item
     implicitWidth: currentView ? currentView.implicitWidth : 0
     implicitHeight: currentView ? currentView.implicitHeight : 0
+    width: implicitWidth
+    height: implicitHeight
 
     Loader {
         id: wallpaperLoader
@@ -129,6 +131,9 @@ Item {
             case IslandState.systemMode:
                 return systemView
 
+            case IslandState.aiUsageMode:
+                return aiUsageView
+
             case IslandState.controlCenterMode:
                 return null
 
@@ -137,6 +142,9 @@ Item {
 
             case IslandState.audioDevicesMode:
                 return audioDevicesView
+
+            case IslandState.wifiMode:
+                return wifiView
 
             case IslandState.themeSelectorMode:
                 return themeSelectorView
@@ -155,6 +163,7 @@ Item {
 
     Component { id: launcherView; LauncherView {} }
     Component { id: systemView; SystemView {} }
+    Component { id: aiUsageView; AIUsageView {} }
     Component { id: launcherSettingsView; LauncherSettingsView {} }
     Component { id: navigationView; NavigationView {} }
     Component { id: settingsView; SettingsView {} }
@@ -170,6 +179,7 @@ Item {
     Component { id: shellSwitcherView; ShellSwitcherView {} }
     Component { id: notificationsView; NotificationsPanelView {} }
     Component { id: audioDevicesView; AudioDevicesView {} }
+    Component { id: wifiView; WifiView {} }
 
     Component {
         id: defaultView

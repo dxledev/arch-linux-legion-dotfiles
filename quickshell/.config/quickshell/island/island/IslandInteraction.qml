@@ -92,6 +92,8 @@ Item {
 
         enabled: root.monitorActive
         acceptedButtons: Qt.LeftButton
+        cursorShape: enabled && !root.hoverToExpand && IslandState.mode === IslandState.expandedMode
+            ? Qt.PointingHandCursor : Qt.ArrowCursor
 
         onClicked: {
 

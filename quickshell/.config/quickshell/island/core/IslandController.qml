@@ -26,6 +26,10 @@ QtObject {
     }
 
     function setMode(mode, monitorName) {
+        if (mode === IslandState.systemMode && IslandState.mode !== IslandState.systemMode) {
+            IslandState.systemReturnMode = IslandState.mode === IslandState.powerMenuMode
+                ? IslandState.powerMenuMode : IslandState.navigationMode
+        }
         if (mode === IslandState.defaultMode) {
             IslandState.panelMonitorName = ""
         } else if (IslandState.mode === IslandState.defaultMode || !IslandState.panelMonitorName) {
@@ -110,6 +114,10 @@ QtObject {
 
     function openSystem() { setMode(IslandState.systemMode) }
 
+    function backFromSystem() { setMode(IslandState.systemReturnMode) }
+
+    function openAIUsage() { setMode(IslandState.aiUsageMode) }
+
     function openControlCenter() {
         setMode(IslandState.controlCenterMode)
     }
@@ -121,6 +129,30 @@ QtObject {
     function openAudioDevices() {
         setMode(IslandState.audioDevicesMode)
     }
+
+    function openWifi() { setMode(IslandState.wifiMode) }
+
+    signal wifiQrRequested(string ssid, string iface, string monitorName)
+
+    // Closes the panel and shows the QR overlay on the panel's monitor.
+    function openWifiQr(ssid, iface) {
+        const monitorName = IslandState.panelMonitorName || focusedPanelMonitorName()
+        reset()
+        wifiQrRequested(ssid, iface, monitorName)
+    }
+
+    signal speedTestRequested(string kind, string monitorName)
+
+    // Closes the panel and runs a speed test overlay on the panel's monitor.
+    function openSpeedTest(kind) {
+        const monitorName = IslandState.panelMonitorName || focusedPanelMonitorName()
+        reset()
+        speedTestRequested(kind, monitorName)
+    }
+
+    function openNetworkSpeedTest() { openSpeedTest("network") }
+
+    function openDiskSpeedTest() { openSpeedTest("disk") }
 
     function openThemeSelector() {
         setMode(IslandState.themeSelectorMode)

@@ -42,4 +42,7 @@ NotificationPopup 1.0 NotificationPopup.qml
 BrightnessControls 1.0 BrightnessControls.qml
 NotificationCard 1.0 NotificationCard.qml
 AudioControls 1.0 AudioControls.qml
+AIUsageMetric 1.0 AIUsageMetric.qml
+AIUsageSection 1.0 AIUsageSection.qml
 AudioDeviceSection 1.0 AudioDeviceSection.qml
+TextActionButton 1.0 TextActionButton.qml
