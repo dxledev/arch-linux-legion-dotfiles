@@ -1,0 +1,1084 @@
+diff --git a/meson.build b/meson.build
+index 4bd6fa7a3..4f16cb43c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -441,6 +441,7 @@ _noctalia_sources = files(
+   'src/calendar/google_client.cpp',
+   'src/calendar/google_oauth.cpp',
+   'src/calendar/ical_parser.cpp',
++  'src/calendar/local_events.cpp',
+   'src/calendar/vdir_reader.cpp',
+   'src/config/atomic_file.cpp',
+   'src/config/config_export.cpp',
+@@ -1221,6 +1222,7 @@ if build_tests
+     'kde_color_scheme',
+     'keyboard_layout_label',
+     'lane_selection_token',
++    'local_calendar',
+     'location_service',
+     'log',
+     'math_provider',
+diff --git a/src/calendar/calendar_service.cpp b/src/calendar/calendar_service.cpp
+index be79bbf52..8766b5408 100644
+--- a/src/calendar/calendar_service.cpp
++++ b/src/calendar/calendar_service.cpp
+@@ -19,6 +19,7 @@
+ #include <algorithm>
+ #include <cctype>
+ #include <condition_variable>
++#include <ctime>
+ #include <cstdlib>
+ #include <deque>
+ #include <iterator>
+@@ -26,6 +27,7 @@
+ #include <mutex>
+ #include <nlohmann/json.hpp>
+ #include <sodium.h>
++#include <string_view>
+ #include <thread>
+ #include <unordered_set>
+ 
+@@ -254,7 +256,13 @@ CalendarService::CalendarService(
+ )
+     : m_configService(configService), m_httpClient(httpClient), m_notifications(notifications), m_oauth(httpClient),
+       m_google(httpClient), m_credentials(secretStore), m_storageKeyProvider(storageKeyProvider), m_caldav(httpClient),
+-      m_vdirWorker(std::make_shared<VdirWorker>()) {}
++      m_vdirWorker(std::make_shared<VdirWorker>()) {
++  watchTasksDirectory();
++  m_taskRules = calendar::local::readTaskRules(m_tasksPath);
++  reloadHolidays();
++  reloadTasks();
++  rebuildSnapshot();
++}
+ 
+ CalendarService::~CalendarService() = default;
+ 
+@@ -470,6 +478,7 @@ void CalendarService::onConfigReload() {
+   if (!m_activeConfig.enabled) {
+     m_eventsByAccount.clear();
+     m_snapshot = CalendarSnapshot{};
++    rebuildSnapshot();
+     notifyChanged();
+     return;
+   }
+@@ -491,6 +500,10 @@ int CalendarService::pollTimeoutMs() const {
+   if (m_vdirDebouncePending) {
+     consider(m_vdirDebounceUntil);
+   }
++  consider(m_nextLocalRollover);
++  if (m_tasksWatchWd < 0) {
++    consider(m_nextTasksWatchRetry);
++  }
+   if (m_connect.state == ConnectState::Pending && !m_connect.inFlight) {
+     consider(m_connect.nextPollAt);
+   }
+@@ -503,6 +516,25 @@ int CalendarService::pollTimeoutMs() const {
+ void CalendarService::tick() {
+   const auto now = std::chrono::steady_clock::now();
+ 
++  if (m_tasksWatchWd < 0 && now >= m_nextTasksWatchRetry) {
++    watchTasksDirectory();
++    if (m_tasksWatchWd >= 0) {
++      m_taskRules = calendar::local::readTaskRules(m_tasksPath);
++      reloadTasks();
++      rebuildSnapshot();
++      notifyChanged();
++    }
++  }
++
++  // A new day moves the task window and, at the new year, the holiday window.
++  if (now >= m_nextLocalRollover) {
++    reloadHolidays();
++    m_taskRules = calendar::local::readTaskRules(m_tasksPath);
++    reloadTasks();
++    rebuildSnapshot();
++    notifyChanged();
++  }
++
+   if (m_vdirDebouncePending && now >= m_vdirDebounceUntil) {
+     m_vdirDebouncePending = false;
+     requestRefresh();
+@@ -533,7 +565,20 @@ void CalendarService::addPollFds(std::vector<pollfd>& fds) {
+ void CalendarService::dispatchPoll(const std::vector<pollfd>& fds, std::size_t startIdx) {
+   if (m_vdirInotify.fd() >= 0 && startIdx < fds.size() && (fds[startIdx].revents & POLLIN) != 0) {
+     bool changed = false;
++    bool tasksChanged = false;
+     m_vdirInotify.drain([&](const inotify_event* event) {
++      if (event->wd == m_tasksWatchWd) {
++        // The Dashboard rewrites tasks.json through a temp file and a rename, so match on the name.
++        if (event->len > 0 && std::string_view(event->name) == m_tasksPath.filename().string()) {
++          tasksChanged = true;
++        }
++        if ((event->mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED)) != 0) {
++          m_tasksWatchWd = -1;
++          m_nextTasksWatchRetry = std::chrono::steady_clock::now() + std::chrono::seconds{30};
++          tasksChanged = true;
++        }
++        return;
++      }
+       changed = true;
+       if ((event->mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED)) != 0) {
+         if (auto it = m_watchedVdirWds.find(event->wd); it != m_watchedVdirWds.end()) {
+@@ -546,10 +591,58 @@ void CalendarService::dispatchPoll(const std::vector<pollfd>& fds, std::size_t s
+       m_vdirDebouncePending = true;
+       m_vdirDebounceUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds{300};
+     }
++    if (tasksChanged) {
++      m_taskRules = calendar::local::readTaskRules(m_tasksPath);
++      reloadTasks();
++      rebuildSnapshot();
++      notifyChanged();
++    }
+   }
+   tick();
+ }
+ 
++void CalendarService::watchTasksDirectory() {
++  m_nextTasksWatchRetry = std::chrono::steady_clock::now() + std::chrono::seconds{30};
++  if (m_vdirInotify.fd() < 0) {
++    return;
++  }
++  const std::filesystem::path directory = m_tasksPath.parent_path();
++  std::error_code ec;
++  if (!std::filesystem::is_directory(directory, ec)) {
++    return;
++  }
++  constexpr std::uint32_t mask =
++      IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF;
++  if (const auto wd = m_vdirInotify.watch(directory, mask); wd.has_value()) {
++    m_tasksWatchWd = *wd;
++  }
++}
++
++void CalendarService::scheduleLocalRollover() {
++  const std::tm today = [] {
++    const std::time_t raw = std::time(nullptr);
++    std::tm value{};
++    localtime_r(&raw, &value);
++    return value;
++  }();
++  const int secondsIntoDay = today.tm_hour * 3600 + today.tm_min * 60 + today.tm_sec;
++  m_nextLocalRollover = std::chrono::steady_clock::now() + std::chrono::seconds{std::max(60, 86400 - secondsIntoDay + 1)};
++}
++
++void CalendarService::reloadHolidays() {
++  const std::time_t raw = std::time(nullptr);
++  std::tm today{};
++  localtime_r(&raw, &today);
++  const int year = today.tm_year + 1900;
++  m_holidayEvents = calendar::local::holidayEvents(year - 3, year + 5);
++  scheduleLocalRollover();
++}
++
++void CalendarService::reloadTasks() {
++  const auto now = std::chrono::system_clock::now();
++  m_taskEvents = calendar::local::taskEvents(m_taskRules, now - kWindowBefore, now + kWindowAfter);
++}
++
+ void CalendarService::scheduleNextRefresh() {
+   const int minutes = std::max<std::int32_t>(1, m_activeConfig.refreshMinutes);
+   m_nextRefreshAt = std::chrono::steady_clock::now() + std::chrono::minutes{minutes};
+@@ -620,6 +713,10 @@ void CalendarService::rebuildSnapshot() {
+     merged.insert(merged.end(), events.begin(), events.end());
+   }
+   std::ranges::sort(merged, {}, &CalendarEvent::start);
++  // Holidays and tasks follow the account events, so on a shared start the account events lead.
++  merged.insert(merged.end(), m_holidayEvents.begin(), m_holidayEvents.end());
++  merged.insert(merged.end(), m_taskEvents.begin(), m_taskEvents.end());
++  std::ranges::stable_sort(merged, {}, &CalendarEvent::start);
+   m_snapshot.events = std::move(merged);
+   m_snapshot.valid = true;
+ }
+diff --git a/src/calendar/calendar_service.h b/src/calendar/calendar_service.h
+index daedfc22d..ff1138154 100644
+--- a/src/calendar/calendar_service.h
++++ b/src/calendar/calendar_service.h
+@@ -5,6 +5,7 @@
+ #include "calendar/calendar_types.h"
+ #include "calendar/google_client.h"
+ #include "calendar/google_oauth.h"
++#include "calendar/local_events.h"
+ #include "config/config_types.h"
+ #include "core/inotify/inotify.h"
+ #include "security/storage_key_provider.h"
+@@ -128,6 +129,11 @@ private:
+   void rebuildSnapshot();
+   void scheduleNextRefresh();
+ 
++  void watchTasksDirectory();
++  void reloadHolidays();
++  void reloadTasks();
++  void scheduleLocalRollover();
++
+   void fetchCalDav(const CalendarConfig::Account& account);
+   void lookupCalDavPassword(
+       const CalendarConfig::Account& account, calendar::CalendarCredentialStore::LookupCallback callback
+@@ -177,6 +183,16 @@ private:
+   };
+   std::map<std::string, GoogleSession> m_googleSessions;
+ 
++  // Entries that need no account: computed holidays and the Dashboard's task list. They are merged
++  // into m_snapshot for display only and never reach the encrypted cache.
++  std::filesystem::path m_tasksPath = calendar::local::dashboardTasksPath();
++  std::vector<calendar::local::TaskRule> m_taskRules;
++  std::vector<CalendarEvent> m_holidayEvents;
++  std::vector<CalendarEvent> m_taskEvents;
++  int m_tasksWatchWd = -1;
++  std::chrono::steady_clock::time_point m_nextTasksWatchRetry;
++  std::chrono::steady_clock::time_point m_nextLocalRollover;
++
+   CalendarSnapshot m_snapshot;
+   std::map<std::string, std::vector<CalendarEvent>> m_eventsByAccount;
+   std::chrono::steady_clock::time_point m_nextRefreshAt;
+diff --git a/src/calendar/calendar_types.h b/src/calendar/calendar_types.h
+index f6ef59508..64d3190a3 100644
+--- a/src/calendar/calendar_types.h
++++ b/src/calendar/calendar_types.h
+@@ -16,6 +16,8 @@ struct CalendarEvent {
+   std::chrono::system_clock::time_point start;
+   std::chrono::system_clock::time_point end;
+   bool allDay = false;
++  std::string kindLabel;   // secondary line for local entries (holidays, tasks); empty for online events
++  bool showMarker = true;  // false: listed for the day but without a dot in the month grid
+ };
+ 
+ struct CalendarSnapshot {
+diff --git a/src/calendar/local_events.cpp b/src/calendar/local_events.cpp
+new file mode 100644
+index 000000000..b0ac337c0
+--- /dev/null
++++ b/src/calendar/local_events.cpp
+@@ -0,0 +1,640 @@
++#include "calendar/local_events.h"
++
++#include <nlohmann/json.hpp>
++#include <optional>
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <ctime>
++#include <format>
++#include <fstream>
++#include <numbers>
++#include <string_view>
++
++namespace calendar::local {
++
++  namespace {
++
++    namespace chrono = std::chrono;
++
++    enum class Kind : std::uint8_t { Holiday, Observance, Global, Astro };
++
++    struct TableEvent {
++      std::string_view when; // yyyy-mm-dd, or a UTC instant when longer
++      std::string_view title;
++      Kind kind;
++    };
++
++    struct Meteor {
++      int month;
++      int day;
++      std::string_view name;
++    };
++
++  // Lunar, religious and one-off events: {date or UTC instant, title, kind}.
++  constexpr std::array<TableEvent, 124> kMovableEvents = {{
++      {"2025-01-29", "Lunar New Year", Kind::Global},
++      {"2025-03-01", "Ramadan begins", Kind::Global},
++      {"2025-03-14", "Holi", Kind::Global},
++      {"2025-03-14T06:58:47Z", "Total lunar eclipse", Kind::Astro},
++      {"2025-03-29T10:47:27Z", "Partial solar eclipse", Kind::Astro},
++      {"2025-03-30", "Eid al-Fitr", Kind::Global},
++      {"2025-04-13", "Expo 2025 Osaka Kansai begins", Kind::Global},
++      {"2025-06-06", "Eid al-Adha", Kind::Global},
++      {"2025-09-07T18:11:49Z", "Total lunar eclipse", Kind::Astro},
++      {"2025-09-21T19:41:55Z", "Partial solar eclipse", Kind::Astro},
++      {"2025-09-23", "Rosh Hashanah", Kind::Global},
++      {"2025-10-02", "Yom Kippur", Kind::Global},
++      {"2025-10-13", "Expo 2025 Osaka Kansai ends", Kind::Global},
++      {"2025-10-20", "Diwali", Kind::Global},
++      {"2025-12-14", "Hanukkah begins (evening)", Kind::Global},
++      {"2026-02-06", "Milano Cortina 2026 Olympic Winter Games begins", Kind::Global},
++      {"2026-02-17", "Lunar New Year", Kind::Global},
++      {"2026-02-17T12:11:56Z", "Annular solar eclipse", Kind::Astro},
++      {"2026-02-18", "Ramadan begins", Kind::Global},
++      {"2026-02-22", "Milano Cortina 2026 Olympic Winter Games ends", Kind::Global},
++      {"2026-03-03", "Holi", Kind::Global},
++      {"2026-03-03T11:33:43Z", "Total lunar eclipse", Kind::Astro},
++      {"2026-03-06", "Milano Cortina 2026 Paralympic Winter Games begins", Kind::Global},
++      {"2026-03-15", "Milano Cortina 2026 Paralympic Winter Games ends", Kind::Global},
++      {"2026-03-20", "Eid al-Fitr", Kind::Global},
++      {"2026-05-27", "Eid al-Adha", Kind::Global},
++      {"2026-06-11", "FIFA World Cup 2026 (men's) begins", Kind::Global},
++      {"2026-07-19", "FIFA World Cup 2026 (men's) ends", Kind::Global},
++      {"2026-08-12T17:45:56Z", "Total solar eclipse", Kind::Astro},
++      {"2026-08-28T04:12:55Z", "Partial lunar eclipse", Kind::Astro},
++      {"2026-09-12", "Rosh Hashanah", Kind::Global},
++      {"2026-09-21", "Yom Kippur", Kind::Global},
++      {"2026-11-08", "Diwali", Kind::Global},
++      {"2026-12-04", "Hanukkah begins (evening)", Kind::Global},
++      {"2027-02-06", "Lunar New Year", Kind::Global},
++      {"2027-02-06T15:59:38Z", "Annular solar eclipse", Kind::Astro},
++      {"2027-02-08", "Ramadan begins", Kind::Global},
++      {"2027-02-20T23:12:57Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2027-03-09", "Eid al-Fitr", Kind::Global},
++      {"2027-03-22", "Holi", Kind::Global},
++      {"2027-05-16", "Eid al-Adha", Kind::Global},
++      {"2027-07-18T16:03:00Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2027-08-02T10:06:40Z", "Total solar eclipse", Kind::Astro},
++      {"2027-08-17T07:13:50Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2027-10-02", "Rosh Hashanah", Kind::Global},
++      {"2027-10-11", "Yom Kippur", Kind::Global},
++      {"2027-10-29", "Diwali", Kind::Global},
++      {"2027-12-24", "Hanukkah begins (evening)", Kind::Global},
++      {"2028-01-12T04:13:04Z", "Partial lunar eclipse", Kind::Astro},
++      {"2028-01-26", "Lunar New Year", Kind::Global},
++      {"2028-01-26T15:07:49Z", "Annular solar eclipse", Kind::Astro},
++      {"2028-01-28", "Ramadan begins", Kind::Global},
++      {"2028-02-26", "Eid al-Fitr", Kind::Global},
++      {"2028-03-11", "Holi", Kind::Global},
++      {"2028-05-05", "Eid al-Adha", Kind::Global},
++      {"2028-07-06T18:19:48Z", "Partial lunar eclipse", Kind::Astro},
++      {"2028-07-14", "Los Angeles 2028 Olympic Games begins", Kind::Global},
++      {"2028-07-22T02:55:30Z", "Total solar eclipse", Kind::Astro},
++      {"2028-07-30", "Los Angeles 2028 Olympic Games ends", Kind::Global},
++      {"2028-08-15", "Los Angeles 2028 Paralympic Games begins", Kind::Global},
++      {"2028-08-27", "Los Angeles 2028 Paralympic Games ends", Kind::Global},
++      {"2028-09-21", "Rosh Hashanah", Kind::Global},
++      {"2028-09-30", "Yom Kippur", Kind::Global},
++      {"2028-10-17", "Diwali", Kind::Global},
++      {"2028-12-12", "Hanukkah begins (evening)", Kind::Global},
++      {"2028-12-31T16:52:06Z", "Total lunar eclipse", Kind::Astro},
++      {"2029-01-14T17:12:38Z", "Partial solar eclipse", Kind::Astro},
++      {"2029-01-16", "Ramadan begins", Kind::Global},
++      {"2029-02-13", "Lunar New Year", Kind::Global},
++      {"2029-02-14", "Eid al-Fitr", Kind::Global},
++      {"2029-03-01", "Holi", Kind::Global},
++      {"2029-04-24", "Eid al-Adha", Kind::Global},
++      {"2029-06-12T04:05:04Z", "Partial solar eclipse", Kind::Astro},
++      {"2029-06-26T03:22:13Z", "Total lunar eclipse", Kind::Astro},
++      {"2029-07-11T15:36:09Z", "Partial solar eclipse", Kind::Astro},
++      {"2029-09-10", "Rosh Hashanah", Kind::Global},
++      {"2029-09-19", "Yom Kippur", Kind::Global},
++      {"2029-11-05", "Diwali", Kind::Global},
++      {"2029-12-01", "Hanukkah begins (evening)", Kind::Global},
++      {"2029-12-05T15:02:48Z", "Partial solar eclipse", Kind::Astro},
++      {"2029-12-20T22:42:03Z", "Total lunar eclipse", Kind::Astro},
++      {"2030-01-05", "Ramadan begins", Kind::Global},
++      {"2030-02-03", "Lunar New Year", Kind::Global},
++      {"2030-02-04", "Eid al-Fitr", Kind::Global},
++      {"2030-03-20", "Holi", Kind::Global},
++      {"2030-04-13", "Eid al-Adha", Kind::Global},
++      {"2030-06-01T06:28:04Z", "Annular solar eclipse", Kind::Astro},
++      {"2030-06-15T18:33:25Z", "Partial lunar eclipse", Kind::Astro},
++      {"2030-09-28", "Rosh Hashanah", Kind::Global},
++      {"2030-10-01", "Expo 2030 Riyadh begins", Kind::Global},
++      {"2030-10-07", "Yom Kippur", Kind::Global},
++      {"2030-10-26", "Diwali", Kind::Global},
++      {"2030-11-25T06:50:28Z", "Total solar eclipse", Kind::Astro},
++      {"2030-12-09T22:27:42Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2030-12-20", "Hanukkah begins (evening)", Kind::Global},
++      {"2030-12-26", "Ramadan begins", Kind::Global},
++      {"2031-01-23", "Lunar New Year", Kind::Global},
++      {"2031-01-24", "Eid al-Fitr", Kind::Global},
++      {"2031-03-09", "Holi", Kind::Global},
++      {"2031-03-31", "Expo 2030 Riyadh ends", Kind::Global},
++      {"2031-04-02", "Eid al-Adha", Kind::Global},
++      {"2031-05-07T03:50:53Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2031-05-21T07:14:55Z", "Annular solar eclipse", Kind::Astro},
++      {"2031-06-05T11:44:08Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2031-09-18", "Rosh Hashanah", Kind::Global},
++      {"2031-09-27", "Yom Kippur", Kind::Global},
++      {"2031-10-30T07:45:36Z", "Penumbral lunar eclipse", Kind::Astro},
++      {"2031-11-13", "Diwali", Kind::Global},
++      {"2031-11-14T21:06:21Z", "Hybrid solar eclipse", Kind::Astro},
++      {"2031-12-09", "Hanukkah begins (evening)", Kind::Global},
++      {"2031-12-15", "Ramadan begins", Kind::Global},
++      {"2032-01-14", "Eid al-Fitr", Kind::Global},
++      {"2032-02-11", "Lunar New Year", Kind::Global},
++      {"2032-03-22", "Eid al-Adha", Kind::Global},
++      {"2032-03-27", "Holi", Kind::Global},
++      {"2032-04-25T15:13:42Z", "Total lunar eclipse", Kind::Astro},
++      {"2032-05-09T13:25:33Z", "Annular solar eclipse", Kind::Astro},
++      {"2032-09-06", "Rosh Hashanah", Kind::Global},
++      {"2032-09-15", "Yom Kippur", Kind::Global},
++      {"2032-10-18T19:02:31Z", "Total lunar eclipse", Kind::Astro},
++      {"2032-11-02", "Diwali", Kind::Global},
++      {"2032-11-03T05:33:03Z", "Partial solar eclipse", Kind::Astro},
++      {"2032-11-27", "Hanukkah begins (evening)", Kind::Global},
++      {"2032-12-04", "Ramadan begins", Kind::Global},
++  }};
++
++  // Solstices and equinoxes: {UTC instant, title}.
++  constexpr std::array<TableEvent, 32> kSeasonTimes = {{
++      {"2025-03-20T09:01:00Z", "March Equinox", Kind::Astro},
++      {"2025-06-21T02:42:00Z", "June Solstice", Kind::Astro},
++      {"2025-09-22T18:19:00Z", "September Equinox", Kind::Astro},
++      {"2025-12-21T15:03:00Z", "December Solstice", Kind::Astro},
++      {"2026-03-20T14:46:00Z", "March Equinox", Kind::Astro},
++      {"2026-06-21T08:24:00Z", "June Solstice", Kind::Astro},
++      {"2026-09-23T00:05:00Z", "September Equinox", Kind::Astro},
++      {"2026-12-21T20:50:00Z", "December Solstice", Kind::Astro},
++      {"2027-03-20T20:25:00Z", "March Equinox", Kind::Astro},
++      {"2027-06-21T14:11:00Z", "June Solstice", Kind::Astro},
++      {"2027-09-23T06:02:00Z", "September Equinox", Kind::Astro},
++      {"2027-12-22T02:42:00Z", "December Solstice", Kind::Astro},
++      {"2028-03-20T02:17:00Z", "March Equinox", Kind::Astro},
++      {"2028-06-20T20:02:00Z", "June Solstice", Kind::Astro},
++      {"2028-09-22T11:45:00Z", "September Equinox", Kind::Astro},
++      {"2028-12-21T08:19:00Z", "December Solstice", Kind::Astro},
++      {"2029-03-20T08:02:00Z", "March Equinox", Kind::Astro},
++      {"2029-06-21T01:48:00Z", "June Solstice", Kind::Astro},
++      {"2029-09-22T17:38:00Z", "September Equinox", Kind::Astro},
++      {"2029-12-21T14:14:00Z", "December Solstice", Kind::Astro},
++      {"2030-03-20T13:52:00Z", "March Equinox", Kind::Astro},
++      {"2030-06-21T07:31:00Z", "June Solstice", Kind::Astro},
++      {"2030-09-22T23:27:00Z", "September Equinox", Kind::Astro},
++      {"2030-12-21T20:09:00Z", "December Solstice", Kind::Astro},
++      {"2031-03-20T19:41:00Z", "March Equinox", Kind::Astro},
++      {"2031-06-21T13:17:00Z", "June Solstice", Kind::Astro},
++      {"2031-09-23T05:15:00Z", "September Equinox", Kind::Astro},
++      {"2031-12-22T01:55:00Z", "December Solstice", Kind::Astro},
++      {"2032-03-20T01:22:00Z", "March Equinox", Kind::Astro},
++      {"2032-06-20T19:09:00Z", "June Solstice", Kind::Astro},
++      {"2032-09-22T11:11:00Z", "September Equinox", Kind::Astro},
++      {"2032-12-21T07:56:00Z", "December Solstice", Kind::Astro},
++  }};
++
++  // Annual meteor shower peaks (approximate): {month, day, name}.
++  constexpr std::array<Meteor, 7> kMeteorShowers = {{
++      {1, 3, "Quadrantids"},
++      {4, 22, "Lyrids"},
++      {5, 6, "Eta Aquariids"},
++      {8, 12, "Perseids"},
++      {10, 21, "Orionids"},
++      {11, 17, "Leonids"},
++      {12, 14, "Geminids"},
++  }};
++
++    constexpr std::string_view kHolidayColor = "#FBBF24";
++    constexpr std::string_view kObservanceColor = "#F472B6";
++    constexpr std::string_view kGlobalColor = "#38BDF8";
++    constexpr std::string_view kAstroColor = "#A78BFA";
++    constexpr std::string_view kTaskColor = "#4ADE80";
++
++    constexpr std::array<std::string_view, 7> kWeekdayNames = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
++    constexpr std::array<std::string_view, 4> kMoonNames = {
++        "New Moon", "First Quarter Moon", "Full Moon", "Last Quarter Moon"
++    };
++
++    using TimePoint = chrono::system_clock::time_point;
++
++    struct Entry {
++      CalendarEvent event;
++      Kind kind;
++    };
++
++    std::string_view kindColor(Kind kind) {
++      switch (kind) {
++      case Kind::Holiday:
++        return kHolidayColor;
++      case Kind::Observance:
++        return kObservanceColor;
++      case Kind::Global:
++        return kGlobalColor;
++      case Kind::Astro:
++        return kAstroColor;
++      }
++      return kGlobalColor;
++    }
++
++    std::string_view kindLabel(Kind kind) {
++      switch (kind) {
++      case Kind::Holiday:
++        return "Holiday";
++      case Kind::Observance:
++        return "Observance";
++      case Kind::Global:
++        return "Global event";
++      case Kind::Astro:
++        return "Sky event";
++      }
++      return {};
++    }
++
++    TimePoint localMidnight(int year, int month0, int day) {
++      std::tm value{};
++      value.tm_year = year - 1900;
++      value.tm_mon = month0;
++      value.tm_mday = day;
++      value.tm_isdst = -1;
++      return chrono::system_clock::from_time_t(std::mktime(&value));
++    }
++
++    std::tm localTm(TimePoint time) {
++      const std::time_t raw = chrono::system_clock::to_time_t(time);
++      std::tm value{};
++      localtime_r(&raw, &value);
++      return value;
++    }
++
++    chrono::sys_days civil(int year, int month0, int day) {
++      return chrono::sys_days{chrono::year{year} / chrono::month{static_cast<unsigned>(month0 + 1)} / chrono::day{static_cast<unsigned>(day)}};
++    }
++
++    // Weekday (0 = Sunday) of a civil date.
++    int weekdayOf(int year, int month0, int day) {
++      return static_cast<int>(chrono::weekday{civil(year, month0, day)}.c_encoding());
++    }
++
++    int daysInMonth(int year, int month0) {
++      const auto last = chrono::year{year} / chrono::month{static_cast<unsigned>(month0 + 1)} / chrono::last;
++      return static_cast<int>(static_cast<unsigned>(last.day()));
++    }
++
++    // The nth (1-based) weekday (0 = Sunday) of a month.
++    int nthWeekday(int year, int month0, int weekday, int n) {
++      const int first = weekdayOf(year, month0, 1);
++      return 1 + ((weekday - first + 7) % 7) + (n - 1) * 7;
++    }
++
++    int lastWeekday(int year, int month0, int weekday) {
++      const int last = daysInMonth(year, month0);
++      return last - ((weekdayOf(year, month0, last) - weekday + 7) % 7);
++    }
++
++    // Anonymous Gregorian algorithm: {month0, day}.
++    std::pair<int, int> easter(int year) {
++      const int a = year % 19;
++      const int b = year / 100;
++      const int c = year % 100;
++      const int d = b / 4;
++      const int e = b % 4;
++      const int f = (b + 8) / 25;
++      const int g = (b - f + 1) / 3;
++      const int h = (19 * a + b - d - g + 15) % 30;
++      const int i = c / 4;
++      const int k = c % 4;
++      const int l = (32 + 2 * e + 2 * i - h - k) % 7;
++      const int m = (a + 11 * h + 22 * l) / 451;
++      const int month = (h + l - 7 * m + 114) / 31;
++      const int day = ((h + l - 7 * m + 114) % 31) + 1;
++      return {month - 1, day};
++    }
++
++    // Moon phases after Meeus, Astronomical Algorithms ch. 49 (main periodic terms). `k` counts
++    // lunations from 2000-01-06: whole numbers are new moons, then quarters at +0.25 steps.
++    // Returns Unix milliseconds.
++    double moonPhaseMillis(double k) {
++      constexpr double rad = std::numbers::pi / 180.0;
++      const double t = k / 1236.85;
++      const double t2 = t * t;
++      const double t3 = t2 * t;
++      const double t4 = t3 * t;
++      const double jde =
++          2451550.09766 + 29.530588861 * k + 0.00015437 * t2 - 0.00000015 * t3 + 0.00000000073 * t4;
++      const double e = 1 - 0.002516 * t - 0.0000074 * t2;
++      const double m = (2.5534 + 29.10535670 * k - 0.0000014 * t2 - 0.00000011 * t3) * rad;
++      const double mp = (201.5643 + 385.81693528 * k + 0.0107582 * t2 + 0.00001238 * t3 - 0.000000058 * t4) * rad;
++      const double f = (160.7108 + 390.67050284 * k - 0.0016118 * t2 - 0.00000227 * t3 + 0.000000011 * t4) * rad;
++      const double o = (124.7746 - 1.56375588 * k + 0.0020672 * t2 + 0.00000215 * t3) * rad;
++      const int phase = static_cast<int>(std::floor((k - std::floor(k)) * 4 + 0.5)) % 4;
++      const auto s = [](double x) { return std::sin(x); };
++      const auto c = [](double x) { return std::cos(x); };
++      double corr = 0.0;
++      if (phase == 0) {
++        corr = -0.40720 * s(mp) + 0.17241 * e * s(m) + 0.01608 * s(2 * mp) + 0.01039 * s(2 * f)
++            + 0.00739 * e * s(mp - m) - 0.00514 * e * s(mp + m) + 0.00208 * e * e * s(2 * m)
++            - 0.00111 * s(mp - 2 * f) - 0.00057 * s(mp + 2 * f) + 0.00056 * e * s(2 * mp + m)
++            - 0.00042 * s(3 * mp) + 0.00042 * e * s(m + 2 * f) + 0.00038 * e * s(m - 2 * f)
++            - 0.00024 * e * s(2 * mp - m) - 0.00017 * s(o);
++      } else if (phase == 2) {
++        corr = -0.40614 * s(mp) + 0.17302 * e * s(m) + 0.01614 * s(2 * mp) + 0.01043 * s(2 * f)
++            + 0.00734 * e * s(mp - m) - 0.00515 * e * s(mp + m) + 0.00209 * e * e * s(2 * m)
++            - 0.00111 * s(mp - 2 * f) - 0.00057 * s(mp + 2 * f) + 0.00056 * e * s(2 * mp + m)
++            - 0.00042 * s(3 * mp) + 0.00042 * e * s(m + 2 * f) + 0.00038 * e * s(m - 2 * f)
++            - 0.00024 * e * s(2 * mp - m) - 0.00017 * s(o);
++      } else {
++        corr = -0.62801 * s(mp) + 0.17172 * e * s(m) - 0.01183 * e * s(mp + m) + 0.00862 * s(2 * mp)
++            + 0.00804 * s(2 * f) + 0.00454 * e * s(mp - m) + 0.00204 * e * e * s(2 * m)
++            - 0.00180 * s(mp - 2 * f) - 0.00070 * s(mp + 2 * f) - 0.00040 * s(3 * mp)
++            - 0.00034 * e * s(2 * mp - m) + 0.00032 * e * s(m + 2 * f) + 0.00032 * e * s(m - 2 * f)
++            - 0.00028 * e * e * s(mp + 2 * m) + 0.00027 * e * s(2 * mp + m) - 0.00017 * s(o);
++        const double w = 0.00306 - 0.00038 * e * c(m) + 0.00026 * c(mp) - 0.00002 * c(mp - m)
++            + 0.00002 * c(mp + m) + 0.00002 * c(2 * f);
++        corr += phase == 1 ? w : -w;
++      }
++      return (jde + corr - 2440587.5) * 86400000.0;
++    }
++
++    TimePoint fromMillis(double millis) {
++      return TimePoint{chrono::duration_cast<chrono::system_clock::duration>(chrono::duration<double, std::milli>(millis))};
++    }
++
++    // "yyyy-mm-ddThh:mm:ssZ".
++    std::optional<TimePoint> parseInstant(std::string_view text) {
++      int y = 0;
++      int mo = 0;
++      int d = 0;
++      int h = 0;
++      int mi = 0;
++      int s = 0;
++      const std::string owned(text);
++      if (std::sscanf(owned.c_str(), "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &s) != 6) {
++        return std::nullopt;
++      }
++      return chrono::sys_days{chrono::year{y} / chrono::month{static_cast<unsigned>(mo)} / chrono::day{static_cast<unsigned>(d)}}
++          + chrono::hours{h} + chrono::minutes{mi} + chrono::seconds{s};
++    }
++
++    Entry allDayEntry(TimePoint start, std::string_view title, Kind kind) {
++      Entry entry;
++      entry.kind = kind;
++      entry.event.title = std::string(title);
++      entry.event.calendarName = std::string(kindLabel(kind));
++      entry.event.kindLabel = std::string(kindLabel(kind));
++      entry.event.colorHex = std::string(kindColor(kind));
++      entry.event.start = start;
++      entry.event.end = start + chrono::hours{24};
++      entry.event.allDay = true;
++      return entry;
++    }
++
++    Entry instantEntry(TimePoint when, std::string_view title, Kind kind) {
++      Entry entry = allDayEntry(when, title, kind);
++      entry.event.end = when;
++      entry.event.allDay = false;
++      return entry;
++    }
++
++    void buildYear(int year, std::vector<Entry>& out) {
++      const auto add = [&](int month0, int day, std::string_view title, Kind kind) {
++        out.push_back(allDayEntry(localMidnight(year, month0, day), title, kind));
++      };
++      const auto addInstant = [&](TimePoint when, std::string_view title, Kind kind) {
++        out.push_back(instantEntry(when, title, kind));
++      };
++
++      // US federal holidays.
++      add(0, 1, "New Year's Day", Kind::Holiday);
++      add(0, nthWeekday(year, 0, 1, 3), "Martin Luther King Jr. Day", Kind::Holiday);
++      add(1, nthWeekday(year, 1, 1, 3), "Presidents' Day", Kind::Holiday);
++      add(4, lastWeekday(year, 4, 1), "Memorial Day", Kind::Holiday);
++      if (year >= 2021) {
++        add(5, 19, "Juneteenth", Kind::Holiday);
++      }
++      add(6, 4, "Independence Day", Kind::Holiday);
++      add(8, nthWeekday(year, 8, 1, 1), "Labor Day", Kind::Holiday);
++      add(9, nthWeekday(year, 9, 1, 2), "Indigenous Peoples' Day / Columbus Day", Kind::Holiday);
++      add(10, 11, "Veterans Day", Kind::Holiday);
++      add(10, nthWeekday(year, 10, 4, 4), "Thanksgiving", Kind::Holiday);
++      add(11, 25, "Christmas Day", Kind::Holiday);
++
++      // Widely observed days.
++      const auto [easterMonth, easterDay] = easter(year);
++      const chrono::sys_days easterDate = civil(year, easterMonth, easterDay);
++      const auto addEaster = [&](int offset, std::string_view title) {
++        const chrono::year_month_day ymd{easterDate + chrono::days{offset}};
++        add(static_cast<int>(static_cast<unsigned>(ymd.month())) - 1, static_cast<int>(static_cast<unsigned>(ymd.day())), title, Kind::Observance);
++      };
++      addEaster(-2, "Good Friday");
++      addEaster(0, "Easter Sunday");
++      add(1, 2, "Groundhog Day", Kind::Observance);
++      add(1, 14, "Valentine's Day", Kind::Observance);
++      add(2, 17, "St. Patrick's Day", Kind::Observance);
++      add(3, 1, "April Fools' Day", Kind::Observance);
++      add(3, 15, "Tax Day (US)", Kind::Observance);
++      add(4, 5, "Cinco de Mayo", Kind::Observance);
++      add(4, nthWeekday(year, 4, 0, 2), "Mother's Day", Kind::Observance);
++      add(5, nthWeekday(year, 5, 0, 3), "Father's Day", Kind::Observance);
++      add(9, 31, "Halloween", Kind::Observance);
++      add(10, nthWeekday(year, 10, 4, 4) + 1, "Black Friday", Kind::Observance);
++      if (year % 2 == 0) {
++        add(10, nthWeekday(year, 10, 1, 1) + 1, "Election Day (US)", Kind::Observance);
++      }
++      add(11, 24, "Christmas Eve", Kind::Observance);
++      add(11, 31, "New Year's Eve", Kind::Observance);
++
++      // International days and civil changes.
++      add(2, nthWeekday(year, 2, 0, 2), "Daylight Saving Time begins (US)", Kind::Global);
++      add(10, nthWeekday(year, 10, 0, 1), "Daylight Saving Time ends (US)", Kind::Global);
++      add(2, 8, "International Women's Day", Kind::Global);
++      add(2, 14, "Pi Day", Kind::Global);
++      add(3, 7, "World Health Day", Kind::Global);
++      add(3, 22, "Earth Day", Kind::Global);
++      add(4, 1, "International Workers' Day", Kind::Global);
++      add(5, 5, "World Environment Day", Kind::Global);
++      add(5, 8, "World Oceans Day", Kind::Global);
++      add(8, 21, "International Day of Peace", Kind::Global);
++      add(9, 24, "United Nations Day", Kind::Global);
++      add(11, 10, "Human Rights Day", Kind::Global);
++
++      // Lunar, religious and one-off events from the tables.
++      const std::string prefix = std::to_string(year) + "-";
++      for (const TableEvent& item : kMovableEvents) {
++        if (!item.when.starts_with(prefix)) {
++          continue;
++        }
++        if (item.when.size() > 10) {
++          if (const auto instant = parseInstant(item.when)) {
++            addInstant(*instant, item.title, item.kind);
++          }
++          continue;
++        }
++        add(std::atoi(std::string(item.when.substr(5, 2)).c_str()) - 1, std::atoi(std::string(item.when.substr(8, 2)).c_str()), item.title, item.kind);
++      }
++
++      // Moon phases that land on a local day of the year.
++      const int k0 = static_cast<int>(std::floor((year - 2000) * 12.3685)) - 2;
++      for (int step = 0; step < 4 * 16; ++step) {
++        const TimePoint when = fromMillis(moonPhaseMillis(k0 + step / 4.0));
++        if (localTm(when).tm_year + 1900 == year) {
++          addInstant(when, kMoonNames[static_cast<std::size_t>(step % 4)], Kind::Astro);
++        }
++      }
++
++      // Solstices and equinoxes, meteor showers.
++      for (const TableEvent& item : kSeasonTimes) {
++        if (!item.when.starts_with(prefix)) {
++          continue;
++        }
++        if (const auto instant = parseInstant(item.when)) {
++          addInstant(*instant, item.title, item.kind);
++        }
++      }
++      for (const Meteor& shower : kMeteorShowers) {
++        add(shower.month - 1, shower.day, std::string(shower.name) + " meteor shower peak", Kind::Astro);
++      }
++    }
++
++    std::string trimmed(const std::string& text) {
++      const auto first = text.find_first_not_of(" \t\r\n");
++      if (first == std::string::npos) {
++        return {};
++      }
++      return text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
++    }
++
++    std::string stringField(const nlohmann::json& object, const char* key) {
++      const auto it = object.find(key);
++      return it != object.end() && it->is_string() ? it->get<std::string>() : std::string{};
++    }
++
++    bool matches(const TaskRule& rule, int year, int month0, int day) {
++      if (rule.type == "daily") {
++        return true;
++      }
++      if (rule.type == "date") {
++        return rule.value == std::format("{:04d}-{:02d}-{:02d}", year, month0 + 1, day);
++      }
++      if (rule.type == "weekly") {
++        const std::string_view name = kWeekdayNames[static_cast<std::size_t>(weekdayOf(year, month0, day))];
++        return std::ranges::find(rule.days, name) != rule.days.end();
++      }
++      return false;
++    }
++
++  } // namespace
++
++  std::filesystem::path dashboardTasksPath() {
++    if (const char* override = std::getenv("NOCTALIA_DASHBOARD_TASKS_FILE"); override != nullptr && *override != '\0') {
++      return override;
++    }
++    const char* home = std::getenv("HOME");
++    return std::filesystem::path(home != nullptr ? home : "") / ".config" / "dashboard" / "tasks.json";
++  }
++
++  std::vector<TaskRule> readTaskRules(const std::filesystem::path& path) {
++    std::vector<TaskRule> rules;
++    std::ifstream stream(path);
++    if (!stream) {
++      return rules;
++    }
++    const nlohmann::json data = nlohmann::json::parse(stream, nullptr, false);
++    if (!data.is_array()) {
++      return rules;
++    }
++    for (const nlohmann::json& item : data) {
++      if (!item.is_object()) {
++        continue;
++      }
++      TaskRule rule;
++      rule.task = trimmed(stringField(item, "task"));
++      if (rule.task.empty()) {
++        continue;
++      }
++      rule.type = stringField(item, "recurrence_type");
++      rule.value = stringField(item, "recurrence_value");
++      rule.createdAt = stringField(item, "created_at");
++      if (rule.type == "weekly") {
++        std::size_t start = 0;
++        while (start <= rule.value.size()) {
++          const auto comma = rule.value.find(',', start);
++          const std::string day = trimmed(rule.value.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
++          if (!day.empty()) {
++            rule.days.push_back(day);
++          }
++          if (comma == std::string::npos) {
++            break;
++          }
++          start = comma + 1;
++        }
++      }
++      rules.push_back(std::move(rule));
++    }
++    return rules;
++  }
++
++  std::vector<CalendarEvent> taskEvents(const std::vector<TaskRule>& rules, TimePoint first, TimePoint last) {
++    std::vector<CalendarEvent> out;
++    if (rules.empty()) {
++      return out;
++    }
++    const std::tm firstDay = localTm(first);
++    const std::tm lastDay = localTm(last);
++    const chrono::sys_days end = civil(lastDay.tm_year + 1900, lastDay.tm_mon, lastDay.tm_mday);
++    for (chrono::sys_days day = civil(firstDay.tm_year + 1900, firstDay.tm_mon, firstDay.tm_mday); day <= end; day += chrono::days{1}) {
++      const chrono::year_month_day ymd{day};
++      const int year = static_cast<int>(ymd.year());
++      const int month0 = static_cast<int>(static_cast<unsigned>(ymd.month())) - 1;
++      const int date = static_cast<int>(static_cast<unsigned>(ymd.day()));
++      TimePoint start{};
++      bool haveStart = false;
++      for (const TaskRule& rule : rules) {
++        if (!matches(rule, year, month0, date)) {
++          continue;
++        }
++        if (!haveStart) {
++          start = localMidnight(year, month0, date);
++          haveStart = true;
++        }
++        CalendarEvent event;
++        event.id = "dashboard-task:" + rule.createdAt + "|" + rule.task + ":" + std::format("{:04d}-{:02d}-{:02d}", year, month0 + 1, date);
++        event.title = rule.task;
++        event.calendarName = "Dashboard";
++        event.colorHex = std::string(kTaskColor);
++        event.kindLabel = rule.type == "daily" ? "Daily task" : rule.type == "weekly" ? "Weekly task" : "Task";
++        event.start = start;
++        event.end = start + chrono::hours{24};
++        event.allDay = true;
++        event.showMarker = rule.type == "date";
++        out.push_back(std::move(event));
++      }
++    }
++    return out;
++  }
++
++  std::vector<CalendarEvent> holidayEvents(int firstYear, int lastYear) {
++    std::vector<Entry> entries;
++    for (int year = firstYear; year <= lastYear; ++year) {
++      buildYear(year, entries);
++    }
++    std::ranges::stable_sort(entries, [](const Entry& a, const Entry& b) {
++      if (a.event.start != b.event.start) {
++        return a.event.start < b.event.start;
++      }
++      return a.kind < b.kind;
++    });
++    std::vector<CalendarEvent> out;
++    out.reserve(entries.size());
++    for (Entry& entry : entries) {
++      out.push_back(std::move(entry.event));
++    }
++    return out;
++  }
++
++} // namespace calendar::local
+diff --git a/src/calendar/local_events.h b/src/calendar/local_events.h
+new file mode 100644
+index 000000000..5e8912a2c
+--- /dev/null
++++ b/src/calendar/local_events.h
+@@ -0,0 +1,44 @@
++#pragma once
++
++#include "calendar/calendar_types.h"
++
++#include <chrono>
++#include <filesystem>
++#include <string>
++#include <vector>
++
++// Calendar entries that need no account: holidays and global events computed offline, and the
++// Dashboard app's task list (~/.config/dashboard/tasks.json). Both are folded into the calendar
++// snapshot next to the online events.
++namespace calendar::local {
++
++  // One recurrence rule from the Dashboard's tasks.json: "daily", "weekly" (value is a comma list
++  // of English weekday abbreviations) or "date" (value is yyyy-mm-dd).
++  struct TaskRule {
++    std::string task;
++    std::string type;
++    std::string value;
++    std::string createdAt;
++    std::vector<std::string> days;
++  };
++
++  // NOCTALIA_DASHBOARD_TASKS_FILE, else $HOME/.config/dashboard/tasks.json.
++  [[nodiscard]] std::filesystem::path dashboardTasksPath();
++
++  // A missing or malformed file reads as an empty list.
++  [[nodiscard]] std::vector<TaskRule> readTaskRules(const std::filesystem::path& path);
++
++  // Every rule's occurrences on the local days from `first` to `last`, as all-day events. Only
++  // one-off ("date") tasks carry a marker dot, because daily and weekly rules would dot most days.
++  [[nodiscard]] std::vector<CalendarEvent> taskEvents(
++      const std::vector<TaskRule>& rules, std::chrono::system_clock::time_point first,
++      std::chrono::system_clock::time_point last
++  );
++
++  // US federal holidays, common observances, international days, DST changes, moon phases,
++  // eclipses, equinoxes/solstices and meteor showers for the years firstYear..lastYear, most
++  // prominent first within a day. Lunar, religious and eclipse dates come from tables covering
++  // 2025-2032.
++  [[nodiscard]] std::vector<CalendarEvent> holidayEvents(int firstYear, int lastYear);
++
++} // namespace calendar::local
+diff --git a/src/ui/controls/calendar_view.cpp b/src/ui/controls/calendar_view.cpp
+index a1e64f84d..4136922e0 100644
+--- a/src/ui/controls/calendar_view.cpp
++++ b/src/ui/controls/calendar_view.cpp
+@@ -215,7 +215,7 @@ namespace calendar_view {
+       const auto now = std::chrono::system_clock::now();
+       for (const CalendarEvent& event : options.snapshot->events) {
+         const auto [eventStart, eventEnd] = eventDayRange(event);
+-        if (eventEnd < firstKey || eventStart > lastKey) {
++        if (!event.showMarker || eventEnd < firstKey || eventStart > lastKey) {
+           continue;
+         }
+         const float eventAlpha = eventPassed(event, now) ? kPassedEventAlpha : 1.0F;
+@@ -449,10 +449,13 @@ namespace calendar_view {
+ 
+         std::string timeText;
+         if (event.allDay) {
+-          timeText = i18n::tr("control-center.calendar.all-day");
++          timeText = event.kindLabel.empty() ? i18n::tr("control-center.calendar.all-day") : event.kindLabel;
+         } else {
+           const std::time_t raw = std::chrono::system_clock::to_time_t(event.start);
+           timeText = formatLocalUnixTime(static_cast<std::int64_t>(raw), options.timeFormat);
++          if (!event.kindLabel.empty()) {
++            timeText = event.kindLabel + " · " + timeText;
++          }
+         }
+ 
+         auto time = ui::label({
+diff --git a/tests/local_calendar_test.cpp b/tests/local_calendar_test.cpp
+new file mode 100644
+index 000000000..709aecbf6
+--- /dev/null
++++ b/tests/local_calendar_test.cpp
+@@ -0,0 +1,109 @@
++#include "calendar/local_events.h"
++
++#include <algorithm>
++#include <chrono>
++#include <cstdio>
++#include <ctime>
++#include <filesystem>
++#include <fstream>
++#include <print>
++#include <string>
++
++namespace {
++
++  using namespace std::chrono;
++  using namespace calendar::local;
++
++  bool expect(bool condition, const char* message) {
++    if (!condition) {
++      std::println(stderr, "local_calendar_test: {}", message);
++    }
++    return condition;
++  }
++
++  system_clock::time_point localMidnight(int y, int m, int d) {
++    std::tm value{};
++    value.tm_year = y - 1900;
++    value.tm_mon = m - 1;
++    value.tm_mday = d;
++    value.tm_isdst = -1;
++    return system_clock::from_time_t(std::mktime(&value));
++  }
++
++  bool onDay(const CalendarEvent& event, int y, int m, int d) {
++    const std::time_t raw = system_clock::to_time_t(event.start);
++    std::tm value{};
++    localtime_r(&raw, &value);
++    return value.tm_year + 1900 == y && value.tm_mon + 1 == m && value.tm_mday == d;
++  }
++
++  bool hasEvent(const std::vector<CalendarEvent>& events, const char* title, int y, int m, int d) {
++    return std::ranges::any_of(events, [&](const CalendarEvent& event) {
++      return event.title == title && onDay(event, y, m, d);
++    });
++  }
++
++} // namespace
++
++int main() {
++  bool ok = true;
++
++  const auto holidays = holidayEvents(2026, 2026);
++  ok = expect(hasEvent(holidays, "Thanksgiving", 2026, 11, 26), "Thanksgiving 2026") && ok;
++  ok = expect(hasEvent(holidays, "Memorial Day", 2026, 5, 25), "Memorial Day 2026") && ok;
++  ok = expect(hasEvent(holidays, "Easter Sunday", 2026, 4, 5), "Easter 2026") && ok;
++  ok = expect(hasEvent(holidays, "Election Day (US)", 2026, 11, 3), "Election Day 2026") && ok;
++  ok = expect(hasEvent(holidays, "Daylight Saving Time ends (US)", 2026, 11, 1), "DST end 2026") && ok;
++  ok = expect(hasEvent(holidays, "Lunar New Year", 2026, 2, 17), "table event 2026") && ok;
++  ok = expect(!hasEvent(holidays, "Election Day (US)", 2027, 11, 2), "only the requested years") && ok;
++  ok = expect(std::ranges::is_sorted(holidays, {}, &CalendarEvent::start), "holidays sorted by start") && ok;
++  ok = expect(
++           std::ranges::count_if(holidays, [](const CalendarEvent& e) { return e.title == "Full Moon"; }) >= 12,
++           "a year has at least twelve full moons"
++       )
++      && ok;
++  ok = expect(
++           std::ranges::all_of(holidays, [](const CalendarEvent& e) { return !e.kindLabel.empty() && e.showMarker; }),
++           "holidays are labelled and marked"
++       )
++      && ok;
++
++  const auto path = std::filesystem::temp_directory_path() / "local_calendar_test_tasks.json";
++  {
++    std::ofstream out(path);
++    out << R"([
++      {"task": "Weekly", "recurrence_type": "weekly", "recurrence_value": "Mon, Thu", "created_at": "a"},
++      {"task": " Daily ", "recurrence_type": "daily", "recurrence_value": "", "created_at": "b"},
++      {"task": "Once", "recurrence_type": "date", "recurrence_value": "2026-09-22", "created_at": "c"},
++      {"task": "", "recurrence_type": "daily"},
++      7
++    ])";
++  }
++  const auto rules = readTaskRules(path);
++  ok = expect(rules.size() == 3, "blank and non-object entries are skipped") && ok;
++  ok = expect(rules.size() == 3 && rules[0].days.size() == 2 && rules[0].days[1] == "Thu", "weekly days are trimmed") && ok;
++  ok = expect(rules.size() == 3 && rules[1].task == "Daily", "task text is trimmed") && ok;
++
++  // 2026-09-21 is a Monday; the window covers Monday through Wednesday.
++  const auto tasks = taskEvents(rules, localMidnight(2026, 9, 21), localMidnight(2026, 9, 23));
++  ok = expect(hasEvent(tasks, "Weekly", 2026, 9, 21), "weekly task on Monday") && ok;
++  ok = expect(!hasEvent(tasks, "Weekly", 2026, 9, 22), "no weekly task on Tuesday") && ok;
++  ok = expect(hasEvent(tasks, "Daily", 2026, 9, 23), "daily task on Wednesday") && ok;
++  ok = expect(hasEvent(tasks, "Once", 2026, 9, 22) && !hasEvent(tasks, "Once", 2026, 9, 21), "one-off task on its date") && ok;
++  ok = expect(
++           std::ranges::all_of(tasks, [](const CalendarEvent& e) { return e.showMarker == (e.title == "Once"); }),
++           "only one-off tasks carry a marker"
++       )
++      && ok;
++  ok = expect(tasks.size() == 5, "task count") && ok;
++
++  {
++    std::ofstream out(path);
++    out << "{broken";
++  }
++  ok = expect(readTaskRules(path).empty(), "malformed file reads as empty") && ok;
++  std::filesystem::remove(path);
++  ok = expect(readTaskRules(path).empty(), "missing file reads as empty") && ok;
++
++  return ok ? 0 : 1;
++}

@@ -34,7 +34,9 @@
     "0030-native-display-editor.patch",
     "0031-display-inspector-tabs.patch",
     "0032-display-window-workspace-canvas.patch",
-    "0033-shared-notification-history.patch"
+    "0033-shared-notification-history.patch",
+    "0034-calendar-holidays-tasks.patch",
+    "0035-calendar-task-editing.patch"
   ],
   "schemes": [
     "m3-tonal-spot",

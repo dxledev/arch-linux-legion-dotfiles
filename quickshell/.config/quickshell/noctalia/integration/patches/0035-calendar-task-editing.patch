@@ -1,0 +1,651 @@
+diff --git a/src/calendar/calendar_service.cpp b/src/calendar/calendar_service.cpp
+index 8766b5408..842e7ad9c 100644
+--- a/src/calendar/calendar_service.cpp
++++ b/src/calendar/calendar_service.cpp
+@@ -638,6 +638,35 @@ void CalendarService::reloadHolidays() {
+   scheduleLocalRollover();
+ }
+ 
++bool CalendarService::addDashboardTask(
++    const std::string& text, const std::string& type, const std::string& value, std::string& error
++) {
++  if (!calendar::local::addTask(m_tasksPath, text, type, value, error)) {
++    return false;
++  }
++  tasksEdited();
++  return true;
++}
++
++bool CalendarService::removeDashboardTask(const std::string& task, const std::string& createdAt, std::string& error) {
++  if (!calendar::local::removeTask(m_tasksPath, task, createdAt, error)) {
++    return false;
++  }
++  tasksEdited();
++  return true;
++}
++
++void CalendarService::tasksEdited() {
++  // The directory watch may not exist yet when the first task creates it.
++  if (m_tasksWatchWd < 0) {
++    watchTasksDirectory();
++  }
++  m_taskRules = calendar::local::readTaskRules(m_tasksPath);
++  reloadTasks();
++  rebuildSnapshot();
++  notifyChanged();
++}
++
+ void CalendarService::reloadTasks() {
+   const auto now = std::chrono::system_clock::now();
+   m_taskEvents = calendar::local::taskEvents(m_taskRules, now - kWindowBefore, now + kWindowAfter);
+diff --git a/src/calendar/calendar_service.h b/src/calendar/calendar_service.h
+index ff1138154..449eca6d1 100644
+--- a/src/calendar/calendar_service.h
++++ b/src/calendar/calendar_service.h
+@@ -111,6 +111,13 @@ public:
+   [[nodiscard]] bool cacheMigrationPending() const noexcept { return m_cacheMigrationPending; }
+   [[nodiscard]] bool hasEncryptedCache() const;
+ 
++  // Edits the Dashboard's task list (tasks.json) through the same rules as `dashboard add/remove`.
++  // On failure returns false and sets `error`.
++  [[nodiscard]] bool addDashboardTask(
++      const std::string& text, const std::string& type, const std::string& value, std::string& error
++  );
++  [[nodiscard]] bool removeDashboardTask(const std::string& task, const std::string& createdAt, std::string& error);
++
+ private:
+   struct ConnectFlow {
+     ConnectState state = ConnectState::Idle;
+@@ -132,6 +139,7 @@ private:
+   void watchTasksDirectory();
+   void reloadHolidays();
+   void reloadTasks();
++  void tasksEdited();
+   void scheduleLocalRollover();
+ 
+   void fetchCalDav(const CalendarConfig::Account& account);
+diff --git a/src/calendar/calendar_types.h b/src/calendar/calendar_types.h
+index 64d3190a3..a949f9708 100644
+--- a/src/calendar/calendar_types.h
++++ b/src/calendar/calendar_types.h
+@@ -17,6 +17,8 @@ struct CalendarEvent {
+   std::chrono::system_clock::time_point end;
+   bool allDay = false;
+   std::string kindLabel;   // secondary line for local entries (holidays, tasks); empty for online events
++  bool dashboardTask = false; // a rule from the Dashboard's tasks.json; title and taskCreatedAt identify it
++  std::string taskCreatedAt;
+   bool showMarker = true;  // false: listed for the day but without a dot in the month grid
+ };
+ 
+diff --git a/src/calendar/local_events.cpp b/src/calendar/local_events.cpp
+index b0ac337c0..31ddaf8c3 100644
+--- a/src/calendar/local_events.cpp
++++ b/src/calendar/local_events.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <nlohmann/json.hpp>
+ #include <optional>
++#include <unistd.h>
+ 
+ #include <algorithm>
+ #include <array>
+@@ -528,8 +529,154 @@ namespace calendar::local {
+       return false;
+     }
+ 
++    // Reads the live file as an ordered list; a missing file is an empty list.
++    bool loadTaskList(const std::filesystem::path& path, nlohmann::ordered_json& list, std::string& error) {
++      std::error_code ec;
++      if (!std::filesystem::exists(path, ec)) {
++        list = nlohmann::ordered_json::array();
++        return true;
++      }
++      std::ifstream stream(path);
++      list = nlohmann::ordered_json::parse(stream, nullptr, false);
++      if (!stream || !list.is_array()) {
++        error = "tasks file is not a JSON list; refusing to write";
++        return false;
++      }
++      return true;
++    }
++
++    bool writeTaskList(const std::filesystem::path& path, const nlohmann::ordered_json& list, std::string& error) {
++      std::error_code ec;
++      const std::filesystem::path directory = path.parent_path();
++      std::filesystem::create_directories(directory, ec);
++      const std::filesystem::path temp = directory / (".tasks.json.tmp." + std::to_string(::getpid()));
++      {
++        std::ofstream out(temp, std::ios::trunc);
++        out << list.dump(2) << '\n';
++        out.flush();
++        if (!out) {
++          out.close();
++          std::filesystem::remove(temp, ec);
++          error = "couldn't write the tasks file";
++          return false;
++        }
++      }
++      if (std::filesystem::exists(path, ec)) {
++        std::filesystem::permissions(temp, std::filesystem::status(path, ec).permissions(), ec);
++      }
++      std::filesystem::rename(temp, path, ec);
++      if (ec) {
++        std::filesystem::remove(temp, ec);
++        error = "couldn't replace the tasks file";
++        return false;
++      }
++      return true;
++    }
++
++    std::size_t codepoints(const std::string& text) {
++      return static_cast<std::size_t>(
++          std::ranges::count_if(text, [](char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; })
++      );
++    }
++
++    bool validWeeklyValue(const std::string& value) {
++      std::size_t start = 0;
++      while (true) {
++        const auto comma = value.find(',', start);
++        const std::string_view day = std::string_view(value).substr(start, comma == std::string::npos ? std::string::npos : comma - start);
++        if (std::ranges::find(kWeekdayNames, day) == kWeekdayNames.end()) {
++          return false;
++        }
++        if (comma == std::string::npos) {
++          return true;
++        }
++        start = comma + 1;
++      }
++    }
++
++    bool validDateValue(const std::string& value) {
++      int y = 0;
++      int m = 0;
++      int d = 0;
++      char tail = 0;
++      if (value.size() != 10 || std::sscanf(value.c_str(), "%4d-%2d-%2d%c", &y, &m, &d, &tail) != 3) {
++        return false;
++      }
++      return chrono::year_month_day{chrono::year{y}, chrono::month{static_cast<unsigned>(m)}, chrono::day{static_cast<unsigned>(d)}}.ok();
++    }
++
+   } // namespace
+ 
++  bool addTask(
++      const std::filesystem::path& path, const std::string& text, const std::string& type, const std::string& value,
++      std::string& error
++  ) {
++    std::string task = text;
++    std::ranges::replace(task, '\n', ' ');
++    std::ranges::replace(task, '\r', ' ');
++    task = trimmed(task);
++    if (task.empty() || codepoints(task) > 500) {
++      error = "task text must be 1-500 characters";
++      return false;
++    }
++    std::string stored = value;
++    if (type == "daily") {
++      stored = "daily";
++    } else if (type == "weekly") {
++      if (!validWeeklyValue(value)) {
++        error = "weekly value must be comma separated Mon..Sun";
++        return false;
++      }
++    } else if (type == "date") {
++      if (!validDateValue(value)) {
++        error = "date value must be yyyy-mm-dd";
++        return false;
++      }
++    } else {
++      error = "unknown recurrence " + type;
++      return false;
++    }
++
++    nlohmann::ordered_json list;
++    if (!loadTaskList(path, list, error)) {
++      return false;
++    }
++    const std::time_t now = std::time(nullptr);
++    std::tm utc{};
++    gmtime_r(&now, &utc);
++    nlohmann::ordered_json entry = nlohmann::ordered_json::object();
++    entry["task"] = task;
++    entry["recurrence_type"] = type;
++    entry["recurrence_value"] = stored;
++    entry["created_at"] = std::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z", utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec);
++    list.push_back(std::move(entry));
++    const auto createdAt = [](const nlohmann::ordered_json& item) {
++      return item.is_object() && item.contains("created_at") && item["created_at"].is_string() ? item["created_at"].get<std::string>() : std::string{};
++    };
++    std::vector<nlohmann::ordered_json> items(list.begin(), list.end());
++    std::ranges::stable_sort(items, [&](const nlohmann::ordered_json& a, const nlohmann::ordered_json& b) {
++      return createdAt(a) < createdAt(b);
++    });
++    return writeTaskList(path, nlohmann::ordered_json(items), error);
++  }
++
++  bool removeTask(
++      const std::filesystem::path& path, const std::string& task, const std::string& createdAt, std::string& error
++  ) {
++    nlohmann::ordered_json list;
++    if (!loadTaskList(path, list, error)) {
++      return false;
++    }
++    for (auto it = list.begin(); it != list.end(); ++it) {
++      if (it->is_object() && trimmed(stringField(*it, "task")) == task && stringField(*it, "created_at") == createdAt) {
++        list.erase(it);
++        return writeTaskList(path, list, error);
++      }
++    }
++    error = "task not found";
++    return false;
++  }
++
+   std::filesystem::path dashboardTasksPath() {
+     if (const char* override = std::getenv("NOCTALIA_DASHBOARD_TASKS_FILE"); override != nullptr && *override != '\0') {
+       return override;
+@@ -612,6 +759,8 @@ namespace calendar::local {
+         event.end = start + chrono::hours{24};
+         event.allDay = true;
+         event.showMarker = rule.type == "date";
++        event.dashboardTask = true;
++        event.taskCreatedAt = rule.createdAt;
+         out.push_back(std::move(event));
+       }
+     }
+diff --git a/src/calendar/local_events.h b/src/calendar/local_events.h
+index 5e8912a2c..2dcbca62b 100644
+--- a/src/calendar/local_events.h
++++ b/src/calendar/local_events.h
+@@ -28,6 +28,20 @@ namespace calendar::local {
+   // A missing or malformed file reads as an empty list.
+   [[nodiscard]] std::vector<TaskRule> readTaskRules(const std::filesystem::path& path);
+ 
++  // Appends a task the way `dashboard add` does: re-read the live file, add the rule with the
++  // current UTC time as created_at, write a temp file next to it and rename it over the original.
++  // `type` is "daily", "weekly" (value: comma list of Mon..Sun) or "date" (value: yyyy-mm-dd). A
++  // file that is not a JSON list is never written. On failure returns false and sets `error`.
++  [[nodiscard]] bool addTask(
++      const std::filesystem::path& path, const std::string& text, const std::string& type, const std::string& value,
++      std::string& error
++  );
++
++  // Removes the first rule matching both task text and created_at, leaving every other entry
++  // (including unknown fields) as it was.
++  [[nodiscard]] bool
++  removeTask(const std::filesystem::path& path, const std::string& task, const std::string& createdAt, std::string& error);
++
+   // Every rule's occurrences on the local days from `first` to `last`, as all-day events. Only
+   // one-off ("date") tasks carry a marker dot, because daily and weekly rules would dot most days.
+   [[nodiscard]] std::vector<CalendarEvent> taskEvents(
+diff --git a/src/shell/control_center/tabs/calendar_tab.cpp b/src/shell/control_center/tabs/calendar_tab.cpp
+index 181da7cb3..0374fcfce 100644
+--- a/src/shell/control_center/tabs/calendar_tab.cpp
++++ b/src/shell/control_center/tabs/calendar_tab.cpp
+@@ -1,6 +1,7 @@
+ #include "shell/control_center/tabs/calendar_tab.h"
+ 
+ #include "calendar/calendar_service.h"
++#include "calendar/calendar_types.h"
+ #include "config/config_service.h"
+ #include "core/ui_phase.h"
+ #include "i18n/i18n.h"
+@@ -17,10 +18,15 @@
+ #include "ui/controls/button.h"
+ #include "ui/controls/calendar_view.h"
+ #include "ui/controls/flex.h"
++#include "ui/controls/input.h"
++#include "ui/controls/label.h"
++#include "ui/controls/segmented.h"
+ #include "ui/controls/scroll_view.h"
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <format>
++#include <functional>
+ #include <cmath>
+ #include <memory>
+ #include <wayland-client-protocol.h>
+@@ -206,8 +212,50 @@ std::unique_ptr<Flex> CalendarTab::create() {
+           .fillWidth = true,
+           .fillHeight = true,
+           .flexGrow = 1.0F,
+-      })
++      }),
++      ui::label({
++          .out = &m_taskError,
++          .fontSize = Style::fontSizeCaption * scale,
++          .color = colorSpecFromRole(ColorRole::Error),
++          .maxLines = 2,
++          .visible = false,
++      }),
++      ui::segmented({
++          .out = &m_taskRecurrence,
++          .options =
++              std::vector<ui::SegmentedOption>{
++                  {.label = "Once"},
++                  {.label = "Daily"},
++                  {.label = "Weekly"},
++              },
++          .selectedIndex = m_taskRecurrenceIndex,
++          .fontSize = Style::fontSizeCaption,
++          .scale = scale,
++          .surfaceOpacity = panelCardOpacity(),
++          .equalSegmentWidths = true,
++          .onChange =
++              [this](std::size_t index) {
++                m_taskRecurrenceIndex = index;
++                updateTaskPlaceholder();
++              },
++      }),
++      ui::row(
++          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
++          ui::input({
++              .out = &m_taskInput,
++              .surfaceOpacity = panelCardOpacity(),
++              .flexGrow = 1.0F,
++              .onSubmit = [this](const std::string&) { addTask(); },
++          }),
++          ui::button({
++              .glyph = "plus",
++              .variant = ButtonVariant::Primary,
++              .tooltip = "Add task",
++              .onClick = [this]() { addTask(); },
++          })
++      )
+   );
++  updateTaskPlaceholder();
+   eventsCard->setVisible(m_showEventsCard);
+ 
+   tab->addChild(std::move(eventsCard));
+@@ -333,6 +381,10 @@ void CalendarTab::focusToday() {
+ }
+ 
+ void CalendarTab::onClose() {
++  m_pendingRemoveId.clear();
++  m_taskRecurrence = nullptr;
++  m_taskInput = nullptr;
++  m_taskError = nullptr;
+   m_eventFadeTimer.stop();
+   cancelMonthSlide();
+   m_rootLayout = nullptr;
+@@ -575,6 +627,7 @@ void CalendarTab::rebuild() {
+             m_selectedYear = date.year;
+             m_selectedMonth = date.month;
+             m_selectedDay = date.day;
++            m_pendingRemoveId.clear();
+             m_eventsDirty = true;
+             if (monthShift != 0) {
+               changeMonthBy(monthShift);
+@@ -611,9 +664,88 @@ void CalendarTab::rebuildEventList(float scale) {
+       .timeFormat = calendarConfig.eventTimeFormat,
+       .state = &m_eventListState,
+       .requestRedraw = []() { PanelManager::instance().requestRedraw(); },
++      .pendingRemoveId = m_pendingRemoveId,
++      .onRemoveTask = m_calendar != nullptr ? std::function<void(const CalendarEvent&)>([this](const CalendarEvent& event) {
++        removeTask(event);
++      }) : nullptr,
+   });
+ }
+ 
++void CalendarTab::updateTaskPlaceholder() {
++  if (m_taskInput == nullptr) {
++    return;
++  }
++  if (m_taskRecurrenceIndex == 1) {
++    m_taskInput->setPlaceholder("Add a daily task…");
++  } else if (m_taskRecurrenceIndex == 2) {
++    m_taskInput->setPlaceholder("Add a task for every selected weekday…");
++  } else {
++    m_taskInput->setPlaceholder("Add a task for this day…");
++  }
++}
++
++void CalendarTab::showTaskError(const std::string& message) {
++  if (m_taskError == nullptr) {
++    return;
++  }
++  m_taskError->setText(message);
++  m_taskError->setVisible(!message.empty());
++  PanelManager::instance().refresh();
++}
++
++void CalendarTab::addTask() {
++  if (m_calendar == nullptr || m_taskInput == nullptr || m_selectedDay < 0) {
++    return;
++  }
++  const std::string text = m_taskInput->value();
++  if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
++    return;
++  }
++  const auto selected =
++      std::chrono::year{m_selectedYear} / std::chrono::month{static_cast<unsigned>(m_selectedMonth + 1)}
++      / std::chrono::day{static_cast<unsigned>(m_selectedDay)};
++  std::string type = "date";
++  std::string value = std::format(
++      "{:04d}-{:02d}-{:02d}", m_selectedYear, m_selectedMonth + 1, m_selectedDay
++  );
++  if (m_taskRecurrenceIndex == 1) {
++    type = "daily";
++    value = "daily";
++  } else if (m_taskRecurrenceIndex == 2) {
++    static constexpr const char* kWeekdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
++    type = "weekly";
++    value = kWeekdays[std::chrono::weekday{std::chrono::sys_days{selected}}.c_encoding()];
++  }
++  std::string error;
++  if (!m_calendar->addDashboardTask(text, type, value, error)) {
++    showTaskError(error);
++    return;
++  }
++  m_taskInput->setValue("");
++  showTaskError({});
++}
++
++void CalendarTab::removeTask(const CalendarEvent& event) {
++  if (m_calendar == nullptr) {
++    return;
++  }
++  if (event.id != m_pendingRemoveId) {
++    // Removing a task removes its whole rule for the dashboard too, so it takes a second press.
++    m_pendingRemoveId = event.id;
++    m_eventsDirty = true;
++    PanelManager::instance().refresh();
++    return;
++  }
++  m_pendingRemoveId.clear();
++  std::string error;
++  if (!m_calendar->removeDashboardTask(event.title, event.taskCreatedAt, error)) {
++    showTaskError(error);
++    m_eventsDirty = true;
++    return;
++  }
++  showTaskError({});
++}
++
+ void CalendarTab::toggleEventsCard() {
+   m_showEventsCard = !m_showEventsCard;
+   if (m_config != nullptr) {
+diff --git a/src/shell/control_center/tabs/calendar_tab.h b/src/shell/control_center/tabs/calendar_tab.h
+index bd0c3e2f7..055354292 100644
+--- a/src/shell/control_center/tabs/calendar_tab.h
++++ b/src/shell/control_center/tabs/calendar_tab.h
+@@ -5,13 +5,18 @@
+ #include "shell/control_center/tab.h"
+ #include "ui/controls/calendar_view.h"
+ 
++#include <cstddef>
+ #include <limits>
++#include <string>
+ 
+ class Button;
+ class CalendarService;
+ class ConfigService;
++class Input;
+ class InputArea;
+ class Label;
++class Segmented;
++struct CalendarEvent;
+ class ScrollView;
+ 
+ class CalendarTab : public Tab {
+@@ -35,6 +40,10 @@ private:
+   void rebuild();
+   void rebuildEventList(float scale);
+   void toggleEventsCard();
++  void addTask();
++  void removeTask(const CalendarEvent& event);
++  void showTaskError(const std::string& message);
++  void updateTaskPlaceholder();
+ 
+   ConfigService* m_config = nullptr;
+   CalendarService* m_calendar = nullptr;
+@@ -57,6 +66,11 @@ private:
+   Flex* m_eventsCard = nullptr;
+   Label* m_eventsTitle = nullptr;
+   ScrollView* m_eventsScroll = nullptr;
++  Segmented* m_taskRecurrence = nullptr;
++  Input* m_taskInput = nullptr;
++  Label* m_taskError = nullptr;
++  std::size_t m_taskRecurrenceIndex = 0; // 0 once, 1 daily, 2 weekly
++  std::string m_pendingRemoveId;
+   calendar_view::EventListState m_eventListState;
+   int m_selectedYear = std::numeric_limits<int>::min();
+   int m_selectedMonth = -1;
+diff --git a/src/ui/controls/calendar_view.cpp b/src/ui/controls/calendar_view.cpp
+index 4136922e0..340011cd2 100644
+--- a/src/ui/controls/calendar_view.cpp
++++ b/src/ui/controls/calendar_view.cpp
+@@ -443,8 +443,11 @@ namespace calendar_view {
+         }
+         hasEvents = true;
+         const bool hasLink = options.state != nullptr && !event.url.empty();
++        const bool removable = event.dashboardTask && options.onRemoveTask;
++        const float rowTextWidth =
++            removable ? std::max(40.0F, textMaxWidth - Style::controlHeightSm * options.scale - rowGap) : textMaxWidth;
+         const float timeMaxWidth =
+-            hasLink ? std::max(40.0F, textMaxWidth - linkGlyphSize - linkGlyphGap) : textMaxWidth;
++            hasLink ? std::max(40.0F, rowTextWidth - linkGlyphSize - linkGlyphGap) : rowTextWidth;
+         const float eventAlpha = eventPassed(event, now) ? kPassedEventAlpha : 1.0F;
+ 
+         std::string timeText;
+@@ -486,7 +489,7 @@ namespace calendar_view {
+                 .fontSize = Style::fontSizeBody * options.scale,
+                 .fontFamily = options.fontFamily,
+                 .color = colorSpecFromRole(ColorRole::OnSurface, eventAlpha),
+-                .maxWidth = textMaxWidth,
++                .maxWidth = rowTextWidth,
+                 .maxLines = 3,
+             }),
+             std::move(timeLine)
+@@ -503,6 +506,20 @@ namespace calendar_view {
+             }),
+             std::move(details)
+         );
++        if (removable) {
++          const bool confirming = event.id == options.pendingRemoveId;
++          eventRowNode->addChild(
++              ui::button({
++                  .glyph = "trash",
++                  .variant = confirming ? ButtonVariant::Destructive : ButtonVariant::Ghost,
++                  .tooltip = confirming ? "Press again to remove this task" : "Remove task",
++                  .minWidth = Style::controlHeightSm * options.scale,
++                  .minHeight = Style::controlHeightSm * options.scale,
++                  .flexGrow = 0.0F,
++                  .onClick = [callback = options.onRemoveTask, event]() { callback(event); },
++              })
++          );
++        }
+         if (hasLink && eventRow != nullptr) {
+           auto area = ui::inputArea({});
+           area->setParticipatesInLayout(false);
+diff --git a/src/ui/controls/calendar_view.h b/src/ui/controls/calendar_view.h
+index 030daf013..18028b315 100644
+--- a/src/ui/controls/calendar_view.h
++++ b/src/ui/controls/calendar_view.h
+@@ -80,6 +80,10 @@ namespace calendar_view {
+     std::string fontFamily;
+     EventListState* state = nullptr;
+     std::function<void()> requestRedraw;
++    // Dashboard tasks get a remove button when this is set. The button asks twice: the task whose
++    // id is `pendingRemoveId` shows the confirming state, and a click then calls onRemoveTask.
++    std::string pendingRemoveId;
++    std::function<void(const CalendarEvent&)> onRemoveTask;
+   };
+ 
+   [[nodiscard]] State stateForOffset(int monthOffset);
+diff --git a/tests/local_calendar_test.cpp b/tests/local_calendar_test.cpp
+index 709aecbf6..a69cca2e3 100644
+--- a/tests/local_calendar_test.cpp
++++ b/tests/local_calendar_test.cpp
+@@ -6,6 +6,7 @@
+ #include <ctime>
+ #include <filesystem>
+ #include <fstream>
++#include <iterator>
+ #include <print>
+ #include <string>
+ 
+@@ -105,5 +106,62 @@ int main() {
+   std::filesystem::remove(path);
+   ok = expect(readTaskRules(path).empty(), "missing file reads as empty") && ok;
+ 
++  {
++    const auto editPath = std::filesystem::temp_directory_path() / "local_calendar_test_edit" / "tasks.json";
++    std::filesystem::remove_all(editPath.parent_path());
++    std::string error;
++
++    // A missing file (and directory) is created by the first add.
++    ok = expect(addTask(editPath, "  Pay\nrent  ", "date", "2026-10-31", error), "add creates the file") && ok;
++    ok = expect(addTask(editPath, "Stretch", "daily", "ignored", error), "add daily") && ok;
++    ok = expect(addTask(editPath, "Gym", "weekly", "Mon,Thu", error), "add weekly") && ok;
++    auto added = readTaskRules(editPath);
++    ok = expect(added.size() == 3, "three tasks after three adds") && ok;
++    ok = expect(added.size() == 3 && added[0].task == "Pay rent" && added[0].value == "2026-10-31", "newlines flattened, text trimmed") && ok;
++    ok = expect(added.size() == 3 && added[1].type == "daily" && added[1].value == "daily", "daily value normalised") && ok;
++    ok = expect(added.size() == 3 && added[2].days.size() == 2, "weekly days stored") && ok;
++
++    ok = expect(!addTask(editPath, "   ", "daily", "daily", error) && !error.empty(), "blank text refused") && ok;
++    ok = expect(!addTask(editPath, "x", "weekly", "Monday", error), "bad weekday refused") && ok;
++    ok = expect(!addTask(editPath, "x", "date", "2026-02-30", error), "impossible date refused") && ok;
++    ok = expect(!addTask(editPath, "x", "monthly", "1", error), "unknown recurrence refused") && ok;
++    ok = expect(!addTask(editPath, std::string(501, 'a'), "daily", "daily", error), "overlong text refused") && ok;
++    ok = expect(readTaskRules(editPath).size() == 3, "refused adds leave the file alone") && ok;
++
++    ok = expect(!removeTask(editPath, "Gym", "not-the-time", error) && error == "task not found", "remove needs both fields") && ok;
++    ok = expect(removeTask(editPath, "Stretch", added[1].createdAt, error), "remove by task and created_at") && ok;
++    const auto remaining = readTaskRules(editPath);
++    ok = expect(remaining.size() == 2 && remaining[0].task == "Pay rent" && remaining[1].task == "Gym", "only the match is removed") && ok;
++
++    // Unknown fields and entries survive an edit; a non-list file is never written.
++    {
++      std::ofstream out(editPath);
++      out << R"([{"task":"Keep","recurrence_type":"daily","recurrence_value":"daily","created_at":"2020-01-01T00:00:00Z","note":"x"}])";
++    }
++    ok = expect(addTask(editPath, "New", "daily", "daily", error), "add to hand-written file") && ok;
++    {
++      std::ifstream in(editPath);
++      const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++      ok = expect(text.find("\"note\": \"x\"") != std::string::npos, "unknown fields preserved") && ok;
++      ok = expect(text.find("\"task\": \"Keep\"") < text.find("\"task\": \"New\""), "list stays ordered by created_at") && ok;
++    }
++    {
++      std::ofstream out(editPath);
++      out << "{\"not\": \"a list\"}";
++    }
++    {
++      std::ofstream out(editPath);
++      out << R"([{"task":" Padded ","recurrence_type":"daily","recurrence_value":"daily","created_at":"2020-01-01T00:00:00Z"}])";
++    }
++    ok = expect(removeTask(editPath, "Padded", "2020-01-01T00:00:00Z", error), "remove matches the trimmed text the UI shows") && ok;
++    {
++      std::ofstream out(editPath);
++      out << "{\"not\": \"a list\"}";
++    }
++    ok = expect(!addTask(editPath, "x", "daily", "daily", error), "object file refused") && ok;
++    ok = expect(!removeTask(editPath, "x", "y", error), "object file refused on remove") && ok;
++    std::filesystem::remove_all(editPath.parent_path());
++  }
++
+   return ok ? 0 : 1;
+ }
