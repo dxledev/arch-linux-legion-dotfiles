@@ -99,8 +99,29 @@ normalise_palette() {
             else sub("^#"; "") | ascii_downcase | if test("^[0-9a-f]{6}([0-9a-f]{2})?$") then .[0:6] else error("invalid colour") end
             end;
         def pick($names): first($names[] as $name | .colours[$name] // empty) | colour;
+        def hexn: explode | map(if . >= 97 then . - 87 else . - 48 end) | reduce .[] as $d (0; . * 16 + $d);
+        def channels: [.[0:2], .[2:4], .[4:6]] | map(hexn);
+        def tohex: map(round | if . < 0 then 0 elif . > 255 then 255 else . end |
+            "0123456789abcdef"[(. / 16 | floor):(. / 16 | floor) + 1] + "0123456789abcdef"[(. % 16):(. % 16) + 1]) | join("");
+        def mix($from; $to; $amount): ($from | channels) as $a | ($to | channels) as $b |
+            [range(0; 3) | $a[.] + ($b[.] - $a[.]) * $amount] | tohex;
+        # Aether-style palettes carry no surface levels (term0 is the background itself), so cards and buttons
+        # would vanish into the panel. Build the tonal ladder instead: dark themes lift the surfaces towards the
+        # text colour with the same steps as Caelestia Colours.qml (8.5% and 12%) and deepen mantle/crust; light
+        # themes shift towards the text colour in Catppuccin Latte proportions.
+        def with_surfaces($input):
+            if $input.colours.surface0 != null or $input.colours.surfaceContainer != null then .
+            else (.mode == "dark") as $dark | .base as $base | .text as $text |
+                . + (if $dark then
+                    {mantle: mix($base; "000000"; 0.2), crust: mix($base; "000000"; 0.4),
+                     surface0: mix($base; $text; 0.085), surface1: mix($base; $text; 0.12), surface2: mix($base; $text; 0.16)}
+                else
+                    {mantle: mix($base; $text; 0.05), crust: mix($base; $text; 0.09),
+                     surface0: mix($base; $text; 0.17), surface1: mix($base; $text; 0.27), surface2: mix($base; $text; 0.37)}
+                end)
+            end;
         if (.mode != "dark" and .mode != "light") or (.colours | type != "object") then error("invalid palette") else . end |
-        {
+        . as $input | {
           mode,
           base: pick(["base", "background"]),
           mantle: pick(["mantle", "surfaceContainerLow", "surface", "background"]),
@@ -132,7 +153,7 @@ normalise_palette() {
           flamingo: pick(["flamingo", "pink", "secondary", "term13"]),
           terminal: [range(0; 16) as $i | pick(["term" + ($i | tostring)])],
           source_colours: ([.source_colours[]?, .colours[]?, .terminal[]?] | map(select(type == "string") | colour) | unique)
-        }
+        } | with_surfaces($input)
     ' "$palette_file" > "$output" || fail 'Palette is malformed or incomplete.'
 }
 

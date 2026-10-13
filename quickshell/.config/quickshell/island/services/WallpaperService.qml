@@ -12,12 +12,23 @@ Singleton {
     property bool pending: false
     property string directory: ""
     property string watchedDirectory: ""
+    property string snapshotDirectory: ""
+    property bool snapshotPending: false
 
     function setFilter(theme) { reload(); }
     function apply(path) { ThemeService.execute(["wallpaper", path]); }
+    function remove(paths) { if (paths.length > 0) ThemeService.execute(["delete-wallpapers", ...paths]); }
     function reload() {
         if (scanner.running) { pending = true; return; }
         scanner.running = true;
+    }
+
+    function takeSnapshot() {
+        if (!directory) return;
+        if (snapshot.running) { snapshotPending = true; return; }
+        snapshotDirectory = directory;
+        snapshot.command = [Quickshell.shellDir + "/scripts/cache-wallpapers.sh", directory];
+        snapshot.running = true;
     }
 
     function startWatcher() {
@@ -50,8 +61,21 @@ Singleton {
                 if (watcher.running && root.directory !== root.watchedDirectory)
                     watcher.running = false;
                 else root.startWatcher();
+                // The watcher only polls every couple of seconds; a one-shot scan makes deletions show at once.
+                root.takeSnapshot();
             } else { ThemeService.error = stderr.text.trim(); }
             if (root.pending) { root.pending = false; Qt.callLater(root.reload); }
+        }
+    }
+    Process {
+        id: snapshot
+        stdout: StdioCollector {}
+        onExited: function(code) {
+            // A scan that began before the theme switched belongs to the old directory.
+            if (code === 0 && root.snapshotDirectory === root.directory) {
+                try { root.update(JSON.parse(stdout.text)); } catch (err) {}
+            }
+            if (root.snapshotPending) { root.snapshotPending = false; Qt.callLater(root.takeSnapshot); }
         }
     }
     Process {

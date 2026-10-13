@@ -1,6 +1,7 @@
 import QtQuick
 import "../components"
 import "../core"
+import "../island"
 import "../services"
 import "../styles"
 
@@ -36,13 +37,22 @@ FocusScope {
     // Source of truth for the selection; the grid only reads it, the carousel mirrors it.
     property int selectedIndex: 0
     property real wheelRemainder: 0
+    // Delete mode: clicks mark wallpapers (keyed by path, so filtering and rescans can't shift them)
+    // instead of applying them; the header check then asks for confirmation before anything is removed.
+    property bool deleteMode: false
+    property var marked: ({})
+    readonly property int markedCount: Object.keys(marked).length
 
     implicitWidth: 48 + columns * cellWidth
     implicitHeight: 48 + header.implicitHeight + content.spacing + searchField.implicitHeight + content.spacing + gallery.height
         + (status.visible ? content.spacing + status.implicitHeight : 0)
 
     Component.onCompleted: searchField.forceActiveFocus()
-    onVisibleChanged: if (visible) { searchField.forceActiveFocus(); Qt.callLater(revealSelection, true); }
+    Component.onDestruction: exitDeleteMode()
+    onVisibleChanged: {
+        if (visible) { searchField.forceActiveFocus(); Qt.callLater(revealSelection, true); }
+        else exitDeleteMode();
+    }
     onSelectedIndexChanged: revealSelection(false)
     onWrappingChanged: { selectedIndex = clampIndex(selectedIndex); Qt.callLater(revealSelection, true); }
     onRowsChanged: Qt.callLater(revealSelection, true)
@@ -114,10 +124,68 @@ FocusScope {
         else if (start + extent > current + viewport) wheelScroll.scrollTo(start + extent - viewport, instant);
     }
 
+    function activate(path) {
+        // Marks are frozen while the confirmation is up so it always matches what gets deleted.
+        if (ThemeService.busy || StatusManager.confirming) return;
+        if (deleteMode) toggleMark(path);
+        else WallpaperService.apply(path);
+    }
+
     function applySelectedWallpaper() {
         const index = root.selectedIndex;
-        if (!ThemeService.busy && index >= 0 && index < filteredWallpapers.model.count)
-            WallpaperService.apply(filteredWallpapers.model.get(index).path);
+        if (index >= 0 && index < filteredWallpapers.model.count)
+            activate(filteredWallpapers.model.get(index).path);
+    }
+
+    function toggleMark(path) {
+        const next = Object.assign({}, marked);
+        if (next[path]) delete next[path];
+        else next[path] = true;
+        marked = next;
+    }
+
+    // Marks for files that vanished (deleted elsewhere) would inflate the count.
+    function pruneMarks() {
+        const present = {};
+        for (let i = 0; i < WallpaperService.allWallpapers.count; i++) present[WallpaperService.allWallpapers.get(i).path] = true;
+        const next = {};
+        for (const path of Object.keys(marked)) if (present[path]) next[path] = true;
+        if (Object.keys(next).length !== markedCount) marked = next;
+    }
+
+    function exitDeleteMode() {
+        if (StatusManager.confirming && deleteMode) StatusManager.resolveConfirm(false);
+        deleteMode = false;
+        marked = ({});
+    }
+
+    function toggleDeleteMode() {
+        if (deleteMode) exitDeleteMode();
+        else deleteMode = true;
+    }
+
+    function requestDelete() {
+        if (ThemeService.busy || markedCount === 0) return;
+        const paths = Object.keys(marked);
+        const count = paths.length;
+        const replacesApplied = paths.includes(ThemeService.wallpaper);
+        StatusManager.confirm({
+            monitorName: IslandState.panelMonitorName,
+            title: "Delete " + count + (count === 1 ? " wallpaper?" : " wallpapers?"),
+            detail: replacesApplied ? "Applied wallpaper will be replaced with a random one."
+                : "Files are removed from disk.",
+            acceptLabel: "Delete",
+            onAccepted: function() {
+                WallpaperService.remove(paths);
+                root.deleteMode = false;
+                root.marked = ({});
+            }
+        });
+    }
+
+    Connections {
+        target: WallpaperService.allWallpapers
+        function onCountChanged() { if (root.markedCount > 0) root.pruneMarks(); }
     }
 
     function focusGallery() {
@@ -143,6 +211,7 @@ FocusScope {
                 imageSource: parent.thumbnail
                 selected: index === root.selectedIndex
                 active: path === ThemeService.wallpaper
+                marked: root.marked[path] === true
             }
             UiText {
                 anchors.top: thumbnail.bottom
@@ -160,12 +229,16 @@ FocusScope {
                 enabled: !ThemeService.busy
                 cursorShape: Qt.PointingHandCursor
                 // Clicking hands keys to the gallery so arrow keys keep working from the clicked card.
-                onClicked: { root.focusGallery(); root.selectedIndex = index; WallpaperService.apply(path); }
+                onClicked: { root.focusGallery(); root.selectedIndex = index; root.activate(path); }
             }
         }
     }
 
-    Keys.onEscapePressed: IslandController.reset()
+    Keys.onEscapePressed: {
+        if (StatusManager.confirming) StatusManager.resolveConfirm(false);
+        else if (deleteMode) exitDeleteMode();
+        else IslandController.reset();
+    }
     Keys.onPressed: function(event) {
         if (event.key === Qt.Key_F && (event.modifiers & Qt.ControlModifier)) {
             searchField.forceActiveFocus();
@@ -202,9 +275,16 @@ FocusScope {
         spacing: 12
         PanelHeader {
             id: header
-            title: "Wallpapers"
+            title: root.deleteMode ? "Wallpapers • Delete mode active" : "Wallpapers"
             scrollTargets: [root.wrapping ? carousel : gallery]
             onBack: IslandController.openNavigation()
+            deleteVisible: true
+            deleteActive: root.deleteMode
+            deleteConfirmVisible: root.deleteMode && root.markedCount > 0
+            deleteDescription: root.deleteMode ? "Cancel delete" : "Delete wallpapers"
+            deleteConfirmDescription: "Delete " + root.markedCount + " selected"
+            onDeleteToggled: root.toggleDeleteMode()
+            onDeleteConfirmed: root.requestDelete()
         }
         SearchField {
             id: searchField

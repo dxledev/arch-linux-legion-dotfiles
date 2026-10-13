@@ -19,11 +19,13 @@ Item {
         case "brightness": return Math.max(160, ...brightnessRows.map((event, index) => brightnessRepeater.itemAt(index)?.implicitWidth ?? 0));
         case "nightlight": return Math.max(StatusManager.statusWidth, textRow.implicitWidth + 28);
         case "keyboard": return Math.max(Theme.statusKeyboardWidth, textRow.implicitWidth + 28);
+        case "confirm": return StatusManager.statusWidth;
         default: return Theme.statusDefaultWidth;
         }
     }
     implicitHeight: StatusManager.mode === "workspace" ? workspaceView.implicitHeight
         : StatusManager.mode === "brightness" ? brightnessColumn.implicitHeight + (brightnessLabels ? 12 : 0)
+        : StatusManager.mode === "confirm" ? confirmRow.implicitHeight + 16
         : StatusManager.mode === "volume" || textStatus ? OsdSettings.rowHeight : 33
 
     WorkspaceView {
@@ -84,6 +86,56 @@ Item {
             font.pixelSize: OsdSettings.fontSize
             font.bold: OsdSettings.fontBold
             Layout.alignment: Qt.AlignVCenter
+        }
+    }
+    // Keeps clicks beside the buttons from reaching the island's pin toggle.
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        enabled: StatusManager.mode === "confirm"
+    }
+    RowLayout {
+        id: confirmRow
+        objectName: "confirm-osd"
+        visible: StatusManager.mode === "confirm"
+        anchors.centerIn: parent
+        width: parent.width - 56
+        spacing: 10
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 0
+            Text {
+                objectName: "confirm-title"
+                Layout.fillWidth: true
+                text: StatusManager.title
+                color: Theme.textPrimary
+                font.family: OsdSettings.fontFamily
+                font.pixelSize: OsdSettings.fontSize
+                font.bold: OsdSettings.fontBold
+                elide: Text.ElideRight
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: StatusManager.confirmDetail.length > 0
+                text: StatusManager.confirmDetail
+                color: Theme.textSecondary
+                font.family: OsdSettings.fontFamily
+                font.pixelSize: Math.max(11, OsdSettings.fontSize - 5)
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+            }
+        }
+        TextActionButton {
+            objectName: "confirm-cancel"
+            text: "Cancel"
+            onClicked: StatusManager.resolveConfirm(false)
+        }
+        TextActionButton {
+            objectName: "confirm-accept"
+            text: StatusManager.confirmAcceptLabel
+            danger: true
+            onClicked: StatusManager.resolveConfirm(true)
         }
     }
 }

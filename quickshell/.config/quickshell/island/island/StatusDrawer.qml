@@ -19,6 +19,8 @@ Item {
     implicitHeight: active ? reveal * (content.implicitHeight * contentScale + 8) : 0
     visible: height > 0
     clip: true
+    // The island-wide click area is declared later and would swallow clicks on the confirmation buttons.
+    z: StatusManager.confirming ? 2 : 0
 
     Behavior on reveal {
         NumberAnimation {

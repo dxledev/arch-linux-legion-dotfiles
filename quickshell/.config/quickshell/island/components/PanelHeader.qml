@@ -13,7 +13,17 @@ Item {
     property string titleActionDescription: ""
     property bool titleActionActive: false
     property var scrollTargets: []
+    // Optional delete-mode controls shown left of the close button: a trash toggle and, once
+    // something is marked, a confirm check beside it.
+    property bool deleteVisible: false
+    property bool deleteActive: false
+    property bool deleteConfirmVisible: false
+    property string deleteDescription: "Delete"
+    property string deleteConfirmDescription: "Delete selected"
+    readonly property Item trailingAnchor: actions.width > 0 ? actions : closeButton
     signal back()
+    signal deleteToggled()
+    signal deleteConfirmed()
     signal trailingClicked()
     signal titleActionClicked()
     width: parent.width
@@ -28,7 +38,7 @@ Item {
     Column {
         anchors.left: parent.left
         anchors.leftMargin: 52
-        anchors.right: trailingLabel.visible ? trailingLabel.left : closeButton.left
+        anchors.right: trailingLabel.visible ? trailingLabel.left : root.trailingAnchor.left
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
         spacing: 4
@@ -77,7 +87,7 @@ Item {
     Button {
         id: trailingLabel
         focusPolicy: Qt.TabFocus
-        anchors.right: closeButton.left
+        anchors.right: root.trailingAnchor.left
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
         width: Math.min(implicitWidth, Math.max(0, (root.width - 116) / 2))
@@ -107,6 +117,30 @@ Item {
         HoverHandler {
             enabled: root.trailingClickable
             cursorShape: Qt.PointingHandCursor
+        }
+    }
+    Row {
+        id: actions
+        anchors.right: closeButton.left
+        anchors.rightMargin: 8
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 8
+        visible: root.deleteVisible
+        width: visible ? implicitWidth : 0
+        IconButton {
+            objectName: "panel-delete-confirm"
+            visible: root.deleteConfirmVisible
+            iconSource: "../assets/icons/check.svg"
+            iconColor: Theme.danger
+            description: root.deleteConfirmDescription
+            onClicked: root.deleteConfirmed()
+        }
+        IconButton {
+            objectName: "panel-delete-toggle"
+            iconSource: "../assets/icons/trash.svg"
+            iconColor: root.deleteActive ? Theme.danger : Theme.textPrimary
+            description: root.deleteDescription
+            onClicked: root.deleteToggled()
         }
     }
     IconButton {

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Aether-style palettes have no surface levels; the normaliser must still give cards and buttons a tone of their own.
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+render="$test_dir/../theme-render"
+work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/palette-surfaces.XXXXXX")"
+trap '/usr/bin/rm -rf -- "$work"' EXIT
+fail() { printf 'palette surfaces: %s\n' "$*" >&2; exit 1; }
+
+# Load only normalise_palette; theme-render's main must not run.
+eval "$(/usr/bin/awk '/^normalise_palette\(\)/{f=1} f{print} f && /^}/{exit}' "$render")"
+
+palette() {  # mode background foreground [extra colours JSON]
+    /usr/bin/jq -n --arg mode "$1" --arg bg "$2" --arg fg "$3" --argjson extra "${4:-{\}}" '
+        {mode: $mode, colours: ({background: $bg, onBackground: $fg, foreground: $fg, accent: "88b7c4", muted: "696160",
+            red: "d69a8d", green: "b2c697", yellow: "c9cc94", blue: "88b7c4", magenta: "b79aa0", cyan: "9bccc6"}
+            + ([range(0; 16) | {key: "term\(.)", value: $bg}] | from_entries) + $extra)}' > "$work/in.json"
+    normalise_palette "$work/in.json" "$work/out.json"
+}
+field() { /usr/bin/jq -r ".$1" "$work/out.json"; }
+lum() { /usr/bin/python3 -c 'import sys;c=[int(sys.argv[1][i:i+2],16)/255 for i in (0,2,4)];print(0.2126*c[0]+0.7152*c[1]+0.0722*c[2])' "$1"; }
+ratio() { /usr/bin/python3 -c 'import sys;a,b=sorted((float(sys.argv[1]),float(sys.argv[2])),reverse=True);print((a+.05)/(b+.05))' "$(lum "$1")" "$(lum "$2")"; }
+check() { /usr/bin/python3 -c 'import sys;sys.exit(0 if float(sys.argv[1])>=float(sys.argv[2]) else 1)' "$1" "$2" || fail "$3 ($1 < $2)"; }
+
+fail_if_equal() { [[ "$1" != "$2" ]] || fail "$3 matches the base colour $2"; }
+
+palette dark 1f1210 cfd1b3
+for key in mantle crust surface0 surface1 surface2; do fail_if_equal "$(field $key)" "$(field base)" "dark $key"; done
+check "$(ratio "$(field surface0)" "$(field base)")" 1.15 'dark surface0 is too close to the base'
+check "$(ratio "$(field surface2)" "$(field surface1)")" 1.05 'dark surface levels are not stepped'
+[[ "$(lum "$(field surface0)")" > "$(lum "$(field base)")" ]] || fail 'dark surface0 should be lighter than the base'
+
+palette light eff1f5 4c4f69
+for key in mantle crust surface0 surface1 surface2; do fail_if_equal "$(field $key)" "$(field base)" "light $key"; done
+check "$(ratio "$(field base)" "$(field surface0)")" 1.1 'light surface0 is too close to the base'
+
+# Palettes that already define surface levels are left alone.
+palette dark 1f1210 cfd1b3 '{"surfaceContainer": "abcdef", "surfaceContainerLow": "123456"}'
+[[ "$(field surface0)" == abcdef && "$(field mantle)" == 123456 ]] || fail 'explicit surface levels were overwritten'
+
+printf 'PASS: Aether-style palettes get a tonal surface ladder and explicit surfaces are preserved\n'

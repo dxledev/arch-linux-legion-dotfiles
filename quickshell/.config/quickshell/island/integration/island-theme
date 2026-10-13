@@ -19,7 +19,7 @@ dry_run=0
 source "$script_dir/theme-functions"
 
 usage() {
-    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|next|previous|mode light|dark|variant NAME|aether-list|aether-select wh-SCHEME light|dark|wallpaper-palette PATH aether|material SCHEME light|dark|setting KEY VALUE\n'
+    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|delete-wallpapers PATH...|next|previous|mode light|dark|variant NAME|aether-list|aether-select wh-SCHEME light|dark|wallpaper-palette PATH aether|material SCHEME light|dark|setting KEY VALUE\n'
 }
 
 fail() {
@@ -208,6 +208,44 @@ wallpaper_palette() {
     reload_applications
 }
 
+# Removes wallpapers from the active theme directory. When the applied wallpaper is among them, a random
+# survivor is applied first (palette included for Dynamic) so the shell never points at a deleted file.
+delete_wallpapers() {
+    local -a entries=() remaining=()
+    local -A doomed=() doomed_real=()
+    local path entry current replacement=""
+    (( $# )) || fail 'delete-wallpapers requires at least one path.'
+    mapfile -d '' -t entries < <(scan_wallpapers)
+    for path in "$@"; do
+        for entry in "${entries[@]}"; do
+            [[ "$entry" != "$path" ]] || { doomed["$entry"]=1; doomed_real["$(/usr/bin/readlink -f -- "$entry")"]=1; }
+        done
+    done
+    (( ${#doomed[@]} )) || fail 'No matching wallpapers to delete.'
+    # Other shells and the lock screen read the theme's shared wallpaper.png link, which Island never rewrites.
+    if [[ "$theme_key" != dynamic && -L "$themes_dir/$static_theme/wallpaper.png" ]]; then
+        local shared
+        shared="$(/usr/bin/readlink -f -- "$themes_dir/$static_theme/wallpaper.png")"
+        [[ -z "${doomed_real[$shared]:-}" ]] || fail "${shared##*/} is the $static_theme theme's default wallpaper and is shared with other shells."
+    fi
+    for entry in "${entries[@]}"; do
+        [[ -z "${doomed[$entry]:-}" ]] || continue
+        remaining+=("$entry")
+    done
+    (( ${#remaining[@]} )) || fail 'Keep at least one wallpaper in the directory.'
+    current="$(selected_wallpaper)"
+    if [[ -n "${doomed[$current]:-}" || -n "${doomed_real[$(/usr/bin/readlink -f -- "$current")]:-}" ]]; then
+        replacement="${remaining[RANDOM % ${#remaining[@]}]}"
+    fi
+    if (( dry_run )); then
+        printf 'Island %s delete: %s\n' "$theme_key" "${!doomed[*]}"
+        [[ -z "$replacement" ]] || printf 'Island %s wallpaper: %s\n' "$theme_key" "$(/usr/bin/readlink -f -- "$replacement")"
+        return
+    fi
+    [[ -z "$replacement" ]] || apply_selection "$replacement"
+    for entry in "${!doomed[@]}"; do /usr/bin/rm -f -- "$entry"; done
+}
+
 main() {
     [[ "$state_dir" == /* && "$themes_dir" == /* && "$dynamic_directory" == /* && "$shell_theme" == /* && "$theme_apply" == /* && "$awww_bin" == /* && "$awww_daemon" == /* && "$pgrep_bin" == /* ]] || fail 'Paths must be absolute.'
     [[ "${1:-}" != --dry-run ]] || { dry_run=1; shift; }
@@ -254,6 +292,7 @@ main() {
                 reload_applications
             fi
             ;;
+        delete-wallpapers) delete_wallpapers "$@" ;;
         wallpaper) (( $# == 1 )) || fail 'wallpaper requires one path.'; apply_selection "$1" ;;
         next|previous) (( $# == 0 )) || fail 'No arguments expected.'; if [[ "$action" == next ]]; then step_wallpaper 1; else step_wallpaper -1; fi ;;
         mode|variant)

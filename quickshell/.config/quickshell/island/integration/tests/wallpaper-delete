@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+integration_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+test_root="$(/usr/bin/mktemp -d /tmp/island-wallpaper-delete.XXXXXX)"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
+export THEMES_DIR="$XDG_CONFIG_HOME/themes" ISLAND_STATE_DIR="$XDG_STATE_HOME/island" SHELL_NOTIFICATION_HISTORY="$XDG_STATE_HOME/notification-history.jsonl"
+export ISLAND_DYNAMIC_WALLPAPERS_DIR="$test_root/dynamic"
+export ISLAND_THEME_PREWARM=0 THEME_APPLY_ACTIVATE_ONLY=1
+export THEME_APPLY="$integration_dir/desktop/theme-apply"
+export SPICETIFY_TEMPLATE_DIR="$source_config/spicetify/Themes/text"
+export ISLAND_PGREP_BIN=/usr/bin/true ISLAND_AWWW_DAEMON=/usr/bin/true
+export ISLAND_AWWW_BIN="$test_root/awww"
+export ISLAND_TEST_AWWW_LOG="$test_root/awww.log"
+/usr/bin/mkdir -p "$THEMES_DIR" "$ISLAND_DYNAMIC_WALLPAPERS_DIR" "$XDG_CONFIG_HOME/spicetify/Themes"
+name=nord
+/usr/bin/mkdir -p "$THEMES_DIR/$name" "$test_root/static/$name"
+/usr/bin/ln -s "$test_root/static/$name" "$THEMES_DIR/$name/wallpapers"
+for file in "$source_config/themes/$name"/*; do
+    [[ -f "$file" && "${file##*/}" != wallpaper.png ]] || continue
+    /usr/bin/cp -L -- "$file" "$THEMES_DIR/$name/"
+done
+colors=('#81a1c1' '#a3be8c' '#ebcb8b' '#bf616a' '#b48ead')
+for index in 1 2 3 4 5; do
+    /usr/bin/magick -size 8x8 "xc:${colors[index - 1]}" "$test_root/static/$name/s$index.png"
+    /usr/bin/magick -size 8x8 "xc:${colors[index - 1]}" "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d$index.png"
+done
+/usr/bin/ln -s wallpapers/s5.png "$THEMES_DIR/$name/wallpaper.png"
+/usr/bin/ln -s "$name" "$THEMES_DIR/current"
+/usr/bin/ln -s current "$THEMES_DIR/.caelestia-use"
+cat > "$ISLAND_AWWW_BIN" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" != img ]] || printf '%s\n' "$2" >> "$ISLAND_TEST_AWWW_LOG"
+MOCK
+/usr/bin/chmod +x "$ISLAND_AWWW_BIN"
+controller="$integration_dir/island-theme"
+static_dir="$test_root/static/$name"
+
+applied() { "$controller" ui | /usr/bin/jq -r .wallpaper; }
+
+"$controller" initialize
+"$controller" theme "$name"
+
+# Dry run changes nothing.
+"$controller" --dry-run delete-wallpapers "$static_dir/s2.png" >/dev/null
+[[ -f "$static_dir/s2.png" ]]
+
+# Deleting an unapplied wallpaper leaves the applied one alone.
+"$controller" wallpaper "$static_dir/s1.png"
+"$controller" delete-wallpapers "$static_dir/s2.png"
+[[ ! -e "$static_dir/s2.png" && "$(applied)" == "$static_dir/s1.png" ]]
+
+# Paths outside the active directory are ignored, and with nothing valid the command fails.
+outside="$test_root/outside.png"
+/usr/bin/magick -size 8x8 xc:red "$outside"
+if "$controller" delete-wallpapers "$outside" 2>/dev/null; then exit 1; fi
+[[ -f "$outside" ]]
+
+# Deleting the applied wallpaper applies a random survivor from the same directory.
+"$controller" delete-wallpapers "$static_dir/s1.png"
+[[ ! -e "$static_dir/s1.png" ]]
+now="$(applied)"
+[[ "$now" == "$static_dir/s3.png" || "$now" == "$static_dir/s4.png" || "$now" == "$static_dir/s5.png" ]]
+[[ "$(/usr/bin/tail -1 "$ISLAND_TEST_AWWW_LOG")" == "$now" ]]
+
+# The theme's shared wallpaper.png target is protected.
+if "$controller" delete-wallpapers "$static_dir/s5.png" 2>/dev/null; then exit 1; fi
+[[ -f "$static_dir/s5.png" ]]
+
+# The last wallpaper cannot be removed.
+/usr/bin/rm -- "$THEMES_DIR/$name/wallpaper.png"
+if "$controller" delete-wallpapers "$static_dir/s3.png" "$static_dir/s4.png" "$static_dir/s5.png" 2>/dev/null; then exit 1; fi
+[[ -f "$static_dir/s3.png" && -f "$static_dir/s4.png" && -f "$static_dir/s5.png" ]]
+
+# Dynamic: deleting the applied wallpaper applies another one from the Dynamic directory and its palette.
+"$controller" theme dynamic >/dev/null 2>&1
+"$controller" wallpaper "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" >/dev/null 2>&1
+"$controller" delete-wallpapers "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d4.png" >/dev/null 2>&1
+[[ ! -e "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" && ! -e "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d4.png" ]]
+now="$(applied)"
+[[ "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d1.png" || "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d3.png" ]]
+[[ "$(/usr/bin/readlink "$ISLAND_STATE_DIR/dynamic-wallpaper")" == "$now" ]]
+"$controller" ui | /usr/bin/jq -e '.label == "dynamic"' >/dev/null
+[[ -f "$static_dir/s3.png" ]]
+# Real clicks on the confirmation drawer inside a full Island (a missing PASS line means a failed check).
+/usr/bin/sed "s|\"../../|\"file://$integration_dir/../|g" "$integration_dir/tests/wallpaper-delete-views.qml" > "$test_root/views.qml"
+QML_IMPORT_PATH="${QML_IMPORT_PATH:-$HOME/.config/quickshell/.runtime/qml}" QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    /usr/bin/timeout -s KILL 45s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 < /dev/null || true
+/usr/bin/grep -q 'PASS: wallpaper delete confirmation clicks' "$test_root/views.log" || { /usr/bin/tail -20 "$test_root/views.log" >&2; exit 1; }
+printf 'PASS: wallpaper deletion keeps the applied wallpaper valid for static and dynamic themes and refuses unsafe requests\n'
