@@ -2,6 +2,7 @@
 set -euo pipefail
 
 test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 check_settings() {

@@ -1,8 +1,11 @@
 import QtQuick
 import "../components"
 import "../services"
+import "../island"
 
 Item {
+    property string monitorName: ""
+
     implicitWidth: Math.max(520, center.implicitWidth + 2 * (leftSection.width + 36))
     implicitHeight: 75
     Row {
@@ -24,6 +27,7 @@ Item {
         id: center
         objectName: "expanded-clock-group"
         expanded: true
+        lyricsActive: monitorName !== "" && IslandState.lyricsClockMonitor === monitorName
         anchors.centerIn: parent
     }
 }

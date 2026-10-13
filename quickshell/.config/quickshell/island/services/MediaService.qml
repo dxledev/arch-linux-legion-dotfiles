@@ -13,6 +13,8 @@ Singleton {
     property string title: ""
     property string artist: ""
     property string artUrl: ""
+    property string album: ""
+    property string playerName: ""
 
     property bool isPlaying: false
 
@@ -41,6 +43,8 @@ Singleton {
             title = ""
             artist = ""
             artUrl = ""
+            album = ""
+            playerName = ""
 
             isPlaying = false
             position = 0
@@ -57,6 +61,8 @@ Singleton {
 
         title = player.trackTitle
         artist = player.trackArtist
+        album = player.trackAlbum
+        playerName = player.identity
 
         // Keep the last valid artwork.
         if (player.trackArtUrl !== "")
@@ -89,6 +95,18 @@ Singleton {
             return
 
         player.togglePlaying()
+    }
+
+    // Seeks the active player to an absolute position in seconds.
+    function seek(seconds) {
+
+        if (!player || !player.canSeek)
+            return
+
+        const target = Math.max(0, length > 0 ? Math.min(seconds, length) : seconds)
+
+        player.position = target
+        position = target
     }
 
     function nextTrack() {
@@ -126,6 +144,10 @@ Singleton {
 
         function onTrackArtistChanged() {
             root.artist = player.trackArtist
+        }
+
+        function onTrackAlbumChanged() {
+            root.album = player.trackAlbum
         }
 
         function onTrackArtUrlChanged() {

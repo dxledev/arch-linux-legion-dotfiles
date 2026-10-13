@@ -18,6 +18,14 @@ ShellRoot {
         return result;
     }
 
+    function texts(item) {
+        let result = [];
+        if (item.objectName === "notification-summary" || item.objectName === "notification-body")
+            result.push({name: item.objectName, text: item.text, format: item.textFormat});
+        for (const child of item.children || []) result = result.concat(texts(child));
+        return result;
+    }
+
     function rings(item) {
         let result = [];
         if (item.objectName === "notification-countdown-ring") result.push(item);
@@ -52,6 +60,7 @@ ShellRoot {
                 tooltip: {opened: tooltip.opened, background: tooltip.background.color.toString(),
                     foreground: tooltip.contentItem.color.toString(), radius: tooltip.background.radius,
                     height: tooltip.background.height},
+                texts: root.texts(window.contentItem),
                 rings: root.rings(window.contentItem).map(ring => ({
                     visible: ring.visible, width: ring.width, height: ring.height,
                     progress: ring.progress, z: ring.z

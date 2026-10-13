@@ -1,140 +1,262 @@
 import QtQuick
-import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
+import Quickshell.Widgets
 
 import "../components"
+import "../core"
+import "../island"
 import "../services"
 import "../styles"
 
 Item {
     id: root
 
-    implicitWidth: 520
-    implicitHeight: 145
+    implicitWidth: 400
+    implicitHeight: 212
 
-    ColumnLayout {
+    readonly property bool hasArt: backdrop.ready
+
+    // Over blurred artwork the card is always dark, so text stays light on any theme.
+    readonly property color primaryText: hasArt ? "#F5F5F5" : Theme.textPrimary
+    readonly property color secondaryText: hasArt ? "#CFE3DF" : Theme.textSecondary
+    readonly property color mutedText: hasArt ? "#9FB3AF" : Theme.textMuted
+
+    readonly property real progress:
+        MediaService.length > 0
+            ? Math.max(0, Math.min(1, MediaService.position / MediaService.length))
+            : 0
+
+    ClippingRectangle {
+        id: card
 
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: 8
 
-        spacing: 0
+        radius: 24
+        color: Theme.surface
 
-        RowLayout {
+        ArtBackdrop {
+            id: backdrop
 
-            Layout.fillWidth: true
+            anchors.fill: parent
+            radius: card.radius
+        }
 
-            spacing: 20
+        Column {
+            anchors.fill: parent
+            anchors.leftMargin: 20
+            anchors.rightMargin: 20
+            anchors.topMargin: 16
+            anchors.bottomMargin: 10
 
-            MediaHeader {
-                Layout.fillWidth: true
+            spacing: 0
+
+            Row {
+                width: parent.width
+                height: Math.max(76, info.implicitHeight)
+
+                spacing: 18
+
+                AlbumArt {
+                    width: 76
+                    height: 76
+                    radius: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Column {
+                    id: info
+
+                    width: parent.width - 76 - parent.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    spacing: 2
+
+                    ScrollingText {
+                        text: MediaService.hasPlayer
+                                ? (MediaService.title || "No Title")
+                                : "Nothing Playing"
+
+                        maxWidth: info.width
+                        fontSize: 20
+                        color: root.primaryText
+                    }
+
+                    UiText {
+                        width: info.width
+                        visible: text !== ""
+
+                        text: MediaService.hasPlayer ? MediaService.artist : ""
+                        color: root.secondaryText
+                        font.pixelSize: 14
+                        elide: Text.ElideRight
+                    }
+
+                    UiText {
+                        width: info.width
+                        visible: text !== ""
+
+                        text: MediaService.album
+                        color: root.mutedText
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+
+                    UiText {
+                        width: info.width
+                        visible: text !== ""
+
+                        text: MediaService.playerName
+                        color: root.mutedText
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
             }
 
-            RowLayout {
+            SeekBar {
+                width: parent.width
+                height: 24
 
-                Layout.alignment: Qt.AlignVCenter
+                barCenterY: 15
+                progress: root.progress
+                trackColor: "#33FFFFFF"
+                fillColor: root.hasArt ? "#7FE3CF" : Theme.accent
+                smoothDuration: 900
+                seekable: MediaService.length > 0 && (MediaService.player?.canSeek ?? false)
 
-                Layout.topMargin: 10
+                onSeekRequested: fraction => MediaService.seek(fraction * MediaService.length)
+            }
 
-                spacing: 14
+            Item {
+                width: parent.width
+                height: 14
 
+                UiText {
+                    anchors.left: parent.left
+
+                    text: MediaService.formatTime(MediaService.position)
+                    color: root.secondaryText
+                    font.pixelSize: 11
+                }
+
+                UiText {
+                    anchors.right: parent.right
+
+                    text: MediaService.formatTime(MediaService.length)
+                    color: root.secondaryText
+                    font.pixelSize: 11
+                }
+            }
+
+            Item {
+                width: parent.width
+                height: 46
+
+                // Opens the floating lyrics card. Closing it is the card's own button.
                 Rectangle {
+                    id: lyricsButton
 
-                    width: 34
-                    height: 34
-                    radius: 17
+                    objectName: "lyrics-button"
+                    width: 32
+                    height: 32
+                    radius: 16
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
 
-                    color: Theme.surface
+                    color: IslandState.lyricsOpen ? "#33FFFFFF" : lyricsHover.hovered ? "#1FFFFFFF" : "transparent"
+
+                    Behavior on color { ColorAnimation { duration: Theme.animationFast } }
 
                     SvgIcon {
-
                         anchors.centerIn: parent
-
-                        size: 18
-
-                        source: "../assets/icons/player-skip-back.svg"
-
-                        color: Theme.textPrimary
+                        size: 17
+                        source: "../assets/icons/lyrics.svg"
+                        color: IslandState.lyricsOpen ? (root.hasArt ? "#7FE3CF" : Theme.accent) : root.secondaryText
                     }
 
                     HoverHandler {
+                        id: lyricsHover
                         cursorShape: Qt.PointingHandCursor
                     }
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        onTapped: MediaService.previousTrack()
+                        onTapped: IslandController.openLyrics()
                     }
                 }
 
-                Rectangle {
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 22
 
-                    width: 42
-                    height: 42
-                    radius: 21
+                    Item {
+                        width: 32
+                        height: 32
+                        anchors.verticalCenter: parent.verticalCenter
 
-                    color: Theme.accent
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            size: 18
+                            source: "../assets/icons/player-skip-back.svg"
+                            color: root.primaryText
+                        }
 
-                    SvgIcon {
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
 
-                        anchors.centerIn: parent
-
-                        size: 20
-
-                        source:
-                            MediaService.isPlaying
-                                ? "../assets/icons/player-pause.svg"
-                                : "../assets/icons/player-play.svg"
-
-                        color: Theme.background
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: MediaService.previousTrack()
+                        }
                     }
 
-                    HoverHandler {
-                        cursorShape: Qt.PointingHandCursor
+                    Rectangle {
+                        width: 42
+                        height: 42
+                        radius: 21
+
+                        color: root.hasArt ? "#26FFFFFF" : Theme.accent
+
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            size: 20
+
+                            source:
+                                MediaService.isPlaying
+                                    ? "../assets/icons/player-pause.svg"
+                                    : "../assets/icons/player-play.svg"
+
+                            color: root.hasArt ? root.primaryText : Theme.background
+                        }
+
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: MediaService.togglePlayback()
+                        }
                     }
 
-                    TapHandler {
+                    Item {
+                        width: 32
+                        height: 32
+                        anchors.verticalCenter: parent.verticalCenter
 
-                        acceptedButtons: Qt.LeftButton
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            size: 18
+                            source: "../assets/icons/player-skip-forward.svg"
+                            color: root.primaryText
+                        }
 
-                        onTapped: {
-                            MediaService.togglePlayback()
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: MediaService.nextTrack()
                         }
                     }
                 }
-
-                Rectangle {
-
-                    width: 34
-                    height: 34
-                    radius: 17
-
-                    color:  Theme.surface
-
-                    SvgIcon {
-
-                        anchors.centerIn: parent
-
-                        size: 18
-
-                        source: "../assets/icons/player-skip-forward.svg"
-
-                        color: Theme.textPrimary
-                    }
-
-                    HoverHandler {
-                        cursorShape: Qt.PointingHandCursor
-                    }
-
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        onTapped: MediaService.nextTrack()
-                    }
-                }    
             }
-        }
-
-        WaveformProgress {
-            Layout.fillWidth: true
         }
     }
 }

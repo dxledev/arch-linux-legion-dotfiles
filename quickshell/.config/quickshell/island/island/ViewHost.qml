@@ -252,7 +252,7 @@ Item {
 
     Component {
         id: expandedView
-        ExpandedView { }
+        ExpandedView { monitorName: root.monitorName }
     }
 
     Component {

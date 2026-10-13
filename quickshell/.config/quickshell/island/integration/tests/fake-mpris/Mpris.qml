@@ -8,6 +8,8 @@ QtObject {
     property QtObject pausedPlayer: QtObject {
         property string trackTitle: "Paused fixture"
         property string trackArtist: "Test"
+        property string trackAlbum: "Test album"
+        property string identity: "Test player"
         property string trackArtUrl: ""
         property int playbackState: MprisPlaybackState.Paused
         property int position: 0
@@ -26,6 +28,8 @@ QtObject {
     property QtObject playingPlayer: QtObject {
         property string trackTitle: "Playing fixture"
         property string trackArtist: "Test"
+        property string trackAlbum: "Test album"
+        property string identity: "Test player"
         property string trackArtUrl: ""
         property int playbackState: MprisPlaybackState.Playing
         property int position: 0

@@ -116,6 +116,33 @@ check_restart() {
     wait_store 'length == 1 and .[0].summary == "Older"'
 }
 
+check_markup() {
+    notify 0 '<span font-weight="300">Now Playing</span>' 'Sugar, <span foreground="#ff0000"><b>We'"'"'re</b></span> Goin &amp; Down' 0 0 0 >/dev/null
+    wait_for '.popups == 1 and ([.texts[] | select(.name == "notification-summary")] | length) == 1'
+    expect '([.texts[] | select(.name == "notification-summary")][0]) as $summary | ([.texts[] | select(.name == "notification-body")][0]) as $body | $summary.text | contains("Now Playing") and (contains("<span") | not)'
+    expect '([.texts[] | select(.name == "notification-body")][0]) as $body | $body.text | contains("<b>") and contains("#ffff0000") and contains("&amp;") and (contains("<span") | not)'
+    wait_store 'length == 1 and .[0].summary == "<span font-weight=\"300\">Now Playing</span>"'
+    ipc dismiss
+    ipc clear
+    wait_for '.popups == 0 and .history == 0'
+    notify 0 'Resuming' "$(printf '<b>She Looks So Perfect</b>\n<span foreground="var(--primary-color)">5 Seconds of Summer</span>')" 0 0 0 >/dev/null
+    wait_for '.popups == 1 and ([.texts[] | select(.name == "notification-body")] | length) == 1'
+    expect '([.texts[] | select(.name == "notification-body")][0]) as $body | $body.text | contains("She Looks So Perfect") and contains("<br/>") and contains("5 Seconds of Summer") and (contains("<span") | not)'
+    local short_height
+    short_height="$(snapshot | /usr/bin/jq '.capsules[0].fullHeight')"
+    ipc dismiss
+    ipc clear
+    wait_for '.popups == 0 and .history == 0'
+    notify 0 'Links' "$(printf 'Read <a href="https://example.com/?a=1&amp;b=2">the docs</a> %.0s' {1..40})" 0 0 0 >/dev/null
+    wait_for '.popups == 1 and ([.texts[] | select(.name == "notification-body")] | length) == 1'
+    expect '([.texts[] | select(.name == "notification-body")][0]) as $body | $body.format == 1 and ($body.text | contains("href=") and contains("the docs"))'
+    expect ".capsules[0].fullHeight < $short_height + 120"
+    ipc dismiss
+    ipc clear
+    wait_for '.popups == 0 and .history == 0'
+    wait_store 'length == 0'
+}
+
 run_session() {
     : > "$test_root/views.log"
     start_fixture
@@ -209,6 +236,7 @@ run_session() {
     ipc clear
     wait_for '.popups == 0 and .history == 0 and .unread == 0'
     wait_store 'length == 0'
+    check_markup
     check_restart
 }
 
@@ -219,7 +247,7 @@ else
     test_root="$(/usr/bin/mktemp -d /tmp/island-notifications.XXXXXX)"
     check_settings
     make_fixture
-    if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    if ! QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
         XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
         ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_THEME_SCRIPT="$test_root/controller" \
         ISLAND_NOTIFICATION_HISTORY="$test_dir/../../../shared/notifications/history" \
@@ -231,5 +259,5 @@ else
         /usr/bin/cat "$test_root/views.log" >&2
         fail 'Notification fixture logged errors.'
     fi
-    printf 'PASS: notification settings, dry-run, private D-Bus delivery, animation, monitor routing, stacking, replacements, hover pause, expiry, dismissal, actions, history, and shared history persistence\n'
+    printf 'PASS: notification settings, dry-run, private D-Bus delivery, Pango markup, animation, monitor routing, stacking, replacements, hover pause, expiry, dismissal, actions, history, and shared history persistence\n'
 fi

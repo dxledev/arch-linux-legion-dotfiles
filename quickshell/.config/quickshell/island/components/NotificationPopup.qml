@@ -26,6 +26,10 @@ Item {
     readonly property real originY: (islandHeight - startHeight) / 2
     readonly property real fullHeight: Math.max(80, content.implicitHeight + 32)
     readonly property alias surface: capsule
+    readonly property var formattedSummary: NotificationFormat.format(entry.summary)
+    readonly property var formattedBody: NotificationFormat.formatLines(entry.body)
+    // The StyledText preview drops anchors, so bodies with links render as rich text.
+    readonly property bool bodyHasLinks: /<a\s/i.test(formattedBody.html)
 
     Component.onCompleted: Qt.callLater(() => { root.appeared = true; })
     Behavior on progress {
@@ -144,8 +148,9 @@ Item {
                     }
                     UiText {
                         Layout.fillWidth: true
-                        text: root.entry.summary
-                        textFormat: Text.PlainText
+                        objectName: "notification-summary"
+                        text: root.formattedSummary.preview
+                        textFormat: Text.StyledText
                         color: Theme.textPrimary
                         font.pixelSize: 14
                         font.bold: true
@@ -174,8 +179,13 @@ Item {
             UiText {
                 Layout.fillWidth: true
                 visible: text.length > 0
-                text: root.entry.body
-                textFormat: Text.StyledText
+                objectName: "notification-body"
+                // Extra air above the second line (e.g. the artist under a track title).
+                lineHeight: root.formattedBody.lines > 1 ? 1.35 : 1
+                lineHeightMode: Text.ProportionalHeight
+                text: root.bodyHasLinks ? root.formattedBody.html : root.formattedBody.preview
+                textFormat: root.bodyHasLinks ? Text.RichText : Text.StyledText
+                clip: true
                 color: Theme.textSecondary
                 linkColor: Theme.accent
                 font.pixelSize: 12

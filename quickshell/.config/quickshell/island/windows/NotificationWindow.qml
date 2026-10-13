@@ -4,7 +4,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import "../components"
+import "../island"
 import "../services"
+import "../styles"
 
 PanelWindow {
     id: root
@@ -24,6 +26,15 @@ PanelWindow {
     readonly property var frontEntry: NotificationService.entries.find(entry => entry.monitorName === root.monitorName) ?? null
     readonly property var frontPopup: popupItems.find(popup => popup?.entry === root.frontEntry) ?? null
     readonly property bool popupActive: frontEntry !== null
+    // Height the card stack takes below its landing spot. The floating lyrics card reads it to
+    // make room, the way panels make room for the OSD drawer.
+    readonly property real stackExtent: popupActive
+        ? (frontPopup?.fullHeight ?? 80) + (Math.min(visibleCards,
+            NotificationService.entries.filter(entry => entry.monitorName === root.monitorName).length) - 1) * stackSpacing
+        : 0
+    onStackExtentChanged: IslandState.setNotificationExtent(monitorName, stackExtent)
+    Component.onCompleted: IslandState.setNotificationExtent(monitorName, stackExtent)
+    Component.onDestruction: IslandState.setNotificationExtent(monitorName, 0)
 
     function updateItems() {
         const items = [];

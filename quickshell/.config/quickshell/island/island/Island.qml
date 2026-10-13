@@ -152,6 +152,7 @@ Rectangle {
         enabled: root.panelActive
         monitorActive: root.monitorActive
         monitorName: root.monitorName
+        morphRunning: root.morphRunning
 
         anchors.fill: parent
     }
@@ -182,6 +183,12 @@ Rectangle {
         visible: enabled
         acceptedButtons: Qt.LeftButton
         cursorShape: Qt.PointingHandCursor
-        onClicked: islandInteraction.expandFromClick()
+        onClicked: {
+            const showing = LyricsService.clockShowsLyrics(root.monitorName)
+            if (IslandState.lyricsClockMonitor === root.monitorName)
+                IslandController.closeLyricsInIsland()
+            if (!showing)
+                islandInteraction.expandFromClick()
+        }
     }
 }

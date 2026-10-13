@@ -16,6 +16,7 @@ singleton MediaService 1.0 MediaService.qml
 singleton MenuService 1.0 MenuService.qml
 singleton MicrophoneService 1.0 MicrophoneService.qml
 singleton NightLightService 1.0 NightLightService.qml
+singleton NotificationFormat 1.0 NotificationFormat.qml
 singleton NotificationService 1.0 NotificationService.qml
 NotificationData 1.0 NotificationData.qml
 NotificationReplacements 1.0 NotificationReplacements.qml
@@ -31,3 +32,4 @@ singleton WifiService 1.0 WifiService.qml
 singleton WorkspaceService 1.0 WorkspaceService.qml
 singleton WallhavenService 1.0 WallhavenService.qml
 WallhavenJob 1.0 WallhavenJob.qml
+singleton LyricsService 1.0 LyricsService.qml

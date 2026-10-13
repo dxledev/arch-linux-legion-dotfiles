@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import "../core"
+import "../island"
 import "../services"
 
 Item {
@@ -19,6 +20,7 @@ Item {
     DefaultView {
         id: clock
         objectName: "compact-clock"
+        lyricsActive: root.monitorName !== "" && IslandState.lyricsClockMonitor === root.monitorName
         anchors.centerIn: parent
         anchors.alignWhenCentered: false
         width: implicitWidth

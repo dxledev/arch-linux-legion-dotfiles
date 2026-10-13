@@ -44,6 +44,29 @@ QtObject {
     property bool islandPinned: false
     property bool returnToExpanded: false
     property bool ignoreNextIslandTap: false
+    // Media opened from a click: stay open until the cursor has entered the panel once.
+    property bool awaitingMediaHover: false
+
+    // Floating lyrics card. Independent of the island mode: only the card's close button clears it.
+    property bool lyricsOpen: false
+    property string lyricsMonitorName: ""
+    // Monitor whose island shows the current lyric line in place of the clock, "" when none.
+    // Reached only by clicking the lyrics card's icon; any panel opening or a click on the island clears it.
+    property string lyricsClockMonitor: ""
+    // Per monitor: height of the notification stack currently shown, 0 when none.
+    property var notificationExtents: ({})
+
+    function setNotificationExtent(monitorName, extent) {
+        if ((notificationExtents[monitorName] ?? 0) === extent)
+            return
+        const next = Object.assign({}, notificationExtents)
+        next[monitorName] = extent
+        notificationExtents = next
+    }
+
+    property bool lyricsExpanded: false
+    readonly property real lyricsBaseHeight: 252
+    readonly property real lyricsCardHeight: lyricsExpanded ? lyricsBaseHeight * 2 : lyricsBaseHeight
 
     // =========================================================
     // DERIVED STATE

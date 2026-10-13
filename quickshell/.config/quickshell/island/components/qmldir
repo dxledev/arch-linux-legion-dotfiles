@@ -47,3 +47,7 @@ AIUsageMetric 1.0 AIUsageMetric.qml
 AIUsageSection 1.0 AIUsageSection.qml
 AudioDeviceSection 1.0 AudioDeviceSection.qml
 TextActionButton 1.0 TextActionButton.qml
+ArtBackdrop 1.0 ArtBackdrop.qml
+LyricLine 1.0 LyricLine.qml
+LyricsPanel 1.0 LyricsPanel.qml
+SeekBar 1.0 SeekBar.qml

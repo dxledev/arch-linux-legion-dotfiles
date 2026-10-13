@@ -2,6 +2,7 @@
 set -euo pipefail
 
 test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 test_root="$(/usr/bin/mktemp -d /tmp/island-lockscreen.XXXXXX)"
 config_home="$test_root/config"
 settings_file="$test_root/state/settings.json"

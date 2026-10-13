@@ -10,6 +10,8 @@ Rectangle {
     radius: 16
     color: Theme.surfaceVariant
     clip: true
+    readonly property var formattedSummary: NotificationFormat.format(notification.summary)
+    readonly property var formattedBody: NotificationFormat.formatLines(notification.body)
 
     RowLayout {
         anchors.fill: parent
@@ -68,17 +70,20 @@ Rectangle {
             }
             UiText {
                 Layout.fillWidth: true
-                text: root.notification.summary
+                text: root.formattedSummary.preview
                 color: Theme.textPrimary
                 font.pixelSize: 13
                 font.bold: true
                 elide: Text.ElideRight
-                textFormat: Text.PlainText
+                textFormat: Text.StyledText
             }
             UiText {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                text: root.notification.body
+                text: root.formattedBody.preview
+                // Extra air above the second line (e.g. the artist under a track title).
+                lineHeight: root.formattedBody.lines > 1 ? 1.35 : 1
+                lineHeightMode: Text.ProportionalHeight
                 color: Theme.textSecondary
                 font.pixelSize: 12
                 wrapMode: Text.Wrap

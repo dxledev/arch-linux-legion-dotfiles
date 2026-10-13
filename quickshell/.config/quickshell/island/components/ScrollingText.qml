@@ -8,6 +8,12 @@ Item {
     property string text: ""
     property int maxWidth: 100
     property int fontSize: 13
+    property color color: Theme.textPrimary
+    // Marquee speed in pixels per second, so a slight overflow doesn't crawl.
+    property real scrollSpeed: 36
+    // Text that fits sits in the middle instead of against the left edge.
+    property bool centered: false
+    property bool bold: true
 
     width: maxWidth
     implicitHeight: label.implicitHeight
@@ -19,15 +25,20 @@ Item {
 
         text: root.text
 
-        color: Theme.textPrimary
+        color: root.color
 
         font.pixelSize: root.fontSize
-        font.bold: true
+        font.bold: root.bold
 
         anchors.verticalCenter: parent.verticalCenter
 
-        x: 0
+        x: root.restX
     }
+
+    readonly property real restX: centered && label.width < maxWidth ? (maxWidth - label.width) / 2 : 0
+
+    readonly property real overflow: label.width - root.maxWidth
+    readonly property int scrollDuration: Math.max(1200, Math.round(overflow / scrollSpeed * 1000))
 
     SequentialAnimation {
         id: scrollAnimation
@@ -35,49 +46,52 @@ Item {
         loops: Animation.Infinite
 
         PauseAnimation {
-            duration: 2000
+            duration: 1800
         }
 
         NumberAnimation {
             target: label
             property: "x"
 
-            to: -(label.width - root.maxWidth)
+            to: -root.overflow
 
-            duration: 8000
+            duration: root.scrollDuration
 
-            easing.type: Easing.Linear
+            easing.type: Easing.InOutSine
         }
 
         PauseAnimation {
-            duration: 2000
+            duration: 1800
         }
 
         NumberAnimation {
             target: label
             property: "x"
 
-            to: 0
+            to: root.restX
 
-            duration: 8000
+            duration: root.scrollDuration
 
-            easing.type: Easing.Linear
+            easing.type: Easing.InOutSine
         }
     }
 
+    // Any overflow scrolls; a few clipped pixels still cut off the title.
     function shouldScroll() {
-        return label.width > root.maxWidth + 20
+        return label.width > root.maxWidth + 1
     }
 
-    onTextChanged: {
+    function refresh() {
         scrollAnimation.stop()
 
-        label.x = 0
+        label.x = root.restX
 
-        if (shouldScroll()) {
+        if (shouldScroll())
             scrollAnimation.start()
-        }
     }
+
+    onTextChanged: refresh()
+    onMaxWidthChanged: refresh()
 
     // Restart scrolling only after the Text item has been laid out.
     // The width is not updated immediately when the text changes.
@@ -85,17 +99,9 @@ Item {
         target: label
 
         function onWidthChanged() {
-            scrollAnimation.stop()
-            label.x = 0
-
-            if (shouldScroll())
-                scrollAnimation.start()
+            root.refresh()
         }
     }
 
-    Component.onCompleted: {
-        if (shouldScroll()) {
-            scrollAnimation.start()
-        }
-    }
+    Component.onCompleted: refresh()
 }

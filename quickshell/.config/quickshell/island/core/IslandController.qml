@@ -35,6 +35,9 @@ QtObject {
         } else if (IslandState.mode === IslandState.defaultMode || !IslandState.panelMonitorName) {
             IslandState.panelMonitorName = monitorName || focusedPanelMonitorName()
         }
+        // Lyrics in the clock only survive the island's own compact <-> expanded hover hops.
+        if (mode !== IslandState.defaultMode && mode !== IslandState.expandedMode)
+            IslandState.lyricsClockMonitor = ""
         IslandState.mode = mode
     }
 
@@ -174,6 +177,35 @@ QtObject {
         setMode(IslandState.mediaControlsMode)
     }
 
+    // The lyrics card floats under the island and outlives every island mode, so
+    // reset() and setMode() leave it alone. Only closeLyrics() (the card's close button) clears it.
+    function openLyrics(monitorName = IslandState.panelMonitorName || focusedPanelMonitorName()) {
+        IslandState.lyricsMonitorName = monitorName
+        IslandState.lyricsOpen = true
+    }
+
+    function closeLyrics() {
+        IslandState.lyricsOpen = false
+        IslandState.lyricsExpanded = false
+    }
+
+    // Moves the lyrics from the floating card into the island: the clock gives way to the current
+    // line, the card closes and any open panel (media included) folds away.
+    function showLyricsInIsland() {
+        const monitorName = IslandState.lyricsMonitorName || focusedPanelMonitorName()
+        closeLyrics()
+        reset()
+        IslandState.lyricsClockMonitor = monitorName
+    }
+
+    function closeLyricsInIsland() {
+        IslandState.lyricsClockMonitor = ""
+    }
+
+    function toggleLyricsExpanded() {
+        IslandState.lyricsExpanded = !IslandState.lyricsExpanded
+    }
+
     // =========================================================
     // CONTEXTUAL NAVIGATION
     // Open views from specific parts of the island while
@@ -189,6 +221,8 @@ QtObject {
         IslandState.islandPinned = false
 
         setMode(IslandState.mediaControlsMode)
+
+        IslandState.awaitingMediaHover = true
     }
 
     function openControlCenterFromRightSection() {
