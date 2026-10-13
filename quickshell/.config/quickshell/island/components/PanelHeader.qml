@@ -9,6 +9,12 @@ Item {
     property string subtitle: ""
     property string trailingText: ""
     property bool trailingClickable: false
+    // Makes the title a link-style button, for panels that lead to a related panel.
+    property bool titleClickable: false
+    property string titleDescription: ""
+    // Same for the subtitle, for panels whose source line switches between related lists.
+    property bool subtitleClickable: false
+    property string subtitleDescription: ""
     property url titleActionIcon: ""
     property string titleActionDescription: ""
     property bool titleActionActive: false
@@ -25,6 +31,8 @@ Item {
     signal deleteToggled()
     signal deleteConfirmed()
     signal trailingClicked()
+    signal titleClicked()
+    signal subtitleClicked()
     signal titleActionClicked()
     width: parent.width
     implicitHeight: subtitle ? 64 : 48
@@ -51,10 +59,24 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: titleAction.visible ? Math.min(implicitWidth, parent.width - titleAction.width - 8) : parent.width
                 text: root.title
-                color: Theme.textPrimary
+                color: root.titleClickable && titleMouse.containsMouse ? Theme.accent : Theme.textPrimary
                 font.pixelSize: 25
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
+                Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+                MouseArea {
+                    id: titleMouse
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: Math.min(titleLabel.contentWidth, titleLabel.width)
+                    enabled: root.titleClickable
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.titleDescription || root.title
+                    onClicked: root.titleClicked()
+                }
                 ScrollProgress {
                     anchors.left: parent.left
                     anchors.top: parent.bottom
@@ -78,10 +100,28 @@ Item {
             }
         }
         UiText {
+            id: subtitleLabel
+            objectName: "panel-subtitle"
             visible: root.subtitle.length > 0
+            width: Math.min(implicitWidth, parent.width)
             text: root.subtitle
-            color: Theme.textSecondary
+            color: root.subtitleClickable && subtitleMouse.containsMouse ? Theme.accent : Theme.textSecondary
             font.pixelSize: 12
+            font.underline: root.subtitleClickable && subtitleMouse.containsMouse
+            elide: Text.ElideRight
+            Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+            MouseArea {
+                id: subtitleMouse
+                anchors.fill: parent
+                anchors.topMargin: -4
+                anchors.bottomMargin: -4
+                enabled: root.subtitleClickable
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                Accessible.role: Accessible.Button
+                Accessible.name: root.subtitleDescription || root.subtitle
+                onClicked: root.subtitleClicked()
+            }
         }
     }
     Button {

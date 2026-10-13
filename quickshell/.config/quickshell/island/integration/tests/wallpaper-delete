@@ -78,12 +78,24 @@ if "$controller" delete-wallpapers "$static_dir/s3.png" "$static_dir/s4.png" "$s
 # Dynamic: deleting the applied wallpaper applies another one from the Dynamic directory and its palette.
 "$controller" theme dynamic >/dev/null 2>&1
 "$controller" wallpaper "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" >/dev/null 2>&1
+# Caelestia and Noctalia may still point at the deleted files; they must move to what Island now shows.
+export ISLAND_WALLPAPER_RELINK="$integration_dir/../../shared/wallpapers/relink"
+other="$XDG_STATE_HOME"
+/usr/bin/mkdir -p "$other/caelestia" "$other/noctalia"
+/usr/bin/ln -s "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d4.png" "$other/caelestia/dynamic-wallpaper"
+/usr/bin/ln -s "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d1.png" "$other/noctalia/dynamic-wallpaper"
+printf '%s\n' "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" > "$other/noctalia/applied-wallpaper"
+/usr/bin/chmod 600 "$other/noctalia/applied-wallpaper"
 "$controller" delete-wallpapers "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d4.png" >/dev/null 2>&1
 [[ ! -e "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" && ! -e "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d4.png" ]]
 now="$(applied)"
-[[ "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d1.png" || "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d3.png" ]]
+[[ "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d1.png" || "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d3.png" || "$now" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d5.png" ]]
 [[ "$(/usr/bin/readlink "$ISLAND_STATE_DIR/dynamic-wallpaper")" == "$now" ]]
 "$controller" ui | /usr/bin/jq -e '.label == "dynamic"' >/dev/null
+[[ -L "$other/caelestia/dynamic-wallpaper" && "$(/usr/bin/readlink "$other/caelestia/dynamic-wallpaper")" == "$now" ]]
+[[ "$(/usr/bin/readlink "$other/noctalia/dynamic-wallpaper")" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d1.png" ]]
+# Identity markers keep naming the deleted image, so Noctalia regenerates its palette instead of trusting a stale one.
+[[ "$(<"$other/noctalia/applied-wallpaper")" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d2.png" && "$(/usr/bin/stat -c %a "$other/noctalia/applied-wallpaper")" == 600 ]]
 [[ -f "$static_dir/s3.png" ]]
 # Real clicks on the confirmation drawer inside a full Island (a missing PASS line means a failed check).
 /usr/bin/sed "s|\"../../|\"file://$integration_dir/../|g" "$integration_dir/tests/wallpaper-delete-views.qml" > "$test_root/views.qml"

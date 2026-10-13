@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+integration_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+test_root="$(/usr/bin/mktemp -d /tmp/island-wallpaper-rename.XXXXXX)"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
+export THEMES_DIR="$XDG_CONFIG_HOME/themes" ISLAND_STATE_DIR="$XDG_STATE_HOME/island" SHELL_NOTIFICATION_HISTORY="$XDG_STATE_HOME/notification-history.jsonl"
+export ISLAND_DYNAMIC_WALLPAPERS_DIR="$test_root/dynamic"
+export ISLAND_THEME_PREWARM=0 THEME_APPLY_ACTIVATE_ONLY=1
+export THEME_APPLY="$integration_dir/desktop/theme-apply"
+export SPICETIFY_TEMPLATE_DIR="$source_config/spicetify/Themes/text"
+export ISLAND_PGREP_BIN=/usr/bin/true ISLAND_AWWW_DAEMON=/usr/bin/true
+export ISLAND_AWWW_BIN="$test_root/awww"
+export ISLAND_TEST_AWWW_LOG="$test_root/awww.log"
+/usr/bin/mkdir -p "$THEMES_DIR" "$ISLAND_DYNAMIC_WALLPAPERS_DIR" "$XDG_CONFIG_HOME/spicetify/Themes"
+name=nord
+/usr/bin/mkdir -p "$THEMES_DIR/$name" "$test_root/static/$name"
+/usr/bin/ln -s "$test_root/static/$name" "$THEMES_DIR/$name/wallpapers"
+for file in "$source_config/themes/$name"/*; do
+    [[ -f "$file" && "${file##*/}" != wallpaper.png ]] || continue
+    /usr/bin/cp -L -- "$file" "$THEMES_DIR/$name/"
+done
+colors=('#81a1c1' '#a3be8c' '#ebcb8b' '#bf616a' '#b48ead')
+for index in 1 2 3 4 5; do
+    /usr/bin/magick -size 8x8 "xc:${colors[index - 1]}" "$test_root/static/$name/s$index.png"
+    /usr/bin/magick -size 8x8 "xc:${colors[index - 1]}" "$ISLAND_DYNAMIC_WALLPAPERS_DIR/d$index.png"
+done
+/usr/bin/ln -s wallpapers/s5.png "$THEMES_DIR/$name/wallpaper.png"
+/usr/bin/ln -s "$name" "$THEMES_DIR/current"
+/usr/bin/ln -s current "$THEMES_DIR/.caelestia-use"
+cat > "$ISLAND_AWWW_BIN" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" != img ]] || printf '%s\n' "$2" >> "$ISLAND_TEST_AWWW_LOG"
+MOCK
+/usr/bin/chmod +x "$ISLAND_AWWW_BIN"
+controller="$integration_dir/island-theme"
+static_dir="$test_root/static/$name"
+dynamic_dir="$ISLAND_DYNAMIC_WALLPAPERS_DIR"
+wallpapers_file="$ISLAND_STATE_DIR/wallpapers.json"
+
+applied() { "$controller" ui | /usr/bin/jq -r .wallpaper; }
+
+# Runs a rename that must be refused: it fails and the failure is not silent.
+refuses() {
+    if "$controller" rename-wallpaper "$@" 2>/dev/null; then
+        printf 'FAIL: rename-wallpaper was not refused: %s\n' "$*" >&2
+        exit 1
+    fi
+}
+
+"$controller" initialize
+"$controller" theme "$name"
+"$controller" wallpaper "$static_dir/s1.png" >/dev/null
+
+# Dry run reports the target name and changes nothing.
+[[ "$("$controller" --dry-run rename-wallpaper "$static_dir/s2.png" Sunset)" == "Island nord rename: $static_dir/s2.png -> $static_dir/Sunset.png" ]]
+[[ -f "$static_dir/s2.png" && ! -e "$static_dir/Sunset.png" ]]
+
+# Renaming an unapplied wallpaper keeps the extension and leaves the applied one alone.
+"$controller" rename-wallpaper "$static_dir/s2.png" Sunset >/dev/null
+[[ -f "$static_dir/Sunset.png" && ! -e "$static_dir/s2.png" && "$(applied)" == "$static_dir/s1.png" ]]
+
+# Renaming the applied wallpaper keeps it applied under the new path, without another awww call.
+"$controller" wallpaper "$static_dir/s3.png" >/dev/null
+awww_lines="$(/usr/bin/wc -l < "$ISLAND_TEST_AWWW_LOG")"
+"$controller" rename-wallpaper "$static_dir/s3.png" Ocean >/dev/null
+[[ -f "$static_dir/Ocean.png" && ! -e "$static_dir/s3.png" && "$(applied)" == "$static_dir/Ocean.png" ]]
+[[ "$(/usr/bin/jq -r .nord "$wallpapers_file")" == "$static_dir/Ocean.png" ]]
+[[ "$(/usr/bin/wc -l < "$ISLAND_TEST_AWWW_LOG")" == "$awww_lines" ]]
+
+# The theme's shared wallpaper.png target is refused.
+refuses "$static_dir/s5.png" Shared
+[[ -f "$static_dir/s5.png" && ! -e "$static_dir/Shared.png" ]]
+
+# A name that already exists is refused and both files stay intact.
+refuses "$static_dir/s4.png" Ocean
+[[ -f "$static_dir/s4.png" && -f "$static_dir/Ocean.png" ]]
+
+# Paths outside the active theme directory are refused.
+outside="$test_root/outside.png"
+/usr/bin/magick -size 8x8 xc:red "$outside"
+refuses "$outside" Foo
+[[ -f "$outside" && ! -e "$test_root/Foo.png" ]]
+
+# Names with a slash, a leading dot, or nothing at all are refused.
+refuses "$static_dir/s4.png" 'a/b'
+refuses "$static_dir/s4.png" '.hidden'
+refuses "$static_dir/s4.png" ''
+refuses "$static_dir/s4.png"
+[[ -f "$static_dir/s4.png" ]]
+
+# Dynamic: renaming the applied wallpaper moves the dynamic link, the selection and every theme's remembered path.
+"$controller" theme dynamic >/dev/null 2>&1
+"$controller" wallpaper "$dynamic_dir/d2.png" >/dev/null 2>&1
+/usr/bin/jq --arg path "$dynamic_dir/d2.png" '.nord = $path' "$wallpapers_file" > "$test_root/wallpapers.json"
+/usr/bin/mv -f -- "$test_root/wallpapers.json" "$wallpapers_file"
+# Caelestia and Noctalia remember Dynamic wallpapers too; their references must follow the rename.
+export ISLAND_WALLPAPER_RELINK="$integration_dir/../../shared/wallpapers/relink"
+other="$XDG_STATE_HOME"
+/usr/bin/mkdir -p "$other/caelestia" "$other/noctalia"
+/usr/bin/ln -s "$dynamic_dir/d2.png" "$other/caelestia/dynamic-wallpaper"
+/usr/bin/ln -s "$dynamic_dir/d3.png" "$other/caelestia/aether-wallpaper"
+/usr/bin/ln -s "$dynamic_dir/d2.png" "$other/noctalia/dynamic-wallpaper"
+printf '%s\n' "$dynamic_dir/d2.png" > "$other/noctalia/applied-wallpaper"
+/usr/bin/chmod 600 "$other/noctalia/applied-wallpaper"
+printf '[wallpaper.default]\npath = "%s"\n[wallpaper.last]\npath = "%s"\n[wallpaper.monitors.DP-1]\npath = "%s"\n[wallpaper.monitors.HDMI-A-1]\npath = "%s"\n' \
+    "$dynamic_dir/d2.png" "$dynamic_dir/d2.png" "$dynamic_dir/d2.png" "$dynamic_dir/d3.png" > "$other/noctalia/settings.toml"
+# A dry run only reports what it would relink.
+"$controller" --dry-run rename-wallpaper "$dynamic_dir/d2.png" "My Pic" | /usr/bin/grep -q "Island dynamic relink: $dynamic_dir/d2.png -> $dynamic_dir/My Pic.png"
+[[ "$(/usr/bin/readlink "$other/caelestia/dynamic-wallpaper")" == "$dynamic_dir/d2.png" ]]
+# island-theme hands Noctalia's binary to relink, so a running instance can be made to adopt the edited settings.
+/usr/bin/cat > "$test_root/fake-noctalia" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_NOCTALIA_LOG"
+[[ "$1" == config ]] || exit 1
+FAKE
+/usr/bin/chmod +x "$test_root/fake-noctalia"
+NOCTALIA_BIN="$test_root/fake-noctalia" FAKE_NOCTALIA_LOG="$test_root/noctalia.log" \
+    "$controller" rename-wallpaper "$dynamic_dir/d2.png" "My Pic" >/dev/null
+/usr/bin/grep -q '^config validate ' "$test_root/noctalia.log" && /usr/bin/grep -q '^msg wallpaper-get' "$test_root/noctalia.log"
+now="$dynamic_dir/My Pic.png"
+[[ -L "$other/caelestia/dynamic-wallpaper" && "$(/usr/bin/readlink "$other/caelestia/dynamic-wallpaper")" == "$now" ]]
+[[ -L "$other/noctalia/dynamic-wallpaper" && "$(/usr/bin/readlink "$other/noctalia/dynamic-wallpaper")" == "$now" ]]
+[[ "$(/usr/bin/readlink "$other/caelestia/aether-wallpaper")" == "$dynamic_dir/d3.png" ]]
+[[ "$(<"$other/noctalia/applied-wallpaper")" == "$now" && "$(/usr/bin/stat -c %a "$other/noctalia/applied-wallpaper")" == 600 ]]
+[[ "$(/usr/bin/grep -c "path = \"$now\"" "$other/noctalia/settings.toml")" == 3 && "$(/usr/bin/grep -c "path = \"$dynamic_dir/d3.png\"" "$other/noctalia/settings.toml")" == 1 ]]
+[[ -f "$now" && ! -e "$dynamic_dir/d2.png" ]]
+[[ "$(/usr/bin/readlink "$ISLAND_STATE_DIR/dynamic-wallpaper")" == "$now" ]]
+[[ "$(applied)" == "$now" ]]
+"$controller" ui | /usr/bin/jq -e '.label == "dynamic"' >/dev/null
+[[ "$(/usr/bin/jq -r .dynamic "$wallpapers_file")" == "$now" && "$(/usr/bin/jq -r .nord "$wallpapers_file")" == "$now" ]]
+
+# A linked wallpaper renames as a link: the target stays put and the stored selection does not change.
+/usr/bin/magick -size 8x8 xc:purple "$test_root/linked-target.png"
+/usr/bin/ln -s "$test_root/linked-target.png" "$dynamic_dir/ln.png"
+/usr/bin/ln -s "$dynamic_dir/ln.png" "$other/noctalia/extra-wallpaper"
+before="$(/usr/bin/sha256sum "$test_root/linked-target.png")"
+"$controller" rename-wallpaper "$dynamic_dir/ln.png" "Linked" >/dev/null
+[[ -L "$dynamic_dir/Linked.png" && ! -e "$dynamic_dir/ln.png" && "$(/usr/bin/readlink "$dynamic_dir/Linked.png")" == "$test_root/linked-target.png" ]]
+[[ "$(/usr/bin/sha256sum "$test_root/linked-target.png")" == "$before" && "$(applied)" == "$now" ]]
+[[ "$(/usr/bin/readlink "$other/noctalia/extra-wallpaper")" == "$dynamic_dir/Linked.png" ]]
+
+# Right-click editor inside a full Island (a missing PASS line means a failed check). Dynamic is active here.
+/usr/bin/ln -s "$integration_dir" "$test_root/integration"
+/usr/bin/ln -s "$integration_dir/../scripts" "$test_root/scripts"
+/usr/bin/sed "s|\"../../|\"file://$integration_dir/../|g" "$integration_dir/tests/wallpaper-rename-views.qml" > "$test_root/views.qml"
+QML_IMPORT_PATH="${QML_IMPORT_PATH:-$HOME/.config/quickshell/.runtime/qml}" QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    /usr/bin/timeout -s KILL 60s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1 < /dev/null || true
+/usr/bin/grep -q 'PASS: wallpaper rename editor' "$test_root/views.log" || { /usr/bin/grep -v "INFO\|qmlscanner" "$test_root/views.log" | /usr/bin/tail -40 >&2; exit 1; }
+printf 'PASS: wallpaper rename keeps the applied wallpaper valid, preserves extensions and refuses unsafe requests\n'

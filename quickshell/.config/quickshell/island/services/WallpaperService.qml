@@ -17,6 +17,7 @@ Singleton {
 
     function setFilter(theme) { reload(); }
     function apply(path) { ThemeService.execute(["wallpaper", path]); }
+    function rename(path, stem) { ThemeService.execute(["rename-wallpaper", path, stem]); }
     function remove(paths) { if (paths.length > 0) ThemeService.execute(["delete-wallpapers", ...paths]); }
     function reload() {
         if (scanner.running) { pending = true; return; }

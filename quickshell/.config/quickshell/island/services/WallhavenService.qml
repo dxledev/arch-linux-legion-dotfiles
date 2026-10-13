@@ -40,6 +40,13 @@ Singleton {
     property var collections: []
     property var activeCollection: null
     property string collectionsError: ""
+    // "library" lists the wallpapers already in the Dynamic folder so palettes can be added to them.
+    readonly property bool libraryView: view === "library"
+    property var libraryItems: []
+    property bool libraryLoading: false
+    property string libraryError: ""
+    // Palettes already generated for the selected library wallpaper: [{style, mode}].
+    property var storedPalettes: []
 
     // ---- results ---------------------------------------------------------------------------------
     property ListModel results: ListModel {}
@@ -82,6 +89,8 @@ Singleton {
     property var selected: null
     property var detail: null
     property string preparedPath: ""
+    // File name (without extension) the wallpaper is saved under; starts as wallhaven-ID and is editable.
+    property string stagedName: ""
     property bool preparing: false
     property string prepareError: ""
     property string previewMode: ThemeService.state.mode === "light" ? "light" : "dark"
@@ -202,6 +211,7 @@ Singleton {
 
     function search() {
         searchTimer.stop();
+        if (libraryView) return;
         activeFilters = Object.assign({}, filters);
         generation++;
         pageCache = ({});
@@ -222,14 +232,18 @@ Singleton {
         request(page);
     }
 
-    function retry() { request(requestedPage); }
+    function retry() {
+        if (libraryView) loadLibrary();
+        else request(requestedPage);
+    }
 
     function setPageSize(size) {
         if (size === pageSize) return;
         const first = apiPage > 0 ? (meta.page - 1) * effectivePageSize : 0;
         pageSize = size;
         saveTimer.restart();
-        if (apiPage > 0) request(Math.floor(first / effectivePageSize) + 1);
+        if (libraryView) showLibrarySlice(Math.floor(((meta.page - 1) * meta.perPage) / effectivePageSize) + 1);
+        else if (apiPage > 0) request(Math.floor(first / effectivePageSize) + 1);
     }
 
     // First, last, the current page and its neighbours; 0 marks a gap.
@@ -256,6 +270,7 @@ Singleton {
 
     // Shows page `page` of the grid: a slice of the loaded wallhaven page, a cached one, or a fetch.
     function request(page) {
+        if (libraryView) { showLibrarySlice(page); return; }
         if (view === "collections" && !activeCollection) return;
         const size = effectivePageSize;
         const per = apiMeta.perPage > 0 ? apiMeta.perPage : 24;
@@ -354,7 +369,8 @@ Singleton {
                 resolution: item.resolution, width: item.width, height: item.height, ratio: item.ratio,
                 fileSize: item.fileSize, fileType: item.fileType, category: item.category, purity: item.purity,
                 views: item.views, favorites: item.favorites, colorsCsv: item.colors.join(","),
-                createdAt: item.createdAt, installed: item.installed === true || installedIds[item.id] === true
+                createdAt: item.createdAt, installed: item.installed === true || installedIds[item.id] === true,
+                library: item.library === true, name: item.name || ""
             });
         }
     }
@@ -373,13 +389,89 @@ Singleton {
     }
 
     // ---- collections -----------------------------------------------------------------------------
+    function fileUrl(path) {
+        return "file://" + encodeURI(path).replace(/#/g, "%23").replace(/\?/g, "%3F");
+    }
+
+    function toggleLibrary() { setView(libraryView ? "browse" : "library"); }
+
     function setView(name) {
         if (view === name) return;
+        const wasLibrary = libraryView;
         view = name;
+        if (wasLibrary || libraryView) closeDetail();
+        if (libraryView) {
+            results.clear();
+            suspendBrowse();
+            loadLibrary();
+            return;
+        }
+        if (wasLibrary) { results.clear(); searched = false; error = ""; }
         if (name === "collections") {
             if (collections.length === 0) loadCollections();
             if (activeCollection) search();
         } else search();
+    }
+
+    // Pending wallhaven requests must not repaint the grid once the library owns it.
+    function suspendBrowse() {
+        generation++;
+        token++;
+        searching = false;
+        waiting = null;
+        prefetching = 0;
+        backgroundTimer.stop();
+        searchTimer.stop();
+        searchJob.cancel();
+        prefetchJob.cancel();
+        thumbsJob.cancel();
+    }
+
+    function loadLibrary() {
+        libraryLoading = true;
+        libraryError = "";
+        error = "";
+        libraryJob.run([helper, "library"], "library");
+    }
+
+    function libraryAppliedPath() {
+        return ThemeService.state.source === "dynamic" ? ThemeService.wallpaper : "";
+    }
+
+    function showLibrarySlice(page) {
+        const size = effectivePageSize;
+        const total = libraryItems.length;
+        const last = Math.max(1, Math.ceil(total / size));
+        const shown = Math.min(Math.max(1, page), last);
+        meta = { page: shown, lastPage: last, perPage: size, total: total, seed: "" };
+        requestedPage = shown;
+        const applied = libraryAppliedPath();
+        replaceResults(libraryItems.slice((shown - 1) * size, shown * size).map(entry => ({
+            id: entry.id, url: "", path: entry.path, thumb: fileUrl(entry.path), thumbSmall: fileUrl(entry.path),
+            resolution: entry.resolution || "", width: entry.width, height: entry.height, ratio: "",
+            fileSize: entry.fileSize, fileType: entry.fileType, category: "library", purity: "sfw",
+            views: 0, favorites: 0, colors: [], createdAt: "", installed: entry.path === applied,
+            library: true, name: entry.name
+        })));
+        pageLoaded();
+    }
+
+    // The check badge in the library marks the wallpaper that is applied right now.
+    function refreshAppliedBadges() {
+        if (!libraryView) return;
+        const applied = libraryAppliedPath();
+        for (let i = 0; i < results.count; i++)
+            results.setProperty(i, "installed", results.get(i).path === applied);
+    }
+
+    // Palettes already stored for the selected library wallpaper (any scheme, light and dark).
+    function refreshStored() {
+        if (!selected || !selected.library) return;
+        storedJob.run([ThemeService.controller, "aether-list", selected.path], { id: selected.id });
+    }
+
+    function hasStored(schemeId, mode) {
+        return storedPalettes.some(entry => entry.style === "wh-" + schemeId && entry.mode === mode);
     }
 
     function loadCollections() {
@@ -400,7 +492,8 @@ Singleton {
             id: row.wid, url: row.url, path: row.path, thumb: row.thumb, resolution: row.resolution,
             width: row.width, height: row.height, ratio: row.ratio, fileSize: row.fileSize, fileType: row.fileType,
             category: row.category, purity: row.purity, views: row.views, favorites: row.favorites,
-            colors: row.colorsCsv ? row.colorsCsv.split(",") : [], createdAt: row.createdAt, installed: row.installed
+            colors: row.colorsCsv ? row.colorsCsv.split(",") : [], createdAt: row.createdAt, installed: row.installed,
+            library: row.library, name: row.name
         };
     }
 
@@ -408,27 +501,51 @@ Singleton {
         if (!item || selectedId === item.id) return;
         selectedId = item.id;
         selected = item;
+        stagedName = defaultName(item);
         detail = null;
         preparedPath = "";
         prepareError = "";
         previews = ({});
+        storedPalettes = [];
         workStatus = "";
         workError = "";
         previewsRunning = false;
         previewJob.cancel();
+        storedJob.cancel();
+        infoJob.cancel();
+        prepareJob.cancel();
+        if (item.library) {
+            // Already in the Dynamic folder: nothing to download, previews read the file directly.
+            preparing = false;
+            preparedPath = item.path;
+            loadPreviews();
+            refreshStored();
+            return;
+        }
         preparing = true;
         infoJob.run([helper, "info", item.id], { id: item.id });
         prepareJob.run([helper, "prepare", item.id, item.path], { id: item.id });
     }
 
+    function defaultName(item) { return item && !item.library ? "wallhaven-" + item.id : ""; }
+
+    // The extension the saved file will carry, for display beside the name field.
+    function stagedSuffix(item) {
+        const match = item && item.path ? String(item.path).match(/\.([A-Za-z0-9]{2,5})$/) : null;
+        return match ? "." + match[1].toLowerCase() : "";
+    }
+
     function closeDetail() {
         selectedId = "";
         selected = null;
+        stagedName = "";
         detail = null;
         preparedPath = "";
         previews = ({});
+        storedPalettes = [];
         previewsRunning = false;
         preparing = false;
+        storedJob.cancel();
         infoJob.cancel();
         prepareJob.cancel();
         previewJob.cancel();
@@ -469,6 +586,7 @@ Singleton {
     }
 
     function openPage() {
+        if (selected && selected.library) return;
         if (selectedId && /^[A-Za-z0-9]+$/.test(selectedId))
             Quickshell.execDetached(["xdg-open", "https://wallhaven.cc/w/" + selectedId]);
     }
@@ -476,12 +594,26 @@ Singleton {
     // Saves the full image into the Dynamic library, then (optionally) applies it with the chosen palette.
     function install(applyPalette) {
         if (!selected || working) return;
+        if (selected.library) { applyLibrary(); return; }
         working = true;
         workError = "";
         workStatus = selected.installed ? "Preparing…" : "Downloading…";
-        installJob.run([helper, "install", selected.id, selected.path], {
+        // Only a changed name is sent; the helper keeps wallhaven-ID otherwise.
+        const name = stagedName.trim();
+        installJob.run([helper, "install", selected.id, selected.path, name === defaultName(selected) ? "" : name], {
             id: selected.id, apply: applyPalette, kind: selectedKind, scheme: selectedScheme, mode: previewMode
         });
+    }
+
+    // Adds the chosen palette to a wallpaper that is already in the Dynamic folder and applies it. From a
+    // static theme this switches Island to Dynamic, exactly like applying a freshly downloaded wallpaper.
+    function applyLibrary() {
+        working = true;
+        workError = "";
+        workStatus = "Applying " + schemeLabel(selectedKind, selectedScheme) + " (" + previewMode + ")…";
+        awaitingTheme = true;
+        appliedId = selected.id;
+        ThemeService.execute(["wallpaper-palette", selected.path, selectedKind, selectedScheme, previewMode]);
     }
 
     // Background downloads wait a moment so they never compete with the thumbnails being shown.
@@ -513,7 +645,27 @@ Singleton {
                 root.pageSize = data.pageSize > 0 ? data.pageSize : 0;
             }
             root.configReady = true;
-            if (!root.searched) root.search();
+            if (!root.searched && !root.libraryView) root.search();
+        }
+    }
+    WallhavenJob {
+        id: libraryJob
+        onFinished: (tag, code, output, errors) => {
+            root.libraryLoading = false;
+            if (!root.libraryView) return;
+            const message = root.failure(code, output, errors, "Could not read the Dynamic wallpaper folder.");
+            if (message) { root.libraryError = message; root.error = message; root.libraryItems = []; root.results.clear(); root.searched = true; return; }
+            root.libraryItems = root.parse(output).data;
+            if (root.selected && root.selected.library && !root.libraryItems.some(entry => entry.id === root.selectedId)) root.closeDetail();
+            root.searched = true;
+            root.showLibrarySlice(1);
+        }
+    }
+    WallhavenJob {
+        id: storedJob
+        onFinished: (tag, code, output) => {
+            const data = root.parse(output);
+            if (tag.id === root.selectedId && Array.isArray(data)) root.storedPalettes = data;
         }
     }
     WallhavenJob {
@@ -650,6 +802,9 @@ Singleton {
             root.workError = ThemeService.error;
             root.workStatus = ThemeService.error ? "" : "Applied wallpaper and palette";
             if (ThemeService.error) root.appliedId = "";
+            root.refreshStored();
+            root.refreshAppliedBadges();
         }
+        function onWallpaperChanged() { root.refreshAppliedBadges(); }
     }
 }

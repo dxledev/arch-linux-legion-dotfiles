@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""Repoint remembered references to a Dynamic wallpaper at its new path.
+
+Caelestia, Island and Noctalia share one Dynamic wallpaper folder. After Island
+renames or deletes a wallpaper, this moves every reference to OLD under
+STATE_ROOT to NEW and prints a JSON report. Per-target problems become warnings,
+so the exit status is 0 unless the arguments are wrong.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+from pathlib import Path
+
+SHELLS = ("caelestia", "noctalia", "island")
+TOML_BASIC_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+
+
+def toml_escape(value):
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def replace_lines(text, old, new):
+    # Split on "\n" only, so odd characters in a path survive; keep "\r" endings.
+    out = []
+    for part in text.split("\n"):
+        body = part[:-1] if part.endswith("\r") else part
+        if body == old:
+            part = new + part[len(body):]
+        out.append(part)
+    return "\n".join(out)
+
+
+def replace_settings(text, old, new):
+    old_raw, new_raw = toml_escape(old), toml_escape(new)
+    return TOML_BASIC_STRING.sub(
+        lambda m: f'"{new_raw}"' if m.group(1) == old_raw else m.group(0), text
+    )
+
+
+TOML_HEADER = re.compile(r'^\s*(\[\[?)\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$')
+
+
+def replace_settings_replaced(text, old, new):
+    """Like replace_settings for a deleted OLD: only the wallpaper.default/last/monitors.* sections move to NEW,
+    and favourites of the deleted file are dropped (Noctalia's own delete removes them too)."""
+    old_raw = toml_escape(old)
+    blocks = [[None, False, []]]
+    for line in text.split("\n"):
+        header = TOML_HEADER.match(line)
+        if header:
+            blocks.append([header.group(2), header.group(1) == "[[", [line]])
+        else:
+            blocks[-1][2].append(line)
+    out = []
+    for name, is_array, lines in blocks:
+        body = "\n".join(lines)
+        if name == "wallpaper.favorite" and is_array:
+            if any(m.group(1) == old_raw for m in TOML_BASIC_STRING.finditer(body)):
+                continue
+        elif name and name.startswith("wallpaper."):
+            body = replace_settings(body, old, new)
+        out.append(body)
+    return "\n".join(out)
+
+
+def replace_palette(text, old, new):
+    encoded_old = json.dumps(old)
+    if encoded_old not in text:
+        return text
+    pattern = re.compile(r'("wallpaperPath"\s*:\s*)' + re.escape(encoded_old))
+    result = pattern.sub(lambda m: m.group(1) + json.dumps(new), text)
+    if result != text:
+        json.loads(result)  # Refuse to write a palette that no longer parses.
+    return result
+
+
+def unlink_quiet(path):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def atomic_write(path, data):
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".relink")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        unlink_quiet(tmp)
+        raise
+
+
+def rewrite(path, transform, kind, dry_run, updated, warnings, validate=None):
+    # Missing, symlinked and non-regular targets are skipped without a warning.
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return
+    except FileNotFoundError:
+        return
+    except OSError as err:
+        warnings.append(f"{path}: {err}")
+        return
+    try:
+        text = path.read_bytes().decode("utf-8")
+        result = transform(text)
+        if result == text:
+            return
+        if validate is not None:
+            problem = validate(path, result)
+            if problem:
+                warnings.append(f"{path}: not updated, {problem}")
+                return
+        if not dry_run:
+            atomic_write(path, result.encode("utf-8"))
+        updated.append({"file": str(path), "kind": kind})
+    except (OSError, UnicodeError, ValueError) as err:
+        warnings.append(f"{path}: {err}")
+
+
+def run_noctalia(binary, *args):
+    """Output of `noctalia ARGS`, or None when the command fails (including Noctalia not running)."""
+    try:
+        done = subprocess.run([binary, *args], capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def validate_settings(binary, path, text):
+    """None when Noctalia accepts the edited settings, else why not. A running Noctalia keeps its in-memory
+    table when a bad file arrives and would write it back over our edit, so a bad edit is never written."""
+    if not binary:
+        return None
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".validate")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        try:
+            done = subprocess.run([binary, "config", "validate", tmp], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as err:
+            return f"could not validate it ({err})"
+        return None if done.returncode == 0 else "Noctalia rejected the edited file"
+    finally:
+        unlink_quiet(tmp)
+
+
+def settle_noctalia(binary, path, new, warnings):
+    """Makes a running Noctalia adopt the edited settings.toml.
+
+    Noctalia reloads it from an inotify event on the file name, but ignores the first event after each of its own
+    writes, and `config-reload` does not re-read the file. An edit that lands in that window would stay out of its
+    memory and be overwritten at its next save. So ask what it holds; if it still has the old wallpaper, rewrite the
+    file once more (a fresh event). Nothing is probed when Noctalia is not running."""
+    if not binary or run_noctalia(binary, "msg", "wallpaper-get") is None:
+        return
+    try:
+        wanted = tomllib.loads(path.read_text(encoding="utf-8")).get("wallpaper", {})
+    except (OSError, ValueError) as err:
+        warnings.append(f"{path}: could not check Noctalia ({err})")
+        return
+    probes = []
+    if wanted.get("default", {}).get("path") == new:
+        probes.append(())
+    for connector, entry in wanted.get("monitors", {}).items():
+        if isinstance(entry, dict) and entry.get("path") == new and re.fullmatch(r"[\w.:-]+", connector):
+            probes.append((connector,))
+    accepted = {new, os.path.realpath(new)}
+
+    def converged():
+        for probe in probes:
+            seen = run_noctalia(binary, "msg", "wallpaper-get", *probe)
+            if seen is not None and seen not in accepted:  # a connector that errors cannot be probed
+                return False
+        return True
+
+    deadline = time.monotonic() + 2.4
+    for attempt in range(3):
+        slot = time.monotonic() + 0.6
+        while time.monotonic() < slot:
+            if probes and converged():
+                return
+            time.sleep(0.05)
+        if probes and converged():
+            return
+        if time.monotonic() > deadline:
+            break
+        try:
+            atomic_write(path, path.read_bytes())
+        except OSError as err:
+            warnings.append(f"{path}: could not retry for Noctalia ({err})")
+            return
+        if not probes:
+            return  # favourites only: nothing to probe, the extra event is the guarantee
+    if probes and not converged():
+        warnings.append(f"{path}: a running Noctalia did not pick up the new wallpaper path")
+
+
+def relink_links(state, old, new, dry_run, updated, warnings):
+    for shell in ("caelestia", "noctalia"):
+        directory = state / shell
+        if os.path.islink(directory) or not directory.is_dir():
+            continue
+        try:
+            with os.scandir(directory) as it:
+                entries = sorted(it, key=lambda entry: entry.name)
+        except OSError as err:
+            warnings.append(f"{directory}: {err}")
+            continue
+        for entry in entries:
+            try:
+                if not entry.is_symlink() or os.readlink(entry.path) != old:
+                    continue
+                if not dry_run:
+                    # Replace the link itself; os.replace does not follow it.
+                    tmp = os.path.join(directory, f".{entry.name}.relink-{os.getpid()}")
+                    unlink_quiet(tmp)
+                    try:
+                        os.symlink(new, tmp)
+                        os.replace(tmp, entry.path)
+                    except BaseException:
+                        unlink_quiet(tmp)
+                        raise
+                updated.append({"file": entry.path, "kind": "link"})
+            except OSError as err:
+                warnings.append(f"{entry.path}: {err}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Repoint Dynamic wallpaper references from OLD to NEW.")
+    parser.add_argument("--dry-run", action="store_true", help="report what would change without writing")
+    parser.add_argument("--replaced", action="store_true",
+                        help="OLD was deleted and NEW is a different image: move links and settings only, "
+                             "leave identity markers and palette records on OLD")
+    parser.add_argument("--noctalia-bin", metavar="PATH",
+                        help="noctalia executable; when given, a running instance is made to adopt settings.toml "
+                             "(never defaulted, so tests cannot reach a real instance)")
+    parser.add_argument("--state-root", required=True, metavar="DIR", help="state root to scan (no default)")
+    parser.add_argument("old", metavar="OLD", help="absolute path being replaced")
+    parser.add_argument("new", metavar="NEW", help="absolute replacement path")
+    args = parser.parse_args()
+    if not (os.path.isabs(args.old) and os.path.isabs(args.new)):
+        parser.error("OLD and NEW must be absolute paths")
+    if args.old == args.new:
+        parser.error("OLD and NEW must differ")
+
+    state = Path(args.state_root)
+    old, new = args.old, args.new
+    updated, warnings = [], []
+    relink_links(state, old, new, args.dry_run, updated, warnings)
+
+    binary = args.noctalia_bin if args.noctalia_bin and os.access(args.noctalia_bin, os.X_OK) else None
+    settings_path = state / "noctalia" / "settings.toml"
+    settings_transform = replace_settings_replaced if args.replaced else replace_settings
+    settings = (settings_path, "settings", lambda text: settings_transform(text, old, new))
+    if args.replaced:
+        # A different image: the markers record which image a palette came from, so they must keep
+        # naming the deleted file and Noctalia regenerates; the palette records belong to its contents.
+        targets = [settings]
+        shells = ()
+    else:
+        targets = [
+            (state / "noctalia" / "applied-wallpaper", "applied",
+             lambda text: replace_lines(text, old, new)),
+            (state / "toggle-shell-mode" / "noctalia-wallpaper-pending", "pending",
+             lambda text: replace_lines(text, old, new)),
+            settings,
+        ]
+        shells = SHELLS
+    for shell in shells:
+        try:
+            palettes = sorted((state / shell / "aether-palettes").glob("*.json"))
+        except OSError as err:
+            warnings.append(f"{state / shell / 'aether-palettes'}: {err}")
+            continue
+        targets += [(path, "palette", lambda text: replace_palette(text, old, new))
+                    for path in palettes]
+
+    for path, kind, transform in targets:
+        validate = (lambda p, text: validate_settings(binary, p, text)) if kind == "settings" else None
+        before = len(updated)
+        rewrite(path, transform, kind, args.dry_run, updated, warnings, validate)
+        if kind == "settings" and len(updated) > before and not args.dry_run:
+            settle_noctalia(binary, path, new, warnings)
+
+    json.dump({"updated": updated, "warnings": warnings}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

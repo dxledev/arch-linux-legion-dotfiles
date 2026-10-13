@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# Tests shared/wallpapers/relink against a fixture state root. HOME and
+# XDG_STATE_HOME point at a path that never exists, so real state is never used.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+relink="$here/relink"
+root="$(mktemp -d)"
+trap 'rm -rf "$root"' EXIT
+HOME_REAL="$HOME"
+export HOME="$root/home" XDG_STATE_HOME="$root/home/.local/state"
+
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+s="$root/state"
+OLD="$root/dyn/old wallpaper.png"
+NEW="$root/dyn/new wallpaper.png"
+OTHER="$root/dyn/other.png"
+DANGLING="$root/elsewhere/missing.png"
+
+mkdir -p "$s/caelestia/aether-palettes" "$s/noctalia" "$s/island/aether-palettes" \
+    "$s/toggle-shell-mode" "$root/elsewhere" "$root/dyn"
+ln -s "$OLD" "$s/caelestia/dynamic-wallpaper"
+ln -s "$DANGLING" "$s/caelestia/aether-wallpaper"
+ln -s "$OLD" "$s/noctalia/dynamic-wallpaper"
+printf '{\n  "name": "x",\n  "wallpaperPath" :   "%s",\n  "colors": [1, 2]\n}\n' "$OLD" \
+    > "$s/caelestia/aether-palettes/x.json"
+printf '{"wallpaperPath":"%s"}\n' "$OLD" > "$s/island/aether-palettes/y.json"
+printf '%s\n' "$OLD" > "$s/noctalia/applied-wallpaper"
+chmod 600 "$s/noctalia/applied-wallpaper"
+cat > "$s/noctalia/settings.toml" <<TOML
+[shell]
+name = "noctalia"
+verbose = true
+
+[wallpaper.default]
+path = "$OLD"
+fit = "cover"
+
+[wallpaper.last]
+path = "$OLD"
+
+[wallpaper.monitors.DP-1]
+path = "$OLD"
+
+[wallpaper.monitors.HDMI-A-1]
+path = "$OLD"
+other = "$OTHER"
+TOML
+printf '7\n%s\n' "$OLD" > "$s/toggle-shell-mode/noctalia-wallpaper-pending"
+
+# Originals of the text files, for building the expected output with sed.
+orig="$root/orig"
+mkdir -p "$orig"
+cp "$s/caelestia/aether-palettes/x.json" "$orig/x.json"
+cp "$s/island/aether-palettes/y.json" "$orig/y.json"
+cp "$s/noctalia/applied-wallpaper" "$orig/applied-wallpaper"
+cp "$s/noctalia/settings.toml" "$orig/settings.toml"
+cp "$s/toggle-shell-mode/noctalia-wallpaper-pending" "$orig/noctalia-wallpaper-pending"
+
+# OLD and NEW escaped for use in a sed s|...|...| expression.
+esc() { printf '%s' "$1" | sed 's/[][\.*^$|/&]/\\&/g'; }
+sed_old="$(esc "$OLD")"
+sed_new="$(esc "$NEW")"
+
+snapshot() {
+    (cd "$1" && find . -printf '%p|%y|%l|%m\n' | sort
+     find . -type f -exec sha256sum {} + | sort)
+}
+
+kinds() {
+    python3 -c 'import json,sys; print(" ".join(sorted(e["kind"] for e in json.load(sys.stdin)["updated"])))'
+}
+
+no_warnings() {
+    python3 -c 'import json,sys; sys.exit(1 if json.load(sys.stdin)["warnings"] else 0)'
+}
+
+expected_kinds="applied link link palette palette pending settings"
+
+snapshot "$s" > "$root/snap-before"
+
+# Dry run: nothing changes, same kinds reported.
+dry="$("$relink" --dry-run --state-root "$s" "$OLD" "$NEW")"
+snapshot "$s" | cmp -s - "$root/snap-before" || fail "--dry-run changed the state"
+[[ "$(printf '%s' "$dry" | kinds)" == "$expected_kinds" ]] || fail "dry-run kinds: $dry"
+
+# Real run.
+out="$("$relink" --state-root "$s" "$OLD" "$NEW")"
+[[ "$(printf '%s' "$out" | kinds)" == "$expected_kinds" ]] || fail "run kinds: $out"
+printf '%s' "$out" | no_warnings || fail "unexpected warnings: $out"
+
+# Links repointed; the dangling link is untouched.
+[[ -L "$s/caelestia/dynamic-wallpaper" && "$(readlink "$s/caelestia/dynamic-wallpaper")" == "$NEW" ]] \
+    || fail "caelestia link not repointed"
+[[ -L "$s/noctalia/dynamic-wallpaper" && "$(readlink "$s/noctalia/dynamic-wallpaper")" == "$NEW" ]] \
+    || fail "noctalia link not repointed"
+[[ -L "$s/caelestia/aether-wallpaper" && "$(readlink "$s/caelestia/aether-wallpaper")" == "$DANGLING" ]] \
+    || fail "dangling link changed"
+
+# No reference to OLD remains; the pending generation line is untouched.
+if grep -rqF -- "$OLD" "$s"; then fail "OLD still referenced"; fi
+[[ "$(sed -n 1p "$s/toggle-shell-mode/noctalia-wallpaper-pending")" == 7 ]] || fail "pending generation changed"
+
+# Text files equal the original with only the OLD -> NEW substitution applied.
+for f in "$orig"/*; do
+    name="$(basename "$f")"
+    case "$name" in
+        x.json) target="$s/caelestia/aether-palettes/x.json" ;;
+        y.json) target="$s/island/aether-palettes/y.json" ;;
+        applied-wallpaper) target="$s/noctalia/applied-wallpaper" ;;
+        settings.toml) target="$s/noctalia/settings.toml" ;;
+        noctalia-wallpaper-pending) target="$s/toggle-shell-mode/noctalia-wallpaper-pending" ;;
+    esac
+    sed "s|$sed_old|$sed_new|g" "$f" > "$root/expected"
+    cmp -s "$root/expected" "$target" || fail "$name differs from expected output"
+done
+
+# Modes preserved.
+[[ "$(stat -c %a "$s/noctalia/applied-wallpaper")" == 600 ]] || fail "applied-wallpaper mode changed"
+
+# A second run finds nothing to change.
+before_second="$(snapshot "$s")"
+second="$("$relink" --state-root "$s" "$OLD" "$NEW")"
+[[ "$(printf '%s' "$second" | kinds)" == "" ]] || fail "second run updated: $second"
+[[ "$(snapshot "$s")" == "$before_second" ]] || fail "second run changed the state"
+
+# Nothing left behind: no temp files from atomic writes.
+if find "$s" -name '*relink*' | grep -q .; then fail "temp file left behind"; fi
+
+# Missing state root: no crash, nothing created, exit 0.
+rc=0
+missing="$("$relink" --state-root "$root/nope" "$OLD" "$NEW")" || rc=$?
+[[ $rc -eq 0 ]] || fail "missing state root exited $rc"
+[[ ! -e "$root/nope" ]] || fail "missing state root was created"
+printf '%s' "$missing" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["updated"]==[] and d["warnings"]==[] else 1)' \
+    || fail "missing state root output: $missing"
+
+# Usage errors exit 2.
+for args in "$OLD $NEW" "--state-root $s relative/old.png $NEW" "--state-root $s $NEW $NEW"; do
+    rc=0
+    # shellcheck disable=SC2086
+    "$relink" $args >/dev/null 2>&1 || rc=$?
+    [[ $rc -eq 2 ]] || fail "usage error [$args] exited $rc"
+done
+
+# --replaced (a delete): links and settings move, identity markers and palette records stay on the deleted file.
+r="$root/replaced"
+mkdir -p "$r/caelestia/aether-palettes" "$r/noctalia" "$r/toggle-shell-mode"
+ln -s "$OLD" "$r/caelestia/dynamic-wallpaper"
+printf '%s\n' "$OLD" > "$r/noctalia/applied-wallpaper"
+chmod 600 "$r/noctalia/applied-wallpaper"
+printf '[wallpaper.last]\npath = "%s"\n' "$OLD" > "$r/noctalia/settings.toml"
+printf '7\n%s\n' "$OLD" > "$r/toggle-shell-mode/noctalia-wallpaper-pending"
+printf '{"wallpaperPath":"%s"}\n' "$OLD" > "$r/caelestia/aether-palettes/z.json"
+out="$("$relink" --replaced --state-root "$r" "$OLD" "$NEW")"
+[[ "$(printf '%s' "$out" | kinds)" == "link settings" ]] || fail "--replaced kinds: $out"
+[[ "$(readlink "$r/caelestia/dynamic-wallpaper")" == "$NEW" ]] || fail "--replaced did not move the link"
+grep -qF "path = \"$NEW\"" "$r/noctalia/settings.toml" || fail "--replaced did not move settings"
+[[ "$(<"$r/noctalia/applied-wallpaper")" == "$OLD" && "$(stat -c %a "$r/noctalia/applied-wallpaper")" == 600 ]] || fail "--replaced touched applied-wallpaper"
+[[ "$(sed -n 2p "$r/toggle-shell-mode/noctalia-wallpaper-pending")" == "$OLD" ]] || fail "--replaced touched the pending marker"
+grep -qF "$OLD" "$r/caelestia/aether-palettes/z.json" || fail "--replaced relabelled a palette record"
+
+# --replaced only touches the wallpaper.* sections and drops favourites of the deleted file.
+r="$root/sections"
+mkdir -p "$r/noctalia"
+cat > "$r/noctalia/settings.toml" <<TOML
+[plugin_settings."x/y"]
+file = "$OLD"
+
+[wallpaper.default]
+path = "$OLD"
+
+[wallpaper.monitors.DP-1]
+path = "$OLD"
+
+[[wallpaper.favorite]]
+palette_source = "wallpaper"
+path = "$OLD"
+theme_mode = "dark"
+
+[[wallpaper.favorite]]
+palette_source = "wallpaper"
+path = "$OTHER"
+theme_mode = "dark"
+
+[weather]
+unit = "imperial"
+TOML
+"$relink" --replaced --state-root "$r" "$OLD" "$NEW" >/dev/null
+grep -qF "file = \"$OLD\"" "$r/noctalia/settings.toml" || fail "--replaced changed a non-wallpaper section"
+[[ "$(grep -cF "path = \"$NEW\"" "$r/noctalia/settings.toml")" == 2 ]] || fail "--replaced did not move default and monitor"
+grep -qF "path = \"$OTHER\"" "$r/noctalia/settings.toml" || fail "--replaced dropped another favourite"
+[[ "$(grep -c 'wallpaper.favorite' "$r/noctalia/settings.toml")" == 1 ]] || fail "--replaced kept the deleted file's favourite"
+grep -q '^unit = "imperial"' "$r/noctalia/settings.toml" || fail "--replaced damaged the following section"
+python3 -c 'import tomllib,sys; tomllib.load(open(sys.argv[1],"rb"))' "$r/noctalia/settings.toml" || fail "--replaced produced invalid TOML"
+
+# A running Noctalia must adopt the edit instead of writing its old table back. The fake reports what a real one
+# does: it ignores the first change after its own save (swallow), or never notices (never), or is not running.
+fake="$root/fake-noctalia"
+cat > "$fake" <<'FAKE'
+#!/usr/bin/env bash
+# Fake noctalia: FAKE_MODE = converge | swallow | never | stopped | invalid, state in $FAKE_DIR.
+settings="$FAKE_DIR/state/noctalia/settings.toml"
+case "$1 $2" in
+    "config validate") [[ "$FAKE_MODE" != invalid ]]; exit ;;
+esac
+[[ "$FAKE_MODE" != stopped ]] || { echo "error: noctalia is not running"; exit 1; }
+[[ "$1 $2" == "msg wallpaper-get" ]] || exit 2
+echo "$*" >> "$FAKE_DIR/calls"
+current="$(sed -n '/^\[wallpaper.default\]/,/^$/{s/^path = "\(.*\)"$/\1/p}' "$settings")"
+case "$FAKE_MODE" in
+    converge) echo "$current" ;;
+    never) cat "$FAKE_DIR/old-path" ;;
+    swallow)
+        inode="$(stat -c %i "$settings")"
+        grep -qx "$inode" "$FAKE_DIR/inodes" 2>/dev/null || echo "$inode" >> "$FAKE_DIR/inodes"
+        if [[ "$(wc -l < "$FAKE_DIR/inodes")" -ge 2 ]]; then echo "$current"; else cat "$FAKE_DIR/old-path"; fi ;;
+esac
+FAKE
+chmod +x "$fake"
+fixture() {
+    n="$root/n-$1"; rm -rf "$n"; mkdir -p "$n/state/noctalia"
+    printf '[wallpaper.default]\npath = "%s"\n\n[[wallpaper.favorite]]\npath = "%s"\n' "$OLD" "$OLD" > "$n/state/noctalia/settings.toml"
+    printf '%s\n' "$OLD" > "$n/old-path"
+}
+run_fake() {  # mode -> prints the report
+    fixture "$1"
+    FAKE_DIR="$n" FAKE_MODE="$1" "$relink" --noctalia-bin "$fake" --state-root "$n/state" "$OLD" "$NEW"
+}
+warned() { python3 -c 'import json,sys; print(len(json.load(sys.stdin)["warnings"]))'; }
+
+n="$root/n-converge"; out="$(run_fake converge)"; [[ "$(printf '%s' "$out" | warned)" == 0 ]] || fail "converge warned: $out"
+grep -qF "path = \"$NEW\"" "$n/state/noctalia/settings.toml" || fail "converge did not edit"
+
+n="$root/n-swallow"; out="$(run_fake swallow)"; [[ "$(printf '%s' "$out" | warned)" == 0 ]] || fail "a swallowed first event was not retried: $out"
+[[ "$(wc -l < "$n/inodes")" -ge 2 ]] || fail "swallow case did not rewrite the file again"
+grep -qF "path = \"$NEW\"" "$n/state/noctalia/settings.toml" || fail "swallow case lost the edit"
+
+start=$SECONDS
+n="$root/n-never"; out="$(run_fake never)"; [[ "$(printf '%s' "$out" | warned)" == 1 ]] || fail "never did not warn once: $out"
+(( SECONDS - start <= 5 )) || fail "never case waited too long"
+grep -qF "path = \"$NEW\"" "$n/state/noctalia/settings.toml" || fail "never case lost the edit"
+
+n="$root/n-stopped"; out="$(run_fake stopped)"; [[ "$(printf '%s' "$out" | warned)" == 0 ]] || fail "stopped warned: $out"
+[[ ! -e "$n/calls" ]] || fail "a stopped Noctalia was probed more than once"
+
+n="$root/n-invalid"; out="$(run_fake invalid)"
+[[ "$(printf '%s' "$out" | kinds)" == "" && "$(printf '%s' "$out" | warned)" == 1 ]] || fail "invalid edit was not refused: $out"
+grep -qF "path = \"$OLD\"" "$n/state/noctalia/settings.toml" || fail "invalid edit was written"
+
+# Without --noctalia-bin nothing is ever run.
+n="$root/n-none"; fixture none; "$relink" --state-root "$n/state" "$OLD" "$NEW" >/dev/null
+[[ ! -e "$n/calls" ]] || fail "noctalia was probed without --noctalia-bin"
+
+# The real Noctalia accepts the edited file in both modes (skipped where it is not installed).
+real="${NOCTALIA_BIN:-$HOME_REAL/.config/noctalia/.runtime/bin/noctalia}"
+if [[ -x "$real" ]]; then
+    for mode in "" --replaced; do
+        fixture real
+        XDG_RUNTIME_DIR="$root/no-runtime" "$relink" $mode --noctalia-bin "$real" --state-root "$n/state" "$OLD" "$NEW" > "$root/real.json"
+        [[ "$(warned < "$root/real.json")" == 0 ]] || fail "real noctalia validation warned: $(cat "$root/real.json")"
+        grep -qF "path = \"$NEW\"" "$n/state/noctalia/settings.toml" || fail "real noctalia validation blocked the edit ($mode)"
+    done
+else
+    printf 'SKIP: the noctalia binary is not installed; real validation skipped\n'
+fi
+
+# The fake HOME was never used.
+[[ ! -e "$HOME" ]] || fail "HOME was created"
+
+printf 'PASS: wallpaper relink repoints other shells and leaves unrelated state alone\n'

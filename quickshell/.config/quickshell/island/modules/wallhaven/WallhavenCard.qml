@@ -15,6 +15,8 @@ Item {
     required property int views
     required property string purity
     required property bool installed
+    required property bool library
+    required property string name
     readonly property bool selected: WallhavenService.selectedId === wid
     readonly property bool keyboardFocus: GridView.isCurrentItem && GridView.view.activeFocus
     signal activated()
@@ -60,14 +62,18 @@ Item {
                 UiText {
                     anchors.left: parent.left
                     anchors.leftMargin: 10
+                    anchors.right: root.library ? parent.right : undefined
+                    anchors.rightMargin: 10
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 7
-                    text: root.resolution
+                    text: root.library ? root.name : root.resolution
+                    elide: Text.ElideMiddle
                     color: "#ffffff"
                     font.pixelSize: 11
                     font.weight: Font.DemiBold
                 }
                 Row {
+                    visible: !root.library
                     anchors.right: parent.right
                     anchors.rightMargin: 10
                     anchors.bottom: parent.bottom

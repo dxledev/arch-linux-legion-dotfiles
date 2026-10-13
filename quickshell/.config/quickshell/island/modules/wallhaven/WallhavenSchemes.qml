@@ -44,6 +44,8 @@ Column {
                         required property var modelData
                         readonly property var palette: modelData.kind === "aether"
                             ? WallhavenService.previews[WallhavenService.previewMode + ":" + modelData.id] ?? null : null
+                        readonly property bool stored: modelData.kind === "aether"
+                            && WallhavenService.hasStored(modelData.id, WallhavenService.previewMode)
                         readonly property bool selected: WallhavenService.selectedKind === modelData.kind
                             && WallhavenService.selectedScheme === modelData.id
                         objectName: "wallhaven-scheme-" + modelData.id
@@ -62,12 +64,22 @@ Column {
                             id: name
                             x: 12
                             y: 9
-                            width: parent.width - 24
+                            width: parent.width - 24 - (card.stored ? 20 : 0)
                             text: card.modelData.label
                             color: Theme.textPrimary
                             font.pixelSize: 13
                             font.weight: card.selected ? Font.DemiBold : Font.Medium
                             elide: Text.ElideRight
+                        }
+                        // Already generated for this library wallpaper (in the previewed light or dark mode).
+                        SvgIcon {
+                            objectName: "wallhaven-scheme-stored"
+                            visible: card.stored
+                            x: parent.width - 12 - width
+                            y: 9
+                            source: "../assets/icons/check.svg"
+                            size: 14
+                            color: Theme.accent
                         }
                         Row {
                             id: strip

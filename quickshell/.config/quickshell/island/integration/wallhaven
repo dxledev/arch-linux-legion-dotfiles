@@ -17,7 +17,9 @@ Usage:
   wallhaven collection USER ID [PAGE [cache]]
   wallhaven thumbs JSON              (cache thumbnails on disk, one {id,path} line each)
   wallhaven prepare ID [URL]         (download the full image into the cache)
-  wallhaven install ID [URL]         (move it into the Dynamic wallpaper library)
+  wallhaven install ID [URL [NAME]]  (move it into the Dynamic wallpaper library)
+  wallhaven rename-file PATH NAME    (rename a library wallpaper, keeping its extension)
+  wallhaven library                  (list the Dynamic wallpaper library)
   wallhaven previews PATH dark|light (one line per scheme)
   wallhaven preview PATH SCHEME dark|light
   wallhaven palette-file PATH SCHEME dark|light OUT.toml
@@ -339,17 +341,122 @@ def normalize_meta(meta):
             "seed": meta.get("seed") or "", "query": query or ""}
 
 
+WALLPAPER_ID_RE = r"[A-Za-z0-9]{4,12}"
+ID_XATTR = "user.wallhaven.id"
+IDS_FILE = os.path.join(STATE_DIR, "wallhaven-ids.json")   # sidecar index: id -> library file name
+IDS_LOCK = os.path.join(STATE_DIR, "wallhaven-ids.lock")
+
+
+def name_id(name):
+    """The id from a `wallhaven-<id>.<ext>` file name, or ""."""
+    match = re.fullmatch(r"wallhaven-(%s)\.(?:jpe?g|png|webp)" % WALLPAPER_ID_RE, name)
+    return match.group(1) if match else ""
+
+
+def xattr_id(path):
+    """The id recorded on the file by tag_id, or "" (also when the filesystem has no user xattrs)."""
+    try:
+        value = os.getxattr(path, ID_XATTR, follow_symlinks=False).decode("ascii")
+    except (OSError, AttributeError, UnicodeDecodeError):
+        return ""
+    return value if re.fullmatch(WALLPAPER_ID_RE, value) else ""
+
+
+def in_library(path):
+    """Whether path sits directly in the Dynamic library (not in a subfolder, nor outside it)."""
+    return os.path.dirname(os.path.normpath(path)) == os.path.normpath(DYNAMIC_DIR)
+
+
+def index_load():
+    """The sidecar id index as {id: library file name}. Read-only; anything unreadable or malformed counts as empty."""
+    ids = read_json(IDS_FILE).get("ids")
+    if not isinstance(ids, dict):
+        return {}
+    return {k: v for k, v in ids.items()
+            if isinstance(k, str) and re.fullmatch(WALLPAPER_ID_RE, k) and isinstance(v, str)
+            and v == os.path.basename(v) and not v.startswith(".")}
+
+
+def index_update(mutator):
+    """Edits the sidecar id index under a lock, then drops entries whose file is gone. Best effort: returns False instead of raising."""
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(IDS_LOCK, "a") as lock:
+            deadline = time.time() + 1.5
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.time() > deadline:
+                        return False
+                    time.sleep(0.05)
+            index = index_load()
+            mutator(index)
+            for wallpaper_id, name in list(index.items()):
+                if not os.path.isfile(os.path.join(DYNAMIC_DIR, name)):
+                    del index[wallpaper_id]
+            private_write(IDS_FILE, {"version": 1, "ids": index})
+        return True
+    except Exception:  # best effort: the index must never fail an install or a rename
+        return False
+
+
+def tag_id(path, wallpaper_id):
+    """Records the wallpaper id on the file (xattr) and in the sidecar index so a rename keeps it recognised.
+    Best effort: returns False if neither could be written."""
+    if not re.fullmatch(WALLPAPER_ID_RE, wallpaper_id or ""):
+        return False
+    tagged = False
+    try:
+        os.setxattr(path, ID_XATTR, wallpaper_id.encode("ascii"), follow_symlinks=False)
+        tagged = True
+    except (OSError, AttributeError):
+        pass
+    if in_library(path):
+        name = os.path.basename(path)
+
+        def record(index):
+            for other in [k for k, v in index.items() if v == name and k != wallpaper_id]:
+                del index[other]
+            index[wallpaper_id] = name
+        tagged = index_update(record) or tagged
+    return tagged
+
+
+def file_id(path):
+    """The wallpaper id of a library file: its xattr first, then its `wallhaven-<id>` name, then the sidecar index, else ""."""
+    name = os.path.basename(path)
+    indexed = ""
+    if in_library(path):
+        indexed = next((k for k, v in index_load().items() if v == name), "")
+    return xattr_id(path) or name_id(name) or indexed
+
+
+def installed_paths():
+    """Dynamic library files by wallpaper id (top level only), found by name, by their xattr tag, then by the sidecar index."""
+    found = {}
+    try:
+        names = sorted(os.listdir(DYNAMIC_DIR))
+    except OSError:
+        return found
+    for name in names:
+        path = os.path.join(DYNAMIC_DIR, name)
+        if name.startswith(".") or not os.path.isfile(path):
+            continue
+        for wallpaper_id in (name_id(name), xattr_id(path)):
+            if wallpaper_id:
+                found.setdefault(wallpaper_id, path)
+    for wallpaper_id, name in index_load().items():
+        path = os.path.join(DYNAMIC_DIR, name)
+        if os.path.isfile(path):
+            found.setdefault(wallpaper_id, path)
+    return found
+
+
 def installed_ids():
     """Wallpaper ids already in the Dynamic library, so results can show an "In library" badge."""
-    found = set()
-    try:
-        for name in os.listdir(DYNAMIC_DIR):
-            match = re.fullmatch(r"wallhaven-([A-Za-z0-9]{4,12})\.(?:jpe?g|png|webp)", name)
-            if match:
-                found.add(match.group(1))
-    except OSError:
-        pass
-    return found
+    return set(installed_paths())
 
 
 def mark_installed(items):
@@ -514,13 +621,48 @@ def command_collection(args):
 # ---------------------------------------------------------------- images
 
 def find_existing(wallpaper_id):
-    for directory in (DYNAMIC_DIR, IMAGE_DIR):
-        if os.path.isdir(directory):
-            for ext in ("jpg", "jpeg", "png", "webp"):
-                candidate = os.path.join(directory, "wallhaven-%s.%s" % (wallpaper_id, ext))
-                if os.path.isfile(candidate):
-                    return candidate
+    installed = installed_paths().get(wallpaper_id, "")
+    if installed:
+        return installed
+    if os.path.isdir(IMAGE_DIR):
+        for ext in ("jpg", "jpeg", "png", "webp"):
+            candidate = os.path.join(IMAGE_DIR, "wallhaven-%s.%s" % (wallpaper_id, ext))
+            if os.path.isfile(candidate):
+                return candidate
     return ""
+
+
+def clean_stem(value, extension=""):
+    """A wallpaper name without surrounding space, a repeated extension, or characters unsafe in a file name."""
+    try:
+        stem = str(value).strip()
+        if extension and stem.lower().endswith(extension.lower()) and len(stem) > len(extension):
+            stem = stem[:-len(extension)].strip()
+        if not stem:
+            fail("Enter a name for the wallpaper.")
+        if "/" in stem or stem.startswith("."):
+            fail("Names cannot contain / or start with a dot.")
+        if re.search(r"[\x00-\x1f\x7f-\x9f]", stem):
+            fail("Names cannot contain control characters.")
+        if len(stem.encode("utf-8")) > 200:
+            fail("Names must be 200 bytes or fewer.")
+    except UnicodeEncodeError:
+        fail("Names must be valid UTF-8 text.")
+    return stem
+
+
+def move_without_clobber(source, destination):
+    """Gives source the name destination without replacing anything there; source is gone afterwards."""
+    try:
+        os.link(source, destination, follow_symlinks=False)
+    except FileExistsError:
+        fail("A wallpaper named %s already exists." % os.path.basename(destination))
+    except OSError:
+        if os.path.lexists(destination):
+            fail("A wallpaper named %s already exists." % os.path.basename(destination))
+        os.replace(source, destination)
+        return
+    os.unlink(source)
 
 
 def download(url, destination_dir, wallpaper_id):
@@ -581,7 +723,7 @@ def command_prepare(args):
 
 
 def command_install(args):
-    if not 1 <= len(args) <= 2 or not re.fullmatch(r"[A-Za-z0-9]{4,12}", args[0]):
+    if not 1 <= len(args) <= 3 or not re.fullmatch(r"[A-Za-z0-9]{4,12}", args[0]):
         fail("install requires a wallpaper id.")
     existing = find_existing(args[0])
     if existing and not existing.startswith(IMAGE_DIR + os.sep):
@@ -590,20 +732,96 @@ def command_install(args):
     source = existing
     if not source:
         source = download(image_url(args[0], args[1] if len(args) > 1 else ""), IMAGE_DIR, args[0])
+    extension = os.path.splitext(source)[1]
+    name = args[2] if len(args) > 2 else ""
+    stem = clean_stem(name, extension) if name else os.path.splitext(os.path.basename(source))[0]
     os.makedirs(DYNAMIC_DIR, exist_ok=True)
-    destination = os.path.join(DYNAMIC_DIR, os.path.basename(source))
-    # Copy next to the destination first so the final rename is atomic and never exposes a partial file.
+    destination = os.path.join(DYNAMIC_DIR, stem + extension)
+    # Copy next to the destination first so the final link is atomic and never exposes a partial file.
     handle, temporary = tempfile.mkstemp(prefix=".wallhaven-", dir=DYNAMIC_DIR)
     os.close(handle)
     try:
         shutil.copyfile(source, temporary)
         os.chmod(temporary, 0o644)
-        os.replace(temporary, destination)
+        move_without_clobber(temporary, destination)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+    tag_id(destination, args[0])
     os.unlink(source)
     emit({"id": args[0], "path": destination, "installed": True})
+
+
+def command_rename_file(args):
+    if len(args) != 2 or not os.path.isabs(args[0]) or not os.path.isfile(args[0]):
+        fail("rename-file requires an existing wallpaper path and a new name.")
+    path = args[0]
+    directory, name = os.path.split(path)
+    extension = os.path.splitext(name)[1]
+    destination = os.path.join(directory, clean_stem(args[1], extension) + extension)
+    if destination == path:
+        emit({"path": path, "unchanged": True})
+        return
+    # Tag first so the id survives the rename even on a file that was only known by its name.
+    wallpaper_id = file_id(path)
+    if wallpaper_id:
+        tag_id(path, wallpaper_id)
+    move_without_clobber(path, destination)
+    if in_library(path):
+        old_name, new_name = os.path.basename(path), os.path.basename(destination)
+
+        def follow_rename(index):
+            # The destination did not exist before the move, so any entry already naming it is stale.
+            for key, value in list(index.items()):
+                if value == new_name:
+                    del index[key]
+            for key, value in list(index.items()):
+                if value == old_name:
+                    index[key] = new_name
+            if wallpaper_id:
+                index.setdefault(wallpaper_id, new_name)
+        index_update(follow_rename)
+    emit({"path": destination})
+
+
+LIBRARY_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def library_sort_key(path):
+    return [int(t) if t.isdecimal() else t.lower() for t in re.split(r"(\d+)", path)]
+
+
+def command_library(args):
+    if args:
+        fail("library accepts no arguments.")
+    root = os.path.realpath(DYNAMIC_DIR)
+    if not os.path.isdir(root):
+        emit({"data": [], "directory": root})
+        return
+    paths = []
+    for directory, dirnames, filenames in os.walk(root, followlinks=True):
+        for name in filenames:
+            path = os.path.join(directory, name)
+            if name.startswith(".") or os.path.splitext(name)[1].lower() not in LIBRARY_EXTENSIONS:
+                continue
+            if os.path.isfile(path):
+                paths.append(path)
+    items = []
+    for path in sorted(paths, key=library_sort_key):
+        width = height = 0
+        try:
+            from PIL import Image
+            with Image.open(path) as image:
+                width, height = image.size
+        except Exception:
+            width = height = 0
+        items.append({
+            "id": path, "path": path, "name": os.path.basename(path),
+            "resolution": "%dx%d" % (width, height) if width and height else "",
+            "width": width, "height": height, "fileSize": os.path.getsize(path),
+            "fileType": os.path.splitext(path)[1][1:].lower(),
+        })
+    emit({"data": items, "directory": root})
 
 
 def prune_cache():
@@ -873,6 +1091,7 @@ COMMANDS = {
     "config": command_config, "save-config": command_save_config, "set-key": command_set_key,
     "search": command_search, "info": command_info, "collections": command_collections,
     "collection": command_collection, "thumbs": command_thumbs, "prepare": command_prepare, "install": command_install,
+    "rename-file": command_rename_file, "library": command_library,
     "previews": command_previews, "preview": command_preview, "palette-file": command_palette_file,
     "schemes": command_schemes,
 }

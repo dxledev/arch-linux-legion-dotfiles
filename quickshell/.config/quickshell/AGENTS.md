@@ -23,3 +23,10 @@
   `shared/notifications/README.md`; do not add a per-shell history file.
 - New shells load it at startup, append received non-transient notifications,
   and remove or clear records when the user does.
+
+# Shared Dynamic wallpapers
+
+- Caelestia, Island and Noctalia use one Dynamic wallpaper folder but each remembers
+  its own applied wallpaper. Anything that renames or deletes a Dynamic wallpaper must
+  call `shared/wallpapers/relink` so the other shells' references follow. Follow
+  `shared/wallpapers/README.md`; always pass the state root explicitly.

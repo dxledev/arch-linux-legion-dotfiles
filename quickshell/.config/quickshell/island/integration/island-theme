@@ -14,12 +14,13 @@ awww_bin="${ISLAND_AWWW_BIN:-/usr/bin/awww}"
 awww_daemon="${ISLAND_AWWW_DAEMON:-/usr/bin/awww-daemon}"
 pgrep_bin="${ISLAND_PGREP_BIN:-/usr/bin/pgrep}"
 wallhaven_helper="${ISLAND_WALLHAVEN_HELPER:-$script_dir/wallhaven}"
+wallpaper_relink="${ISLAND_WALLPAPER_RELINK:-$script_dir/../../shared/wallpapers/relink}"
 dry_run=0
 
 source "$script_dir/theme-functions"
 
 usage() {
-    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|delete-wallpapers PATH...|next|previous|mode light|dark|variant NAME|aether-list|aether-select wh-SCHEME light|dark|wallpaper-palette PATH aether|material SCHEME light|dark|setting KEY VALUE\n'
+    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|delete-wallpapers PATH...|rename-wallpaper PATH STEM|next|previous|mode light|dark|variant NAME|aether-list [PATH]|aether-select wh-SCHEME light|dark|wallpaper-palette PATH aether|material SCHEME light|dark|setting KEY VALUE\n'
 }
 
 fail() {
@@ -205,7 +206,28 @@ wallpaper_palette() {
         engine set-variant "$scheme"
     fi
     apply_awww "$path" 0
+    # The engine may have just switched from a static theme; reload applications for Dynamic, not the old source.
+    source_name=dynamic
     reload_applications
+}
+
+# Caelestia and Noctalia keep their own references to Dynamic wallpapers; when a file is renamed or replaced they
+# are repointed in the state directories next to Island's own. The file operation has already happened, so
+# problems here are warnings and never fail the command.
+relink_wallpaper() {
+    local old="$1" new="$2" mode="${3:-}" root="${state_dir%/*}"
+    local -a flags=()
+    [[ "$mode" != replaced ]] || flags=(--replaced)
+    # A running Noctalia only adopts the edited settings.toml when asked, so give relink its binary (never a default there).
+    local noctalia="${NOCTALIA_BIN:-$config_home/noctalia/.runtime/bin/noctalia}"
+    [[ ! -x "$noctalia" ]] || flags+=(--noctalia-bin "$noctalia")
+    [[ "$theme_key" == dynamic && "$old" != "$new" ]] || return 0
+    if (( dry_run )); then
+        printf 'Island dynamic relink: %s -> %s\n' "$old" "$new"
+        return 0
+    fi
+    [[ -x "$wallpaper_relink" ]] || return 0
+    "$wallpaper_relink" "${flags[@]}" --state-root "$root" "$old" "$new" >/dev/null || printf 'island-theme: could not update other shells for %s\n' "${old##*/}" >&2
 }
 
 # Removes wallpapers from the active theme directory. When the applied wallpaper is among them, a random
@@ -213,7 +235,7 @@ wallpaper_palette() {
 delete_wallpapers() {
     local -a entries=() remaining=()
     local -A doomed=() doomed_real=()
-    local path entry current replacement=""
+    local path entry current replacement="" survivor
     (( $# )) || fail 'delete-wallpapers requires at least one path.'
     mapfile -d '' -t entries < <(scan_wallpapers)
     for path in "$@"; do
@@ -240,10 +262,77 @@ delete_wallpapers() {
     if (( dry_run )); then
         printf 'Island %s delete: %s\n' "$theme_key" "${!doomed[*]}"
         [[ -z "$replacement" ]] || printf 'Island %s wallpaper: %s\n' "$theme_key" "$(/usr/bin/readlink -f -- "$replacement")"
+        survivor="${replacement:-$current}"
+        for entry in "${!doomed[@]}"; do relink_wallpaper "$entry" "$survivor" replaced; done
         return
     fi
     [[ -z "$replacement" ]] || apply_selection "$replacement"
+    # Other shells that remembered a deleted wallpaper move to the one Island now shows.
+    survivor="$(selected_wallpaper)"
+    for entry in "${!doomed[@]}"; do relink_wallpaper "$entry" "$survivor" replaced; done
     for entry in "${!doomed[@]}"; do /usr/bin/rm -f -- "$entry"; done
+}
+
+# Renames a wallpaper in the active theme directory, keeping its extension. The helper validates the name and
+# performs the rename; the applied wallpaper and every theme's remembered wallpaper follow the new path.
+rename_wallpaper() {
+    (( $# == 2 )) || fail 'rename-wallpaper requires a path and a name.'
+    local path="$1" stem="$2" entry base extension directory new output status=0 message was_selected=0 current matched=0
+    local -a entries=()
+    mapfile -d '' -t entries < <(scan_wallpapers)
+    for entry in "${entries[@]}"; do
+        if [[ "$entry" == "$path" ]]; then matched=1; break; fi
+    done
+    (( matched )) || fail 'No matching wallpaper to rename.'
+    # Other shells and the lock screen read the theme's shared wallpaper.png link, which Island never rewrites.
+    if [[ "$theme_key" != dynamic && -L "$themes_dir/$static_theme/wallpaper.png" ]]; then
+        local shared
+        shared="$(/usr/bin/readlink -f -- "$themes_dir/$static_theme/wallpaper.png")"
+        [[ "$shared" != "$(/usr/bin/readlink -f -- "$path")" ]] || fail "${path##*/} is the $static_theme theme's default wallpaper and is shared with other shells."
+    fi
+    base="${path##*/}"
+    directory="${path%/*}"
+    extension=""
+    [[ "$base" != *.* ]] || extension=".${base##*.}"
+    new="$directory/$stem$extension"
+    if (( dry_run )); then
+        printf 'Island %s rename: %s -> %s\n' "$theme_key" "$path" "$new"
+        relink_wallpaper "$path" "$new"
+        return
+    fi
+    current="$(selected_wallpaper)"
+    # Island stores the resolved file, so renaming a link to it changes nothing about the stored selection.
+    if [[ -L "$path" ]]; then
+        [[ "$current" != "$path" ]] || was_selected=1
+    elif [[ "$current" == "$path" || "$(/usr/bin/readlink -f -- "$current")" == "$(/usr/bin/readlink -f -- "$path")" ]]; then
+        was_selected=1
+    fi
+    output="$("$wallhaven_helper" rename-file "$path" "$stem")" || status=$?
+    if (( status )); then
+        message="$(/usr/bin/jq -r '.error // empty' <<< "$output" 2>/dev/null || true)"
+        fail "${message:-Could not rename the wallpaper.}"
+    fi
+    new="$(/usr/bin/jq -r .path <<< "$output")"
+    # Each theme remembers its own wallpaper, so any entry that names the old file moves to the new one.
+    if [[ -r "$wallpapers_file" ]]; then
+        write_json "$wallpapers_file" "$(/usr/bin/jq -c --arg old "$path" --arg new "$new" \
+            'to_entries | map(if .value == $old then .value = $new else . end) | from_entries' "$wallpapers_file")"
+    fi
+    if (( was_selected )); then save_wallpaper "$new"; fi
+    relink_wallpaper "$path" "$new"
+}
+
+aether_list() {
+    if (( $# == 0 )); then
+        if [[ "$theme_key" == dynamic ]]; then engine list-aether; else printf '[]\n'; fi
+        return
+    fi
+    (( $# == 1 )) || fail 'aether-list accepts at most a wallpaper path.'
+    local path="$1" real
+    [[ "$path" == /* && -f "$path" ]] || fail "Wallpaper unavailable: $path"
+    real="$(/usr/bin/readlink -f -- "$path")"
+    [[ "$real" == "$(/usr/bin/readlink -f -- "$dynamic_directory")/"* ]] || fail 'Wallpaper must belong to the Dynamic wallpaper library.'
+    engine list-aether "$real"
 }
 
 main() {
@@ -293,6 +382,7 @@ main() {
             fi
             ;;
         delete-wallpapers) delete_wallpapers "$@" ;;
+        rename-wallpaper) rename_wallpaper "$@" ;;
         wallpaper) (( $# == 1 )) || fail 'wallpaper requires one path.'; apply_selection "$1" ;;
         next|previous) (( $# == 0 )) || fail 'No arguments expected.'; if [[ "$action" == next ]]; then step_wallpaper 1; else step_wallpaper -1; fi ;;
         mode|variant)
@@ -301,10 +391,7 @@ main() {
             engine "set-$action" "$1"
             reload_applications
             ;;
-        aether-list)
-            (( $# == 0 )) || fail 'aether-list accepts no arguments.'
-            if [[ "$theme_key" == dynamic ]]; then engine list-aether; else printf '[]\n'; fi
-            ;;
+        aether-list) aether_list "$@" ;;
         aether-select) (( $# == 2 )) || fail 'aether-select requires a style and a mode.'; aether_select "$1" "$2" ;;
         wallpaper-palette) (( $# == 4 )) || fail 'wallpaper-palette requires a path, kind, scheme and mode.'; wallpaper_palette "$1" "$2" "$3" "$4" ;;
         setting) (( $# == 2 )) || fail 'setting requires a key and value.'; save_setting "$1" "$2" ;;

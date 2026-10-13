@@ -25,6 +25,7 @@ SongInfo 1.0 SongInfo.qml
 StatusChip 1.0 StatusChip.qml
 SvgIcon 1.0 SvgIcon.qml
 ThemeCard 1.0 ThemeCard.qml
+RenameField 1.0 RenameField.qml
 SearchField 1.0 SearchField.qml
 WallpaperCard 1.0 WallpaperCard.qml
 WaveformProgress 1.0 WaveformProgress.qml

@@ -34,7 +34,7 @@ variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral ra
 style_name=""
 
 usage() {
-    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [--style STYLE] [COLORS]|list-aether|set-aether-variant STYLE light|dark|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
+    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [--style STYLE] [COLORS]|list-aether [WALLPAPER]|set-aether-variant STYLE light|dark|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
 }
 
 fail() {
@@ -926,8 +926,8 @@ case "$command_name" in
         fi
         ;;
     list-aether)
-        (( $# == 0 )) || { usage >&2; exit 2; }
-        list_aether_palettes ""
+        (( $# <= 1 )) || { usage >&2; exit 2; }
+        list_aether_palettes "${1:-}"
         ;;
     set-aether-variant)
         [[ $# == 2 && ( "$2" == light || "$2" == dark ) ]] || { usage >&2; exit 2; }

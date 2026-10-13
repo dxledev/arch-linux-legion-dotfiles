@@ -134,6 +134,94 @@ installed="$("$helper" install abc123)"
 path="$(/usr/bin/jq -r .path <<< "$installed")"
 [[ "$path" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/wallhaven-abc123.png" && -f "$path" && ! -e "$cached" ]] || { printf 'FAIL: install moves the image into the Dynamic library\n' >&2; exit 1; }
 [[ "$(/usr/bin/sha256sum "$path" | /usr/bin/cut -d' ' -f1)" == "$hash_before" ]] || { printf 'FAIL: the stored palette key is the installed file hash\n' >&2; exit 1; }
+
+# Renames keep the wallpaper id (in an xattr), so a renamed wallpaper stays installed; custom names never clobber.
+library_dir="$ISLAND_DYNAMIC_WALLPAPERS_DIR"
+ids_file="$ISLAND_STATE_DIR/wallhaven-ids.json"
+xattr_ok=1
+python3 -c 'import os, sys; open(sys.argv[1], "w").close(); os.setxattr(sys.argv[1], "user.wallhaven.id", b"abc123")' "$test_root/xattr-probe" 2>/dev/null || xattr_ok=0
+/usr/bin/rm -f "$test_root/xattr-probe"
+(( xattr_ok )) || printf 'SKIP: user xattrs are unsupported here; the renamed-wallpaper id check is skipped\n'
+renamed="$("$helper" rename-file "$path" "Cool Name")"
+renamed_path="$(/usr/bin/jq -r .path <<< "$renamed")"
+[[ "$renamed_path" == "$library_dir/Cool Name.png" && -f "$renamed_path" && ! -e "$path" ]] || { printf 'FAIL: rename-file renames the library wallpaper\n' >&2; exit 1; }
+jq_ok 'the sidecar index follows a rename' '.ids.abc123 == "Cool Name.png" and ([.ids[] | select(. == "wallhaven-abc123.png")] | length) == 0' "$(< "$ids_file")"
+jq_ok 'typing the extension again does not double it' '.unchanged == true and .path == "'"$renamed_path"'"' "$("$helper" rename-file "$renamed_path" "Cool Name.PNG")"
+if (( xattr_ok )); then
+    jq_ok 'a renamed wallpaper is still installed under its id' '.installed == true and (.path | endswith("/Cool Name.png"))' "$("$helper" prepare abc123)"
+fi
+python3 - "$renamed_path" <<'PY'
+import os, sys
+try:
+    os.removexattr(sys.argv[1], "user.wallhaven.id")
+except OSError:
+    pass
+PY
+jq_ok 'without its xattr a renamed wallpaper is still installed through the index' '.installed == true and (.path | endswith("/Cool Name.png"))' "$("$helper" prepare abc123)"
+printf 'taken\n' > "$library_dir/Taken.png"
+status=0; clash="$("$helper" rename-file "$renamed_path" "Taken")" || status=$?
+[[ "$status" == 1 ]] || { printf 'FAIL: renaming onto an existing file must exit 1 (got %s)\n' "$status" >&2; exit 1; }
+jq_ok 'the refused rename says the name is taken' '.error | contains("already exists")' "$clash"
+[[ -f "$renamed_path" && "$(< "$library_dir/Taken.png")" == taken ]] || { printf 'FAIL: a refused rename leaves both files intact\n' >&2; exit 1; }
+for bad in "a/b" ".hidden" "." ".." "   " ""; do
+    status=0; "$helper" rename-file "$renamed_path" "$bad" >/dev/null 2>&1 || status=$?
+    [[ "$status" == 1 ]] || { printf 'FAIL: rename-file rejects the name %q\n' "$bad" >&2; exit 1; }
+done
+jq_ok 'slashes are explained' '.error | contains("/")' "$("$helper" rename-file "$renamed_path" "a/b" 2>/dev/null || true)"
+[[ -f "$renamed_path" ]] || { printf 'FAIL: rejected names must not move the wallpaper\n' >&2; exit 1; }
+
+# A download can be installed under a custom name; the id is recorded, and a colliding name is refused.
+hint_base="${ISLAND_WALLHAVEN_API%/api/v1}/full"
+"$helper" prepare xyz789 "$hint_base/wallhaven-xyz789.png" >/dev/null
+custom="$("$helper" install xyz789 "" "Custom Name")"
+custom_path="$(/usr/bin/jq -r .path <<< "$custom")"
+jq_ok 'install takes a custom name and keeps the extension' '.installed == true and (.path | endswith("/Custom Name.png"))' "$custom"
+[[ -f "$custom_path" && ! -e "$ISLAND_WALLHAVEN_CACHE_DIR/images/wallhaven-xyz789.png" ]] || { printf 'FAIL: custom-named installs move the download into the library\n' >&2; exit 1; }
+jq_ok 'the sidecar index records a custom-named install' '.ids.xyz789 == "Custom Name.png"' "$(< "$ids_file")"
+"$helper" prepare qwe456 "$hint_base/wallhaven-qwe456.png" >/dev/null
+status=0; clash="$("$helper" install qwe456 "" "Custom Name")" || status=$?
+[[ "$status" == 1 ]] || { printf 'FAIL: a colliding install name must be refused (got %s)\n' "$status" >&2; exit 1; }
+jq_ok 'the refused install says the name is taken' '.error | contains("already exists")' "$clash"
+[[ -f "$ISLAND_WALLHAVEN_CACHE_DIR/images/wallhaven-qwe456.png" && -f "$custom_path" ]] || { printf 'FAIL: a refused install keeps the download and the existing wallpaper\n' >&2; exit 1; }
+[[ -z "$(/usr/bin/find "$library_dir" -maxdepth 1 -name '.wallhaven-*')" ]] || { printf 'FAIL: refused installs leave no temporary file\n' >&2; exit 1; }
+/usr/bin/rm -f -- "$library_dir/Taken.png" "$custom_path" "$ISLAND_WALLHAVEN_CACHE_DIR/images/wallhaven-qwe456.png"
+"$helper" rename-file "$renamed_path" wallhaven-abc123 >/dev/null
+[[ -f "$path" && ! -e "$renamed_path" ]] || { printf 'FAIL: renaming back restores the original name\n' >&2; exit 1; }
+jq_ok 'index entries for deleted files are pruned on the next write' '(.ids | has("xyz789") | not) and .ids.abc123 == "wallhaven-abc123.png"' "$(< "$ids_file")"
+
+# The sidecar index is only a fallback: with it garbled and the xattrs gone, names still work and the next install rewrites it.
+printf 'not json{\n' > "$ids_file"
+python3 - "$library_dir" <<'PY'
+import os, sys
+for name in os.listdir(sys.argv[1]):
+    try:
+        os.removexattr(os.path.join(sys.argv[1], name), "user.wallhaven.id", follow_symlinks=False)
+    except OSError:
+        pass
+PY
+jq_ok 'prepare finds a name-tagged wallpaper with a garbled index and no xattr' '.installed == true and (.path | endswith("/wallhaven-abc123.png"))' "$("$helper" prepare abc123)"
+"$helper" prepare gar111 "$hint_base/wallhaven-gar111.png" >/dev/null
+jq_ok 'install still works with a garbled index' '.installed == true and (.path | endswith("/wallhaven-gar111.png"))' "$("$helper" install gar111)"
+jq_ok 'the next index write replaces the garbled file' '.version == 1 and (.ids | has("gar111"))' "$(< "$ids_file")"
+/usr/bin/rm -f -- "$library_dir/wallhaven-gar111.png"
+
+# A symlinked wallpaper is renamed as the link: the target keeps its bytes and gets no id tag.
+link_target="$test_root/link-target.png"
+/usr/bin/cp "$test_root/source.png" "$link_target"
+target_hash="$(/usr/bin/sha256sum "$link_target" | /usr/bin/cut -d' ' -f1)"
+link="$library_dir/wallhaven-lnk123.png"
+/usr/bin/ln -s "$link_target" "$link"
+linked="$("$helper" rename-file "$link" "Linked Wall")"
+linked_path="$(/usr/bin/jq -r .path <<< "$linked")"
+[[ "$linked_path" == "$library_dir/Linked Wall.png" && -L "$linked_path" && "$(/usr/bin/readlink -- "$linked_path")" == "$link_target" && ! -L "$link" ]] || { printf 'FAIL: rename-file renames a symlink as a link\n' >&2; exit 1; }
+[[ "$(/usr/bin/sha256sum "$link_target" | /usr/bin/cut -d' ' -f1)" == "$target_hash" ]] || { printf 'FAIL: renaming a link leaves its target untouched\n' >&2; exit 1; }
+if (( xattr_ok )) && ! python3 -c 'import os, sys; sys.exit("user.wallhaven.id" in os.listxattr(sys.argv[1]))' "$link_target"; then printf 'FAIL: renaming a link must not tag its target\n' >&2; exit 1; fi
+jq_ok 'a renamed link stays installed through the index' '.installed == true and (.path | endswith("/Linked Wall.png"))' "$("$helper" prepare lnk123)"
+printf 'taken\n' > "$library_dir/Linked Taken.png"
+status=0; "$helper" rename-file "$linked_path" "Linked Taken" >/dev/null 2>&1 || status=$?
+[[ "$status" == 1 && -L "$linked_path" && "$(/usr/bin/readlink -- "$linked_path")" == "$link_target" ]] || { printf 'FAIL: renaming a link onto an existing name is refused and keeps the link\n' >&2; exit 1; }
+/usr/bin/rm -f -- "$library_dir/Linked Taken.png" "$linked_path"
+
 for scheme in pastel candy; do
     "$helper" palette-file "$path" "$scheme" light "$test_root/$scheme.toml" >/dev/null
     check "$scheme colors.toml is a complete palette" /usr/bin/grep -q '^color15 = "#' "$test_root/$scheme.toml"
@@ -143,6 +231,16 @@ jq_ok 'Pastel leads the scheme list and Island adds its own' '.[0].id == "pastel
 if "$helper" palette-file "$path" 'bad;scheme' dark "$test_root/x.toml" >/dev/null 2>&1; then printf 'FAIL: unknown schemes are rejected\n' >&2; exit 1; fi
 previews="$("$helper" previews "$path" dark | /usr/bin/jq -s 'map(select(.error == null)) | length')"
 (( previews >= 25 )) || { printf 'FAIL: previews stream every scheme (%s)\n' "$previews" >&2; exit 1; }
+
+# ---- Dynamic library listing --------------------------------------------------------------------
+library="$("$helper" library)"
+jq_ok 'library lists the Dynamic images with their paths' '(.data | length) >= 1 and all(.data[]; .id == .path and (.path | startswith("/")) and (.name | length) > 0)' "$library"
+jq_ok 'library lists plain.png with its size and type' '(.data[] | select(.name == "plain.png") | .width == 8 and .height == 8 and .resolution == "8x8" and .fileType == "png" and .fileSize > 0)' "$library"
+printf 'not an image\n' > "$ISLAND_DYNAMIC_WALLPAPERS_DIR/notes.txt"
+library="$("$helper" library)"
+/usr/bin/rm -f "$ISLAND_DYNAMIC_WALLPAPERS_DIR/notes.txt"
+jq_ok 'library skips non-image files' 'all(.data[]; .name != "notes.txt")' "$library"
+if "$helper" library extra >/dev/null 2>&1; then printf 'FAIL: library takes no arguments\n' >&2; exit 1; fi
 
 # ---- island-theme integration -------------------------------------------------------------------
 "$controller" --dry-run wallpaper-palette "$path" aether pastel dark | /usr/bin/grep -q 'wh-\|pastel' || { printf 'FAIL: dry run describes the palette\n' >&2; exit 1; }
@@ -187,5 +285,27 @@ jq_ok 'other wallpapers have no generated palettes' '. == []' "$("$controller" a
 jq_ok 'static themes list none' '. == []' "$("$controller" aether-list)"
 if "$controller" aether-select wh-pastel dark >> "$test_root/theme.log" 2>&1; then printf 'FAIL: aether-select needs the Dynamic theme\n' >&2; exit 1; fi
 if "$controller" aether-select 'bad;style' dark >> "$test_root/theme.log" 2>&1; then printf 'FAIL: aether-select validates the style\n' >&2; exit 1; fi
+
+# A Material variant applied from a static theme also moves into the Dynamic library and switches theme.
+"$controller" theme nord >> "$test_root/theme.log" 2>&1
+jq_ok 'precondition: static theme again' '.source == "system"' "$("$controller" status)"
+# Applications must be reloaded for Dynamic, not for the static theme the apply started from.
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/theme-apply.log"\n' "$test_root" > "$test_root/theme-apply-stub"
+/usr/bin/chmod +x "$test_root/theme-apply-stub"
+THEME_APPLY="$test_root/theme-apply-stub" THEME_APPLY_ACTIVATE_ONLY=0 "$controller" wallpaper-palette "$path" material vibrant dark >> "$test_root/theme.log" 2>&1
+[[ "$(/usr/bin/tail -1 "$test_root/theme-apply.log")" == "dynamic island" ]] || { printf 'FAIL: Material from static reloads applications for Dynamic (got %s)\n' "$(/usr/bin/tail -1 "$test_root/theme-apply.log")" >&2; exit 1; }
+"$controller" theme nord >> "$test_root/theme.log" 2>&1
+THEME_APPLY="$test_root/theme-apply-stub" THEME_APPLY_ACTIVATE_ONLY=0 "$controller" wallpaper-palette "$path" aether pastel dark >> "$test_root/theme.log" 2>&1
+[[ "$(/usr/bin/tail -1 "$test_root/theme-apply.log")" == "dynamic island" ]] || { printf 'FAIL: Aether from static reloads applications for Dynamic (got %s)\n' "$(/usr/bin/tail -1 "$test_root/theme-apply.log")" >&2; exit 1; }
+"$controller" wallpaper-palette "$path" material vibrant dark >> "$test_root/theme.log" 2>&1
+jq_ok 'Material from a static theme switches to Dynamic' '.source == "dynamic" and .provider == "caelestia" and .variant == "vibrant" and .mode == "dark"' "$("$controller" status)"
+[[ "$(/usr/bin/tail -1 "$test_root/awww.log")" == "$path" ]] || { printf 'FAIL: wallpaper applied from a static theme\n' >&2; exit 1; }
+[[ "$(/usr/bin/jq -r .dynamic "$ISLAND_STATE_DIR/wallpapers.json")" == "$path" ]] || { printf 'FAIL: Dynamic remembers the applied library wallpaper\n' >&2; exit 1; }
+
+# Stored palettes of any library wallpaper can be listed by path, whichever theme is active.
+"$controller" theme nord >> "$test_root/theme.log" 2>&1
+jq_ok 'aether-list PATH lists a library wallpaper under a static theme' 'map(.style) | unique == ["wh-candy","wh-pastel"]' "$("$controller" aether-list "$path")"
+jq_ok 'aether-list PATH is empty for a wallpaper without palettes' '. == []' "$("$controller" aether-list "$ISLAND_DYNAMIC_WALLPAPERS_DIR/plain.png")"
+if "$controller" aether-list "$test_root/source.png" >/dev/null 2>&1; then printf 'FAIL: aether-list PATH must stay inside the library\n' >&2; exit 1; fi
 
 printf 'PASS: wallhaven helper and palette storage\n'

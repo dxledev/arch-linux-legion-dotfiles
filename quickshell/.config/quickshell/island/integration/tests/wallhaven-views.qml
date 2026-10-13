@@ -50,6 +50,10 @@ ShellRoot {
         check(input.keyClick(code, modifiers ?? Qt.NoModifier, 0), "Deliver key " + code);
     }
 
+    function type(text) {
+        for (const letter of text) check(input.keyClickChar(letter, Qt.NoModifier, 0), "Deliver character " + letter);
+    }
+
     function previewCount(mode) {
         let count = 0;
         for (const id in service.previews) if (id.startsWith(mode + ":")) count++;
@@ -138,6 +142,22 @@ ShellRoot {
                     root.check(service.selectedPalette && service.selectedPalette.style === "wh-pastel", "Pastel is the default palette");
                     root.check(service.selectedPalette.terminal.length === 16, "Preview carries all sixteen terminal colors");
                     root.check(root.named(view, "wallhaven-detail"), "Detail pane is shown");
+                    // The staged download can be renamed before it is saved; Escape resets, Enter keeps the name.
+                    const nameField = root.named(view, "wallhaven-name-field");
+                    root.check(nameField && nameField.visible && nameField.text === "wallhaven-abc123" && nameField.suffix === ".png",
+                        "The staged name starts as wallhaven-ID: '" + (nameField && nameField.text) + "' '" + (nameField && nameField.suffix) + "'");
+                    root.click(nameField);
+                    root.check(nameField.activeFocus, "The name field takes focus");
+                    root.key(Qt.Key_A, Qt.ControlModifier);
+                    root.type("Scratch");
+                    root.check(service.stagedName === "Scratch", "Typing edits the staged name: " + service.stagedName);
+                    root.key(Qt.Key_Escape);
+                    root.check(service.stagedName === "wallhaven-abc123" && service.selectedId === "abc123" && nameField.text === "wallhaven-abc123", "Escape resets the name and keeps the detail pane: '" + nameField.text + "'");
+                    root.click(nameField);
+                    root.key(Qt.Key_A, Qt.ControlModifier);
+                    root.type("Sky Pic");
+                    root.key(Qt.Key_Return);
+                    root.check(service.stagedName === "Sky Pic" && service.selectedId === "abc123", "Enter keeps the typed name");
                     root.click(root.named(view, "wallhaven-scheme-candy"));
                     root.check(service.selectedScheme === "candy" && service.selectedKind === "aether", "Island's own schemes can be chosen");
                     root.click(root.named(view, "wallhaven-mode-light"));
@@ -241,6 +261,45 @@ ShellRoot {
                     service.closeDetail();
                     root.next();
                 } else if (root.phase === 16) {
+                    // Clicking the wallhaven.cc source line switches to the Dynamic library.
+                    const subtitle = root.named(view, "panel-subtitle");
+                    root.check(subtitle && subtitle.text.startsWith("wallhaven.cc"), "The source line names wallhaven.cc: " + (subtitle && subtitle.text));
+                    root.click(subtitle);
+                    root.check(service.libraryView && service.libraryLoading, "Clicking wallhaven.cc opens the Dynamic library");
+                    root.next();
+                } else if (root.phase === 17) {
+                    if (service.libraryLoading) return;
+                    const names = []
+                    for (let i = 0; i < service.results.count; i++) names.push(service.results.get(i).name);
+                    root.check(JSON.stringify(names) === '["my-photo.png","other.png","Sky Pic.png"]', "Library lists the Dynamic folder: " + JSON.stringify(names));
+                    root.check(root.named(view, "wallhaven-search") === null || !root.named(view, "wallhaven-search").visible, "Wallhaven search is hidden in the library");
+                    root.check(root.named(view, "panel-subtitle").text.startsWith("Dynamic library"), "The source line names the library");
+                    const row = service.results.get(0);
+                    root.check(row.library === true && row.thumb.startsWith("file://") && row.wid === row.path, "Library cards carry local files");
+                    root.click(root.named(view, "wallhaven-card-" + row.wid));
+                    root.check(service.selectedId === row.wid && service.preparedPath === row.path, "Selecting a library wallpaper needs no download");
+                    root.next();
+                } else if (root.phase === 18) {
+                    if (root.previewCount("light") < 29 || service.storedPalettes.length === 0) return;
+                    root.check(service.storedPalettes[0].style === "wh-candy", "Stored palettes of that wallpaper load: " + JSON.stringify(service.storedPalettes));
+                    root.check(service.selectedPalette && service.selectedPalette.style === "wh-pastel", "Library wallpapers preview palettes from the file");
+                    root.check(root.named(view, "wallhaven-apply").text === "Add palette + apply", "Apply reads Add palette + apply");
+                    root.check(root.named(view, "wallhaven-download") && !root.named(view, "wallhaven-download").visible, "Library items have no Save button");
+                    root.click(root.named(view, "wallhaven-apply"));
+                    root.check(service.working, "Adding a palette starts working");
+                    root.next();
+                } else if (root.phase === 19) {
+                    if (service.working || !service.workStatus) return;
+                    root.check(service.workStatus === "Applied wallpaper and palette", "Library apply finishes: '" + service.workStatus + "' " + service.workError);
+                    root.click(root.named(view, "panel-subtitle"));
+                    root.check(!service.libraryView, "Clicking the library line returns to wallhaven.cc");
+                    root.next();
+                } else if (root.phase === 20) {
+                    if (service.busy || service.results.count !== 4 || service.results.get(0).library) return;
+                    root.check(!service.libraryView && service.selectedId === "", "Wallhaven results return and the library selection is gone");
+                    service.select(service.rowItem(0));
+                    root.next();
+                } else if (root.phase === 21) {
                     if (service.working || root.elapsed < 1500) return;  // lets the debounced settings save land
                     root.check(service.effectivePageSize === 4, "The chosen size persists while browsing");
                     root.key(Qt.Key_Escape);

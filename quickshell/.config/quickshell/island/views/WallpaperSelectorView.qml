@@ -37,23 +37,33 @@ FocusScope {
     // Source of truth for the selection; the grid only reads it, the carousel mirrors it.
     property int selectedIndex: 0
     property real wheelRemainder: 0
+    // Set while the selection jumps to the active wallpaper, so opening snaps there instead of sliding.
+    property bool snapReveal: false
     // Delete mode: clicks mark wallpapers (keyed by path, so filtering and rescans can't shift them)
     // instead of applying them; the header check then asks for confirmation before anything is removed.
     property bool deleteMode: false
     property var marked: ({})
     readonly property int markedCount: Object.keys(marked).length
+    // Rename: right-click opens an inline editor under the thumbnail. `followPath` is where the file
+    // should land, so the selection stays on it after the list re-sorts.
+    property string renamingPath: ""
+    property string followPath: ""
 
     implicitWidth: 48 + columns * cellWidth
     implicitHeight: 48 + header.implicitHeight + content.spacing + searchField.implicitHeight + content.spacing + gallery.height
         + (status.visible ? content.spacing + status.implicitHeight : 0)
 
-    Component.onCompleted: searchField.forceActiveFocus()
+    Component.onCompleted: { searchField.forceActiveFocus(); Qt.callLater(selectActiveWallpaper); }
     Component.onDestruction: exitDeleteMode()
     onVisibleChanged: {
-        if (visible) { searchField.forceActiveFocus(); Qt.callLater(revealSelection, true); }
-        else exitDeleteMode();
+        cancelRename();
+        if (visible) {
+            searchField.forceActiveFocus();
+            selectActiveWallpaper();
+            Qt.callLater(revealSelection, true);
+        } else exitDeleteMode();
     }
-    onSelectedIndexChanged: revealSelection(false)
+    onSelectedIndexChanged: if (!snapReveal) revealSelection(false)
     onWrappingChanged: { selectedIndex = clampIndex(selectedIndex); Qt.callLater(revealSelection, true); }
     onRowsChanged: Qt.callLater(revealSelection, true)
     onColumnsChanged: Qt.callLater(revealSelection, true)
@@ -68,10 +78,42 @@ FocusScope {
         searchRoles: ["path"]
         searchFileNames: true
         onRebuilt: function(resetSelection) {
-            root.selectedIndex = model.count > 0 ? (resetSelection ? 0 : Math.max(0, Math.min(root.selectedIndex, model.count - 1))) : -1;
+            let index = model.count > 0 ? (resetSelection ? 0 : Math.max(0, Math.min(root.selectedIndex, model.count - 1))) : -1;
+            // A cleared or changed list reopens on the applied wallpaper, unless a query is steering the results.
+            if (resetSelection && searchField.text.length === 0 && root.rows === 1) {
+                const active = root.activeIndex();
+                if (active >= 0) index = active;
+            }
+            // Resets snap straight to the final index so the carousel never slides through a stale one.
+            root.snapReveal = resetSelection;
+            root.selectedIndex = index;
+            root.snapReveal = false;
+            if (!resetSelection && root.followPath) {
+                const moved = root.indexOfPath(root.followPath);
+                if (moved >= 0) { root.snapReveal = true; root.selectedIndex = moved; root.snapReveal = false; root.followPath = ""; }
+            }
             if (resetSelection) gallery.positionViewAtBeginning();
             Qt.callLater(root.revealSelection, true);
         }
+    }
+
+    function activeIndex() {
+        const model = filteredWallpapers.model;
+        for (let i = 0; i < model.count; i++)
+            if (model.get(i).path === ThemeService.wallpaper) return i;
+        return -1;
+    }
+
+    // Single-row layouts open on the applied wallpaper: odd column counts keep it in the middle
+    // slot, even ones bring it into view. Opening ignores a leftover query when the match is listed.
+    function selectActiveWallpaper() {
+        if (rows !== 1) return;
+        const index = activeIndex();
+        if (index < 0) return;
+        snapReveal = true;
+        selectedIndex = index;
+        snapReveal = false;
+        revealSelection(true);
     }
 
     function clampIndex(index) {
@@ -160,8 +202,53 @@ FocusScope {
     }
 
     function toggleDeleteMode() {
+        cancelRename();
         if (deleteMode) exitDeleteMode();
         else deleteMode = true;
+    }
+
+    function indexOfPath(path) {
+        const model = filteredWallpapers.model;
+        for (let i = 0; i < model.count; i++)
+            if (model.get(i).path === path) return i;
+        return -1;
+    }
+
+    function fileStem(path) { return path.split("/").pop().replace(/\.[^.]+$/, ""); }
+    function fileSuffix(path) {
+        const match = path.split("/").pop().match(/\.[^.]+$/);
+        return match ? match[0] : "";
+    }
+
+    function startRename(index, path) {
+        if (ThemeService.busy || StatusManager.confirming || deleteMode) return;
+        selectedIndex = index;
+        renamingPath = path;
+    }
+
+    function cancelRename() {
+        if (!renamingPath) return;
+        renamingPath = "";
+        focusGallery();
+    }
+
+    // The controller validates the name and keeps the extension; the prediction only steers the selection.
+    function commitRename(path, value) {
+        let stem = value.trim();
+        const suffix = fileSuffix(path);
+        if (suffix && stem.toLowerCase().endsWith(suffix.toLowerCase())) stem = stem.slice(0, -suffix.length).trim();
+        renamingPath = "";
+        focusGallery();
+        if (!stem || stem === fileStem(path) || ThemeService.busy) return;
+        followPath = path.slice(0, path.lastIndexOf("/") + 1) + stem + suffix;
+        followTimer.restart();
+        WallpaperService.rename(path, stem);
+    }
+
+    Timer {
+        id: followTimer
+        interval: 6000
+        onTriggered: root.followPath = ""
     }
 
     function requestDelete() {
@@ -200,6 +287,8 @@ FocusScope {
             required property int index
             required property string path
             required property string thumbnail
+            readonly property bool renaming: root.renamingPath === path
+            objectName: "wallpaper-cell"
             width: root.cellWidth
             height: root.cellHeight
             WallpaperCard {
@@ -214,6 +303,7 @@ FocusScope {
                 marked: root.marked[path] === true
             }
             UiText {
+                visible: !parent.renaming
                 anchors.top: thumbnail.bottom
                 anchors.topMargin: 4
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -227,9 +317,30 @@ FocusScope {
             MouseArea {
                 anchors.fill: parent
                 enabled: !ThemeService.busy
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
                 cursorShape: Qt.PointingHandCursor
                 // Clicking hands keys to the gallery so arrow keys keep working from the clicked card.
-                onClicked: { root.focusGallery(); root.selectedIndex = index; root.activate(path); }
+                onClicked: mouse => {
+                    if (mouse.button === Qt.RightButton) { root.startRename(index, path); return; }
+                    // A click while an editor is open only dismisses it.
+                    if (root.renamingPath) { root.cancelRename(); return; }
+                    root.focusGallery();
+                    root.selectedIndex = index;
+                    root.activate(path);
+                }
+            }
+            RenameField {
+                id: renameField
+                objectName: "wallpaper-rename-field"
+                visible: parent.renaming
+                anchors.top: thumbnail.bottom
+                anchors.topMargin: 2
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width - 14
+                suffix: root.fileSuffix(path)
+                onVisibleChanged: if (visible) { text = root.fileStem(path); begin(); }
+                onCommitted: value => root.commitRename(path, value)
+                onCancelled: if (parent.renaming) root.cancelRename()
             }
         }
     }
@@ -245,7 +356,7 @@ FocusScope {
             event.accepted = true;
             return;
         }
-        if (searchField.activeFocus) return;
+        if (searchField.activeFocus || renamingPath) return;
         let index = root.selectedIndex;
         if (event.key === Qt.Key_H || event.key === Qt.Key_Left) index -= root.horizontalStep;
         else if (event.key === Qt.Key_L || event.key === Qt.Key_Right) index += root.horizontalStep;
@@ -278,6 +389,9 @@ FocusScope {
             title: root.deleteMode ? "Wallpapers • Delete mode active" : "Wallpapers"
             scrollTargets: [root.wrapping ? carousel : gallery]
             onBack: IslandController.openNavigation()
+            titleClickable: !root.deleteMode
+            titleDescription: "Browse Wallpapers"
+            onTitleClicked: IslandController.openWallhaven()
             deleteVisible: true
             deleteActive: root.deleteMode
             deleteConfirmVisible: root.deleteMode && root.markedCount > 0

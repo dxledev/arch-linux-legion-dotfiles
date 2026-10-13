@@ -23,6 +23,8 @@ fail() {
 /usr/bin/chmod 700 "$test_root/runtime"
 /usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/wallhaven-views.qml" > "$test_root/views.qml"
 /usr/bin/magick -size 160x90 gradient:'#d94f70-#3a6ea5' -swirl 90 "$test_root/source.png"
+cp "$test_root/source.png" "$test_root/dynamic/my-photo.png"
+cp "$test_root/source.png" "$test_root/dynamic/other.png"
 printf '{"apiKey":"","categories":"101","purity":"100","sorting":"favorites","order":"desc","resolutions":"1920x1080"}\n' > "$test_root/config/aether/wallhaven.json"
 
 cp "$test_dir/wallhaven-server.py" "$test_root/server.py"
@@ -41,7 +43,8 @@ source "$TEST_DIR/../theme-functions"
 case "${1:-}" in
     ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
     themes) printf '[]\n' ;;
-    aether-list) printf '[]\n' ;;
+    aether-list)
+        if [[ "${2:-}" == *my-photo.png ]]; then printf '[{"style":"wh-candy","mode":"light","active":false}]\n'; else printf '[]\n'; fi ;;
     setting) save_setting "$2" "$3" ;;
     wallpaper-directory) exit 0 ;;
     wallpaper-palette) printf 'wallpaper-palette %s\n' "$*" >> "$TEST_ROOT/commands.log" ;;
@@ -67,11 +70,13 @@ if ! /usr/bin/rg -q 'PASS: wallhaven panel' "$test_root/views.log" \
     fail 'Wallhaven panel test failed.'
 fi
 
-[[ -f "$test_root/dynamic/wallhaven-abc123.png" ]] || fail 'The applied wallpaper was not saved to the Dynamic library.'
-/usr/bin/rg -q "^wallpaper-palette wallpaper-palette $test_root/dynamic/wallhaven-abc123.png aether pastel light\$" "$test_root/commands.log" \
+[[ -f "$test_root/dynamic/Sky Pic.png" ]] || fail 'The applied wallpaper was not saved to the Dynamic library.'
+/usr/bin/rg -q "^wallpaper-palette wallpaper-palette $test_root/dynamic/Sky Pic.png aether pastel light\$" "$test_root/commands.log" \
     || fail 'Apply did not hand the wallpaper and Pastel palette to island-theme.'
+/usr/bin/rg -q "^wallpaper-palette wallpaper-palette $test_root/dynamic/my-photo.png aether pastel light\$" "$test_root/commands.log" \
+    || fail 'Adding a palette to a library wallpaper did not reach island-theme.'
 [[ "$(/usr/bin/stat -c %a "$test_root/state/wallhaven.json")" == 600 ]] || fail 'Saved Wallhaven filters must stay private.'
 /usr/bin/jq -e '.filters.sorting == "toplist" and .filters.topRange == "1y" and .filters.ratios == ["16x9"] and .filters.q == "" and .pageSize == 4' "$test_root/state/wallhaven.json" >/dev/null \
     || fail 'Filter changes and the page size were not persisted.'
 
-printf 'PASS: wallhaven panel search, filters, detail pane, palette previews, apply and persistence\n'
+printf 'PASS: wallhaven panel search, filters, detail pane, palette previews, apply, Dynamic library palettes and persistence\n'

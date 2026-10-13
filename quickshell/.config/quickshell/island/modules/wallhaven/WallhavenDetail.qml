@@ -10,6 +10,8 @@ Rectangle {
     id: root
     readonly property var item: WallhavenService.selected
     readonly property var detail: WallhavenService.detail
+    // A wallpaper already in the Dynamic folder: nothing to download or save, only palettes to add.
+    readonly property bool library: item !== null && item.library === true
     readonly property bool staticTheme: ThemeService.state.source !== "dynamic"
     readonly property string schemeName: WallhavenService.schemeLabel(WallhavenService.selectedKind, WallhavenService.selectedScheme)
 
@@ -49,7 +51,8 @@ Rectangle {
                 color: Theme.surfaceVariant
                 Image {
                     anchors.fill: parent
-                    source: root.item ? root.item.thumb : ""
+                    // Library items are the full-size file itself; only `full` below decodes it, scaled down.
+                    source: root.item && !root.library ? root.item.thumb : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
@@ -57,7 +60,7 @@ Rectangle {
                 Image {
                     id: full
                     anchors.fill: parent
-                    source: WallhavenService.preparedPath ? "file://" + WallhavenService.preparedPath : ""
+                    source: WallhavenService.preparedPath ? WallhavenService.fileUrl(WallhavenService.preparedPath) : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: false
@@ -98,17 +101,36 @@ Rectangle {
                 spacing: 6
                 UiText {
                     width: parent.width
-                    text: root.item ? "wallhaven-" + root.item.id : ""
+                    visible: !nameField.visible
+                    text: root.item ? (root.library ? root.item.name : "wallhaven-" + root.item.id) : ""
                     color: Theme.textPrimary
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
+                // Staged downloads can be renamed before saving; saved wallpapers rename from the Wallpapers panel.
+                RenameField {
+                    id: nameField
+                    objectName: "wallhaven-name-field"
+                    width: parent.width
+                    visible: root.item !== null && !root.library && !root.item.installed
+                    enabled: !WallhavenService.working
+                    cancelOnBlur: false
+                    implicitHeight: 32
+                    placeholderText: "File name"
+                    suffix: WallhavenService.stagedSuffix(root.item)
+                    text: WallhavenService.stagedName
+                    onTextEdited: WallhavenService.stagedName = text
+                    onCommitted: nameField.focus = false
+                    onCancelled: { WallhavenService.stagedName = WallhavenService.defaultName(root.item); nameField.focus = false; }
+                }
                 UiText {
                     width: parent.width
                     text: root.item
-                        ? [root.item.resolution, root.fileSize(root.item.fileSize), root.item.category,
-                           root.item.views.toLocaleString() + " views", root.item.favorites.toLocaleString() + " favorites"].join("  ·  ")
+                        ? (root.library
+                            ? [root.item.resolution, root.fileSize(root.item.fileSize), root.item.fileType].filter(part => part).join("  ·  ")
+                            : [root.item.resolution, root.fileSize(root.item.fileSize), root.item.category,
+                               root.item.views.toLocaleString() + " views", root.item.favorites.toLocaleString() + " favorites"].join("  ·  "))
                         : ""
                     color: Theme.textSecondary
                     font.pixelSize: 12
@@ -131,8 +153,8 @@ Rectangle {
                     id: applyButton
                     objectName: "wallhaven-apply"
                     primary: true
-                    width: parent.width - download.width - pageButton.width - 16
-                    text: WallhavenService.working ? "Working…" : "Apply wallpaper + palette"
+                    width: root.library ? parent.width : parent.width - download.width - pageButton.width - 16
+                    text: WallhavenService.working ? "Working…" : root.library ? "Add palette + apply" : "Apply wallpaper + palette"
                     iconSource: "../assets/icons/sparkles.svg"
                     enabled: !WallhavenService.working && !ThemeService.busy && root.item !== null
                     onClicked: WallhavenService.install(true)
@@ -140,6 +162,7 @@ Rectangle {
                 WallhavenButton {
                     id: download
                     objectName: "wallhaven-download"
+                    visible: !root.library
                     text: root.item && root.item.installed ? "Saved" : "Save"
                     iconSource: root.item && root.item.installed ? "../assets/icons/check.svg" : "../assets/icons/download.svg"
                     enabled: !WallhavenService.working && root.item !== null && !root.item.installed
@@ -147,6 +170,7 @@ Rectangle {
                 }
                 IconButton {
                     id: pageButton
+                    visible: !root.library
                     anchors.verticalCenter: parent.verticalCenter
                     implicitWidth: 38
                     implicitHeight: 38
@@ -160,7 +184,8 @@ Rectangle {
                 visible: text.length > 0
                 text: WallhavenService.workError || WallhavenService.prepareError
                     || (WallhavenService.working || WallhavenService.workStatus ? WallhavenService.workStatus
-                        : root.staticTheme ? "Applying switches Island to the Dynamic theme." : "")
+                        : root.staticTheme ? "Applying switches Island to the Dynamic theme."
+                        : root.library ? "Schemes marked ✓ are already stored for this wallpaper; applying one again regenerates it." : "")
                 color: WallhavenService.workError || WallhavenService.prepareError ? Theme.danger
                     : WallhavenService.workStatus.startsWith("Applied") ? Theme.success : Theme.textSecondary
                 font.pixelSize: 12
@@ -283,7 +308,7 @@ Rectangle {
                     }
                 }
                 WallhavenChip {
-                    visible: root.item !== null
+                    visible: root.item !== null && !root.library
                     text: "More like this"
                     tint: Theme.success
                     onClicked: WallhavenService.searchFor("like:" + root.item.id)

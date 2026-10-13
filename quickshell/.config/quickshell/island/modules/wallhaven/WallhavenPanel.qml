@@ -16,12 +16,14 @@ FocusScope {
     readonly property bool detailOpen: WallhavenService.selectedId.length > 0
     readonly property int detailWidth: 440
     readonly property bool collectionsView: WallhavenService.view === "collections"
+    readonly property bool libraryView: WallhavenService.libraryView
     readonly property var sortings: [
         { value: "date_added", label: "Latest" }, { value: "toplist", label: "Top" }, { value: "random", label: "Random" },
         { value: "views", label: "Views" }, { value: "favorites", label: "Favorites" }, { value: "relevance", label: "Relevance" }
     ]
 
     function focusSearch() {
+        if (libraryView) { focusGrid(); return; }
         searchField.forceActiveFocus();
         searchField.selectAll();
     }
@@ -40,6 +42,8 @@ FocusScope {
 
     Component.onCompleted: {
         WallhavenService.open();
+        // The service outlives the panel: a library left open may list files deleted since.
+        if (WallhavenService.libraryView) WallhavenService.loadLibrary();
         searchField.forceActiveFocus();
     }
 
@@ -67,16 +71,24 @@ FocusScope {
         PanelHeader {
             id: header
             title: "Browse Wallpapers"
-            subtitle: WallhavenService.meta.total > 0
-                ? "wallhaven.cc · " + WallhavenService.meta.total.toLocaleString() + " wallpapers"
-                : "wallhaven.cc"
-            trailingText: WallhavenService.hasKey ? "API key active" : ""
+            // The source line doubles as a switch: wallhaven.cc browses online, "Dynamic library" lists the
+            // wallpapers already in the Dynamic folder so palettes can be added to them.
+            subtitle: root.libraryView
+                ? "Dynamic library · " + WallhavenService.libraryItems.length.toLocaleString() + " wallpapers · browse wallhaven.cc"
+                : WallhavenService.meta.total > 0
+                    ? "wallhaven.cc · " + WallhavenService.meta.total.toLocaleString() + " wallpapers"
+                    : "wallhaven.cc"
+            subtitleClickable: true
+            subtitleDescription: root.libraryView ? "Browse wallhaven.cc" : "Edit palettes of your Dynamic wallpapers"
+            onSubtitleClicked: WallhavenService.toggleLibrary()
+            trailingText: WallhavenService.hasKey && !root.libraryView ? "API key active" : ""
             scrollTargets: [grid]
             onBack: IslandController.openNavigation()
         }
 
         // ---- search ---------------------------------------------------------------------------
         Item {
+            visible: !root.libraryView
             width: parent.width
             height: 40
             SearchField {
@@ -116,7 +128,7 @@ FocusScope {
                 WallhavenChip {
                     objectName: "wallhaven-view-browse"
                     text: "Browse"
-                    checked: !root.collectionsView
+                    checked: !root.collectionsView && !root.libraryView
                     onClicked: WallhavenService.setView("browse")
                 }
                 WallhavenChip {
@@ -125,9 +137,9 @@ FocusScope {
                     checked: root.collectionsView
                     onClicked: WallhavenService.setView("collections")
                 }
-                Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 16; color: Theme.border; visible: !root.collectionsView }
+                Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 1; height: 16; color: Theme.border; visible: !root.collectionsView && !root.libraryView }
                 Repeater {
-                    model: root.collectionsView ? [] : root.sortings
+                    model: root.collectionsView || root.libraryView ? [] : root.sortings
                     WallhavenChip {
                         required property var modelData
                         objectName: "wallhaven-sort-" + modelData.value
@@ -137,7 +149,7 @@ FocusScope {
                     }
                 }
                 IconButton {
-                    visible: !root.collectionsView
+                    visible: !root.collectionsView && !root.libraryView
                     anchors.verticalCenter: parent.verticalCenter
                     implicitWidth: 30
                     implicitHeight: 30
@@ -150,7 +162,7 @@ FocusScope {
             WallhavenButton {
                 id: filterButton
                 objectName: "wallhaven-filters-toggle"
-                visible: !root.collectionsView
+                visible: !root.collectionsView && !root.libraryView
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 implicitHeight: 32
@@ -187,7 +199,7 @@ FocusScope {
         }
 
         Item {
-            visible: !root.collectionsView
+            visible: !root.collectionsView && !root.libraryView
             width: parent.width
             height: 30
             Row {
@@ -272,6 +284,7 @@ FocusScope {
         WallhavenFilters {
             id: drawer
             objectName: "wallhaven-filters"
+            visible: !root.libraryView
             width: parent.width
         }
 
@@ -383,7 +396,7 @@ FocusScope {
 
                 // Placeholders while the first page loads.
                 Flow {
-                    visible: (WallhavenService.searching || !WallhavenService.searched) && WallhavenService.results.count === 0
+                    visible: (WallhavenService.searching || WallhavenService.libraryLoading || !WallhavenService.searched) && WallhavenService.results.count === 0
                         && !(root.collectionsView && WallhavenService.activeCollection === null)
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
@@ -415,7 +428,7 @@ FocusScope {
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 40, 420)
                     spacing: 12
-                    visible: WallhavenService.results.count === 0 && !WallhavenService.searching
+                    visible: WallhavenService.results.count === 0 && !WallhavenService.searching && !WallhavenService.libraryLoading
                         && (WallhavenService.error.length > 0 || WallhavenService.searched
                             || (root.collectionsView && WallhavenService.activeCollection === null))
                     SvgIcon {
@@ -433,6 +446,7 @@ FocusScope {
                         font.pixelSize: 14
                         text: WallhavenService.error
                             ? WallhavenService.error
+                            : root.libraryView ? "No wallpapers in your Dynamic folder yet."
                             : root.collectionsView && WallhavenService.activeCollection === null
                                 ? (WallhavenService.collectionsError || "Enter a username and load their collections, then pick one.")
                                 : "No wallpapers match these filters."
@@ -443,10 +457,10 @@ FocusScope {
                         WallhavenButton {
                             visible: WallhavenService.error.length > 0
                             text: "Try again"
-                            onClicked: WallhavenService.search()
+                            onClicked: root.libraryView ? WallhavenService.loadLibrary() : WallhavenService.search()
                         }
                         WallhavenButton {
-                            visible: WallhavenService.error.length === 0 && !root.collectionsView
+                            visible: WallhavenService.error.length === 0 && !root.collectionsView && !root.libraryView
                             text: "Reset filters"
                             onClicked: WallhavenService.resetFilters()
                         }
