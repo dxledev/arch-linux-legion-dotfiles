@@ -30,8 +30,42 @@ Rectangle {
 
     clip: true
 
-    radius: (ThemeService.settings.radius ?? Theme.capsuleRadius)
-        * (root.mode === IslandState.powerMenuMode ? 1.2 : root.panelActive && IslandState.modal ? 1.4 : 1)
+    readonly property int morphDuration: ThemeService.settings.islandAnimationDuration ?? 300
+    // "classic" keeps the earlier panel animation: width overshoots, height eases out, the corner
+    // radius snaps and panels swap in at full opacity. Anything else is the morph style.
+    readonly property bool classicStyle: ThemeService.settings.panelAnimationStyle === "classic"
+    // Lags mode by one event-loop turn, so Behaviors that start with a mode change still see
+    // the previous mode; compact <-> expanded hops are shorter than full panel morphs.
+    property int lastMode
+    Component.onCompleted: lastMode = mode
+    onModeChanged: Qt.callLater(() => { root.lastMode = root.mode })
+    readonly property bool hopping: mode !== lastMode
+        && (mode === IslandState.defaultMode || mode === IslandState.expandedMode)
+        && (lastMode === IslandState.defaultMode || lastMode === IslandState.expandedMode)
+    readonly property int panelMorphDuration: Math.round(morphDuration * (hopping && !classicStyle ? Theme.morphHopScale : 1))
+    // How near the animated capsule is to its target size: 0 far away, 1 arrived. Compared on
+    // the panel only, since height also includes the status drawer.
+    readonly property real morphCloseness: 1 - Math.min(1, Math.max(
+        Math.abs(panelWidth - viewHost.implicitWidth),
+        Math.abs(panelHeight - viewHost.implicitHeight)) / Theme.morphRevealDistance)
+    readonly property bool morphRunning: panelWidthAnimation.running || panelHeightAnimation.running
+        || radiusScaleAnimation.running
+
+    // Only the mode-driven part of the corner radius animates, so the Corner radius slider
+    // stays immediate while panels still round off as they open.
+    property real radiusScale: root.mode === IslandState.powerMenuMode ? 1.2
+        : root.panelActive && IslandState.modal ? 1.4 : 1
+    Behavior on radiusScale {
+        enabled: !root.classicStyle
+        NumberAnimation {
+            id: radiusScaleAnimation
+            duration: root.panelMorphDuration
+            easing.type: Theme.morphEasing
+            easing.bezierCurve: Theme.morphCurve
+        }
+    }
+
+    radius: (ThemeService.settings.radius ?? Theme.capsuleRadius) * radiusScale
     color: "transparent"
     border.width: ThemeService.settings.islandBorderWidth ?? 0
     border.color: "transparent"
@@ -42,24 +76,32 @@ Rectangle {
     implicitWidth: panelWidth
     implicitHeight: panelHeight + statusDrawerHeight
 
+    readonly property bool osdMotion: mode === IslandState.defaultMode
+        && ["volume", "brightness", "nightlight", "keyboard"].includes(StatusManager.mode)
+    readonly property bool workspaceMotion: mode === IslandState.defaultMode && StatusManager.mode === "workspace"
+    readonly property var panelWidthCurve: osdMotion ? Theme.curveOutCubic
+        : workspaceMotion || classicStyle ? Theme.curveOutBack : Theme.morphCurve
+    readonly property var panelHeightCurve: osdMotion || workspaceMotion || classicStyle || mode === IslandState.aiUsageMode
+        ? Theme.curveOutCubic : Theme.morphCurve
+
     Behavior on panelWidth {
         NumberAnimation {
-            duration: StatusManager.mode === "workspace" && root.mode === IslandState.defaultMode
-                ? (ThemeService.settings.workspaceAnimationDuration ?? 160)
-                : root.mode === IslandState.defaultMode && ["volume", "brightness", "nightlight", "keyboard"].includes(StatusManager.mode)
-                    ? StatusManager.animationDuration : (ThemeService.settings.islandAnimationDuration ?? 300)
-            easing.type: ["nightlight", "volume", "brightness", "keyboard"].includes(StatusManager.mode) && root.mode === IslandState.defaultMode
-                ? Easing.OutCubic : Theme.animationHorizontal
+            id: panelWidthAnimation
+            duration: root.workspaceMotion ? (ThemeService.settings.workspaceAnimationDuration ?? 160)
+                : root.osdMotion ? StatusManager.animationDuration : root.panelMorphDuration
+            easing.type: Theme.morphEasing
+            easing.bezierCurve: root.panelWidthCurve
         }
     }
 
     Behavior on panelHeight {
         NumberAnimation {
+            id: panelHeightAnimation
             duration: root.mode === IslandState.aiUsageMode
-                ? Math.min(Theme.animationFast, ThemeService.settings.islandAnimationDuration ?? 300)
-                : root.mode === IslandState.defaultMode && ["volume", "brightness", "nightlight", "keyboard"].includes(StatusManager.mode)
-                    ? StatusManager.animationDuration : (ThemeService.settings.islandAnimationDuration ?? 300)
-            easing.type: Theme.animationVertical
+                ? Math.min(Theme.animationFast, root.morphDuration)
+                : root.osdMotion ? StatusManager.animationDuration : root.panelMorphDuration
+            easing.type: Theme.morphEasing
+            easing.bezierCurve: root.panelHeightCurve
         }
     }
 
@@ -120,6 +162,10 @@ Rectangle {
         mode: root.mode
         monitorActive: root.monitorActive
         monitorName: root.monitorName
+        morphCloseness: root.morphCloseness
+        morphRunning: root.morphRunning
+        morphDuration: root.morphDuration
+        revealEnabled: !root.classicStyle
 
         anchors.horizontalCenter: panelArea.horizontalCenter
         anchors.alignWhenCentered: false

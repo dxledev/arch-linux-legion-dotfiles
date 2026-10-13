@@ -48,6 +48,8 @@ FocusScope {
     // should land, so the selection stays on it after the list re-sorts.
     property string renamingPath: ""
     property string followPath: ""
+    // The editor currently shown (the grid and the carousel both build cards, only one is visible).
+    property Item editor: null
 
     implicitWidth: 48 + columns * cellWidth
     implicitHeight: 48 + header.implicitHeight + content.spacing + searchField.implicitHeight + content.spacing + gallery.height
@@ -202,7 +204,8 @@ FocusScope {
     }
 
     function toggleDeleteMode() {
-        cancelRename();
+        // Editing a name and delete mode never run together.
+        if (renamingPath) return;
         if (deleteMode) exitDeleteMode();
         else deleteMode = true;
     }
@@ -224,6 +227,15 @@ FocusScope {
         if (ThemeService.busy || StatusManager.confirming || deleteMode) return;
         selectedIndex = index;
         renamingPath = path;
+    }
+
+    // The header check saves what the editor holds, exactly like Enter.
+    function commitEditor() {
+        if (renamingPath && editor) commitRename(renamingPath, editor.text);
+    }
+
+    function insideItem(item, scenePoint) {
+        return !!item && item.visible && item.contains(item.mapFromItem(null, scenePoint.x, scenePoint.y));
     }
 
     function cancelRename() {
@@ -337,11 +349,26 @@ FocusScope {
                 anchors.topMargin: 2
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: parent.width - 14
+                height: 24
                 suffix: root.fileSuffix(path)
-                onVisibleChanged: if (visible) { text = root.fileStem(path); begin(); }
+                onVisibleChanged: {
+                    if (visible) { text = root.fileStem(path); root.editor = renameField; begin(); }
+                    else if (root.editor === renameField) root.editor = null;
+                }
                 onCommitted: value => root.commitRename(path, value)
                 onCancelled: if (parent.renaming) root.cancelRename()
             }
+        }
+    }
+
+    // Anywhere else on the panel abandons a name edit; only Enter or the header check saves it.
+    // A passive tap handler sees clicks that child mouse areas also take.
+    TapHandler {
+        enabled: root.renamingPath !== ""
+        onTapped: eventPoint => {
+            if (root.insideItem(root.editor, eventPoint.scenePosition)) return;
+            if (root.insideItem(header.editConfirmButton, eventPoint.scenePosition)) return;
+            root.cancelRename();
         }
     }
 
@@ -395,10 +422,13 @@ FocusScope {
             deleteVisible: true
             deleteActive: root.deleteMode
             deleteConfirmVisible: root.deleteMode && root.markedCount > 0
+            deleteEnabled: root.renamingPath === ""
+            editConfirmVisible: root.renamingPath !== ""
             deleteDescription: root.deleteMode ? "Cancel delete" : "Delete wallpapers"
             deleteConfirmDescription: "Delete " + root.markedCount + " selected"
             onDeleteToggled: root.toggleDeleteMode()
             onDeleteConfirmed: root.requestDelete()
+            onEditConfirmed: root.commitEditor()
         }
         SearchField {
             id: searchField

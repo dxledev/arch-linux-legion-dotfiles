@@ -26,10 +26,17 @@ Item {
     property bool deleteConfirmVisible: false
     property string deleteDescription: "Delete"
     property string deleteConfirmDescription: "Delete selected"
+    // The trash toggle greys out while something else (a name edit) owns the panel.
+    property bool deleteEnabled: true
+    // A name edit reuses the confirm slot: the same check saves it.
+    property bool editConfirmVisible: false
+    property string editConfirmDescription: "Save name"
+    readonly property Item editConfirmButton: editConfirm
     readonly property Item trailingAnchor: actions.width > 0 ? actions : closeButton
     signal back()
     signal deleteToggled()
     signal deleteConfirmed()
+    signal editConfirmed()
     signal trailingClicked()
     signal titleClicked()
     signal subtitleClicked()
@@ -176,7 +183,18 @@ Item {
             onClicked: root.deleteConfirmed()
         }
         IconButton {
+            id: editConfirm
+            objectName: "panel-edit-confirm"
+            visible: root.editConfirmVisible
+            iconSource: "../assets/icons/check.svg"
+            iconColor: Theme.accent
+            description: root.editConfirmDescription
+            onClicked: root.editConfirmed()
+        }
+        IconButton {
             objectName: "panel-delete-toggle"
+            enabled: root.deleteEnabled
+            opacity: enabled ? 1 : 0.4
             iconSource: "../assets/icons/trash.svg"
             iconColor: root.deleteActive ? Theme.danger : Theme.textPrimary
             description: root.deleteDescription

@@ -73,7 +73,7 @@ function settingsKeywords(key) {
     var keywords = {
         launcher: ["apps", "search", "matching", "sort"],
         menu: ["grid", "rows", "columns", "cards", "submenus", "layout"],
-        appearance: ["size", "font", "width", "height", "style"],
+        appearance: ["size", "font", "width", "height", "style", "animation", "morph", "classic"],
         displays: ["monitor", "layout", "workspace", "resolution"],
         clock: ["time", "12 hour", "24 hour", "font"],
         lock: ["lockscreen", "screen lock", "blur", "dim"],

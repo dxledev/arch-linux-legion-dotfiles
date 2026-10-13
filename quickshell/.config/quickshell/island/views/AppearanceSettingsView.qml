@@ -53,6 +53,20 @@ SettingsPanel {
         SettingSlider { label: "Corner radius"; setting: "radius"; maximum: 48 }
         SettingSlider { label: "Border width"; setting: "islandBorderWidth"; maximum: 4 }
         SettingSlider { label: "Opacity"; setting: "opacity"; minimum: 0.2; maximum: 1; step: 0.05; suffix: "" }
+        SettingChoice {
+            label: "Panel animation"
+            choices: ["morph", "classic"]
+            choiceLabel: value => value === "classic" ? "Classic" : "Morph"
+            selected: ThemeService.settings.panelAnimationStyle === "classic" ? "classic" : "morph"
+            onChosen: value => ThemeService.setSetting("panelAnimationStyle", value)
+        }
+        UiText {
+            width: parent.width
+            text: "Morph reshapes width, height and corners together and fades panels in as the island arrives. Classic keeps the earlier overshoot-and-swap animation."
+            color: Theme.textSecondary
+            font.pixelSize: 12
+            wrapMode: Text.Wrap
+        }
         SettingSlider { label: "Expansion duration"; setting: "islandAnimationDuration"; maximum: 1000; step: 10; suffix: " ms" }
         SettingToggle { objectName: "island-hover-expand-toggle"; text: "Hover to expand"; setting: "hoverToExpand" }
     }

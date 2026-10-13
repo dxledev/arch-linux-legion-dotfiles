@@ -20,6 +20,52 @@ Item {
     width: implicitWidth
     height: implicitHeight
 
+    // Incoming panels fade in as the capsule nears its target size instead of appearing at
+    // full opacity inside a half-grown shape. Power and system have their own entrance.
+    property real morphCloseness: 1
+    property bool morphRunning: false
+    property int morphDuration: 300
+    property bool revealEnabled: true
+    readonly property bool revealGated: revealEnabled && mode !== IslandState.powerMenuMode && mode !== IslandState.systemMode
+    // Latched so a relayout inside an open panel (a collapsing section) never dims it again.
+    property bool settled: true
+    // Held at zero from the mode change until the new target size has been applied.
+    property bool revealHeld: false
+    property bool revealAnimated: true
+    readonly property real revealTarget: revealHeld ? 0 : settled ? 1 : Math.pow(morphCloseness, 1.3)
+    property real reveal: revealTarget
+    opacity: revealGated ? reveal : 1
+
+    Behavior on reveal {
+        enabled: root.revealAnimated
+        NumberAnimation { duration: Theme.animationFast; easing.type: Easing.OutCubic }
+    }
+
+    // Settings sections swap views without changing the mode, so they key the reveal too.
+    readonly property string viewKey: mode + ":" + (mode === IslandState.settingsSectionMode ? IslandState.settingsSection : "")
+    onViewKeyChanged: {
+        // Snap to hidden without animating so the previous panel's opacity never carries over.
+        revealAnimated = false
+        revealHeld = true
+        settled = false
+        Qt.callLater(() => {
+            root.revealAnimated = true
+            root.revealHeld = false
+            // Same-size panels never move closeness, so settle them here.
+            if (root.morphCloseness > 0.92 && !root.morphRunning)
+                root.settled = true
+            settleBackstop.restart()
+        })
+    }
+    onMorphClosenessChanged: if (!settled && !revealHeld && morphCloseness > 0.92) settled = true
+
+    // Content can never stay hidden if a morph is interrupted or its target never arrives.
+    Timer {
+        id: settleBackstop
+        interval: Math.round(root.morphDuration * 1.6) + Theme.animationFast
+        onTriggered: root.settled = true
+    }
+
     Loader {
         id: wallpaperLoader
         property bool opened: false

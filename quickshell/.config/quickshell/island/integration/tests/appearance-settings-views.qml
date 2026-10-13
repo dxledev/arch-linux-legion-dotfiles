@@ -69,6 +69,9 @@ ShellRoot {
             check(ui.title === "UI" && island.title === "Island" && ui.y < island.y, "UI comes before Island");
             check(named(ui, "setting-choice-Font") !== null && named(island, "setting-choice-Font") === null, "Font belongs to UI");
             check(named(island, "setting-slider-reservedSpaceBelow").parent.label === "Bottom margin", "Bottom margin label");
+            check(named(island, "setting-choice-Panel animation") !== null && named(ui, "setting-choice-Panel animation") === null,
+                "Panel animation belongs to Island");
+            check(named(island, "setting-choice-Panel animation").parent.selected === "morph", "Morph is the default panel animation");
             check(capsule.width === 160 && capsule.height === 33 && capsule.border.width === 0, "Original default geometry");
             const boldToggle = named(ui, "appearance-bold-toggle");
             click(boldToggle, boldToggle.width - 25);
@@ -173,6 +176,42 @@ ShellRoot {
         case 13:
             if (elapsed < 100) return;
             check(IslandState.mode === IslandState.expandedMode && !IslandState.islandPinned, "Enabled hover expands without pinning");
+            IslandController.reset();
+            next();
+            break;
+        case 14: {
+            if (elapsed < 80) return;
+            const choice = named(settings, "setting-choice-Panel animation");
+            check(!capsule.classicStyle && choice.currentText === "morph", "Panel animation starts on morph");
+            // The dropdown saves through the real validator, so a display label instead of the value would be rejected.
+            choice.currentIndex = 1;
+            choice.activated(1);
+            next();
+            break;
+        }
+        case 15: {
+            if (ThemeService.busy || elapsed < 80) return;
+            check(ThemeService.settings.panelAnimationStyle === "classic", "Choosing Classic saves panelAnimationStyle: " + ThemeService.settings.panelAnimationStyle);
+            check(capsule.classicStyle && named(settings, "setting-choice-Panel animation").parent.selected === "classic",
+                "Choosing Classic reaches the Island and the control");
+            const choice = named(settings, "setting-choice-Panel animation");
+            choice.currentIndex = 0;
+            choice.activated(0);
+            next();
+            break;
+        }
+        case 16: {
+            if (ThemeService.busy || elapsed < 80) return;
+            check(ThemeService.settings.panelAnimationStyle === "morph" && !capsule.classicStyle, "Choosing Morph restores the default");
+            const choice = named(settings, "setting-choice-Panel animation");
+            choice.currentIndex = 1;
+            choice.activated(1);
+            next();
+            break;
+        }
+        case 17:
+            if (ThemeService.busy || elapsed < 80) return;
+            check(ThemeService.settings.panelAnimationStyle === "classic" && capsule.classicStyle, "Classic can be chosen again and is left saved");
             console.log("PASS: appearance sections, clock padding, saved slider changes, typography, borders, height and reserved margins");
             Qt.quit();
         }

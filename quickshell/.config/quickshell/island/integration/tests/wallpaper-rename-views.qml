@@ -92,10 +92,80 @@ ShellRoot {
                 keyClick(Qt.Key_Right);
                 verify(!anyFieldFocused(), "arrow keys do not reach a hidden editor");
 
+                // The editor fits inside its card, so the border is never clipped by the grid.
+                rightClick(cells()[0]);
+                tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor opens for the layout check");
+                const cell = cells()[0];
+                const bottom = field.mapToItem(cell, 0, field.height).y;
+                verify(bottom <= cell.height - 1, "editor border stays inside the card: " + bottom + " vs " + cell.height);
+                wait(100); // the header row relays out once the check appears
+                const check = root.named(island, "panel-edit-confirm");
+                const trash = root.named(island, "panel-delete-toggle");
+                verify(check && check.visible, "header check shows while editing");
+                verify(!trash.enabled, "trash is blocked while editing");
+                // Clicking the trash neither enters delete mode nor saves anything; it only dismisses the edit.
+                let point = trash.mapToItem(null, trash.width / 2, trash.height / 2);
+                mouseClick(test, point.x, point.y);
+                tryVerify(() => !field.visible, 2000, "clicking the header dismisses the editor");
+                verify(trash.enabled, "trash works again");
+                verify(!check.visible, "check hides with the editor");
+                verify(listed(original), "dismissing never renames");
+
+                // Clicking empty panel background dismisses without saving.
+                rightClick(cells()[0]);
+                tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor opens for the background check");
+                keyClick(Qt.Key_Z);
+                const header = root.named(island, "panel-title");
+                point = header.mapToItem(null, Math.min(header.width - 4, header.contentWidth + 60), header.height / 2); // empty header space right of the title
+                mouseClick(test, point.x, point.y);
+                tryVerify(() => !field.visible, 2000, "background click dismisses the editor");
+                verify(listed(original), "background click never renames");
+                compare(IslandState.mode, mode);
+
+                // The panel's own padding and the strip below the cards count as background too.
+                for (const spot of ["margin", "below"]) {
+                    rightClick(cells()[0]);
+                    tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor opens for the " + spot + " click");
+                    const card = cells()[0];
+                    point = spot === "margin" ? card.mapToItem(null, -14, card.height / 2) : card.mapToItem(null, card.width / 2, card.height * 3 + 10); // below the default 3-row grid, inside the panel padding
+                    mouseClick(test, point.x, point.y);
+                    tryVerify(() => !field.visible, 2000, spot + " click dismisses the editor");
+                    verify(listed(original), spot + " click never renames");
+                }
+
+                // Clicking inside the editor keeps it open.
+                rightClick(cells()[0]);
+                tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor opens for the inside click");
+                point = field.mapToItem(null, field.width / 2, field.height / 2);
+                mouseClick(test, point.x, point.y);
+                wait(200);
+                verify(field.visible, "click inside the editor keeps it open");
+                keyClick(Qt.Key_Escape);
+                tryVerify(() => !field.visible, 2000, "Escape still cancels");
+
+                // The header check saves like Enter.
+                rightClick(cells()[0]);
+                tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor opens for the check save");
+                keyClick(Qt.Key_A, Qt.ControlModifier);
+                for (const letter of "zz viacheck") keyClick(letter);
+                const saveButton = root.named(island, "panel-edit-confirm");
+                point = saveButton.mapToItem(null, saveButton.width / 2, saveButton.height / 2);
+                mouseClick(test, point.x, point.y);
+                const viaCheck = "zz viacheck" + original.match(/\.[^.]+$/)[0];
+                tryVerify(() => listed(viaCheck), 8000, "check saved the rename");
+                verify(!listed(original), "old name gone after the check");
+                tryVerify(() => !root.shownField(island), 2000, "editor closes after the check");
+                // Rename it back so the Enter path below starts from the original name.
+                rightClick(cells()[0]);
+                tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor opens for the restore");
+                keyClick(Qt.Key_A, Qt.ControlModifier);
+                for (const letter of original.replace(/\.[^.]+$/, "")) keyClick(letter);
+                keyClick(Qt.Key_Return);
+                tryVerify(() => listed(original), 8000, "original name restored");
+
                 // Enter renames, keeps the extension and never applies the wallpaper.
                 rightClick(cells()[0]);
-                field = root.shownField(island);
-                tryVerify(() => field && field.visible && field.focus, 2000, "editor reopens");
+                tryVerify(() => { field = root.shownField(island); return !!field && field.visible && field.focus; }, 2000, "editor reopens");
                 keyClick(Qt.Key_A, Qt.ControlModifier);
                 for (const letter of "zz renamed") keyClick(letter);
                 keyClick(Qt.Key_Return);

@@ -130,4 +130,19 @@ QtObject {
 
     readonly property var animationHorizontal: Easing.OutBack
     readonly property var animationVertical: Easing.OutCubic
+
+    // Panel-to-panel morph: cubic-bezier(0.16, 1, 0.3, 1), front-loaded with a long settle.
+    // Width, height and corner radius share it so the capsule changes shape in lockstep.
+    readonly property int morphEasing: Easing.BezierSpline
+    readonly property var morphCurve: [0.16, 1, 0.3, 1, 1, 1]
+    // Exact bezier forms of Easing.OutCubic and Easing.OutBack (overshoot 1.70158): both are cubic
+    // polynomials, so control points at x = 1/3 and 2/3 reproduce them. Setting
+    // easing.bezierCurve always switches an animation to BezierSpline, so one Behavior selects
+    // between curves instead of mixing easing types.
+    readonly property var curveOutCubic: [1 / 3, 1, 2 / 3, 1, 1, 1]
+    readonly property var curveOutBack: [1 / 3, 1.56719, 2 / 3, 1, 1, 1]
+    // Fraction of the Expansion duration used when hopping between compact and expanded.
+    readonly property real morphHopScale: 0.62
+    // Distance from the target size, in px, over which incoming content fades in.
+    readonly property real morphRevealDistance: 110
 }

@@ -90,7 +90,7 @@ alias tree='tree -C'
 
 # terminal aesthetics
 alias activity='btop'
-alias um='unimatrix'
+alias um='unimatrix -s 98 -c'
 alias pipes='pipes.sh'
 alias aquarium='asciiquarium'
 alias bonsai='cbonsai'
