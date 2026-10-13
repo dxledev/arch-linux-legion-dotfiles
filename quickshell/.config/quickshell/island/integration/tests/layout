@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-layout.XXXXXX)"
+cleanup() {
+    local status="$?"
+    if (( status )); then
+        printf 'Layout test failed; fixture retained at %s\n' "$test_root" >&2
+        [[ ! -f "$test_root/views.log" ]] || /usr/bin/tail -80 "$test_root/views.log" >&2
+    else
+        /usr/bin/rm -rf "$test_root"
+    fi
+}
+trap cleanup EXIT
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+# ~/bin/menu-layout rewrites live Hyprland config, so the panel is tested against stubs.
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache"
+/usr/bin/chmod 700 "$test_root/runtime"
+cat > "$test_root/menu-layout" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$LAYOUT_LOG"
+STUB
+cat > "$test_root/hyprctl" <<'STUB'
+#!/usr/bin/env bash
+printf '{"option": "general:layout", "str": "grid", "set": true }\n'
+STUB
+/usr/bin/chmod +x "$test_root/menu-layout" "$test_root/hyprctl"
+/usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/layout-views.qml" > "$test_root/views.qml"
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
+    ISLAND_LAYOUT_SCRIPT="$test_root/menu-layout" ISLAND_HYPRCTL="$test_root/hyprctl" LAYOUT_LOG="$test_root/layout.log" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+    fail 'Could not run layout views.'
+fi
+/usr/bin/rg -q 'PASS: layout panel' "$test_root/views.log" || fail 'Layout views failed.'
+if /usr/bin/rg -q 'FAIL:|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
+    fail 'Layout views reported errors.'
+fi
+printf 'PASS: layout panel routing, active layout marker, search, and script invocation\n'

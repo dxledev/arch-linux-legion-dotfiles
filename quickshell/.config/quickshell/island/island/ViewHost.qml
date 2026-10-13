@@ -157,6 +157,7 @@ Item {
                 case "notifications": return notificationsSettingsView
                 case "interaction": return interactionSettingsView
                 case "wallpaperAnimation": return wallpaperAnimationSettingsView
+                case "media": return mediaSettingsView
                 default: return settingsView
                 }
 
@@ -168,6 +169,9 @@ Item {
 
             case IslandState.shellSwitcherMode:
                 return shellSwitcherView
+
+            case IslandState.layoutSwitcherMode:
+                return layoutSwitcherView
 
             case IslandState.expandedMode:
                 return expandedView
@@ -231,6 +235,7 @@ Item {
     Component { id: navigationView; NavigationView {} }
     Component { id: settingsView; SettingsView {} }
     Component { id: wallpaperAnimationSettingsView; WallpaperAnimationSettingsView {} }
+    Component { id: mediaSettingsView; MediaSettingsView {} }
     Component { id: interactionSettingsView; InteractionSettingsView {} }
     Component { id: notificationsSettingsView; NotificationSettingsView {} }
     Component { id: dynamicPaletteSettingsView; DynamicPaletteSettingsView {} }
@@ -240,6 +245,7 @@ Item {
     Component { id: lockSettingsView; LockSettingsView {} }
     Component { id: osdSettingsView; OsdSettingsView {} }
     Component { id: shellSwitcherView; ShellSwitcherView {} }
+    Component { id: layoutSwitcherView; LayoutSwitcherView {} }
     Component { id: notificationsView; NotificationsPanelView {} }
     Component { id: audioDevicesView; AudioDevicesView {} }
     Component { id: wifiView; WifiView {} }

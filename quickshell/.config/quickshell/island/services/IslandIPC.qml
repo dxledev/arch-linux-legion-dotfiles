@@ -37,6 +37,7 @@ IpcHandler {
     function openChromack(): void { IslandController.toggleMode(IslandState.chromackMode); }
     function openWallhaven(): void { IslandController.toggleMode(IslandState.wallhavenMode); }
     function openCalendar(): void { IslandController.toggleMode(IslandState.calendarMode); }
+    function toggleLyrics(): void { IslandController.toggleLyricsInIsland(); }
     function openNetworkSpeedTest(): void { IslandController.openNetworkSpeedTest(); }
     function openDiskSpeedTest(): void { IslandController.openDiskSpeedTest(); }
     function openLauncher(): void { IslandController.toggleMode(IslandState.launcherMode); }
@@ -54,6 +55,7 @@ IpcHandler {
         ]);
     }
     function openShellSwitcher(): void { IslandController.toggleMode(IslandState.shellSwitcherMode); }
+    function openLayoutSwitcher(): void { IslandController.toggleMode(IslandState.layoutSwitcherMode); }
     function nextWallpaper(): void { ThemeService.execute(["next"]); }
     function previousWallpaper(): void { ThemeService.execute(["previous"]); }
 }

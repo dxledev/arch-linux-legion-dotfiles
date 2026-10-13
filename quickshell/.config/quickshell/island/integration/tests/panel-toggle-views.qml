@@ -31,6 +31,7 @@ ShellRoot {
             ["openOsdSettings", IslandState.osdSettingsMode],
             ["openSettings", IslandState.settingsMode],
             ["openShellSwitcher", IslandState.shellSwitcherMode],
+            ["openLayoutSwitcher", IslandState.layoutSwitcherMode],
             ["openAIUsage", IslandState.aiUsageMode],
             ["openSystem", IslandState.systemMode]
         ];
@@ -58,6 +59,21 @@ ShellRoot {
             IslandController.toggleMode(mode, [], "DP-1");
             check(IslandState.mode === IslandState.defaultMode, method + " closes on the new monitor");
         }
+        // Lyrics keybind: with no player it must not leave a request behind; otherwise it flips
+        // the island's clock, and showing them takes the floating card and any panel away.
+        IslandController.reset();
+        IslandState.lyricsClockMonitor = "";
+        ipc.toggleLyrics();
+        check(IslandState.lyricsClockMonitor === "" || MediaService.hasPlayer, "Lyrics shortcut without a player does nothing");
+        IslandController.showLyricsInIsland("DP-1");
+        check(IslandState.lyricsClockMonitor === "DP-1", "Lyrics move into the named island");
+        ipc.toggleLyrics();
+        check(IslandState.lyricsClockMonitor === "", "Lyrics shortcut clears the island lyrics");
+        IslandState.lyricsOpen = true;
+        IslandController.openNavigation();
+        IslandController.showLyricsInIsland("DP-1");
+        check(!IslandState.lyricsOpen && IslandState.mode === IslandState.defaultMode, "Showing lyrics closes the card and panel");
+        IslandController.closeLyricsInIsland();
         for (const openSection of [
             () => IslandController.openClockSettings(),
             () => IslandController.openOsdSettings(),

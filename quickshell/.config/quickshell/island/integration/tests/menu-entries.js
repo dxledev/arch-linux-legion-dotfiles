@@ -19,7 +19,7 @@ const controllerSource = fs.readFileSync(controllerPath, "utf8");
 const controllerActions = new Set(Array.from(controllerSource.matchAll(/function\s+(\w+)\s*\(/g), match => match[1]));
 const expectedSections = [
     "launcher", "menu", "appearance", "displays", "clock", "lock", "osd", "workspaces",
-    "dynamicPalette", "notifications", "interaction", "wallpaperAnimation"
+    "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media"
 ];
 
 assert.deepEqual(JSON.parse(JSON.stringify(registry.settingsSections.map(section => section.key))), expectedSections);

@@ -25,6 +25,7 @@ ShellRoot {
         {name: "Media", mode: IslandState.mediaControlsMode},
         {name: "Settings", mode: IslandState.settingsMode},
         {name: "Shell switcher", mode: IslandState.shellSwitcherMode},
+        {name: "Layout switcher", mode: IslandState.layoutSwitcherMode},
         {name: "Navigation", mode: IslandState.navigationMode},
         {name: "Notifications", mode: IslandState.notificationsMode},
         {name: "Audio devices", mode: IslandState.audioDevicesMode},

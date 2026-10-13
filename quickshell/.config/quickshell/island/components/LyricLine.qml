@@ -14,6 +14,8 @@ Item {
 
     // Which slot currently holds the visible line.
     property bool frontIsA: true
+    // How wide the line being shown really is, for a host that wants to grow around it.
+    readonly property real contentWidth: (frontIsA ? slotA : slotB).textWidth
 
     implicitWidth: maxWidth
     implicitHeight: slotA.implicitHeight

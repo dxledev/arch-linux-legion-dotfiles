@@ -15,6 +15,7 @@ SettingsView 1.0 SettingsView.qml
 LauncherView 1.0 LauncherView.qml
 LauncherSettingsView 1.0 LauncherSettingsView.qml
 ShellSwitcherView 1.0 ShellSwitcherView.qml
+LayoutSwitcherView 1.0 LayoutSwitcherView.qml
 ThemeSelectorView 1.0 ThemeSelectorView.qml
 WallpaperSelectorView 1.0 WallpaperSelectorView.qml
 NavigationView 1.0 NavigationView.qml
@@ -30,6 +31,7 @@ WorkspaceSettingsView 1.0 WorkspaceSettingsView.qml
 DynamicPaletteSettingsView 1.0 DynamicPaletteSettingsView.qml
 NotificationSettingsView 1.0 NotificationSettingsView.qml
 InteractionSettingsView 1.0 InteractionSettingsView.qml
+MediaSettingsView 1.0 MediaSettingsView.qml
 WallpaperAnimationSettingsView 1.0 WallpaperAnimationSettingsView.qml
 ClipboardView 1.0 ClipboardView.qml
 ChromackView 1.0 ChromackView.qml

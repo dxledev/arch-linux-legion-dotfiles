@@ -69,6 +69,12 @@ check_settings() {
     for invalid in 'scrollProgressAlwaysVisible yes' 'scrollProgressShowOnNonScrollable 1' 'scrollProgressVisibleDuration 99' 'scrollProgressVisibleDuration 10001' 'scrollProgressVisibleDuration 100.5' 'scrollProgressAnimationDuration -1' 'scrollProgressAnimationDuration 1001' 'scrollAnimationDuration -1' 'scrollAnimationDuration 1001' 'scrollWheelStep 15' 'scrollWheelStep 201' 'audioAllowOverAmplification yes' 'audioOverAmplificationLimit 0' 'audioOverAmplificationLimit 51' 'audioOverAmplificationLimit 10.5'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
     done
+    read_settings | /usr/bin/jq -e '.lyricsIslandMinWidth == 340' >/dev/null || fail 'Lyrics Island width default is not 340.'
+    save_setting lyricsIslandMinWidth 520 >/dev/null
+    read_settings | /usr/bin/jq -e '.lyricsIslandMinWidth == 520' >/dev/null || fail 'Lyrics Island width did not round-trip.'
+    for invalid in 'lyricsIslandMinWidth 199' 'lyricsIslandMinWidth 801' 'lyricsIslandMinWidth 340.5' 'lyricsIslandMinWidth wide'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
+    done
 }
 
 

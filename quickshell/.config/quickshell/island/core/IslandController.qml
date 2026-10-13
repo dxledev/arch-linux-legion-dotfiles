@@ -39,8 +39,10 @@ QtObject {
         } else if (IslandState.mode === IslandState.defaultMode || !IslandState.panelMonitorName) {
             IslandState.panelMonitorName = monitorName || focusedPanelMonitorName()
         }
-        // Lyrics in the clock only survive the island's own compact <-> expanded hover hops.
-        if (mode !== IslandState.defaultMode && mode !== IslandState.expandedMode)
+        // Lyrics in the clock only survive the island's own compact <-> expanded hover hops, and
+        // only a panel opening on that same island takes them away; another monitor's is left alone.
+        if (mode !== IslandState.defaultMode && mode !== IslandState.expandedMode
+                && IslandState.lyricsClockMonitor === IslandState.panelMonitorName)
             IslandState.lyricsClockMonitor = ""
         IslandState.mode = mode
     }
@@ -106,6 +108,7 @@ QtObject {
     function openOsdSettings() { setMode(IslandState.osdSettingsMode) }
 
     function openShellSwitcher() { setMode(IslandState.shellSwitcherMode) }
+    function openLayoutSwitcher() { setMode(IslandState.layoutSwitcherMode) }
 
     function openDefault() {
         setMode(IslandState.defaultMode)
@@ -188,6 +191,9 @@ QtObject {
     function openLyrics(monitorName = IslandState.panelMonitorName || focusedPanelMonitorName()) {
         IslandState.lyricsMonitorName = monitorName
         IslandState.lyricsOpen = true
+        // Lyrics live on one island at a time: asking for them on another one moves them there.
+        if (IslandState.lyricsClockMonitor !== "" && IslandState.lyricsClockMonitor !== monitorName)
+            IslandState.lyricsClockMonitor = ""
     }
 
     function closeLyrics() {
@@ -197,8 +203,7 @@ QtObject {
 
     // Moves the lyrics from the floating card into the island: the clock gives way to the current
     // line, the card closes and any open panel (media included) folds away.
-    function showLyricsInIsland() {
-        const monitorName = IslandState.lyricsMonitorName || focusedPanelMonitorName()
+    function showLyricsInIsland(monitorName = IslandState.lyricsMonitorName || focusedPanelMonitorName()) {
         closeLyrics()
         reset()
         IslandState.lyricsClockMonitor = monitorName
@@ -206,6 +211,15 @@ QtObject {
 
     function closeLyricsInIsland() {
         IslandState.lyricsClockMonitor = ""
+    }
+
+    // Keybind toggle: lyrics in the island's clock on the focused monitor, or back to the clock.
+    // Turning them on needs a player, since nothing would show and the request would linger.
+    function toggleLyricsInIsland(monitorName = focusedPanelMonitorName()) {
+        if (IslandState.lyricsClockMonitor !== "")
+            closeLyricsInIsland()
+        else if (MediaService.hasPlayer)
+            showLyricsInIsland(monitorName)
     }
 
     function toggleLyricsExpanded() {

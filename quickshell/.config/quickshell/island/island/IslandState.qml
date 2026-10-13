@@ -32,6 +32,7 @@ QtObject {
     readonly property int chromackMode: 21
     readonly property int wallhavenMode: 22
     readonly property int calendarMode: 23
+    readonly property int layoutSwitcherMode: 24
 
     // =========================================================
     // STATE
@@ -53,7 +54,7 @@ QtObject {
     property bool lyricsOpen: false
     property string lyricsMonitorName: ""
     // Monitor whose island shows the current lyric line in place of the clock, "" when none.
-    // Reached only by clicking the lyrics card's icon; any panel opening or a click on the island clears it.
+    // Reached by the lyrics card's icon or the Super+Ctrl+L toggle; any panel opening or a click on the island clears it.
     property string lyricsClockMonitor: ""
     // Per monitor: height of the notification stack currently shown, 0 when none.
     property var notificationExtents: ({})
@@ -94,5 +95,6 @@ QtObject {
         mode === clipboardMode ||
         mode === chromackMode ||
         mode === wallhavenMode ||
-        mode === calendarMode
+        mode === calendarMode ||
+        mode === layoutSwitcherMode
 }

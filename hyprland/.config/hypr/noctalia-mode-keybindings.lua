@@ -48,6 +48,7 @@ local shell_bindings = {
   "SUPER + D",
   "SUPER + SHIFT + B",
   "SUPER + SHIFT + C",
+  "SUPER + CTRL + L",
   "SUPER + SHIFT + ALT + W",
   "SUPER + ALT + B",
   "SUPER + ALT + D",

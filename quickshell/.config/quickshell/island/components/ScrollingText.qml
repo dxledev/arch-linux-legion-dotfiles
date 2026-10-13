@@ -15,6 +15,9 @@ Item {
     property bool centered: false
     property bool bold: true
 
+    // The text's own width, whatever room it is given.
+    readonly property real textWidth: label.implicitWidth
+
     width: maxWidth
     implicitHeight: label.implicitHeight
 
