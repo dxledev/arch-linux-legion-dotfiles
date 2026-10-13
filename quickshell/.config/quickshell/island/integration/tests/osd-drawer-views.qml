@@ -32,6 +32,7 @@ ShellRoot {
         {name: "Bluetooth", mode: IslandState.bluetoothMode},
         {name: "Clipboard", mode: IslandState.clipboardMode},
         {name: "Chromack", mode: IslandState.chromackMode},
+        {name: "Browse Wallpapers", mode: IslandState.wallhavenMode},
         {name: "Clock settings", mode: IslandState.clockSettingsMode},
         {name: "OSD settings", mode: IslandState.osdSettingsMode},
         {name: "Launcher", mode: IslandState.launcherMode},

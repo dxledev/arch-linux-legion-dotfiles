@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Renders Browse Wallpapers offscreen and drives it with real pointer/key input, the real
+# helper, and a mock wallhaven API. Nothing touches wallhaven.cc or the live desktop theme.
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$test_dir/.."
+test_root="$(/usr/bin/mktemp -d /tmp/island-wallhaven-panel.XXXXXX)"
+server_pid=""
+cleanup() {
+    [[ -z "$server_pid" ]] || kill "$server_pid" 2>/dev/null || true
+    if [[ "${KEEP_FIXTURE:-0}" != 1 ]]; then /usr/bin/rm -rf -- "$test_root"; fi
+}
+trap cleanup EXIT
+fail() {
+    printf '%s\n' "$*" >&2
+    [[ ! -f "$test_root/views.log" ]] || /usr/bin/tail -60 "$test_root/views.log" >&2
+    [[ ! -f "$test_root/commands.log" ]] || /usr/bin/cat "$test_root/commands.log" >&2
+    exit 1
+}
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/state" "$test_root/config/aether" "$test_root/dynamic"
+/usr/bin/chmod 700 "$test_root/runtime"
+/usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/wallhaven-views.qml" > "$test_root/views.qml"
+/usr/bin/magick -size 160x90 gradient:'#d94f70-#3a6ea5' -swirl 90 "$test_root/source.png"
+printf '{"apiKey":"","categories":"101","purity":"100","sorting":"favorites","order":"desc","resolutions":"1920x1080"}\n' > "$test_root/config/aether/wallhaven.json"
+
+cp "$test_dir/wallhaven-server.py" "$test_root/server.py"
+python3 "$test_root/server.py" "$test_root" > "$test_root/server.log" 2>&1 &
+server_pid="$!"
+for _ in {1..50}; do [[ -s "$test_root/port" ]] && break; /usr/bin/sleep 0.1; done
+
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    aether-list) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    wallpaper-palette) printf 'wallpaper-palette %s\n' "$*" >> "$TEST_ROOT/commands.log" ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
+    XDG_CACHE_HOME="$test_root/cache" XDG_CONFIG_HOME="$test_root/config" \
+    ISLAND_STATE_DIR="$test_root/state" ISLAND_THEME_SCRIPT="$test_root/controller" \
+    SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
+    ISLAND_WALLHAVEN_HELPER="$integration_dir/wallhaven" ISLAND_WALLHAVEN_API="http://127.0.0.1:$(< "$test_root/port")/api/v1" \
+    ISLAND_WALLHAVEN_CACHE_DIR="$test_root/cache/wallhaven" ISLAND_DYNAMIC_WALLPAPERS_DIR="$test_root/dynamic" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 60s /usr/bin/quickshell -p "$test_root/views.qml" \
+    > "$test_root/views.log" 2>&1; then
+    fail 'Could not run the Wallhaven panel.'
+fi
+if ! /usr/bin/rg -q 'PASS: wallhaven panel' "$test_root/views.log" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop|Cannot assign|is not a type|not installed' "$test_root/views.log"; then
+    fail 'Wallhaven panel test failed.'
+fi
+
+[[ -f "$test_root/dynamic/wallhaven-abc123.png" ]] || fail 'The applied wallpaper was not saved to the Dynamic library.'
+/usr/bin/rg -q "^wallpaper-palette wallpaper-palette $test_root/dynamic/wallhaven-abc123.png aether pastel light\$" "$test_root/commands.log" \
+    || fail 'Apply did not hand the wallpaper and Pastel palette to island-theme.'
+[[ "$(/usr/bin/stat -c %a "$test_root/state/wallhaven.json")" == 600 ]] || fail 'Saved Wallhaven filters must stay private.'
+/usr/bin/jq -e '.filters.sorting == "toplist" and .filters.topRange == "1y" and .filters.ratios == ["16x9"] and .filters.q == "" and .pageSize == 4' "$test_root/state/wallhaven.json" >/dev/null \
+    || fail 'Filter changes and the page size were not persisted.'
+
+printf 'PASS: wallhaven panel search, filters, detail pane, palette previews, apply and persistence\n'

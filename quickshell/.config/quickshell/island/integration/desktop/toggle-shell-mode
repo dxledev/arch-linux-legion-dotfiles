@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+export PATH="${DESKTOP_APP_PATH:-$HOME/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin}"
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$PATH:$HOME/.local/bin" ;;
+esac
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 hypr_config="${HYPR_CONFIG:-$config_home/hypr/hyprland.lua}"
@@ -54,7 +58,8 @@ source "${ISLAND_MODE_FUNCTIONS:-$config_home/quickshell/island/integration/mode
 usage() {
     printf '%s\n' \
         'Usage: toggle-shell-mode --waybar|--caelestia|--quickshell|--noctalia|--island|--status|--apply' \
-        '       toggle-shell-mode --dry-run <mode flag>'
+        '       toggle-shell-mode --dry-run <mode flag>' \
+        'Environment: DESKTOP_APP_PATH overrides the launcher search path; ~/.local/bin is always retained.'
 }
 
 fail() {

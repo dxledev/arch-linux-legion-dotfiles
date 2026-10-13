@@ -34,3 +34,4 @@ WallpaperAnimationSettingsView 1.0 WallpaperAnimationSettingsView.qml
 ClipboardView 1.0 ClipboardView.qml
 ChromackView 1.0 ChromackView.qml
 MenuSettingsView 1.0 MenuSettingsView.qml
+WallhavenView 1.0 WallhavenView.qml

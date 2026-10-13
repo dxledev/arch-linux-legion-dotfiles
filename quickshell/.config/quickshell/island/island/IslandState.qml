@@ -30,6 +30,7 @@ QtObject {
     readonly property int bluetoothMode: 19
     readonly property int clipboardMode: 20
     readonly property int chromackMode: 21
+    readonly property int wallhavenMode: 22
 
     // =========================================================
     // STATE
@@ -66,5 +67,6 @@ QtObject {
         mode === wifiMode ||
         mode === bluetoothMode ||
         mode === clipboardMode ||
-        mode === chromackMode
+        mode === chromackMode ||
+        mode === wallhavenMode
 }

@@ -22,6 +22,7 @@ ShellRoot {
             ["openBluetooth", IslandState.bluetoothMode],
             ["openClipboard", IslandState.clipboardMode],
             ["openChromack", IslandState.chromackMode],
+            ["openWallhaven", IslandState.wallhavenMode],
             ["openThemeSelector", IslandState.themeSelectorMode],
             ["openWallpaperSelector", IslandState.wallpaperSelectorMode],
             ["openNavigation", IslandState.navigationMode],

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PATH="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/bin:/bin}"
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="${PATH:+$PATH:}$HOME/.local/bin" ;;
+esac
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_LIST="${APP_LIST:-$HOME/.config/apps.list}"
 MENU_ID="menu-apps-alt"

@@ -134,6 +134,7 @@ QtObject {
     function openBluetooth() { setMode(IslandState.bluetoothMode) }
     function openClipboard() { setMode(IslandState.clipboardMode) }
     function openChromack() { setMode(IslandState.chromackMode) }
+    function openWallhaven() { setMode(IslandState.wallhavenMode) }
 
     signal wifiQrRequested(string ssid, string iface, string monitorName)
 

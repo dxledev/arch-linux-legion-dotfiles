@@ -65,6 +65,10 @@ for (const query of ["clipboard", "cliphist", "paste", "copy history"])
     assert.ok(registry.filterEntries(query).some(entry => entry.id === "clipboard"), `Clipboard can be found by ${query}`);
 for (const query of ["chromack", "color picker", "eyedropper", "hex", "shades", "color theory"])
     assert.ok(registry.filterEntries(query).some(entry => entry.id === "chromack"), `Chromack can be found by ${query}`);
+for (const query of ["browse wallpapers", "wallhaven", "pastel", "generate palette", "toplist", "online"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "browse-wallpapers"), `Browse Wallpapers can be found by ${query}`);
+assert.equal(registry.findEntryById("browse-wallpapers").title, "Browse Wallpapers", "Browse Wallpapers keeps its exact menu title");
+assert.equal(registry.findEntryById("browse-wallpapers").route.action, "openWallhaven", "Browse Wallpapers opens the Wallhaven panel");
 assert.equal(JSON.stringify(allEntries), allBeforeSearch, "search does not mutate the registry");
 assert.deepEqual(JSON.parse(JSON.stringify(registry.filterEntries("", undefined, ["launcher", "settings"]).slice(0, 3).map(entry => entry.id))), ["launcher", "settings", "themes"], "pinned entries lead search results in pin order");
 assert.deepEqual(JSON.parse(JSON.stringify(registry.filterEntries("session", undefined, ["launcher"]).map(entry => entry.id))), ["session"], "pinned entries that do not match the query stay hidden");

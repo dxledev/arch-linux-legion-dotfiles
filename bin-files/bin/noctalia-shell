@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+export PATH="${DESKTOP_APP_PATH:-$HOME/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin}"
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$PATH:$HOME/.local/bin" ;;
+esac
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
@@ -34,7 +38,8 @@ usage() {
         'Usage:' \
         '  noctalia-shell start --profile full|lock-provider [--start-locked] [--dry-run]' \
         '  noctalia-shell stop [--dry-run]' \
-        '  noctalia-shell status [--dry-run]'
+        '  noctalia-shell status [--dry-run]' \
+        'Environment: DESKTOP_APP_PATH overrides the launcher search path; ~/.local/bin is always retained.'
 }
 
 fail() {

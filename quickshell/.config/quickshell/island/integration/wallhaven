@@ -1,0 +1,898 @@
+#!/usr/bin/env python3
+"""Wallhaven browsing and palette helper for Island.
+
+Every subcommand prints JSON on stdout (``previews`` prints one JSON object per
+line) and exits non-zero with ``{"error": ...}`` on failure.  The API key is
+only ever read from Island's private state file, ``ISLAND_WALLHAVEN_NEW_KEY``
+(``set-key``) or Aether's config, and is sent in the ``X-API-Key`` header so it
+never appears in argv, URLs or logs.
+
+Usage:
+  wallhaven config
+  wallhaven save-config JSON
+  wallhaven set-key                  (key in ISLAND_WALLHAVEN_NEW_KEY, empty clears)
+  wallhaven search JSON
+  wallhaven info ID
+  wallhaven collections USER
+  wallhaven collection USER ID [PAGE [cache]]
+  wallhaven thumbs JSON              (cache thumbnails on disk, one {id,path} line each)
+  wallhaven prepare ID [URL]         (download the full image into the cache)
+  wallhaven install ID [URL]         (move it into the Dynamic wallpaper library)
+  wallhaven previews PATH dark|light (one line per scheme)
+  wallhaven preview PATH SCHEME dark|light
+  wallhaven palette-file PATH SCHEME dark|light OUT.toml
+  wallhaven schemes
+"""
+import concurrent.futures
+import fcntl
+import json
+import math
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HOME = os.path.expanduser("~")
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+STATE_DIR = os.environ.get("ISLAND_STATE_DIR") or os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local", "state"), "island")
+CACHE_ROOT = os.environ.get("ISLAND_WALLHAVEN_CACHE_DIR") or os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "island", "wallhaven")
+DYNAMIC_DIR = os.environ.get("ISLAND_DYNAMIC_WALLPAPERS_DIR") or os.path.join(
+    HOME, "files", "pictures", "wallpapers", "dynamic")
+API = os.environ.get("ISLAND_WALLHAVEN_API", "https://wallhaven.cc/api/v1").rstrip("/")
+AETHER_CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"),
+                             "aether", "wallhaven.json")
+CONFIG_FILE = os.path.join(STATE_DIR, "wallhaven.json")
+RATE_FILE = os.path.join(CACHE_ROOT, "rate.json")
+IMAGE_DIR = os.path.join(CACHE_ROOT, "images")
+THUMB_DIR = os.path.join(CACHE_ROOT, "thumbs")
+PRUNE_STAMP = os.path.join(CACHE_ROOT, ".pruned")
+USER_AGENT = "island-wallhaven/1"
+RATE_LIMIT = 45          # wallhaven allows 45 API calls per minute
+RATE_WINDOW = 60.0
+MAX_IMAGE_BYTES = 256 * 1024 * 1024
+MAX_THUMB_BYTES = 4 * 1024 * 1024
+THUMB_WORKERS = 6        # thumbnails come from a CDN, outside the API allowance
+THUMB_TTL = 14 * 86400
+PAGE_SIZES = range(1, 65)
+IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+
+SORTINGS = ("date_added", "relevance", "random", "views", "favorites", "toplist")
+TOP_RANGES = ("1d", "3d", "1w", "1M", "3M", "6M", "1y")
+WALLHAVEN_COLORS = (
+    "660000", "990000", "cc0000", "cc3333", "ea4c88", "993399", "663399", "333399", "0066cc",
+    "0099cc", "66cccc", "77cc33", "669900", "336600", "666600", "999900", "cccc33", "ffff00",
+    "ffcc33", "ff9900", "ff6600", "cc6633", "996633", "663300", "000000", "999999", "cccccc",
+    "ffffff", "424153")
+DEFAULT_FILTERS = {
+    "q": "", "categories": "111", "purity": "100", "sorting": "date_added", "order": "desc",
+    "topRange": "1M", "atleast": "", "resolutions": [], "ratios": [], "colors": "", "seed": "",
+}
+
+# Aether's extraction modes (the bundled `aether --generate --extract-mode` values).
+AETHER_SCHEMES = (
+    ("pastel", "Pastel", "style", "Soft, low chroma, high lightness"),
+    ("normal", "Auto", "style", "Balanced extraction from the image"),
+    ("muted", "Muted", "style", "Subdued, low chroma, lightness-staggered"),
+    ("bright", "Bright", "style", "High lightness with healthy chroma"),
+    ("colorful", "Colorful", "style", "High saturation and vibrant"),
+    ("material", "Material", "style", "Material Design inspired"),
+    ("high-contrast", "High contrast", "style", "Maximum readability"),
+    ("monochromatic", "Monochromatic", "theory", "Single-hue variations"),
+    ("analogous", "Analogous", "theory", "Adjacent hues on the wheel"),
+    ("complementary", "Complementary", "theory", "Base hue plus its opposite"),
+    ("split-complementary", "Split-complementary", "theory", "Base hue plus 150° and 210°"),
+    ("triadic", "Triadic", "theory", "Three hues spaced 120° apart"),
+    ("tetradic", "Tetradic", "theory", "Four hues spaced 90° apart"),
+    ("duotone", "Duotone", "theory", "Two contrasting hues"),
+    ("fire", "Fire", "mood", "Reds, oranges and embers"),
+    ("ocean", "Ocean", "mood", "Deep blues and teals"),
+    ("forest", "Forest", "mood", "Greens and earthy tones"),
+    ("earthtone", "Earthtone", "mood", "Warm natural browns"),
+    ("sunset", "Sunset", "mood", "Warm dusk gradients"),
+    ("aurora", "Aurora", "mood", "Northern-lights greens and violets"),
+    ("midnight", "Midnight", "mood", "Dark, cool and quiet"),
+    ("neon", "Neon", "mood", "Glowing electric colors"),
+    ("vaporwave", "Vaporwave", "mood", "Pink and cyan nostalgia"),
+)
+# Island's own schemes, generated here from the image's dominant colors.
+CUSTOM_SCHEMES = {
+    # name: label, description, anchor hue (None = follow the image), pull strength,
+    #       (dark L, light L), chroma, (dark bg L, light bg L), bg chroma, fg chroma
+    "candy": ("Candy", "Sugary, bright and playful", None, 0.22, (0.78, 0.62), 0.150, (0.17, 0.97), 0.030, 0.035),
+    "ember": ("Ember", "Glowing warm coals", 45.0, 0.55, (0.74, 0.52), 0.125, (0.17, 0.96), 0.030, 0.040),
+    "frost": ("Frost", "Cold, crisp and icy", 235.0, 0.55, (0.76, 0.50), 0.100, (0.18, 0.97), 0.025, 0.030),
+    "dusk": ("Dusk", "Low-light twilight violets", 300.0, 0.45, (0.72, 0.50), 0.085, (0.21, 0.95), 0.030, 0.035),
+    "sakura": ("Sakura", "Blossom pinks and creams", 355.0, 0.50, (0.82, 0.60), 0.095, (0.21, 0.97), 0.022, 0.030),
+    "classic": ("Classic", "Familiar terminal hues, image-tinted", None, 0.12, (0.72, 0.50), 0.130, (0.19, 0.96), 0.020, 0.030),
+}
+CUSTOM_GROUP = "island"
+ANSI_ANCHORS = (25.0, 145.0, 95.0, 255.0, 330.0, 195.0)   # red green yellow blue magenta cyan
+STAGGER = (-0.03, 0.02, 0.05, -0.02, -0.01, 0.03)
+COLOR_KEYS = ("background", "foreground", "accent", "muted", "red", "green", "yellow", "blue", "magenta", "cyan")
+HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+class HelperError(Exception):
+    def __init__(self, message, code="error"):
+        super().__init__(message)
+        self.code = code
+
+
+def fail(message, code="error"):
+    raise HelperError(message, code)
+
+
+def emit(value):
+    sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+# ---------------------------------------------------------------- config
+
+def private_write(path, data):
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", dir=directory)
+    try:
+        with os.fdopen(handle, "w") as stream:
+            json.dump(data, stream, separators=(",", ":"))
+            stream.write("\n")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except BaseException:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+        raise
+
+
+def read_json(path):
+    try:
+        with open(path) as stream:
+            value = json.load(stream)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def sanitize_filters(raw):
+    """Returns a filter dict with every field validated against wallhaven's API."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(DEFAULT_FILTERS)
+
+    def bits(value, default):
+        value = str(value if value is not None else default)
+        return value if re.fullmatch(r"[01]{3}", value) and value != "000" else default
+
+    out["q"] = str(raw.get("q", ""))[:200]
+    out["categories"] = bits(raw.get("categories"), "111")
+    out["purity"] = bits(raw.get("purity"), "100")
+    sorting = raw.get("sorting", "date_added")
+    out["sorting"] = sorting if sorting in SORTINGS else "date_added"
+    out["order"] = "asc" if raw.get("order") == "asc" else "desc"
+    top = raw.get("topRange", "1M")
+    out["topRange"] = top if top in TOP_RANGES else "1M"
+    atleast = str(raw.get("atleast", "") or "")
+    out["atleast"] = atleast if re.fullmatch(r"\d{3,5}x\d{3,5}", atleast) else ""
+    for key, pattern in (("resolutions", r"\d{3,5}x\d{3,5}"), ("ratios", r"(landscape|portrait|\d{1,2}x\d{1,2})")):
+        values = raw.get(key, [])
+        if isinstance(values, str):
+            values = [part for part in values.split(",") if part]
+        out[key] = [str(v) for v in values if re.fullmatch(pattern, str(v))][:24]
+    colors = str(raw.get("colors", "") or "").lower().lstrip("#")
+    out["colors"] = colors if colors in WALLHAVEN_COLORS else ""
+    seed = str(raw.get("seed", "") or "")
+    out["seed"] = seed if re.fullmatch(r"[A-Za-z0-9]{6}", seed) else ""
+    return out
+
+
+def sanitize_page_size(value):
+    """Results shown per page; wallhaven fixes the API page size, so smaller pages are sliced client-side.
+    0 (the default) shows the whole API page."""
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return size if size in PAGE_SIZES else 0
+
+
+def load_config():
+    saved = read_json(CONFIG_FILE)
+    seeded = not saved
+    aether = read_json(AETHER_CONFIG) if seeded else {}
+    api_key = str(saved.get("apiKey") or aether.get("apiKey") or "")
+    filters = saved.get("filters")
+    if filters is None:
+        filters = {"categories": aether.get("categories"), "purity": aether.get("purity"),
+                   "sorting": aether.get("sorting"), "order": aether.get("order"),
+                   "atleast": aether.get("resolutions", "")}
+        # Aether defaults to "favorites"; Island starts from the same preference when it exists.
+    return {"apiKey": api_key, "filters": sanitize_filters(filters), "username": str(saved.get("username", ""))[:64],
+            "pageSize": sanitize_page_size(saved.get("pageSize"))}
+
+
+def store_config(config):
+    private_write(CONFIG_FILE, {"apiKey": config["apiKey"], "filters": config["filters"],
+                                "username": config.get("username", ""), "pageSize": config.get("pageSize", 24)})
+
+
+def command_config(_args):
+    config = load_config()
+    emit({"filters": config["filters"], "hasKey": bool(config["apiKey"]), "username": config["username"],
+          "pageSize": config["pageSize"], "colors": list(WALLHAVEN_COLORS), "sortings": list(SORTINGS), "topRanges": list(TOP_RANGES)})
+
+
+def command_save_config(args):
+    if len(args) != 1:
+        fail("save-config requires one JSON object.")
+    try:
+        payload = json.loads(args[0])
+    except ValueError:
+        fail("save-config received invalid JSON.")
+    config = load_config()
+    if isinstance(payload, dict):
+        if "filters" in payload:
+            config["filters"] = sanitize_filters(payload["filters"])
+        if "username" in payload:
+            config["username"] = re.sub(r"[^A-Za-z0-9_.-]", "", str(payload["username"]))[:64]
+        if "pageSize" in payload:
+            config["pageSize"] = sanitize_page_size(payload["pageSize"])
+    store_config(config)
+    emit({"ok": True})
+
+
+def command_set_key(_args):
+    key = os.environ.get("ISLAND_WALLHAVEN_NEW_KEY", "").strip()
+    if key and not re.fullmatch(r"[A-Za-z0-9]{16,64}", key):
+        fail("That does not look like a wallhaven API key (letters and digits only).")
+    config = load_config()
+    config["apiKey"] = key
+    if not key:
+        config["filters"]["purity"] = config["filters"]["purity"][:2] + "0"
+    store_config(config)
+    emit({"ok": True, "hasKey": bool(key)})
+
+
+# ---------------------------------------------------------------- HTTP
+
+def throttle():
+    """Blocks until a call fits in wallhaven's 45 requests/minute allowance."""
+    os.makedirs(CACHE_ROOT, exist_ok=True)
+    with open(RATE_FILE + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        deadline = time.time() + 25
+        while True:
+            now = time.time()
+            stamps = [t for t in read_json(RATE_FILE).get("calls", []) if now - t < RATE_WINDOW]
+            if len(stamps) < RATE_LIMIT:
+                stamps.append(now)
+                private_write(RATE_FILE, {"calls": stamps})
+                return
+            wait = RATE_WINDOW - (now - stamps[0]) + 0.05
+            if now + wait > deadline:
+                fail("Wallhaven rate limit reached (45 requests per minute). Try again shortly.", "rate_limited")
+            time.sleep(wait)
+
+
+def api_get(path, params=None, api_key=""):
+    query = urllib.parse.urlencode([(k, v) for k, v in (params or {}).items() if v not in ("", None)])
+    url = API + path + ("?" + query if query else "")
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    if api_key:
+        request.add_header("X-API-Key", api_key)
+    throttle()
+    try:
+        with urllib.request.urlopen(request, timeout=25) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 401:
+            fail("Wallhaven rejected the API key.", "unauthorized")
+        if error.code == 429:
+            fail("Wallhaven rate limit reached. Try again shortly.", "rate_limited")
+        if error.code == 404:
+            fail("Wallhaven could not find that item.", "not_found")
+        fail("Wallhaven returned HTTP %d." % error.code)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        fail("Could not reach wallhaven.cc: %s" % getattr(error, "reason", error), "network")
+    except ValueError:
+        fail("Wallhaven returned an unreadable response.")
+
+
+def normalize_wallpaper(item):
+    thumbs = item.get("thumbs") or {}
+    return {
+        "id": str(item.get("id", "")),
+        "url": item.get("url", ""),
+        "path": item.get("path", ""),
+        "thumb": thumbs.get("large") or thumbs.get("small") or thumbs.get("original") or "",
+        "thumbSmall": thumbs.get("small") or thumbs.get("large") or "",
+        "resolution": item.get("resolution", ""),
+        "width": int(item.get("dimension_x") or 0),
+        "height": int(item.get("dimension_y") or 0),
+        "ratio": str(item.get("ratio", "")),
+        "fileSize": int(item.get("file_size") or 0),
+        "fileType": item.get("file_type", ""),
+        "category": item.get("category", ""),
+        "purity": item.get("purity", ""),
+        "views": int(item.get("views") or 0),
+        "favorites": int(item.get("favorites") or 0),
+        "colors": [c for c in item.get("colors", []) if isinstance(c, str) and HEX_RE.match(c)],
+        "createdAt": item.get("created_at", ""),
+        "source": item.get("source", "") or "",
+    }
+
+
+def normalize_meta(meta):
+    query = meta.get("query")
+    if isinstance(query, dict):
+        query = "id:%s" % query.get("id", "")
+    return {"page": int(meta.get("current_page") or 1), "lastPage": int(meta.get("last_page") or 1),
+            "perPage": int(str(meta.get("per_page") or 24)), "total": int(meta.get("total") or 0),
+            "seed": meta.get("seed") or "", "query": query or ""}
+
+
+def installed_ids():
+    """Wallpaper ids already in the Dynamic library, so results can show an "In library" badge."""
+    found = set()
+    try:
+        for name in os.listdir(DYNAMIC_DIR):
+            match = re.fullmatch(r"wallhaven-([A-Za-z0-9]{4,12})\.(?:jpe?g|png|webp)", name)
+            if match:
+                found.add(match.group(1))
+    except OSError:
+        pass
+    return found
+
+
+def mark_installed(items):
+    have = installed_ids()
+    for item in items:
+        item["installed"] = item["id"] in have
+    return items
+
+
+# ---------------------------------------------------------------- thumbnail cache
+
+def thumb_file(wallpaper_id, url):
+    extension = os.path.splitext(urllib.parse.urlparse(url).path)[1].lower()
+    return os.path.join(THUMB_DIR, wallpaper_id + (extension if extension in (".jpg", ".jpeg", ".png", ".webp") else ".jpg"))
+
+
+def cached_thumb(wallpaper_id, url):
+    """The on-disk copy of a thumbnail, or "". Using one refreshes its age so it survives pruning."""
+    path = thumb_file(wallpaper_id, url)
+    try:
+        if os.path.getsize(path) > 0:
+            os.utime(path)
+            return path
+    except OSError:
+        pass
+    return ""
+
+
+def fetch_thumb(wallpaper_id, url):
+    """Downloads one thumbnail into the cache (atomically; runs may be killed midway). Returns its path or ""."""
+    if not re.fullmatch(r"[A-Za-z0-9]{4,12}", wallpaper_id or "") or urllib.parse.urlparse(url).scheme not in ("http", "https"):
+        return ""
+    path = cached_thumb(wallpaper_id, url)
+    if path:
+        return path
+    temporary = ""
+    try:
+        os.makedirs(THUMB_DIR, exist_ok=True)
+        handle, temporary = tempfile.mkstemp(prefix="." + wallpaper_id + ".", dir=THUMB_DIR)
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with os.fdopen(handle, "wb") as out, urllib.request.urlopen(request, timeout=15) as response:
+            if not response.headers.get_content_type().startswith("image/"):
+                raise ValueError("not an image")
+            data = response.read(MAX_THUMB_BYTES + 1)
+            if not data or len(data) > MAX_THUMB_BYTES:
+                raise ValueError("bad thumbnail size")
+            out.write(data)
+        path = thumb_file(wallpaper_id, url)
+        os.replace(temporary, path)
+        return path
+    except Exception:  # best effort: a flaky CDN connection must not take the page down with it
+        if temporary and os.path.exists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+        return ""
+
+
+def cache_thumbs(items, download):
+    """Points each wallpaper's `thumb` at its cached file; with `download`, fetches the missing ones first."""
+    missing = []
+    for item in items:
+        local = cached_thumb(item["id"], item["thumb"])
+        if local:
+            item["thumb"] = pathlib.Path(local).as_uri()
+        elif download and item["thumb"]:
+            missing.append(item)
+    if missing:
+        with concurrent.futures.ThreadPoolExecutor(THUMB_WORKERS) as pool:
+            for item, local in zip(missing, pool.map(lambda i: fetch_thumb(i["id"], i["thumb"]), missing)):
+                if local:
+                    item["thumb"] = pathlib.Path(local).as_uri()
+    return items
+
+
+def command_thumbs(args):
+    try:
+        wanted = json.loads(args[0]) if len(args) == 1 else None
+    except ValueError:
+        wanted = None
+    if not isinstance(wanted, list):
+        fail("thumbs requires a JSON list of {id, url}.")
+    wanted = [w for w in wanted[:128] if isinstance(w, dict) and isinstance(w.get("id"), str) and isinstance(w.get("url"), str)]
+    with concurrent.futures.ThreadPoolExecutor(THUMB_WORKERS) as pool:
+        futures = {pool.submit(fetch_thumb, w["id"], w["url"]): w["id"] for w in wanted}
+        for future in concurrent.futures.as_completed(futures):
+            path = future.result()
+            if path:
+                emit({"id": futures[future], "path": pathlib.Path(path).as_uri()})
+
+
+def command_search(args):
+    if len(args) != 1:
+        fail("search requires one JSON object.")
+    try:
+        payload = json.loads(args[0])
+    except ValueError:
+        fail("search received invalid JSON.")
+    config = load_config()
+    filters = sanitize_filters(payload.get("filters") if isinstance(payload, dict) else {})
+    page = max(1, int(payload.get("page", 1))) if isinstance(payload, dict) else 1
+    purity = filters["purity"] if config["apiKey"] else filters["purity"][:2] + "0"
+    if purity == "000":
+        purity = "100"
+    params = {
+        "q": filters["q"], "categories": filters["categories"], "purity": purity,
+        "sorting": filters["sorting"], "order": filters["order"], "page": page,
+        "atleast": filters["atleast"], "resolutions": ",".join(filters["resolutions"]),
+        "ratios": ",".join(filters["ratios"]), "colors": filters["colors"],
+    }
+    if filters["sorting"] == "toplist":
+        params["topRange"] = filters["topRange"]
+    if filters["sorting"] == "random" and filters["seed"]:
+        params["seed"] = filters["seed"]
+    result = api_get("/search", params, config["apiKey"])
+    items = cache_thumbs([normalize_wallpaper(i) for i in result.get("data", [])],
+                         isinstance(payload, dict) and payload.get("cache") is True)
+    emit({"data": mark_installed(items),
+          "meta": normalize_meta(result.get("meta") or {}), "hasKey": bool(config["apiKey"])})
+
+
+def command_info(args):
+    if len(args) != 1 or not re.fullmatch(r"[A-Za-z0-9]{4,12}", args[0]):
+        fail("info requires a wallpaper id.")
+    config = load_config()
+    item = api_get("/w/" + args[0], {}, config["apiKey"]).get("data") or {}
+    out = normalize_wallpaper(item)
+    out["tags"] = [{"id": t.get("id"), "name": t.get("name", ""), "category": t.get("category", ""),
+                    "purity": t.get("purity", "")} for t in item.get("tags", [])][:40]
+    uploader = item.get("uploader") or {}
+    out["uploader"] = uploader.get("username", "") if isinstance(uploader, dict) else ""
+    emit(out)
+
+
+def command_collections(args):
+    config = load_config()
+    user = args[0] if args else config["username"]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", user or ""):
+        if not config["apiKey"]:
+            fail("Enter a wallhaven username (or add an API key) to browse collections.")
+        result = api_get("/collections", {}, config["apiKey"])
+    else:
+        result = api_get("/collections/" + urllib.parse.quote(user), {}, config["apiKey"])
+    emit({"user": user, "data": [{"id": c.get("id"), "label": c.get("label", ""), "count": int(c.get("count") or 0),
+                                  "public": bool(c.get("public"))} for c in result.get("data", [])]})
+
+
+def command_collection(args):
+    if len(args) < 2 or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", args[0]) or not re.fullmatch(r"\d{1,12}", args[1]):
+        fail("collection requires a username and a collection id.")
+    config = load_config()
+    page = int(args[2]) if len(args) > 2 and args[2].isdigit() else 1
+    result = api_get("/collections/%s/%s" % (urllib.parse.quote(args[0]), args[1]),
+                     {"page": page, "purity": config["filters"]["purity"] if config["apiKey"] else "100"},
+                     config["apiKey"])
+    items = cache_thumbs([normalize_wallpaper(i) for i in result.get("data", [])], args[3:4] == ["cache"])
+    emit({"data": mark_installed(items),
+          "meta": normalize_meta(result.get("meta") or {}), "hasKey": bool(config["apiKey"])})
+
+
+# ---------------------------------------------------------------- images
+
+def find_existing(wallpaper_id):
+    for directory in (DYNAMIC_DIR, IMAGE_DIR):
+        if os.path.isdir(directory):
+            for ext in ("jpg", "jpeg", "png", "webp"):
+                candidate = os.path.join(directory, "wallhaven-%s.%s" % (wallpaper_id, ext))
+                if os.path.isfile(candidate):
+                    return candidate
+    return ""
+
+
+def download(url, destination_dir, wallpaper_id):
+    parsed = urllib.parse.urlparse(url)
+    allowed = {urllib.parse.urlparse(API).hostname, "w.wallhaven.cc", "wallhaven.cc"}
+    if parsed.scheme not in ("https", "http") or parsed.hostname not in allowed:
+        fail("Refusing to download from an unexpected host.")
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    os.makedirs(destination_dir, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix=".wallhaven-", dir=destination_dir)
+    try:
+        with os.fdopen(handle, "wb") as out, urllib.request.urlopen(request, timeout=60) as response:
+            ext = IMAGE_TYPES.get(response.headers.get_content_type())
+            if not ext:
+                fail("Wallhaven did not return an image.")
+            total = 0
+            while True:
+                block = response.read(1 << 16)
+                if not block:
+                    break
+                total += len(block)
+                if total > MAX_IMAGE_BYTES:
+                    fail("The image is larger than 256 MB.")
+                out.write(block)
+        final = os.path.join(destination_dir, "wallhaven-%s.%s" % (wallpaper_id, ext))
+        os.replace(temporary, final)
+        return final
+    except HelperError:
+        raise
+    except (urllib.error.URLError, OSError, TimeoutError) as error:
+        fail("Download failed: %s" % getattr(error, "reason", error), "network")
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def image_url(wallpaper_id, hint):
+    """The full-size URL: the search result's own `path` when given, else one API lookup."""
+    if hint and re.fullmatch(r"https?://[^\s]+/wallhaven-%s\.(?:jpe?g|png|webp)" % re.escape(wallpaper_id), hint):
+        return hint
+    config = load_config()
+    item = api_get("/w/" + wallpaper_id, {}, config["apiKey"]).get("data") or {}
+    if not item.get("path"):
+        fail("Wallhaven returned no image for this wallpaper.")
+    return item["path"]
+
+
+def command_prepare(args):
+    if not 1 <= len(args) <= 2 or not re.fullmatch(r"[A-Za-z0-9]{4,12}", args[0]):
+        fail("prepare requires a wallpaper id.")
+    existing = find_existing(args[0])
+    if existing:
+        emit({"id": args[0], "path": existing, "installed": existing.startswith(os.path.realpath(DYNAMIC_DIR) + os.sep)
+              or existing.startswith(DYNAMIC_DIR + os.sep)})
+        return
+    path = download(image_url(args[0], args[1] if len(args) > 1 else ""), IMAGE_DIR, args[0])
+    emit({"id": args[0], "path": path, "installed": False})
+
+
+def command_install(args):
+    if not 1 <= len(args) <= 2 or not re.fullmatch(r"[A-Za-z0-9]{4,12}", args[0]):
+        fail("install requires a wallpaper id.")
+    existing = find_existing(args[0])
+    if existing and not existing.startswith(IMAGE_DIR + os.sep):
+        emit({"id": args[0], "path": existing, "installed": True})
+        return
+    source = existing
+    if not source:
+        source = download(image_url(args[0], args[1] if len(args) > 1 else ""), IMAGE_DIR, args[0])
+    os.makedirs(DYNAMIC_DIR, exist_ok=True)
+    destination = os.path.join(DYNAMIC_DIR, os.path.basename(source))
+    # Copy next to the destination first so the final rename is atomic and never exposes a partial file.
+    handle, temporary = tempfile.mkstemp(prefix=".wallhaven-", dir=DYNAMIC_DIR)
+    os.close(handle)
+    try:
+        shutil.copyfile(source, temporary)
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    os.unlink(source)
+    emit({"id": args[0], "path": destination, "installed": True})
+
+
+def prune_cache():
+    """Drops cached full-size previews older than a week and thumbnails unused for two; installed wallpapers are never touched.
+    Runs at most once an hour."""
+    try:
+        if time.time() - os.path.getmtime(PRUNE_STAMP) < 3600:
+            return
+    except OSError:
+        pass
+    for directory, ttl in ((IMAGE_DIR, 7 * 86400), (THUMB_DIR, THUMB_TTL)):
+        if not os.path.isdir(directory):
+            continue
+        cutoff = time.time() - ttl
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            try:
+                if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                    os.unlink(path)
+            except OSError:
+                pass
+    try:
+        os.makedirs(CACHE_ROOT, exist_ok=True)
+        with open(PRUNE_STAMP, "a"):
+            os.utime(PRUNE_STAMP)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------- colour maths
+
+def srgb_to_linear(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def linear_to_srgb(c):
+    return 12.92 * c if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
+
+
+def hex_to_oklch(value):
+    r, g, b = (srgb_to_linear(int(value[i:i + 2], 16) / 255) for i in (1, 3, 5))
+    l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+    m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+    s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+    lightness = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+    a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+    bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+    return lightness, math.hypot(a, bb), math.degrees(math.atan2(bb, a)) % 360
+
+
+def oklch_to_rgb(lightness, chroma, hue):
+    a, b = chroma * math.cos(math.radians(hue)), chroma * math.sin(math.radians(hue))
+    l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    s = (lightness - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    return (4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+            -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+            -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+
+
+def oklch_to_hex(lightness, chroma, hue):
+    """Converts to sRGB, shrinking chroma until the colour is inside the gamut."""
+    lightness = min(1.0, max(0.0, lightness))
+    low, high = 0.0, max(0.0, chroma)
+    rgb = oklch_to_rgb(lightness, high, hue)
+    if not all(-1e-4 <= c <= 1 + 1e-4 for c in rgb):
+        for _ in range(24):
+            mid = (low + high) / 2
+            if all(-1e-4 <= c <= 1 + 1e-4 for c in oklch_to_rgb(lightness, mid, hue)):
+                low = mid
+            else:
+                high = mid
+        rgb = oklch_to_rgb(lightness, low, hue)
+    return "#%02x%02x%02x" % tuple(round(min(1.0, max(0.0, linear_to_srgb(max(0.0, c)))) * 255) for c in rgb)
+
+
+def luminance(value):
+    r, g, b = (srgb_to_linear(int(value[i:i + 2], 16) / 255) for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a, b):
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def hue_pull(hue, target, strength):
+    diff = (target - hue + 540) % 360 - 180
+    return (hue + diff * strength) % 360
+
+
+def mix_oklch(a, b, amount):
+    la, ca, ha = hex_to_oklch(a)
+    lb, cb, hb = hex_to_oklch(b)
+    return oklch_to_hex(la + (lb - la) * amount, ca + (cb - ca) * amount, hue_pull(ha, hb, amount))
+
+
+def dominant_colors(path, count=8):
+    """Returns [(hex, share)] from a downsampled copy of the full image."""
+    try:
+        from PIL import Image
+    except ImportError:
+        fail("Python Pillow is required for Island's own palette schemes.")
+    try:
+        with Image.open(path) as image:
+            image = image.convert("RGB")
+            image.thumbnail((192, 192))
+            quantized = image.quantize(colors=count, method=Image.Quantize.MEDIANCUT)
+            palette = quantized.getpalette()[:count * 3]
+            counts = sorted(quantized.getcolors() or [], reverse=True)
+    except (OSError, ValueError) as error:
+        fail("Could not read the image: %s" % error)
+    total = float(sum(n for n, _ in counts)) or 1.0
+    return [("#%02x%02x%02x" % tuple(palette[i * 3:i * 3 + 3]), n / total) for n, i in counts if i * 3 + 2 < len(palette)]
+
+
+def custom_palette(path, scheme, mode):
+    label, _desc, target, strength, lights, chroma, bg_lights, bg_chroma, fg_chroma = CUSTOM_SCHEMES[scheme]
+    dark = mode == "dark"
+    colours = dominant_colors(path)
+    best_hue, best = 260.0, -1.0
+    for value, share in colours:
+        _l, c, h = hex_to_oklch(value)
+        weight = c * (0.4 + share)
+        if c > 0.02 and weight > best:
+            best_hue, best = h, weight
+    # Schemes with an anchor hue pull the image's hues toward it; the rest follow the image.
+    anchor = best_hue if target is None else target
+    tint = best_hue if target is None else hue_pull(best_hue, target, 0.7)
+    ansi_hues = [hue_pull(base, anchor, strength) for base in ANSI_ANCHORS]
+    lightness = lights[0] if dark else lights[1]
+    background = oklch_to_hex(bg_lights[0] if dark else bg_lights[1], bg_chroma, tint)
+    foreground = oklch_to_hex(0.86 if dark else 0.28, fg_chroma, tint)
+    ansi = []
+    for hue, offset in zip(ansi_hues, STAGGER):
+        colour = oklch_to_hex(lightness + offset, chroma, hue)
+        step = 0.0
+        while contrast(background, colour) < 4.5 and step < 0.5:
+            step += 0.02
+            colour = oklch_to_hex(lightness + offset + (step if dark else -step), chroma, hue)
+        ansi.append(colour)
+    bright = []
+    for colour in ansi:
+        l, c, h = hex_to_oklch(colour)
+        bright.append(oklch_to_hex(l + (0.07 if dark else -0.06), c + 0.015, h))
+    comment = mix_oklch(background, foreground, 0.38)
+    bright_fg = oklch_to_hex(0.94 if dark else 0.18, fg_chroma, tint)
+    # The accent is the ANSI colour whose hue sits closest to the image's dominant hue.
+    accent = min(ansi, key=lambda c: abs((hex_to_oklch(c)[2] - best_hue + 180) % 360 - 180))
+    terminal = [background] + ansi + [foreground, comment] + bright + [bright_fg]
+    return {"mode": mode, "terminal": terminal, "colors": {
+        "background": background, "foreground": foreground, "accent": accent, "muted": comment,
+        "red": ansi[0], "green": ansi[1], "yellow": ansi[2], "blue": ansi[3], "magenta": ansi[4], "cyan": ansi[5]}}
+
+
+def parse_toml_colors(text):
+    values = {}
+    for line in text.splitlines():
+        match = re.match(r'^\s*([A-Za-z0-9_]+)\s*=\s*"(#[0-9a-fA-F]{6,8})"\s*$', line)
+        if match:
+            values[match.group(1)] = match.group(2).lower()
+        else:
+            match = re.match(r'^\s*mode\s*=\s*"(light|dark)"\s*$', line)
+            if match:
+                values["mode"] = match.group(1)
+    return values
+
+
+def aether_binary():
+    candidates = [os.environ.get("AETHER_BIN"),
+                  os.path.realpath(os.path.join(SCRIPT_DIR, "..", "..", ".runtime", "aether", "bin", "aether")),
+                  shutil.which("aether")]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return ""
+
+
+def aether_palette(path, scheme, mode):
+    binary = aether_binary()
+    if not binary:
+        fail("The Aether binary is unavailable; build it with the Caelestia runtime scripts.")
+    with tempfile.TemporaryDirectory(prefix="island-wallhaven-") as output:
+        command = [binary, "--generate", path, "--no-apply", "--extract-mode", scheme, "--output", output,
+                   "--no-zed", "--no-vscode", "--no-neovim"]
+        if mode == "light":
+            command.append("--light-mode")
+        try:
+            subprocess.run(command, check=True, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+            with open(os.path.join(output, "colors.toml")) as stream:
+                parsed = parse_toml_colors(stream.read())
+        except (subprocess.SubprocessError, OSError) as error:
+            fail("Aether could not generate the %s palette: %s" % (scheme, getattr(error, "stderr", None) or error))
+    needed = list(COLOR_KEYS) + ["color%d" % i for i in range(16)]
+    if parsed.get("mode") != mode or any(k not in parsed for k in needed):
+        fail("Aether produced an incomplete %s palette." % scheme)
+    return {"mode": mode, "colors": {k: parsed[k] for k in COLOR_KEYS}, "terminal": [parsed["color%d" % i] for i in range(16)]}
+
+
+def build_palette(path, scheme, mode):
+    if mode not in ("dark", "light"):
+        fail("Mode must be dark or light.")
+    if not os.path.isfile(path):
+        fail("Image not found: %s" % path)
+    if scheme in CUSTOM_SCHEMES:
+        palette = custom_palette(path, scheme, mode)
+    elif scheme in [s[0] for s in AETHER_SCHEMES]:
+        palette = aether_palette(path, scheme, mode)
+    else:
+        fail("Unknown palette scheme: %s" % scheme)
+    palette["scheme"] = scheme
+    palette["style"] = "wh-" + scheme
+    return palette
+
+
+def palette_toml(palette):
+    lines = ["# Generated by Island's Wallhaven browser.", 'mode = "%s"' % palette["mode"]]
+    lines += ['%s = "%s"' % (k, palette["colors"][k]) for k in COLOR_KEYS]
+    lines += ['color%d = "%s"' % (i, c) for i, c in enumerate(palette["terminal"])]
+    return "\n".join(lines) + "\n"
+
+
+def command_schemes(_args):
+    out = [{"id": s[0], "label": s[1], "group": s[2], "description": s[3], "source": "aether"} for s in AETHER_SCHEMES]
+    out += [{"id": k, "label": v[0], "group": CUSTOM_GROUP, "description": v[1], "source": "island"}
+            for k, v in CUSTOM_SCHEMES.items()]
+    emit(out)
+
+
+def command_preview(args):
+    if len(args) != 3:
+        fail("preview requires a path, scheme and mode.")
+    emit(build_palette(args[0], args[1], args[2]))
+
+
+def command_previews(args):
+    if len(args) != 2:
+        fail("previews requires a path and mode.")
+    path, mode = args
+    names = [s[0] for s in AETHER_SCHEMES] + list(CUSTOM_SCHEMES)
+
+    def one(name):
+        try:
+            return build_palette(path, name, mode)
+        except HelperError as error:
+            return {"scheme": name, "style": "wh-" + name, "mode": mode, "error": str(error)}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        for future in concurrent.futures.as_completed([pool.submit(one, n) for n in names]):
+            emit(future.result())
+
+
+def command_palette_file(args):
+    if len(args) != 4:
+        fail("palette-file requires a path, scheme, mode and output file.")
+    path, scheme, mode, output = args
+    palette = build_palette(path, scheme, mode)
+    directory = os.path.dirname(os.path.abspath(output))
+    handle, temporary = tempfile.mkstemp(prefix=".palette-", dir=directory)
+    with os.fdopen(handle, "w") as stream:
+        stream.write(palette_toml(palette))
+    os.replace(temporary, output)
+    emit({"ok": True, "style": palette["style"], "mode": mode})
+
+
+COMMANDS = {
+    "config": command_config, "save-config": command_save_config, "set-key": command_set_key,
+    "search": command_search, "info": command_info, "collections": command_collections,
+    "collection": command_collection, "thumbs": command_thumbs, "prepare": command_prepare, "install": command_install,
+    "previews": command_previews, "preview": command_preview, "palette-file": command_palette_file,
+    "schemes": command_schemes,
+}
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help") or argv[1] not in COMMANDS:
+        sys.stderr.write(__doc__)
+        return 0 if len(argv) > 1 and argv[1] in ("-h", "--help") else 2
+    try:
+        if argv[1] == "search":
+            prune_cache()
+        COMMANDS[argv[1]](argv[2:])
+    except HelperError as error:
+        emit({"error": str(error), "code": error.code})
+        return 1
+    except BrokenPipeError:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

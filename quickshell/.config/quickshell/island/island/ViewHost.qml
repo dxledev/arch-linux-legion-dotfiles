@@ -156,6 +156,9 @@ Item {
             case IslandState.chromackMode:
                 return chromackView
 
+            case IslandState.wallhavenMode:
+                return wallhavenView
+
             case IslandState.themeSelectorMode:
                 return themeSelectorView
 
@@ -194,6 +197,7 @@ Item {
     Component { id: bluetoothView; BluetoothView {} }
     Component { id: clipboardView; ClipboardView {} }
     Component { id: chromackView; ChromackView {} }
+    Component { id: wallhavenView; WallhavenView {} }
 
     Component {
         id: defaultView

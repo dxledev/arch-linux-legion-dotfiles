@@ -26,6 +26,12 @@ Item {
         let revealedHeight = 0;
         for (const target of scrollTargets) {
             if (!target) continue;
+            // Targets without ends, like a wrapping carousel, report their own progress as a fraction.
+            if (typeof target.reportedProgress === "number") {
+                totalHeight += 1;
+                revealedHeight += Math.max(0, Math.min(1, target.reportedProgress));
+                continue;
+            }
             // Targets that scroll sideways opt in with a scrollHorizontal property.
             const horizontal = target.scrollHorizontal === true;
             const viewport = horizontal ? target.width : target.height;

@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Isolated checks for the Wallhaven helper and the island-theme palette commands.
+# Uses a mock wallhaven API on localhost; nothing touches the live desktop or wallhaven.cc.
+set -euo pipefail
+
+integration_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+test_root="$(/usr/bin/mktemp -d /tmp/island-wallhaven.XXXXXX)"
+server_pid=""
+cleanup() {
+    local status="$?"
+    [[ -z "$server_pid" ]] || kill "$server_pid" 2>/dev/null || true
+    if (( status )); then
+        printf 'Wallhaven test failed; logs:\n' >&2
+        [[ ! -f "$test_root/server.log" ]] || /usr/bin/tail -20 "$test_root/server.log" >&2
+        [[ ! -f "$test_root/theme.log" ]] || /usr/bin/tail -30 "$test_root/theme.log" >&2
+    fi
+    /usr/bin/rm -rf -- "$test_root"
+}
+trap cleanup EXIT
+
+export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
+export THEMES_DIR="$XDG_CONFIG_HOME/themes" ISLAND_STATE_DIR="$XDG_STATE_HOME/island" SHELL_NOTIFICATION_HISTORY="$XDG_STATE_HOME/notification-history.jsonl"
+export ISLAND_DYNAMIC_WALLPAPERS_DIR="$test_root/dynamic" ISLAND_WALLHAVEN_CACHE_DIR="$test_root/cache/wallhaven"
+export ISLAND_THEME_PREWARM=0 THEME_APPLY_ACTIVATE_ONLY=1 THEME_APPLY="$integration_dir/desktop/theme-apply"
+export SPICETIFY_TEMPLATE_DIR="$source_config/spicetify/Themes/text"
+export ISLAND_PGREP_BIN=/usr/bin/true ISLAND_AWWW_DAEMON=/usr/bin/true ISLAND_AWWW_BIN="$test_root/awww"
+/usr/bin/mkdir -p "$THEMES_DIR" "$ISLAND_DYNAMIC_WALLPAPERS_DIR" "$XDG_CONFIG_HOME/spicetify/Themes" "$XDG_CONFIG_HOME/aether"
+for name in ristretto nord; do
+    /usr/bin/mkdir -p "$THEMES_DIR/$name" "$test_root/static/$name"
+    /usr/bin/ln -s "$test_root/static/$name" "$THEMES_DIR/$name/wallpapers"
+    for file in "$source_config/themes/$name"/*; do
+        [[ -f "$file" && "${file##*/}" != wallpaper.png ]] || continue
+        /usr/bin/cp -L -- "$file" "$THEMES_DIR/$name/"
+    done
+    /usr/bin/magick -size 8x8 xc:'#81a1c1' "$THEMES_DIR/$name/wallpapers/one.png"
+    /usr/bin/ln -s wallpapers/one.png "$THEMES_DIR/$name/wallpaper.png"
+done
+/usr/bin/ln -s ristretto "$THEMES_DIR/current"
+/usr/bin/ln -s current "$THEMES_DIR/.caelestia-use"
+printf '#!/usr/bin/env bash\n[[ "$1" != img ]] || printf "%%s\\n" "$2" >> "%s/awww.log"\n' "$test_root" > "$ISLAND_AWWW_BIN"
+/usr/bin/chmod +x "$ISLAND_AWWW_BIN"
+# A colourful gradient so every scheme has hues to extract.
+/usr/bin/magick -size 160x90 gradient:'#d94f70-#3a6ea5' -swirl 90 "$test_root/source.png"
+/usr/bin/magick -size 8x8 xc:'#ebcb8b' "$ISLAND_DYNAMIC_WALLPAPERS_DIR/plain.png"
+
+controller="$integration_dir/island-theme"
+helper="$integration_dir/wallhaven"
+check() { local message="$1"; shift; "$@" >/dev/null 2>&1 || { printf 'FAIL: %s\n' "$message" >&2; return 1; }; }
+jq_ok() { local message="$1" filter="$2" input="$3"; /usr/bin/jq -e "$filter" <<< "$input" >/dev/null || { printf 'FAIL: %s (%s)\n' "$message" "$input" >&2; return 1; }; }
+
+# ---- mock wallhaven API -------------------------------------------------------------------------
+cp "$integration_dir/tests/wallhaven-server.py" "$test_root/server.py"
+python3 "$test_root/server.py" "$test_root" > "$test_root/server.log" 2>&1 &
+server_pid="$!"
+for _ in {1..50}; do [[ -s "$test_root/port" ]] && break; /usr/bin/sleep 0.1; done
+export ISLAND_WALLHAVEN_API="http://127.0.0.1:$(< "$test_root/port")/api/v1"
+last_request() { /usr/bin/tail -1 "$test_root/requests.log"; }
+
+# ---- configuration and search validation --------------------------------------------------------
+printf '{"apiKey":"","categories":"101","purity":"100","sorting":"favorites","order":"asc","resolutions":"1920x1080"}\n' > "$XDG_CONFIG_HOME/aether/wallhaven.json"
+config="$("$helper" config)"
+jq_ok 'Aether defaults seed the first run' '.filters.categories == "101" and .filters.sorting == "favorites" and .filters.order == "asc" and .filters.atleast == "1920x1080" and .hasKey == false' "$config"
+[[ ! -e "$ISLAND_STATE_DIR/wallhaven.json" ]] || { printf 'FAIL: config must not be written by reading\n' >&2; exit 1; }
+
+result="$("$helper" search '{"filters":{"q":"+sky -night","categories":"110","purity":"111","sorting":"toplist","topRange":"1y","ratios":["16x9","landscape"],"resolutions":["1920x1080"],"atleast":"1280x720","colors":"660000","seed":"Ab12Cd"},"page":2}')"
+jq_ok 'search returns normalized wallpapers' '.data[0].id == "p2i00" and (.data | length) == 24 and .meta.page == 2 and .meta.perPage == 24 and .data[0].installed == false and (.data[0].thumb | endswith("/thumb/l.png")) and .data[0].colors == ["#660000"] and .meta.lastPage == 3 and .meta.total == 60 and .hasKey == false' "$result"
+request="$(last_request)"
+jq_ok 'filters reach the API' '.query.q == "+sky -night" and .query.categories == "110" and .query.sorting == "toplist" and .query.topRange == "1y" and .query.ratios == "16x9,landscape" and .query.resolutions == "1920x1080" and .query.colors == "660000" and .query.page == "2"' "$request"
+jq_ok 'NSFW is blocked without an API key and the seed is only for random sorting' '.query.purity == "110" and .query.atleast == "1280x720" and (.query | has("seed") | not)' "$request"
+"$helper" search '{"filters":{"sorting":"random","seed":"Ab12Cd","topRange":"1y"},"page":3}' >/dev/null
+jq_ok 'random seed is sent (page 1 included, so Previous keeps the order) and topRange only for toplist' '.query.seed == "Ab12Cd" and (.query | has("topRange") | not)' "$(last_request)"
+"$helper" search '{"filters":{"sorting":"random","seed":"Ab12Cd"},"page":1}' >/dev/null
+jq_ok 'random seed is sent on page 1 too' '.query.seed == "Ab12Cd"' "$(last_request)"
+"$helper" search '{"filters":{"sorting":"bogus","categories":"abc","purity":"000","order":"sideways"},"page":0}' >/dev/null
+jq_ok 'invalid filters fall back to safe defaults' '.query.sorting == "date_added" and .query.categories == "111" and .query.purity == "100" and .query.order == "desc" and .query.page == "1"' "$(last_request)"
+
+ISLAND_WALLHAVEN_NEW_KEY=abcdefghijklmnop0123456789ABCDEF "$helper" set-key >/dev/null
+[[ "$(/usr/bin/stat -c %a "$ISLAND_STATE_DIR/wallhaven.json")" == 600 ]] || { printf 'FAIL: config file must be private\n' >&2; exit 1; }
+"$helper" search '{"filters":{"purity":"111"},"page":1}' >/dev/null
+request="$(last_request)"
+jq_ok 'API key travels in a header, never the query string' '.key == "abcdefghijklmnop0123456789ABCDEF" and .query.purity == "111" and (.query | has("apikey") | not)' "$request"
+jq_ok 'config reports the key without revealing it' '.hasKey == true and (tostring | contains("abcdefghijklmnop") | not)' "$("$helper" config)"
+if ISLAND_WALLHAVEN_NEW_KEY='bad key!' "$helper" set-key >/dev/null 2>&1; then printf 'FAIL: malformed keys must be rejected\n' >&2; exit 1; fi
+ISLAND_WALLHAVEN_NEW_KEY= "$helper" set-key >/dev/null
+jq_ok 'clearing the key strips NSFW from saved filters' '.hasKey == false' "$("$helper" config)"
+"$helper" save-config '{"filters":{"q":"saved","sorting":"views","colors":"ff0000"}}' >/dev/null
+jq_ok 'saved filters persist and invalid colours are dropped' '.filters.q == "saved" and .filters.sorting == "views" and .filters.colors == ""' "$("$helper" config)"
+
+jq_ok 'the page size defaults to the whole API page' '.pageSize == 0' "$("$helper" config)"
+"$helper" save-config '{"pageSize":6}' >/dev/null
+jq_ok 'the page size persists beside the filters' '.pageSize == 6 and .filters.q == "saved"' "$("$helper" config)"
+"$helper" save-config '{"pageSize":500}' >/dev/null
+jq_ok 'invalid page sizes fall back to the whole API page' '.pageSize == 0' "$("$helper" config)"
+
+# ---- thumbnail cache ----------------------------------------------------------------------------
+thumbs_dir="$ISLAND_WALLHAVEN_CACHE_DIR/thumbs"
+plain="$("$helper" search '{"filters":{},"page":1}')"
+jq_ok 'a plain search leaves thumbnails remote and downloads nothing' '(.data[0].thumb | startswith("http://127.0.0.1")) and (.data | length) == 24' "$plain"
+[[ ! -d "$thumbs_dir" ]] || { printf 'FAIL: plain searches must not download thumbnails\n' >&2; exit 1; }
+warm="$("$helper" search '{"filters":{},"page":2,"cache":true}')"
+jq_ok 'a prefetching search returns cached file thumbnails' '(.data | all(.thumb | startswith("file://"))) and (.data | length) == 24' "$warm"
+[[ "$(/usr/bin/find "$thumbs_dir" -type f | /usr/bin/wc -l)" == 24 && -s "$thumbs_dir/p2i05.png" ]] || { printf 'FAIL: thumbnails land in the cache\n' >&2; exit 1; }
+[[ -z "$(/usr/bin/find "$thumbs_dir" -name '.*')" ]] || { printf 'FAIL: partial downloads must not linger\n' >&2; exit 1; }
+jq_ok 'later plain searches reuse cached thumbnails' '(.data[5].thumb | endswith("/thumbs/p2i05.png"))' "$("$helper" search '{"filters":{},"page":2}')"
+streamed="$("$helper" thumbs '[{"id":"p1i01","url":"'"${ISLAND_WALLHAVEN_API%/api/v1}"'/thumb/l.png"},{"id":"bad id","url":"http://127.0.0.1/x.png"},{"id":"p1i02","url":"file:///etc/passwd"}]' | /usr/bin/jq -s -c 'map(.id)')"
+[[ "$streamed" == '["p1i01"]' && -s "$thumbs_dir/p1i01.png" && ! -e "$thumbs_dir/p1i02.png" ]] || { printf 'FAIL: thumbs streams only valid downloads (%s)\n' "$streamed" >&2; exit 1; }
+/usr/bin/touch -d '30 days ago' "$thumbs_dir/p2i05.png"
+/usr/bin/rm -f "$ISLAND_WALLHAVEN_CACHE_DIR/.pruned"
+"$helper" search '{"filters":{},"page":1}' >/dev/null
+[[ ! -e "$thumbs_dir/p2i05.png" && -e "$thumbs_dir/p2i06.png" ]] || { printf 'FAIL: stale thumbnails are pruned\n' >&2; exit 1; }
+
+jq_ok 'info includes tags and uploader' '.tags[0].name == "sky" and .uploader == "someone"' "$("$helper" info abc123)"
+jq_ok 'collections list' '.data[0].label == "Skies" and .data[0].count == 4' "$("$helper" collections someone)"
+if "$helper" info missing >/dev/null 2>&1; then printf 'FAIL: missing wallpapers must error\n' >&2; exit 1; fi
+if "$helper" info '../etc' >/dev/null 2>&1; then printf 'FAIL: ids are validated\n' >&2; exit 1; fi
+
+# ---- rate limiting -------------------------------------------------------------------------------
+now="$(python3 -c 'import time; print(time.time())')"
+python3 - "$ISLAND_WALLHAVEN_CACHE_DIR/rate.json" "$now" <<'PY'
+import json, sys
+json.dump({"calls": [float(sys.argv[2])] * 45}, open(sys.argv[1], "w"))
+PY
+output="$("$helper" search '{"filters":{}}' || true)"
+jq_ok 'the 45/minute limit is enforced locally' '.code == "rate_limited"' "$output"
+printf '{"calls":[]}\n' > "$ISLAND_WALLHAVEN_CACHE_DIR/rate.json"
+
+# ---- download, install and palette storage ------------------------------------------------------
+prepared="$("$helper" prepare abc123)"
+cached="$(/usr/bin/jq -r .path <<< "$prepared")"
+[[ "$cached" == "$ISLAND_WALLHAVEN_CACHE_DIR/images/"* && -f "$cached" ]] || { printf 'FAIL: prepare downloads into the cache\n' >&2; exit 1; }
+hash_before="$(/usr/bin/sha256sum "$cached" | /usr/bin/cut -d' ' -f1)"
+installed="$("$helper" install abc123)"
+path="$(/usr/bin/jq -r .path <<< "$installed")"
+[[ "$path" == "$ISLAND_DYNAMIC_WALLPAPERS_DIR/wallhaven-abc123.png" && -f "$path" && ! -e "$cached" ]] || { printf 'FAIL: install moves the image into the Dynamic library\n' >&2; exit 1; }
+[[ "$(/usr/bin/sha256sum "$path" | /usr/bin/cut -d' ' -f1)" == "$hash_before" ]] || { printf 'FAIL: the stored palette key is the installed file hash\n' >&2; exit 1; }
+for scheme in pastel candy; do
+    "$helper" palette-file "$path" "$scheme" light "$test_root/$scheme.toml" >/dev/null
+    check "$scheme colors.toml is a complete palette" /usr/bin/grep -q '^color15 = "#' "$test_root/$scheme.toml"
+done
+schemes="$("$helper" schemes)"
+jq_ok 'Pastel leads the scheme list and Island adds its own' '.[0].id == "pastel" and (map(.id) | index("candy")) != null and length >= 25' "$schemes"
+if "$helper" palette-file "$path" 'bad;scheme' dark "$test_root/x.toml" >/dev/null 2>&1; then printf 'FAIL: unknown schemes are rejected\n' >&2; exit 1; fi
+previews="$("$helper" previews "$path" dark | /usr/bin/jq -s 'map(select(.error == null)) | length')"
+(( previews >= 25 )) || { printf 'FAIL: previews stream every scheme (%s)\n' "$previews" >&2; exit 1; }
+
+# ---- island-theme integration -------------------------------------------------------------------
+"$controller" --dry-run wallpaper-palette "$path" aether pastel dark | /usr/bin/grep -q 'wh-\|pastel' || { printf 'FAIL: dry run describes the palette\n' >&2; exit 1; }
+[[ ! -d "$ISLAND_STATE_DIR/aether-palettes" ]] || { printf 'FAIL: dry run must not write palettes\n' >&2; exit 1; }
+if "$controller" wallpaper-palette "$test_root/source.png" aether pastel dark >> "$test_root/theme.log" 2>&1; then printf 'FAIL: wallpapers outside the library are rejected\n' >&2; exit 1; fi
+
+# Starting from a static theme, applying a generated palette switches to Dynamic.
+"$controller" theme nord >> "$test_root/theme.log" 2>&1
+jq_ok 'precondition: static theme' '.source == "system"' "$("$controller" status)"
+"$controller" wallpaper-palette "$path" aether pastel dark >> "$test_root/theme.log" 2>&1
+status="$("$controller" status)"
+jq_ok 'applying a generated palette switches to Dynamic with the Aether provider' '.source == "dynamic" and .provider == "aether" and .mode == "dark"' "$status"
+list="$("$controller" aether-list)"
+jq_ok 'the wallpaper lists its generated palette as active' 'length == 1 and .[0].style == "wh-pastel" and .[0].mode == "dark" and .[0].active == true' "$list"
+[[ "$(/usr/bin/tail -1 "$test_root/awww.log")" == "$path" ]] || { printf 'FAIL: wallpaper is applied\n' >&2; exit 1; }
+jq_ok 'the active palette is the generated one' '.style == "wh-pastel" and .provider == "aether" and .mode == "dark"' "$(/usr/bin/jq -c . "$ISLAND_STATE_DIR/shell-theme-palette.json")"
+record="$ISLAND_STATE_DIR/aether-palettes/$(/usr/bin/sha256sum "$path" | /usr/bin/cut -d' ' -f1).json"
+jq_ok 'the wallpaper record stores the snapshot and selects it' '.selection == {type:"aether",style:"wh-pastel",mode:"dark"} and (.snapshots["wh-pastel"].dark.palette.colours | has("term15"))' "$(/usr/bin/jq -c . "$record")"
+
+# The other light/dark pair is generated on demand and stored beside the first.
+"$controller" aether-select wh-pastel light >> "$test_root/theme.log" 2>&1
+list="$("$controller" aether-list)"
+jq_ok 'light variant generated on demand' 'length == 2 and (map(select(.active)) | length == 1) and (map(select(.active))[0].mode == "light")' "$list"
+"$controller" aether-select wh-pastel dark >> "$test_root/theme.log" 2>&1
+jq_ok 'switching back reuses the stored dark palette' '(map(select(.active))[0].mode == "dark")' "$("$controller" aether-list)"
+
+# Other generated schemes stack up on the same wallpaper.
+"$controller" wallpaper-palette "$path" aether candy dark >> "$test_root/theme.log" 2>&1
+jq_ok 'a second scheme is stored alongside Pastel' 'map(.style) | unique == ["wh-candy","wh-pastel"]' "$("$controller" aether-list)"
+
+# Island's Material variants still work, remember the choice, and keep the generated palettes.
+"$controller" wallpaper-palette "$path" material expressive light >> "$test_root/theme.log" 2>&1
+status="$("$controller" status)"
+jq_ok 'Material variants apply through the same command' '.provider == "caelestia" and .variant == "expressive" and .mode == "light"' "$status"
+jq_ok 'generated palettes survive a variant change but are no longer active' 'length == 3 and (map(select(.active)) | length == 0)' "$("$controller" aether-list)"
+
+# Only wallpapers with generated palettes list any; everything else stays untouched.
+"$controller" wallpaper "$ISLAND_DYNAMIC_WALLPAPERS_DIR/plain.png" >> "$test_root/theme.log" 2>&1
+jq_ok 'other wallpapers have no generated palettes' '. == []' "$("$controller" aether-list)"
+[[ "$(/usr/bin/jq -r '.snapshots | length' "$ISLAND_STATE_DIR/aether-palettes/$(/usr/bin/sha256sum "$ISLAND_DYNAMIC_WALLPAPERS_DIR/plain.png" | /usr/bin/cut -d' ' -f1).json")" == 0 ]] || { printf 'FAIL: untouched wallpapers store no generated palettes\n' >&2; exit 1; }
+"$controller" theme nord >> "$test_root/theme.log" 2>&1
+jq_ok 'static themes list none' '. == []' "$("$controller" aether-list)"
+if "$controller" aether-select wh-pastel dark >> "$test_root/theme.log" 2>&1; then printf 'FAIL: aether-select needs the Dynamic theme\n' >&2; exit 1; fi
+if "$controller" aether-select 'bad;style' dark >> "$test_root/theme.log" 2>&1; then printf 'FAIL: aether-select validates the style\n' >&2; exit 1; fi
+
+printf 'PASS: wallhaven helper and palette storage\n'

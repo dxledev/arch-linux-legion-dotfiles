@@ -7,5 +7,9 @@ export QML_IMPORT_PATH="$runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 export CAELESTIA_LIB_DIR="$runtime/lib/caelestia"
 export CAELESTIA_RECORDINGS_DIR="${CAELESTIA_RECORDINGS_DIR:-$HOME/files/videos/screenrecordings}"
 export QS_ICON_THEME="${QS_ICON_THEME:-Papirus}"
-export PATH="$config_root/scripts:$runtime/cli/bin:$PATH"
+export PATH="$config_root/scripts:$runtime/cli/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/bin:/bin}"
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$PATH:$HOME/.local/bin" ;;
+esac
 exec /usr/bin/quickshell "$@"

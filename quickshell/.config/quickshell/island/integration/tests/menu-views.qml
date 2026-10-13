@@ -30,6 +30,7 @@ ShellRoot {
         ["bluetooth", IslandState.bluetoothMode],
         ["clipboard", IslandState.clipboardMode],
         ["chromack", IslandState.chromackMode],
+        ["browse-wallpapers", IslandState.wallhavenMode],
         ["shell-mode", IslandState.shellSwitcherMode],
         ["ai-usage", IslandState.aiUsageMode],
         ["system", IslandState.systemMode]

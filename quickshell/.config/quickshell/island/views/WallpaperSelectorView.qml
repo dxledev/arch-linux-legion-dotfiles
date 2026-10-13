@@ -39,6 +39,7 @@ FocusScope {
 
     implicitWidth: 48 + columns * cellWidth
     implicitHeight: 48 + header.implicitHeight + content.spacing + searchField.implicitHeight + content.spacing + gallery.height
+        + (status.visible ? content.spacing + status.implicitHeight : 0)
 
     Component.onCompleted: searchField.forceActiveFocus()
     onVisibleChanged: if (visible) { searchField.forceActiveFocus(); Qt.callLater(revealSelection, true); }
@@ -202,8 +203,7 @@ FocusScope {
         PanelHeader {
             id: header
             title: "Wallpapers"
-            // The wrapping carousel has no ends, so only the bounded grid reports progress.
-            scrollTargets: root.wrapping ? [] : [gallery]
+            scrollTargets: [root.wrapping ? carousel : gallery]
             onBack: IslandController.openNavigation()
         }
         SearchField {
@@ -288,6 +288,8 @@ FocusScope {
                 PathLine { x: (carousel.pathItemCount - 0.5) * root.cellWidth; y: root.cellHeight / 2 }
             }
             delegate: wallpaperCell
+            // The loop has no ends, so progress follows the selection and restarts when it wraps.
+            readonly property real reportedProgress: count > 0 ? (root.selectedIndex + 1) / count : 1
             WheelHandler {
                 parent: carousel
                 target: null
@@ -295,6 +297,17 @@ FocusScope {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 onWheel: event => root.wheelSelect(event)
             }
+        }
+        // Dynamic themes regenerate the palette from the wallpaper, which takes a moment.
+        UiText {
+            id: status
+            width: parent.width
+            text: ThemeService.error && filteredWallpapers.model.count > 0 ? ThemeService.error
+                : ThemeService.busy && ThemeService.state.source === "dynamic" ? "Applying…" : ""
+            visible: text.length > 0
+            color: ThemeService.error ? Theme.danger : Theme.textSecondary
+            wrapMode: Text.Wrap
+            font.pixelSize: 13
         }
     }
 }
