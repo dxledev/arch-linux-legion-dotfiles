@@ -40,6 +40,7 @@ quickshell_stop_timeout="${QUICKSHELL_STOP_TIMEOUT:-5}"
 shell_health_timeout="${SHELL_HEALTH_TIMEOUT:-15}"
 shell_health_delay="${SHELL_HEALTH_DELAY:-1}"
 shell_panel_close_delay="${SHELL_MODE_PANEL_CLOSE_DELAY:-0.5}"
+workspace_presentation="${WORKSPACE_PRESENTATION_SCRIPT:-$config_home/quickshell/island/integration/workspace-presentation}"
 themes_dir="${THEMES_DIR:-$config_home/themes}"
 application_selector="${APPLICATION_THEME_LINK:-$themes_dir/.caelestia-use}"
 require_waybar='require("waybar-mode-keybindings")'
@@ -513,7 +514,7 @@ commit_fresh_login_marker() {
 validate_paths() {
     local target="$1" path
     validate_island_paths
-    for path in "$hypr_config" "$quickshell_config" "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$wallpaper_slideshow" "$aether_script" "$hyprlock_launcher" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin" "$themes_dir" "$application_selector" "$lock_file" "$process_log_dir"; do
+    for path in "$hypr_config" "$quickshell_config" "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$wallpaper_slideshow" "$aether_script" "$hyprlock_launcher" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin" "$workspace_presentation" "$themes_dir" "$application_selector" "$lock_file" "$process_log_dir"; do
         require_absolute_path "$path" CONFIG
     done
     [[ "$application_selector" == "$themes_dir/.caelestia-use" ]] || fail "Unexpected application selector: $application_selector"
@@ -524,7 +525,7 @@ validate_paths() {
     [[ "$shell_health_delay" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'SHELL_HEALTH_DELAY must be a non-negative number.'
     [[ "$shell_panel_close_delay" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'SHELL_MODE_PANEL_CLOSE_DELAY must be a non-negative number.'
     if (( ! dry_run )); then
-        for path in "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$wallpaper_slideshow" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin"; do
+        for path in "$quickshell_bin" "$noctalia_shell" "$noctalia_theme_sync" "$theme_apply" "$shell_theme" "$wallpaper_refresh" "$wallpaper_slideshow" "$hyprctl_bin" "$pgrep_bin" "$pkill_bin" "$kill_bin" "$jq_bin" "$systemctl_bin" "$workspace_presentation"; do
             require_executable "$path"
         done
     fi
@@ -586,6 +587,11 @@ write_startup_plan() {
     [[ "$target" == waybar ]] && waybar_marker=enabled || waybar_marker=disabled
     [[ "$target" == noctalia ]] && noctalia_marker=enabled || noctalia_marker=disabled
     printf '%s -> %s\n' "$current" "$target"
+    if [[ "$action" == apply ]]; then
+        printf 'Restore the saved %s presentation after startup.\n' "$target"
+    else
+        printf 'Capture the current %s presentation and restore %s after startup.\n' "$current" "$target"
+    fi
     if [[ "$current" != "$target" ]]; then
         [[ "$current" != caelestia ]] || printf 'Stop Aether if running before leaving Caelestia.\n'
         if [[ "$current" == caelestia || "$current" == noctalia || "$current" == island ]]; then
@@ -620,6 +626,7 @@ restore_previous() {
     else
         apply_profile "$previous" 0 || status=1
     fi
+    "$workspace_presentation" restore "$previous" || status=1
     if [[ "$action" != apply ]]; then
         write_markers "$previous" || status=1
         "$hyprctl_bin" reload >/dev/null 2>&1 || status=1
@@ -636,6 +643,7 @@ restore_previous() {
 transition() {
     local target="$1" previous="$2" dynamic_handoff=0
     [[ "$target" != noctalia ]] || dynamic_handoff=1
+    "$workspace_presentation" validate "$target" || return 1
     if [[ "$previous" == caelestia && "$target" != caelestia ]]; then
         stop_aether || return 1
     fi
@@ -643,6 +651,7 @@ transition() {
         /usr/bin/sleep "$shell_panel_close_delay"
     fi
     apply_profile "$target" "$startup_locked" "$dynamic_handoff" || return 1
+    "$workspace_presentation" restore "$target" || return 1
     verify_mode "$target" || return 1
     if [[ "$action" != apply ]]; then
         write_markers "$target"
@@ -659,7 +668,7 @@ transition() {
 }
 
 main() {
-    local current target
+    local current target presentation_mode
     parse_args "$@"
     [[ "$hypr_config" == /* && -f "$hypr_config" ]] || fail "Config not found: $hypr_config"
     current="$(current_mode)" || fail "Expected exactly one validated Waybar and Noctalia marker in $hypr_config"
@@ -673,6 +682,9 @@ main() {
     startup_locked=0
     fresh_login_start "$target" && startup_locked=1 || true
     if (( dry_run )); then
+        for presentation_mode in waybar caelestia noctalia island; do
+            "$workspace_presentation" validate "$presentation_mode" || fail "Invalid $presentation_mode workspace presentation."
+        done
         write_startup_plan "$current" "$target"
         return 0
     fi
@@ -681,9 +693,15 @@ main() {
     /usr/bin/flock -n 9 || fail 'A shell mode transition is already running.'
     [[ "$(current_mode)" == "$current" ]] || fail 'Mode changed; run the command again.'
     "$hyprctl_bin" version >/dev/null || fail 'Cannot reach Hyprland.'
+    for presentation_mode in waybar caelestia noctalia island; do
+        "$workspace_presentation" validate "$presentation_mode" || fail "Invalid $presentation_mode workspace presentation."
+    done
     if [[ "$current" == waybar && "$action" != apply ]]; then remember_waybar_theme || fail 'Cannot save Waybar theme.'; fi
     NOCTALIA_THEME_SYNC_DEFER_FILE="$noctalia_handoff_file" "$noctalia_theme_sync" --cancel || fail 'Could not cancel stale Noctalia theme work.'
     [[ "$target" != noctalia ]] || begin_noctalia_timing
+    if [[ "$action" != apply ]]; then
+        "$workspace_presentation" capture "$current" || fail "Could not capture the $current workspace presentation."
+    fi
     if ! transition "$target" "$current"; then
         restore_previous "$current" || true
         fail "Could not sustain $target mode; attempted to restore $current."

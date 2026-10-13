@@ -30,6 +30,7 @@ Singleton {
 
     readonly property bool hasPlayer: player !== null
     readonly property bool canTogglePlayback: hasPlayer && player.canTogglePlaying
+    readonly property bool isPaused: hasPlayer && player.playbackState === MprisPlaybackState.Paused
 
     readonly property int playbackPlaying: MprisPlaybackState.Playing
 

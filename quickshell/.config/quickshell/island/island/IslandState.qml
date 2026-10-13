@@ -33,6 +33,7 @@ QtObject {
     readonly property int wallhavenMode: 22
     readonly property int calendarMode: 23
     readonly property int layoutSwitcherMode: 24
+    readonly property int workspaceAxisMode: 25
 
     // =========================================================
     // STATE
@@ -96,5 +97,6 @@ QtObject {
         mode === chromackMode ||
         mode === wallhavenMode ||
         mode === calendarMode ||
-        mode === layoutSwitcherMode
+        mode === layoutSwitcherMode ||
+        mode === workspaceAxisMode
 }

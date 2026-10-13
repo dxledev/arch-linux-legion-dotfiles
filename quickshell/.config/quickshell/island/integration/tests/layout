@@ -15,24 +15,28 @@ cleanup() {
 trap cleanup EXIT
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
-# ~/bin/menu-layout rewrites live Hyprland config, so the panel is tested against stubs.
 /usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache"
 /usr/bin/chmod 700 "$test_root/runtime"
-cat > "$test_root/menu-layout" <<'STUB'
+cat > "$test_root/workspace-presentation" <<'STUB'
 #!/usr/bin/env bash
-printf '%s\n' "$*" > "$LAYOUT_LOG"
+set -euo pipefail
+case "${1:-}:${2:-}" in
+    status:island)
+        printf '%s\n' '{"mode":"island","layout":"grid","axis":"horizontal","effectiveAxis":"horizontal","axisLocked":false}'
+        ;;
+    set-layout:island|set-axis:island)
+        printf '%s\n' "$*" > "$LAYOUT_LOG"
+        ;;
+    *) exit 2 ;;
+esac
 STUB
-cat > "$test_root/hyprctl" <<'STUB'
-#!/usr/bin/env bash
-printf '{"option": "general:layout", "str": "grid", "set": true }\n'
-STUB
-/usr/bin/chmod +x "$test_root/menu-layout" "$test_root/hyprctl"
+/usr/bin/chmod +x "$test_root/workspace-presentation"
 /usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/layout-views.qml" > "$test_root/views.qml"
 
 if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
-    ISLAND_LAYOUT_SCRIPT="$test_root/menu-layout" ISLAND_HYPRCTL="$test_root/hyprctl" LAYOUT_LOG="$test_root/layout.log" \
+    ISLAND_WORKSPACE_PRESENTATION_SCRIPT="$test_root/workspace-presentation" LAYOUT_LOG="$test_root/layout.log" \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 30s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
     fail 'Could not run layout views.'
 fi
@@ -40,4 +44,4 @@ fi
 if /usr/bin/rg -q 'FAIL:|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
     fail 'Layout views reported errors.'
 fi
-printf 'PASS: layout panel routing, active layout marker, search, and script invocation\n'
+printf 'PASS: layout panel routing, active layout marker, search, and helper invocation\n'

@@ -43,6 +43,7 @@ Item {
         anchors.alignWhenCentered: false
         maxWidth: root.maxLyricWidth - root.lyricPadding
         text: root.lyricsActive ? (LyricsService.currentLine || "\u266a") : ""
+        paused: MediaService.isPaused
         opacity: root.showLyrics ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: Theme.animationNormal; easing.type: Easing.OutCubic } }

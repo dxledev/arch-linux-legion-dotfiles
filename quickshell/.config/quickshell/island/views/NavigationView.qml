@@ -9,7 +9,7 @@ import "../services/MenuEntries.js" as MenuEntries
 FocusScope {
     id: root
     property bool searchVisible: false
-    readonly property var entries: searchVisible ? MenuEntries.filterEntries(searchField.text, undefined, MenuService.pinnedIds)
+    readonly property var entries: searchVisible ? MenuEntries.filterEntries(searchField.text, MenuService.availableEntries, MenuService.visiblePinnedIds)
         : MenuService.displayedIds.map(id => MenuEntries.findEntryById(id))
     readonly property int columns: MenuService.columns
     readonly property int rows: MenuService.rows
@@ -60,7 +60,7 @@ FocusScope {
         const point = menuGrid.mapFromItem(null, scenePoint.x, scenePoint.y);
         const index = menuGrid.indexAt(point.x + menuGrid.contentX, point.y + menuGrid.contentY);
         // Empty space and unpinned cards keep the last target or clamp to the final pin.
-        if (index >= 0) reorderTarget = Math.min(index, MenuService.pinnedIds.length - 1);
+        if (index >= 0) reorderTarget = Math.min(index, MenuService.visiblePinnedIds.length - 1);
     }
 
     function endReorder(committed, id) {
@@ -86,11 +86,15 @@ FocusScope {
         PanelHeader {
             id: header
             title: "Menu"
+            subtitle: MenuService.workspaceAxisStatusError ? "Workspace status unavailable · Tap to retry" : ""
+            subtitleClickable: MenuService.workspaceAxisStatusError
+            subtitleDescription: "Retry workspace status"
             titleActionIcon: "../assets/icons/search.svg"
             titleActionDescription: root.searchVisible ? "Hide search" : "Search submenus"
             titleActionActive: root.searchVisible
             scrollTargets: [menuGrid]
             onTitleActionClicked: root.toggleSearch()
+            onSubtitleClicked: MenuService.retryWorkspaceAxisStatus()
             onBack: IslandController.openExpanded()
         }
         Item {
@@ -155,7 +159,8 @@ FocusScope {
                     iconSource: modelData.icon
                     showPin: true
                     pinned: MenuService.isPinned(modelData.id)
-                    pinEnabled: ThemeService.ready && (pinned || MenuService.pinnedIds.length < MenuService.cardLimit)
+                    pinEnabled: ThemeService.ready && (pinned || MenuService.visiblePinnedIds.length < MenuService.cardLimit
+                        && MenuService.pinnedIds.length < MenuEntries.maximumPins)
                     selected: menuGrid.activeFocus && menuGrid.currentIndex === index
                     reorderable: pinned && !root.searchVisible && ThemeService.ready
                     dropTarget: root.reordering && root.reorderTarget === index && root.reorderFrom !== index

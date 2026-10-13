@@ -79,6 +79,19 @@ elif name == 'shell-theme':
         print(json.dumps({'source': 'system', 'staticTheme': 'bauhaus'}))
     else:
         theme('bauhaus')
+elif name == 'hyprctl':
+    if args == ['reload'] and (root / 'fail-reload-once').exists():
+        (root / 'fail-reload-once').unlink()
+        result = 1
+    elif args[:2] == ['getoption', 'general:layout']:
+        print(json.dumps({'option': 'general:layout', 'str': state.get('workspaceLayout', 'dwindle'), 'set': True}))
+    elif args[:2] == ['keyword', 'general:layout']:
+        state['workspaceLayout'] = args[2]
+        save()
+    elif args[:2] == ['keyword', 'animation']:
+        rule = args[2]
+        state['workspaceAxis'] = 'vertical' if 'slidevert' in rule else 'horizontal'
+        save()
 elif name == 'island-theme':
     if 'status' in args:
         print(json.dumps({'source': 'system', 'staticTheme': 'dracula'}))

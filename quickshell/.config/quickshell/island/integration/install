@@ -11,8 +11,9 @@ module_source="$script_dir/hyprland.lua"
 backup_dir="${ISLAND_INSTALL_BACKUP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island/install-backups/$(/usr/bin/date +%Y%m%d-%H%M%S)}"
 waybar_theme_state="${WAYBAR_THEME_STATE:-${SHELL_MODE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/toggle-shell-mode}/waybar-theme}"
 dry_run=0
+utilities_only=0
 
-usage() { printf 'Usage: install [--dry-run]\n'; }
+usage() { printf 'Usage: install [--dry-run] [--utilities-only]\n'; }
 fail() { printf 'island install: %s\n' "$*" >&2; exit 1; }
 
 validate() {
@@ -63,18 +64,31 @@ initialize_waybar_theme() {
 }
 
 main() {
-    [[ $# == 0 || ( $# == 1 && "$1" == --dry-run ) ]] || { usage >&2; exit 2; }
-    [[ "${1:-}" != --dry-run ]] || dry_run=1
+    while (( $# )); do
+        case "$1" in
+            --dry-run) dry_run=1 ;;
+            --utilities-only) utilities_only=1 ;;
+            -h|--help) usage; return ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
     validate
     if (( dry_run )); then
-        printf 'Install Island shell utilities in %s\nRegister %s -> %s\nInitialize independent Island theme state\nBackups: %s\n' "$bin_dir" "$module_target" "$module_source" "$backup_dir"
+        printf 'Install Island shell utilities in %s\n' "$bin_dir"
+        if (( ! utilities_only )); then
+            printf 'Register %s -> %s\nInitialize independent Island theme state\n' "$module_target" "$module_source"
+        fi
+        printf 'Backups: %s\n' "$backup_dir"
         return
     fi
     /usr/bin/mkdir -p -- "$backup_dir"
     install_utilities
-    register_module
-    "$script_dir/island-theme" initialize
-    initialize_waybar_theme
+    if (( ! utilities_only )); then
+        register_module
+        "$script_dir/island-theme" initialize
+        initialize_waybar_theme
+    fi
     printf 'Installed Island. Backups: %s\n' "$backup_dir"
 }
 

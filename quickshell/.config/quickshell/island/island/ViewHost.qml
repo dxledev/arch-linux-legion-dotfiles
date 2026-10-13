@@ -173,6 +173,9 @@ Item {
             case IslandState.layoutSwitcherMode:
                 return layoutSwitcherView
 
+            case IslandState.workspaceAxisMode:
+                return workspaceAxisView
+
             case IslandState.expandedMode:
                 return expandedView
 
@@ -246,6 +249,7 @@ Item {
     Component { id: osdSettingsView; OsdSettingsView {} }
     Component { id: shellSwitcherView; ShellSwitcherView {} }
     Component { id: layoutSwitcherView; LayoutSwitcherView {} }
+    Component { id: workspaceAxisView; WorkspaceAxisView {} }
     Component { id: notificationsView; NotificationsPanelView {} }
     Component { id: audioDevicesView; AudioDevicesView {} }
     Component { id: wifiView; WifiView {} }

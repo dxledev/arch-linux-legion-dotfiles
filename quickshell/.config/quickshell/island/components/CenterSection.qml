@@ -66,6 +66,7 @@ Item {
                     anchors.alignWhenCentered: false
                     maxWidth: 240
                     text: root.lyricsActive ? (LyricsService.currentLine || "\u266a") : ""
+                    paused: MediaService.isPaused
                     opacity: root.showLyrics ? 1 : 0
                     visible: opacity > 0
 

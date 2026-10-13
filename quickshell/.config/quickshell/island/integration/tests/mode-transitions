@@ -16,6 +16,20 @@ export QUICKSHELL_CONFIG="$XDG_CONFIG_HOME/quickshell/shell.qml"
 export ISLAND_QUICKSHELL_CONFIG="$XDG_CONFIG_HOME/quickshell/island/shell.qml"
 /usr/bin/mkdir -p "$test_root/bin" "$test_root/runtime" "$XDG_CONFIG_HOME/hypr" "$XDG_CONFIG_HOME/quickshell/island" "$THEMES_DIR"
 /usr/bin/touch "$QUICKSHELL_CONFIG" "$ISLAND_QUICKSHELL_CONFIG"
+cat > "$XDG_CONFIG_HOME/hypr/decorations.lua" <<'CONFIG'
+general = {
+    layout = "dwindle",
+}
+CONFIG
+cat > "$XDG_CONFIG_HOME/hypr/animations.lua" <<'CONFIG'
+animations = {
+    enabled = true,
+}
+
+{
+  { "workspaces", 1, 4.9, "overshot", "slide 100%" },
+}
+CONFIG
 for name in ristretto bauhaus nord dracula; do
     /usr/bin/mkdir -p "$THEMES_DIR/$name"
     /usr/bin/touch "$THEMES_DIR/$name/Colors.qml" "$THEMES_DIR/$name/noctalia.json" "$THEMES_DIR/$name/wallpaper.png"
@@ -34,6 +48,8 @@ export SHELL_THEME_SCRIPT="$test_root/bin/shell-theme" ISLAND_THEME_SCRIPT="$tes
 export WALLPAPER_REFRESH_SCRIPT="$test_root/bin/wallpaper" WALLPAPER_SLIDESHOW_SCRIPT="$test_root/bin/slideshow"
 export AETHER_SCRIPT="$test_root/bin/aether" HYPRLOCK_LAUNCHER="$test_root/bin/hyprlock"
 export HYPRCTL_BIN="$test_root/bin/hyprctl" PGREP_BIN="$test_root/bin/pgrep" PKILL_BIN="$test_root/bin/pkill"
+export WORKSPACE_PRESENTATION_SCRIPT="$integration_dir/workspace-presentation"
+export WORKSPACE_PRESENTATION_HYPR_LUA_LIBRARY=/home/dxle/bin/lib-hypr-lua
 export KILL_BIN="$test_root/bin/kill" SYSTEMCTL_BIN="$test_root/bin/systemctl" NOTIFY_SEND_BIN=/usr/bin/true
 export WAYBAR_BIN="$test_root/bin/waybar" WARD_BIN="$test_root/bin/ward" WARDNC_BIN="$test_root/bin/wardnc"
 export CHROMACK_LAUNCHER="$test_root/bin/chromack" DASHBOARD_BIN="$test_root/bin/topdash" SWAYOSD_SERVER_BIN="$test_root/bin/swayosd-server"
@@ -49,6 +65,19 @@ assert_mode() {
         /usr/bin/jq -e '.islandPolkit' "$test_root/processes.json" >/dev/null
     else
         /usr/bin/jq -e '(.islandPolkit // false | not)' "$test_root/processes.json" >/dev/null
+    fi
+}
+
+assert_presentation() {
+    local layout="$1" axis="$2"
+    /usr/bin/jq -e --arg layout "$layout" --arg axis "$axis" \
+        '.workspaceLayout == $layout and .workspaceAxis == $axis' \
+        "$test_root/processes.json" >/dev/null
+    /usr/bin/rg -q "layout = \"$layout\"" "$XDG_CONFIG_HOME/hypr/decorations.lua"
+    if [[ "$axis" == vertical ]]; then
+        /usr/bin/rg -q 'slidevert 100%' "$XDG_CONFIG_HOME/hypr/animations.lua"
+    else
+        /usr/bin/rg -q 'slide 100%' "$XDG_CONFIG_HOME/hypr/animations.lua"
     fi
 }
 
@@ -83,11 +112,72 @@ fi
 assert_mode island dracula
 /usr/bin/rm -- "$test_root/fail-island-lock"
 "$script" --caelestia
+"$WORKSPACE_PRESENTATION_SCRIPT" set-axis caelestia vertical
+"$WORKSPACE_PRESENTATION_SCRIPT" set-layout caelestia lua:spiral
+assert_presentation lua:spiral vertical
 /usr/bin/touch "$test_root/fail-island"
 if "$script" --island > "$test_root/rollback.log" 2>&1; then printf 'Failed Island startup unexpectedly succeeded.\n' >&2; exit 1; fi
 assert_mode caelestia bauhaus
+assert_presentation lua:spiral vertical
 /usr/bin/grep -q 'attempted to restore caelestia' "$test_root/rollback.log"
+/usr/bin/rm -- "$test_root/fail-island"
 /usr/bin/touch "$test_root/fail-island-health"
 if "$script" --island > "$test_root/health-rollback.log" 2>&1; then printf 'Unready Island unexpectedly succeeded.\n' >&2; exit 1; fi
 assert_mode caelestia bauhaus
-printf 'PASS: all 12 mode pairs, theme retention, native Island fresh-login locking, unlocked transitions, secure-lock checks, and startup rollback\n'
+assert_presentation lua:spiral vertical
+/usr/bin/rm -- "$test_root/fail-island-health"
+/usr/bin/touch "$test_root/fail-reload-once"
+if "$script" --island > "$test_root/reload-rollback.log" 2>&1; then printf 'Failed Hyprland reload unexpectedly succeeded.\n' >&2; exit 1; fi
+assert_mode caelestia bauhaus
+assert_presentation lua:spiral vertical
+/usr/bin/grep -q 'attempted to restore caelestia' "$test_root/reload-rollback.log"
+
+"$script" --island
+assert_presentation dwindle horizontal
+"$WORKSPACE_PRESENTATION_SCRIPT" set-axis island horizontal
+"$WORKSPACE_PRESENTATION_SCRIPT" set-layout island master
+assert_presentation master horizontal
+"$script" --caelestia
+assert_presentation lua:spiral vertical
+
+"$WORKSPACE_PRESENTATION_SCRIPT" set-layout caelestia scrolling
+assert_presentation scrolling vertical
+"$script" --noctalia
+assert_presentation dwindle horizontal
+"$WORKSPACE_PRESENTATION_SCRIPT" set-axis noctalia horizontal
+"$WORKSPACE_PRESENTATION_SCRIPT" set-layout noctalia scrolling
+assert_presentation scrolling vertical
+"$script" --caelestia
+assert_presentation scrolling vertical
+[[ "$(<"$XDG_STATE_HOME/menu-layout/workspace-axis.state")" == vertical ]]
+"$WORKSPACE_PRESENTATION_SCRIPT" set-layout caelestia monocle
+assert_presentation monocle vertical
+"$script" --noctalia
+assert_presentation scrolling vertical
+[[ "$(<"$XDG_STATE_HOME/menu-layout/workspace-axis.state")" == horizontal ]]
+"$WORKSPACE_PRESENTATION_SCRIPT" set-layout noctalia dwindle
+assert_presentation dwindle horizontal
+
+noctalia_saved="$(/usr/bin/jq -c . "$XDG_STATE_HOME/hyprland-presentation/noctalia.json")"
+/usr/bin/jq '.workspaceLayout = "lua:manual" | .workspaceAxis = "vertical"' \
+    "$test_root/processes.json" > "$test_root/processes-next.json"
+/usr/bin/mv "$test_root/processes-next.json" "$test_root/processes.json"
+cat > "$XDG_CONFIG_HOME/hypr/decorations.lua" <<'CONFIG'
+general = {
+    layout = "lua:manual",
+}
+CONFIG
+cat > "$XDG_CONFIG_HOME/hypr/animations.lua" <<'CONFIG'
+animations = {
+    enabled = true,
+}
+
+{
+  { "workspaces", 1, 4.9, "overshot", "slidevert 100%" },
+}
+CONFIG
+"$script" --apply
+assert_mode noctalia nord
+assert_presentation dwindle horizontal
+[[ "$(/usr/bin/jq -c . "$XDG_STATE_HOME/hyprland-presentation/noctalia.json")" == "$noctalia_saved" ]]
+printf 'PASS: shell-specific layout and axis restore, independent Scrolling axes, --apply restore, lifecycle checks, and full-tuple rollback\n'

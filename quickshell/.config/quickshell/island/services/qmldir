@@ -30,6 +30,7 @@ singleton ThemeService 1.0 ThemeService.qml
 singleton WallpaperService 1.0 WallpaperService.qml
 singleton WifiService 1.0 WifiService.qml
 singleton WorkspaceService 1.0 WorkspaceService.qml
+singleton WorkspacePresentationService 1.0 WorkspacePresentationService.qml
 singleton WallhavenService 1.0 WallhavenService.qml
 WallhavenJob 1.0 WallhavenJob.qml
 singleton LyricsService 1.0 LyricsService.qml

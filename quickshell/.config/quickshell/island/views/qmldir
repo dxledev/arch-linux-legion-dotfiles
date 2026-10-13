@@ -16,6 +16,7 @@ LauncherView 1.0 LauncherView.qml
 LauncherSettingsView 1.0 LauncherSettingsView.qml
 ShellSwitcherView 1.0 ShellSwitcherView.qml
 LayoutSwitcherView 1.0 LayoutSwitcherView.qml
+WorkspaceAxisView 1.0 WorkspaceAxisView.qml
 ThemeSelectorView 1.0 ThemeSelectorView.qml
 WallpaperSelectorView 1.0 WallpaperSelectorView.qml
 NavigationView 1.0 NavigationView.qml

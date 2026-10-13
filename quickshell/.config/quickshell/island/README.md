@@ -4,12 +4,15 @@ Integrated [Luci](https://github.com/ElhamSadiqi/Luci) at commit `2627227ab797cf
 
 Install desktop integration with `./island/integration/install --dry-run`, then `./island/integration/install`. The installer checks the inspected utility hashes, preserves existing hard links, saves backups in `~/.local/state/island/install-backups/`, registers `~/.config/hypr/island-mode-keybindings.lua`, and initializes Island state. It does not switch the running shell.
 
+Use `./island/integration/install --utilities-only --dry-run`, then `./island/integration/install --utilities-only`, to update the desktop utilities without initializing themes or changing Hyprland's module registration.
+
 Switch with `/home/dxle/bin/toggle-shell-mode --island`, or select **Island** in Waybar's Rofi menu, Caelestia's shell mode launcher, or Noctalia's shell mode menu/launcher. `toggle-shell-mode --dry-run --island` previews the transition. Island itself has a native shell switcher.
 
 | Shortcut | Island action |
 | --- | --- |
 | Super + Ctrl + Alt + Q | Shell mode switcher |
 | Super + Alt + L | Layout switcher |
+| Super + Alt + W | Workspace Axis |
 | Super + Shift + Ctrl + C | Island settings |
 | Super + Shift + P | Displays (layout editor) |
 | Super + Alt + T | Theme selector |
@@ -28,7 +31,15 @@ The compact Island displays only the clock. The theme section shows the static t
 
 Menu displays a grid of cards, 2×2 by default. Settings → Menu sets its rows (`menuRows`) and columns (`menuColumns`), each 2-4, so the largest grid is 4×4; extra columns widen the panel instead of shrinking cards. Pin as many submenus as the grid holds with their pin buttons; filled pins are saved automatically in Island's `menuPinnedEntries` setting (up to 16). Search results use the same grid, and each mouse-wheel step scrolls one row. Unfilled slots use random submenus selected each time Menu opens. The search icon beside **Menu** reveals a search field and slightly extends the panel. Search starts hidden and finds every submenu, including AI Usage, Calendar, Layout, Session, Control Center, Audio devices, Wi-Fi, Bluetooth, Clipboard, Chromack, Network and Disk speed tests, all Settings pages, and Shell mode. Search matches titles, descriptions, and related terms. Use **/** to toggle search, **Ctrl+F** to reveal or focus search, **Down** to focus results, arrows to select, and **Enter** to open. **Escape** first hides search, then closes Menu. Run `bash island/integration/tests/menu` for isolated menu interaction and persistence checks.
 
-Menu → **Layout** (Super + Alt + L, Menu search for "layout", "tiling" or a layout name, or `scripts/quickshell -p island/shell.qml ipc call island openLayoutSwitcher`) is the shell-panel version of `~/bin/menu-layout` and looks like the Shell mode switcher: a search field above one button per layout (Dwindle, Scrolling, Master, Monocle, Grid, Spiral, Manual, Center-Stack), with the current layout, read from `hyprctl getoption general:layout`, highlighted and labelled **Active layout**. Choosing one (click, or arrows and **Enter**) closes the panel and runs `menu-layout --layout ID`, so saving to `decorations.lua`, the Scrolling workspace-axis handling, the runtime switch and the notification are unchanged; `ISLAND_LAYOUT_SCRIPT` overrides the script and `ISLAND_HYPRCTL` the `hyprctl` binary. The key press toggles the panel, and **Escape** closes it. Run `bash island/integration/tests/layout` for isolated checks against stubbed `menu-layout` and `hyprctl`.
+Menu → **Layout** (Super + Alt + L, Menu search for "layout", "tiling" or a layout name, or `scripts/quickshell -p island/shell.qml ipc call island openLayoutSwitcher`) is the shell-panel version of `~/bin/menu-layout` and looks like the Shell mode switcher: a search field above one button per layout (Dwindle, Scrolling, Master, Monocle, Grid, Spiral, Manual, Center-Stack), with the current layout highlighted and labelled **Active layout**. Click a layout, or select it with arrows and **Enter**. A successful change closes the panel; an error stays visible so you can retry. The key press toggles the panel, and **Escape** closes it.
+
+Menu → **Workspace Axis** (Super + Alt + W, Menu search for "workspace axis", or `scripts/quickshell -p island/shell.qml ipc call island openWorkspaceAxis`) selects Horizontal or Vertical, with the current choice marked **Active axis**. While Scrolling is active, Workspace Axis disappears from Menu, including pinned cards and search, and its shortcut and IPC action cannot open the panel. Scrolling always uses Vertical; leaving Scrolling restores the axis selected before entering it.
+
+Both selectors use `island/integration/workspace-presentation`, which saves each shell's window layout, workspace axis, and axis before Scrolling under `~/.local/state/hyprland-presentation/`. Shell switching captures the departing shell and restores the destination, including on startup and rollback. Shells without saved preferences start from the settings present before the first change. Monitor layouts and workspace assignments continue using the shared display backend.
+
+`ISLAND_WORKSPACE_PRESENTATION_SCRIPT` overrides the helper path. `ISLAND_WORKSPACE_PRESENTATION_POLL_MS` sets status refresh while Menu, Layout, or Workspace Axis is open (default 1000 ms, clamped to 250–5000 ms). The helper accepts `status island`, `set-axis island horizontal|vertical [--dry-run]`, and `set-layout island ID [--dry-run]`. Run `bash island/integration/tests/layout` for isolated panel fixtures; it launches an offscreen shell and should be skipped when only static checks are wanted.
+
+For checks without a running shell, use `node island/integration/tests/workspace-presentation.js`, `bash island/integration/tests/workspace-presentation`, and `bash island/integration/tests/mode-transitions`. These exercise menu gating, preference storage, shell switching, and rollback with mocked Hyprland and shell commands.
 
 Menu → **AI Usage** shows usage quotas, reset times, credits, and provider details from `ai-usagebar`, matching Caelestia's report format. Only enabled, configured providers and accounts appear; a provider selector appears when more than one is available. The panel refreshes when opened and every five minutes, with a manual refresh and the last report retained when a refresh fails. `scripts/quickshell -p island/shell.qml ipc call island openAIUsage` toggles it from the CLI. Run `bash island/integration/tests/ai-usage` for isolated provider and panel checks.
 

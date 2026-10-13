@@ -6,9 +6,42 @@ import Quickshell.Hyprland
 import "../island"
 import "../services"
 import "../services/MenuEntries.js" as MenuEntries
+import "../services/WorkspacePresentation.js" as WorkspacePresentation
 
 QtObject {
     id: root
+    property int workspaceAxisRequestGeneration: 0
+    property var workspaceAxisRequest: WorkspacePresentation.cancelOpenRequest(0)
+    readonly property bool workspaceAxisOpenPending: workspaceAxisRequest.pending
+    property bool workspaceAxisModeAuthorized: false
+
+    property Connections workspacePresentationConnections: Connections {
+        target: WorkspacePresentationService
+        function onStatusRefreshed(succeeded) {
+            if (!root.workspaceAxisOpenPending)
+                return
+            const decision = WorkspacePresentation.resolveOpenRequest(root.workspaceAxisRequest,
+                root.workspaceAxisRequestGeneration, IslandState.mode, succeeded,
+                WorkspacePresentationService.canOpenAxis, WorkspacePresentationService.actionPending)
+            root.cancelWorkspaceAxisRequest()
+            if (decision.allowed) {
+                root.workspaceAxisModeAuthorized = true
+                root.setMode(IslandState.workspaceAxisMode, decision.monitorName)
+            }
+        }
+        function onCanOpenAxisChanged() {
+            if (!WorkspacePresentationService.canOpenAxis && IslandState.mode === IslandState.workspaceAxisMode)
+                root.reset()
+        }
+    }
+
+    property Connections islandModeConnections: Connections {
+        target: IslandState
+        function onModeChanged() {
+            if (root.workspaceAxisOpenPending && IslandState.mode !== root.workspaceAxisRequest.mode)
+                root.cancelWorkspaceAxisRequest()
+        }
+    }
 
     readonly property var settingsSections: MenuEntries.settingsSections.map(section => section.key)
 
@@ -26,6 +59,9 @@ QtObject {
     }
 
     function setMode(mode, monitorName) {
+        if (mode === IslandState.workspaceAxisMode
+                && (!workspaceAxisModeAuthorized || !WorkspacePresentationService.canOpenAxis))
+            return false
         if (mode === IslandState.calendarMode && IslandState.mode !== IslandState.calendarMode) {
             IslandState.calendarReturnMode = IslandState.mode === IslandState.expandedMode
                 ? IslandState.expandedMode : IslandState.navigationMode
@@ -45,6 +81,8 @@ QtObject {
                 && IslandState.lyricsClockMonitor === IslandState.panelMonitorName)
             IslandState.lyricsClockMonitor = ""
         IslandState.mode = mode
+        if (mode === IslandState.workspaceAxisMode)
+            workspaceAxisModeAuthorized = false
     }
 
     function preparePanelToggle(monitorName) {
@@ -109,6 +147,36 @@ QtObject {
 
     function openShellSwitcher() { setMode(IslandState.shellSwitcherMode) }
     function openLayoutSwitcher() { setMode(IslandState.layoutSwitcherMode) }
+
+    function cancelWorkspaceAxisRequest() {
+        workspaceAxisRequestGeneration += 1
+        workspaceAxisRequest = WorkspacePresentation.cancelOpenRequest(workspaceAxisRequestGeneration)
+        workspaceAxisModeAuthorized = false
+    }
+
+    function openWorkspaceAxis(monitorName = IslandState.panelMonitorName || focusedPanelMonitorName()) {
+        if (workspaceAxisOpenPending || IslandState.mode === IslandState.workspaceAxisMode)
+            return
+        workspaceAxisRequestGeneration += 1
+        workspaceAxisRequest = WorkspacePresentation.createOpenRequest(
+            workspaceAxisRequestGeneration, IslandState.mode, monitorName)
+        WorkspacePresentationService.refresh()
+    }
+
+    function toggleWorkspaceAxis() {
+        const monitorName = focusedPanelMonitorName()
+        preparePanelToggle(monitorName)
+        if (IslandState.mode === IslandState.workspaceAxisMode) {
+            cancelWorkspaceAxisRequest()
+            reset()
+            return
+        }
+        if (workspaceAxisOpenPending) {
+            cancelWorkspaceAxisRequest()
+            return
+        }
+        openWorkspaceAxis(monitorName)
+    }
 
     function openDefault() {
         setMode(IslandState.defaultMode)
@@ -297,9 +365,12 @@ QtObject {
     // =========================================================
 
     function reset() {
+        cancelWorkspaceAxisRequest()
         IslandState.ignoreNextIslandTap = false
         IslandState.returnToExpanded = false
         IslandState.islandPinned = false
         setMode(IslandState.defaultMode)
     }
+
+    Component.onCompleted: WorkspacePresentationService.refresh()
 }

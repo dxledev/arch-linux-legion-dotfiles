@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd -- "$test_dir/../../.." && pwd)"
+helper="$repo_dir/island/integration/workspace-presentation"
+test_root="$(/usr/bin/mktemp -d /tmp/island-presentation.XXXXXX)"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+
+fail() { printf 'workspace-presentation test: %s\n' "$*" >&2; exit 1; }
+assert_file_value() {
+    local path="$1" expected="$2" actual
+    actual="$(<"$path")"
+    [[ "$actual" == "$expected" ]] || fail "Expected $path to contain $expected; got $actual"
+}
+assert_json() { /usr/bin/jq -e "$2" <<< "$1" >/dev/null || fail "Unexpected JSON: $1"; }
+set_mode() {
+    case "$1" in
+        waybar)
+            printf '%s\n' 'require("waybar-mode-keybindings")' '-- require("noctalia-mode-keybindings")' '-- require("island-mode-keybindings")' > "$HYPR_CONFIG"
+            ;;
+        caelestia)
+            printf '%s\n' '-- require("waybar-mode-keybindings")' '-- require("noctalia-mode-keybindings")' '-- require("island-mode-keybindings")' > "$HYPR_CONFIG"
+            ;;
+        noctalia)
+            printf '%s\n' '-- require("waybar-mode-keybindings")' 'require("noctalia-mode-keybindings")' '-- require("island-mode-keybindings")' > "$HYPR_CONFIG"
+            ;;
+        island)
+            printf '%s\n' '-- require("waybar-mode-keybindings")' '-- require("noctalia-mode-keybindings")' 'require("island-mode-keybindings")' > "$HYPR_CONFIG"
+            ;;
+    esac
+}
+
+/usr/bin/mkdir -p "$test_root/bin" "$test_root/config/hypr" "$test_root/state" "$test_root/runtime"
+export XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" XDG_RUNTIME_DIR="$test_root/runtime"
+export HYPR_CONFIG="$XDG_CONFIG_HOME/hypr/hyprland.lua"
+export WORKSPACE_PRESENTATION_STATE_DIR="$XDG_STATE_HOME/hyprland-presentation"
+export WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE="$XDG_STATE_HOME/menu-layout/workspace-axis.state"
+export SHELL_MODE_LOCK_FILE="$XDG_RUNTIME_DIR/toggle-shell-mode-test.lock"
+export HYPRCTL_BIN="$test_root/bin/hyprctl" HYPRCTL_LOG="$test_root/hyprctl.log"
+export WORKSPACE_PRESENTATION_HYPR_LUA_LIBRARY=/home/dxle/bin/lib-hypr-lua
+export ISLAND_TEST_RUNTIME_LAYOUT="$test_root/runtime-layout"
+export ISLAND_TEST_RUNTIME_AXIS="$test_root/runtime-axis"
+export ISLAND_TEST_FAIL_NEXT_AXIS="$test_root/fail-next-axis"
+
+cat > "$HYPR_CONFIG" <<'CONFIG'
+-- require("waybar-mode-keybindings")
+-- require("noctalia-mode-keybindings")
+require("island-mode-keybindings")
+CONFIG
+cat > "$XDG_CONFIG_HOME/hypr/decorations.lua" <<'CONFIG'
+general = {
+    layout = "dwindle",
+}
+CONFIG
+cat > "$XDG_CONFIG_HOME/hypr/animations.lua" <<'CONFIG'
+animations = {
+    enabled = true,
+}
+
+{
+  { "workspaces", 1, 4.9, "overshot", "slide 100%" },
+}
+CONFIG
+printf 'dwindle\n' > "$ISLAND_TEST_RUNTIME_LAYOUT"
+printf 'horizontal\n' > "$ISLAND_TEST_RUNTIME_AXIS"
+cat > "$HYPRCTL_BIN" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == keyword ]]; then printf '%s\n' "$*" >> "$HYPRCTL_LOG"; fi
+if [[ "$1" == getoption && "$2" == general:layout ]]; then
+    printf '{"option":"general:layout","str":"%s","set":true}\n' "$(<"$ISLAND_TEST_RUNTIME_LAYOUT")"
+    exit 0
+fi
+if [[ "$1" == keyword && "$2" == general:layout ]]; then
+    printf '%s\n' "$3" > "$ISLAND_TEST_RUNTIME_LAYOUT"
+    exit 0
+fi
+if [[ "$1" == keyword && "$2" == animation ]]; then
+    if [[ -e "$ISLAND_TEST_FAIL_NEXT_AXIS" ]]; then
+        /usr/bin/rm -f -- "$ISLAND_TEST_FAIL_NEXT_AXIS"
+        exit 1
+    fi
+    case "$3" in
+        *slidevert*) printf 'vertical\n' > "$ISLAND_TEST_RUNTIME_AXIS" ;;
+        *slide*) printf 'horizontal\n' > "$ISLAND_TEST_RUNTIME_AXIS" ;;
+    esac
+    exit 0
+fi
+exit 0
+MOCK
+/usr/bin/chmod 755 "$HYPRCTL_BIN"
+
+run_helper() { "$helper" "$@"; }
+layout_from_config() { /usr/bin/jq -r '.layout' "$1"; }
+axis_from_config() {
+    /usr/bin/rg -q 'slidevert 100%' "$XDG_CONFIG_HOME/hypr/animations.lua" && printf vertical || printf horizontal
+}
+
+run_helper set-axis island vertical
+run_helper set-layout island lua:grid
+[[ "$(layout_from_config "$WORKSPACE_PRESENTATION_STATE_DIR/island.json")" == lua:grid ]] || fail 'Island did not keep its exact lua:grid ID.'
+assert_file_value "$ISLAND_TEST_RUNTIME_LAYOUT" lua:grid
+assert_file_value "$ISLAND_TEST_RUNTIME_AXIS" vertical
+before_config="$(/usr/bin/sha256sum "$XDG_CONFIG_HOME/hypr/decorations.lua" "$XDG_CONFIG_HOME/hypr/animations.lua")"
+run_helper set-layout island manual --dry-run >/dev/null
+after_config="$(/usr/bin/sha256sum "$XDG_CONFIG_HOME/hypr/decorations.lua" "$XDG_CONFIG_HOME/hypr/animations.lua")"
+[[ "$before_config" == "$after_config" ]] || fail 'Layout dry-run changed configuration.'
+
+run_helper set-axis island horizontal
+run_helper set-layout island scrolling
+assert_file_value "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" horizontal
+status="$(run_helper status island)"
+assert_json "$status" '.layout == "scrolling" and .axis == "horizontal" and .effectiveAxis == "vertical" and .axisLocked'
+before_config="$(/usr/bin/sha256sum "$XDG_CONFIG_HOME/hypr/decorations.lua" "$XDG_CONFIG_HOME/hypr/animations.lua" "$WORKSPACE_PRESENTATION_STATE_DIR/island.json" "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE")"
+before_runtime="$(<"$HYPRCTL_LOG")"
+if run_helper set-axis island vertical --dry-run > "$test_root/locked.log" 2>&1; then fail 'Scrolling accepted a dry-run axis change.'; fi
+if run_helper set-axis island vertical > "$test_root/locked.log" 2>&1; then fail 'Scrolling accepted an axis change.'; fi
+/usr/bin/rg -q 'locked to Vertical' "$test_root/locked.log" || fail 'The Scrolling axis rejection did not explain the lock.'
+after_config="$(/usr/bin/sha256sum "$XDG_CONFIG_HOME/hypr/decorations.lua" "$XDG_CONFIG_HOME/hypr/animations.lua" "$WORKSPACE_PRESENTATION_STATE_DIR/island.json" "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE")"
+after_runtime="$(<"$HYPRCTL_LOG")"
+[[ "$before_config" == "$after_config" && "$before_runtime" == "$after_runtime" ]] || fail 'A locked axis action mutated state or runtime.'
+run_helper set-layout island master
+assert_file_value "$ISLAND_TEST_RUNTIME_LAYOUT" master
+[[ "$(axis_from_config)" == horizontal ]] || fail 'Leaving Scrolling did not restore the saved horizontal axis.'
+[[ ! -e "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" ]] || fail 'Leaving Scrolling kept the legacy previous-axis file.'
+
+island_saved="$(/usr/bin/jq -c . "$WORKSPACE_PRESENTATION_STATE_DIR/island.json")"
+assert_json "$island_saved" '.layout == "master" and .axis == "horizontal" and .previousAxis == null'
+assert_json "$(/usr/bin/jq -c . "$WORKSPACE_PRESENTATION_STATE_DIR/caelestia.json")" '.layout == "dwindle" and .axis == "horizontal"'
+
+set_mode caelestia
+run_helper restore caelestia
+assert_file_value "$ISLAND_TEST_RUNTIME_LAYOUT" dwindle
+run_helper set-axis caelestia vertical
+run_helper set-layout caelestia scrolling
+assert_file_value "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" vertical
+run_helper capture caelestia
+
+set_mode noctalia
+run_helper restore noctalia
+assert_file_value "$ISLAND_TEST_RUNTIME_LAYOUT" dwindle
+run_helper set-axis noctalia horizontal
+run_helper set-layout noctalia scrolling
+assert_file_value "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" horizontal
+run_helper capture noctalia
+
+set_mode caelestia
+run_helper restore caelestia
+assert_json "$(run_helper status caelestia)" '.layout == "scrolling" and .axis == "vertical" and .effectiveAxis == "vertical" and .axisLocked'
+assert_file_value "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" vertical
+run_helper set-layout caelestia monocle
+[[ "$(axis_from_config)" == vertical ]] || fail 'Caelestia did not restore its own Scrolling axis.'
+run_helper capture caelestia
+
+set_mode noctalia
+run_helper restore noctalia
+assert_json "$(run_helper status noctalia)" '.layout == "scrolling" and .axis == "horizontal" and .effectiveAxis == "vertical" and .axisLocked'
+assert_file_value "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" horizontal
+run_helper set-layout noctalia manual
+[[ "$(axis_from_config)" == horizontal ]] || fail 'Noctalia did not restore its own Scrolling axis.'
+
+printf 'scrollingfix\n' > "$ISLAND_TEST_RUNTIME_LAYOUT"
+assert_json "$(run_helper status noctalia)" '.layout == "scrolling" and .axisLocked and .effectiveAxis == "vertical"'
+printf 'lua:manual\n' > "$ISLAND_TEST_RUNTIME_LAYOUT"
+
+old_layout="$(<"$ISLAND_TEST_RUNTIME_LAYOUT")"
+old_axis="$(axis_from_config)"
+old_decorations="$(/usr/bin/cat "$XDG_CONFIG_HOME/hypr/decorations.lua")"
+old_animations="$(/usr/bin/cat "$XDG_CONFIG_HOME/hypr/animations.lua")"
+old_state="$(/usr/bin/cat "$WORKSPACE_PRESENTATION_STATE_DIR/noctalia.json")"
+/usr/bin/touch "$ISLAND_TEST_FAIL_NEXT_AXIS"
+if run_helper set-layout noctalia scrolling > "$test_root/rollback.log" 2>&1; then fail 'A rejected runtime axis update succeeded.'; fi
+assert_file_value "$ISLAND_TEST_RUNTIME_LAYOUT" "$old_layout"
+[[ "$(axis_from_config)" == "$old_axis" ]] || fail 'Failed runtime mutation left a changed animation config.'
+[[ "$(/usr/bin/cat "$XDG_CONFIG_HOME/hypr/decorations.lua")" == "$old_decorations" ]] || fail 'Failed runtime mutation left a changed layout config.'
+[[ "$(/usr/bin/cat "$XDG_CONFIG_HOME/hypr/animations.lua")" == "$old_animations" ]] || fail 'Failed runtime mutation left a changed animation config.'
+[[ "$(/usr/bin/cat "$WORKSPACE_PRESENTATION_STATE_DIR/noctalia.json")" == "$old_state" ]] || fail 'Failed runtime mutation changed shell state.'
+[[ ! -e "$WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE" ]] || fail 'Failed runtime mutation left a legacy previous-axis file.'
+
+bad_state="$WORKSPACE_PRESENTATION_STATE_DIR/waybar.json"
+printf '{bad json\n' > "$bad_state"
+if run_helper validate waybar > "$test_root/invalid.log" 2>&1; then fail 'Malformed destination state passed validation.'; fi
+
+printf 'PASS: per-shell layouts and axes, Scrolling lock and previous axis, baseline migration, runtime restore, alias handling, and rollback\n'

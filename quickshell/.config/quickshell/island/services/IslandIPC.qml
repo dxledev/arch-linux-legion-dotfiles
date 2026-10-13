@@ -56,6 +56,7 @@ IpcHandler {
     }
     function openShellSwitcher(): void { IslandController.toggleMode(IslandState.shellSwitcherMode); }
     function openLayoutSwitcher(): void { IslandController.toggleMode(IslandState.layoutSwitcherMode); }
+    function openWorkspaceAxis(): void { IslandController.toggleWorkspaceAxis(); }
     function nextWallpaper(): void { ThemeService.execute(["next"]); }
     function previousWallpaper(): void { ThemeService.execute(["previous"]); }
 }

@@ -26,6 +26,7 @@ var menuEntries = [
     { id: "shell-mode", title: "Shell mode", subtitle: "Switch your workspace", keywords: ["shell", "waybar", "caelestia", "noctalia", "island", "mode"], icon: "../assets/icons/shell.svg", route: { type: "controller", action: "openShellSwitcher" } },
     { id: "browse-wallpapers", title: "Browse Wallpapers", subtitle: "Search wallhaven and generate palettes", keywords: ["wallhaven", "browse", "download", "online", "search wallpapers", "backgrounds", "backdrop", "wallpaper", "palette", "pastel", "aether", "generate palette", "dynamic palette", "toplist", "random", "anime", "nature"], icon: "../assets/icons/image-search.svg", route: { type: "controller", action: "openWallhaven" } },
     { id: "layout", title: "Layout", subtitle: "Choose a window tiling layout", keywords: ["layout", "tiling", "tile", "windows", "dwindle", "scrolling", "master", "monocle", "grid", "spiral", "manual", "center stack", "centerstack", "hyprland"], icon: "../assets/icons/layout.svg", route: { type: "controller", action: "openLayoutSwitcher" } },
+    { id: "workspace-axis", title: "Workspace Axis", subtitle: "Choose workspace movement direction", keywords: ["workspace", "axis", "horizontal", "vertical", "direction", "animation", "hyprland"], icon: "../assets/icons/workspaces.svg", route: { type: "controller", action: "openWorkspaceAxis" } },
     { id: "launcher", title: "App launcher", subtitle: "Search and launch apps", keywords: ["apps", "applications", "launch", "search"], icon: "../assets/icons/apps.svg", route: { type: "controller", action: "openLauncher" } },
     { id: "control-center", title: "Control Center", subtitle: "Quick controls and status", keywords: ["wifi", "bluetooth", "microphone", "night light", "idle lock", "brightness", "volume", "notifications"], icon: "../assets/icons/control-center.svg", route: { type: "controller", action: "openControlCenter" } },
     { id: "audio-devices", title: "Audio devices", subtitle: "Choose output and input", keywords: ["audio", "sound", "speaker", "headphones", "microphone", "output", "input"], icon: "../assets/icons/volume-2.svg", route: { type: "controller", action: "openAudioDevices" } },
@@ -158,9 +159,11 @@ function shuffleIds(ids, randomFn) {
     return result
 }
 
-function chooseDisplayedIds(pinnedIds, eligibleIds, limit, randomFn, shuffleEligible) {
+function chooseDisplayedIds(pinnedIds, eligibleIds, limit, randomFn, shuffleEligible, availableIds) {
     var maximum = limit === undefined ? 4 : Math.min(maximumPins, Math.max(0, Math.floor(Number(limit) || 0)))
     var pins = sanitizePinnedIds(pinnedIds)
+    if (Array.isArray(availableIds))
+        pins = pins.filter(function(id) { return availableIds.indexOf(id) !== -1 })
     var candidates = []
     var seen = pins.slice()
     var eligible = Array.isArray(eligibleIds) ? eligibleIds : menuEntries.map(function(entry) { return entry.id })

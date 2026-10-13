@@ -46,21 +46,23 @@ ShellRoot {
             check(named(view, "layout-search").activeFocus, "Search takes focus on open");
             phase = 1;
         } else if (phase === 1) {
-            // hyprctl stub reports the unprefixed name for a lua layout
-            check(view.currentLayout === "grid", "Current layout read from hyprctl, got '" + view.currentLayout + "'");
+            check(view.currentLayout === "lua:grid", "Current layout read from the presentation helper, got '" + view.currentLayout + "'");
             const grid = named(view, "layout-lua:grid");
             check(grid.highlighted && grid.text === "Grid · Active layout", "Active layout is marked: " + grid.text);
             check(!named(view, "layout-dwindle").highlighted, "Other layouts are not marked");
             for (const key of [Qt.Key_S, Qt.Key_P, Qt.Key_I]) input.keyClick(key, Qt.NoModifier, 0);
             check(view.filteredLayouts.length === 1 && view.filteredLayouts[0].id === "lua:spiral", "Search filters by name");
             input.keyClick(Qt.Key_Enter, Qt.NoModifier, 0);
-            check(IslandState.mode === IslandState.defaultMode, "Choosing a layout closes the panel");
             phase = 2;
         } else if (phase === 2) {
+            if (IslandState.mode !== IslandState.defaultMode) return;
+            check(IslandState.mode === IslandState.defaultMode, "Choosing a layout closes the panel");
+            phase = 3;
+        } else if (phase === 3) {
             const log = Quickshell.env("LAYOUT_LOG");
             const file = Qt.createQmlObject('import Quickshell.Io; FileView { path: "' + log + '"; blockLoading: true }', root);
-            check(file.text().trim() === "--layout lua:spiral", "Script got the layout id, got '" + file.text().trim() + "'");
-            console.log("PASS: layout panel lists layouts, marks the active one, filters, and runs menu-layout with the layout id");
+            check(file.text().trim() === "set-layout island lua:spiral", "Helper got the layout id, got '" + file.text().trim() + "'");
+            console.log("PASS: layout panel lists layouts, marks the active one, filters, and sets the layout through the helper");
             Qt.quit();
         }
     }

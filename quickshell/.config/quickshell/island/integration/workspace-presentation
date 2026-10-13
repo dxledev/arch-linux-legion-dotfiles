@@ -1,0 +1,600 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HYPR_LUA_LIBRARY="${WORKSPACE_PRESENTATION_HYPR_LUA_LIBRARY:-$HOME/bin/lib-hypr-lua}"
+[[ -r "$HYPR_LUA_LIBRARY" ]] || {
+    printf 'workspace-presentation: Hyprland config library not found: %s\n' "$HYPR_LUA_LIBRARY" >&2
+    exit 1
+}
+source "$HYPR_LUA_LIBRARY"
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+HYPR_CONFIG="${HYPR_CONFIG:-$CONFIG_HOME/hypr/hyprland.lua}"
+DECORATIONS_CONFIG="${WORKSPACE_PRESENTATION_DECORATIONS_CONFIG:-$(hypr_config_path "$CONFIG_HOME/hypr/decorations.conf")}"
+ANIMATIONS_CONFIG="${WORKSPACE_PRESENTATION_ANIMATIONS_CONFIG:-$(hypr_config_path "$CONFIG_HOME/hypr/animations.conf")}"
+HYPRCTL_BIN="${HYPRCTL_BIN:-/usr/bin/hyprctl}"
+JQ_BIN="${JQ_BIN:-/usr/bin/jq}"
+MKDIR_BIN="/usr/bin/mkdir"
+MKTEMP_BIN="/usr/bin/mktemp"
+MV_BIN="/usr/bin/mv"
+RM_BIN="/usr/bin/rm"
+CP_BIN="/usr/bin/cp"
+FLOCK_BIN="/usr/bin/flock"
+STATE_DIR="${WORKSPACE_PRESENTATION_STATE_DIR:-$STATE_HOME/hyprland-presentation}"
+LEGACY_AXIS_STATE_FILE="${WORKSPACE_PRESENTATION_LEGACY_AXIS_STATE_FILE:-$STATE_HOME/menu-layout/workspace-axis.state}"
+SHELL_MODE_LOCK_FILE="${SHELL_MODE_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/toggle-shell-mode-$UID.lock}"
+MODES=(waybar caelestia noctalia island)
+LAYOUTS=(dwindle scrolling master monocle lua:grid lua:spiral lua:manual lua:centerstack)
+AXES=(horizontal vertical)
+
+usage() {
+    printf '%s\n' \
+        'Usage: workspace-presentation status MODE' \
+        '       workspace-presentation set-layout MODE LAYOUT [--dry-run]' \
+        '       workspace-presentation set-axis MODE horizontal|vertical [--dry-run]' \
+        '       workspace-presentation capture|restore|validate MODE [--dry-run]'
+}
+
+fail() {
+    printf 'workspace-presentation: %s\n' "$*" >&2
+    exit 1
+}
+
+is_valid_mode() {
+    local candidate="$1" mode
+    for mode in "${MODES[@]}"; do
+        [[ "$candidate" == "$mode" ]] && return 0
+    done
+    return 1
+}
+
+normalize_layout() {
+    case "$1" in
+        scrollingfix) printf 'scrolling\n' ;;
+        grid|spiral|manual|centerstack) printf 'lua:%s\n' "$1" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+is_valid_layout() {
+    local candidate
+    candidate="$(normalize_layout "$1")"
+    local layout
+    for layout in "${LAYOUTS[@]}"; do
+        [[ "$candidate" == "$layout" ]] && return 0
+    done
+    return 1
+}
+
+is_scrolling_layout() {
+    [[ "$(normalize_layout "$1")" == scrolling ]]
+}
+
+is_valid_axis() {
+    [[ "$1" == horizontal || "$1" == vertical ]]
+}
+
+axis_to_style() {
+    case "$1" in
+        horizontal) printf 'slide\n' ;;
+        vertical) printf 'slidevert\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+style_to_axis() {
+    case "$1" in
+        *slidevert*) printf 'vertical\n' ;;
+        *slide*) printf 'horizontal\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+mode_state_file() {
+    printf '%s/%s.json\n' "$STATE_DIR" "$1"
+}
+
+baseline_file() {
+    printf '%s/baseline.json\n' "$STATE_DIR"
+}
+
+legacy_axis_is_valid() {
+    local axis
+    [[ -r "$LEGACY_AXIS_STATE_FILE" ]] || return 1
+    IFS= read -r axis < "$LEGACY_AXIS_STATE_FILE" || return 1
+    is_valid_axis "$axis"
+}
+
+read_legacy_axis() {
+    local axis
+    legacy_axis_is_valid || return 1
+    IFS= read -r axis < "$LEGACY_AXIS_STATE_FILE"
+    printf '%s\n' "$axis"
+}
+
+write_legacy_axis() {
+    local axis="$1" temporary
+    is_valid_axis "$axis" || return 1
+    "$MKDIR_BIN" -p -- "${LEGACY_AXIS_STATE_FILE%/*}"
+    temporary="$("$MKTEMP_BIN" "${LEGACY_AXIS_STATE_FILE}.XXXXXX")"
+    if ! printf '%s\n' "$axis" > "$temporary"; then
+        "$RM_BIN" -f -- "$temporary"
+        return 1
+    fi
+    "$MV_BIN" -f -- "$temporary" "$LEGACY_AXIS_STATE_FILE"
+}
+
+clear_legacy_axis() {
+    "$RM_BIN" -f -- "$LEGACY_AXIS_STATE_FILE"
+}
+
+acquire_transition_lock() {
+    [[ "$SHELL_MODE_LOCK_FILE" == /* ]] || fail 'SHELL_MODE_LOCK_FILE must be an absolute path.'
+    "$MKDIR_BIN" -p -- "${SHELL_MODE_LOCK_FILE%/*}"
+    exec 8>"$SHELL_MODE_LOCK_FILE"
+    "$FLOCK_BIN" -n 8 || fail 'A shell mode transition is already running.'
+}
+
+read_runtime_layout() {
+    local response layout
+    [[ -x "$HYPRCTL_BIN" ]] || return 1
+    response="$("$HYPRCTL_BIN" getoption general:layout -j)" || return 1
+    layout="$("$JQ_BIN" -er 'if type == "object" and (.str | type == "string") then .str else error("missing layout string") end' <<< "$response")" || return 1
+    layout="$(normalize_layout "$layout")"
+    is_valid_layout "$layout" || return 1
+    printf '%s\n' "$layout"
+}
+
+read_config_axis() {
+    local style
+    style="$(hypr_get_animation_style "$ANIMATIONS_CONFIG")" || return 1
+    style_to_axis "$style"
+}
+
+read_config_layout() {
+    local value layout
+    value="$(hypr_get_config_value "$DECORATIONS_CONFIG" general layout)" || return 1
+    layout="$(hypr_lua_unquote "$value")"
+    layout="$(normalize_layout "$layout")"
+    is_valid_layout "$layout" || return 1
+    printf '%s\n' "$layout"
+}
+
+read_runtime_tuple() {
+    local layout axis
+    layout="$(read_runtime_layout)" || return 1
+    axis="$(read_config_axis)" || return 1
+    if is_scrolling_layout "$layout"; then
+        axis=vertical
+    fi
+    printf '%s\t%s\n' "$layout" "$axis"
+}
+
+write_state() {
+    local mode="$1" layout="$2" axis="$3" previous_axis="$4" temporary
+    local state_file
+    state_file="$(mode_state_file "$mode")"
+    is_valid_mode "$mode" || return 1
+    is_valid_layout "$layout" || return 1
+    is_valid_axis "$axis" || return 1
+    [[ "$previous_axis" == null ]] || is_valid_axis "$previous_axis" || return 1
+    "$MKDIR_BIN" -p -- "$STATE_DIR"
+    temporary="$("$MKTEMP_BIN" "${state_file}.XXXXXX")"
+    if ! "$JQ_BIN" -n \
+        --arg mode "$mode" \
+        --arg layout "$(normalize_layout "$layout")" \
+        --arg axis "$axis" \
+        --arg previousAxis "$previous_axis" \
+        '{version: 1, mode: $mode, layout: $layout, axis: $axis, previousAxis: (if $previousAxis == "null" then null else $previousAxis end)}' > "$temporary"; then
+        "$RM_BIN" -f -- "$temporary"
+        return 1
+    fi
+    /usr/bin/chmod 600 -- "$temporary"
+    "$MV_BIN" -f -- "$temporary" "$state_file"
+}
+
+read_state() {
+    local mode="$1" state_file
+    state_file="$(mode_state_file "$mode")"
+    [[ -r "$state_file" ]] || return 1
+    "$JQ_BIN" -er '
+        if .version == 1
+            and (.mode | type == "string")
+            and (.layout | type == "string")
+            and (.axis == "horizontal" or .axis == "vertical")
+            and (.previousAxis == null or .previousAxis == "horizontal" or .previousAxis == "vertical")
+        then [.layout, .axis, (.previousAxis // "null")] | @tsv
+        else error("invalid workspace presentation state")
+        end
+    ' "$state_file" || return 1
+}
+
+validate_state_file() {
+    local mode="$1" state_file line layout axis previous_axis stored_mode
+    state_file="$(mode_state_file "$mode")"
+    [[ -e "$state_file" ]] || return 0
+    [[ -r "$state_file" ]] || return 1
+    line="$(read_state "$mode")" || return 1
+    IFS=$'\t' read -r layout axis previous_axis <<< "$line"
+    stored_mode="$("$JQ_BIN" -er '.mode | select(type == "string")' "$state_file")" || return 1
+    [[ "$stored_mode" == "$mode" ]] || return 1
+    is_valid_layout "$layout" && is_valid_axis "$axis" || return 1
+    [[ "$previous_axis" == null ]] || is_valid_axis "$previous_axis" || return 1
+}
+
+validate_baseline() {
+    local file line layout axis previous_axis
+    file="$(baseline_file)"
+    [[ -e "$file" ]] || return 0
+    [[ -r "$file" ]] || return 1
+    line="$(read_baseline)" || return 1
+    IFS=$'\t' read -r layout axis previous_axis <<< "$line"
+    is_valid_layout "$layout" && is_valid_axis "$axis" || return 1
+    [[ "$previous_axis" == null ]] || is_valid_axis "$previous_axis" || return 1
+}
+
+read_baseline() {
+    local file
+    file="$(baseline_file)"
+    "$JQ_BIN" -er '
+        if .version == 1
+            and (.layout | type == "string")
+            and (.axis == "horizontal" or .axis == "vertical")
+            and (.previousAxis == null or .previousAxis == "horizontal" or .previousAxis == "vertical")
+        then [.layout, .axis, (.previousAxis // "null")] | @tsv
+        else error("invalid workspace presentation baseline")
+        end
+    ' "$file" || return 1
+}
+
+write_baseline() {
+    local layout="$1" axis="$2" previous_axis="$3" temporary file
+    file="$(baseline_file)"
+    "$MKDIR_BIN" -p -- "$STATE_DIR"
+    temporary="$("$MKTEMP_BIN" "${file}.XXXXXX")"
+    if ! "$JQ_BIN" -n \
+        --arg layout "$(normalize_layout "$layout")" \
+        --arg axis "$axis" \
+        --arg previousAxis "$previous_axis" \
+        '{version: 1, layout: $layout, axis: $axis, previousAxis: (if $previousAxis == "null" then null else $previousAxis end)}' > "$temporary"; then
+        "$RM_BIN" -f -- "$temporary"
+        return 1
+    fi
+    /usr/bin/chmod 600 -- "$temporary"
+    "$MV_BIN" -f -- "$temporary" "$file"
+}
+
+read_mode_state_or_baseline() {
+    local mode="$1" state
+    if state="$(read_state "$mode")"; then
+        printf '%s\n' "$state"
+        return 0
+    fi
+    if [[ -f "$(baseline_file)" ]]; then
+        read_baseline
+        return
+    fi
+    return 1
+}
+
+ensure_baseline_and_states() {
+    local tuple layout axis previous_axis mode state_file
+    validate_baseline || fail 'The workspace presentation baseline is malformed.'
+    for mode in "${MODES[@]}"; do
+        validate_state_file "$mode" || fail "The $mode workspace presentation state is malformed."
+    done
+    if [[ ! -f "$(baseline_file)" ]]; then
+        tuple="$(read_runtime_tuple)" || fail 'Cannot read the current Hyprland layout and workspace axis.'
+        IFS=$'\t' read -r layout axis <<< "$tuple"
+        previous_axis=null
+        if is_scrolling_layout "$layout"; then
+            if previous_axis="$(read_legacy_axis)"; then :; else previous_axis=null; fi
+        fi
+        write_baseline "$layout" "$axis" "$previous_axis" || fail 'Cannot save the initial workspace presentation baseline.'
+    fi
+    IFS=$'\t' read -r layout axis previous_axis <<< "$(read_baseline)"
+    for mode in "${MODES[@]}"; do
+        state_file="$(mode_state_file "$mode")"
+        [[ -e "$state_file" ]] && continue
+        write_state "$mode" "$layout" "$axis" "$previous_axis" || fail "Cannot initialize the $mode workspace presentation state."
+    done
+}
+
+active_mode() {
+    /usr/bin/awk '
+        {
+            line = $0
+            sub(/^[[:space:]]*/, "", line)
+            sub(/[[:space:]]*$/, "", line)
+            if (line == "require(\"waybar-mode-keybindings\")") waybar_active++
+            else if (line == "-- require(\"waybar-mode-keybindings\")") waybar_disabled++
+            else if (line == "require(\"noctalia-mode-keybindings\")") noctalia_active++
+            else if (line == "-- require(\"noctalia-mode-keybindings\")") noctalia_disabled++
+            else if (line == "require(\"island-mode-keybindings\")") island_active++
+            else if (line == "-- require(\"island-mode-keybindings\")") island_disabled++
+        }
+        END {
+            if (waybar_active + waybar_disabled != 1 || noctalia_active + noctalia_disabled != 1) exit 1
+            if (island_active + island_disabled > 1 || waybar_active + noctalia_active + island_active > 1) exit 1
+            if (island_active) { print "island"; exit }
+            if (waybar_active && noctalia_disabled) print "waybar"
+            else if (waybar_disabled && noctalia_disabled) print "caelestia"
+            else if (waybar_disabled && noctalia_active) print "noctalia"
+            else exit 1
+        }
+    ' "$HYPR_CONFIG"
+}
+
+capture_mode() {
+    local mode="$1" tuple layout axis previous_axis=null
+    tuple="$(read_runtime_tuple)" || fail 'Cannot read the current Hyprland layout and workspace axis.'
+    IFS=$'\t' read -r layout axis <<< "$tuple"
+    if is_scrolling_layout "$layout"; then
+        if previous_axis="$(read_legacy_axis)"; then
+            :
+        else
+            previous_axis=null
+        fi
+    fi
+    write_state "$mode" "$layout" "$axis" "$previous_axis" || fail "Cannot save the $mode workspace presentation."
+}
+
+apply_runtime_layout() {
+    "$HYPRCTL_BIN" keyword general:layout "$1" >/dev/null
+}
+
+apply_runtime_axis() {
+    local style
+    style="$(axis_to_style "$1")"
+    "$HYPRCTL_BIN" keyword animation "workspaces, 1, 4.9, overshot, ${style} 100%" >/dev/null
+}
+
+write_layout_config() {
+    local layout="$1" quoted
+    quoted="$(hypr_lua_quote "$layout")"
+    hypr_set_config_value "$DECORATIONS_CONFIG" general layout "$quoted" "$layout"
+}
+
+write_axis_config() {
+    hypr_set_animation_style "$ANIMATIONS_CONFIG" "$(axis_to_style "$1")"
+}
+
+rollback_restore() {
+    local backup_dir="$1" old_runtime_layout="$2" old_runtime_axis="$3" mode="$4" message="$5" status=0 current_runtime_layout
+    "$CP_BIN" -p -- "$backup_dir/decorations" "$DECORATIONS_CONFIG" || status=1
+    "$CP_BIN" -p -- "$backup_dir/animations" "$ANIMATIONS_CONFIG" || status=1
+    if [[ -e "$backup_dir/legacy-axis" ]]; then
+        "$CP_BIN" -p -- "$backup_dir/legacy-axis" "$LEGACY_AXIS_STATE_FILE" || status=1
+    else
+        "$RM_BIN" -f -- "$LEGACY_AXIS_STATE_FILE" || status=1
+    fi
+    if [[ -e "$backup_dir/state" ]]; then
+        "$CP_BIN" -p -- "$backup_dir/state" "$(mode_state_file "$mode")" || status=1
+    else
+        "$RM_BIN" -f -- "$(mode_state_file "$mode")" || status=1
+    fi
+    current_runtime_layout="$(read_runtime_layout 2>/dev/null || true)"
+    if is_scrolling_layout "$current_runtime_layout" && ! is_scrolling_layout "$old_runtime_layout"; then
+        apply_runtime_layout "$old_runtime_layout" >/dev/null 2>&1 || status=1
+        apply_runtime_axis "$old_runtime_axis" >/dev/null 2>&1 || status=1
+    else
+        apply_runtime_axis "$old_runtime_axis" >/dev/null 2>&1 || status=1
+        apply_runtime_layout "$old_runtime_layout" >/dev/null 2>&1 || status=1
+    fi
+    if (( status )); then fail "$message; rollback was incomplete. Recovery files retained at $backup_dir."; fi
+    "$RM_BIN" -rf -- "$backup_dir"
+    fail "$message"
+}
+
+restore_tuple() {
+    local mode="$1" layout="$2" axis="$3" previous_axis="$4"
+    local current_layout current_config_layout current_axis runtime_axis backup_dir state_file
+    layout="$(normalize_layout "$layout")"
+    is_valid_layout "$layout" || fail "Invalid saved layout for $mode: $layout"
+    is_valid_axis "$axis" || fail "Invalid saved workspace axis for $mode: $axis"
+    [[ "$previous_axis" == null ]] || is_valid_axis "$previous_axis" || fail "Invalid saved Scrolling axis for $mode."
+    if is_scrolling_layout "$layout"; then axis=vertical; fi
+
+    current_layout="$(read_runtime_layout)" || fail 'Cannot read the current Hyprland layout.'
+    current_config_layout="$(read_config_layout)" || fail 'Cannot read the configured Hyprland layout.'
+    current_axis="$(read_config_axis)" || fail 'Cannot read the configured workspace axis.'
+    runtime_axis="$current_axis"
+    if is_scrolling_layout "$current_layout"; then runtime_axis=vertical; fi
+    backup_dir="$("$MKTEMP_BIN" -d /tmp/workspace-presentation.XXXXXX)" || fail 'Cannot prepare a workspace presentation transaction.'
+    state_file="$(mode_state_file "$mode")"
+    if ! "$CP_BIN" -p -- "$DECORATIONS_CONFIG" "$backup_dir/decorations" ||
+        ! "$CP_BIN" -p -- "$ANIMATIONS_CONFIG" "$backup_dir/animations"; then
+        "$RM_BIN" -rf -- "$backup_dir"
+        fail 'Cannot snapshot the Hyprland configuration before applying the presentation.'
+    fi
+    [[ ! -e "$LEGACY_AXIS_STATE_FILE" ]] || "$CP_BIN" -p -- "$LEGACY_AXIS_STATE_FILE" "$backup_dir/legacy-axis" || {
+        "$RM_BIN" -rf -- "$backup_dir"
+        fail 'Cannot snapshot the legacy Scrolling axis state.'
+    }
+    [[ ! -e "$state_file" ]] || "$CP_BIN" -p -- "$state_file" "$backup_dir/state" || {
+        "$RM_BIN" -rf -- "$backup_dir"
+        fail "Cannot snapshot the $mode workspace presentation state."
+    }
+    if [[ "$current_axis" != "$axis" ]]; then
+        write_axis_config "$axis" || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" "Cannot save the $mode workspace axis"
+    fi
+    if [[ "$current_config_layout" != "$layout" ]]; then
+        write_layout_config "$layout" || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" "Cannot save the $mode layout"
+    fi
+    if is_scrolling_layout "$layout" && [[ "$previous_axis" != null ]]; then
+        write_legacy_axis "$previous_axis" || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" 'Cannot restore the Scrolling workspace axis state'
+    else
+        clear_legacy_axis || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" 'Cannot clear the Scrolling workspace axis state'
+    fi
+    apply_runtime_axis "$axis" || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" "Cannot apply the $mode workspace axis at runtime"
+    apply_runtime_layout "$layout" || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" "Cannot apply the $mode layout at runtime"
+    write_state "$mode" "$layout" "$axis" "$previous_axis" || rollback_restore "$backup_dir" "$current_layout" "$runtime_axis" "$mode" "Cannot save the $mode workspace presentation"
+    "$RM_BIN" -rf -- "$backup_dir"
+}
+
+status_mode() {
+    local mode="$1" active layout axis effective_axis previous_axis=null state
+    active="$(active_mode 2>/dev/null || true)"
+    if [[ "$active" == "$mode" ]]; then
+        layout="$(read_runtime_layout)" || fail 'Cannot read the active Hyprland layout.'
+        axis="$(read_config_axis)" || fail 'Cannot read the active workspace axis.'
+        if is_scrolling_layout "$layout"; then
+            effective_axis=vertical
+            if previous_axis="$(read_legacy_axis)"; then axis="$previous_axis"; else axis=vertical; fi
+        else
+            effective_axis="$axis"
+        fi
+    else
+        state="$(read_mode_state_or_baseline "$mode")" || fail "No workspace presentation is saved for $mode."
+        IFS=$'\t' read -r layout axis previous_axis <<< "$state"
+        layout="$(normalize_layout "$layout")"
+        if is_scrolling_layout "$layout"; then
+            effective_axis=vertical
+            [[ "$previous_axis" == null ]] || axis="$previous_axis"
+        else
+            effective_axis="$axis"
+        fi
+    fi
+    "$JQ_BIN" -cn \
+        --arg mode "$mode" \
+        --arg layout "$layout" \
+        --arg axis "$axis" \
+        --arg effectiveAxis "$effective_axis" \
+        --argjson axisLocked "$(is_scrolling_layout "$layout" && printf true || printf false)" \
+        '{mode: $mode, layout: $layout, axis: $axis, effectiveAxis: $effectiveAxis, axisLocked: $axisLocked}'
+}
+
+set_layout() {
+    local mode="$1" selected_layout="$2" dry_run="$3" active tuple current_layout axis previous_axis=null
+    selected_layout="$(normalize_layout "$selected_layout")"
+    is_valid_layout "$selected_layout" || fail "Invalid layout: $2"
+    if (( ! dry_run )); then acquire_transition_lock; fi
+    active="$(active_mode 2>/dev/null || true)"
+    [[ "$active" == "$mode" ]] || fail "Cannot change $mode presentation while $active is active."
+    tuple="$(read_runtime_tuple)" || fail 'Cannot read the current Hyprland layout and workspace axis.'
+    IFS=$'\t' read -r current_layout axis <<< "$tuple"
+    if is_scrolling_layout "$current_layout"; then
+        if previous_axis="$(read_legacy_axis)"; then axis="$previous_axis"; else previous_axis=null; fi
+    fi
+    if is_scrolling_layout "$selected_layout"; then
+        if ! is_scrolling_layout "$current_layout"; then previous_axis="$axis"; fi
+        axis=vertical
+    else
+        if is_scrolling_layout "$current_layout"; then
+            if previous_axis="$(read_legacy_axis)"; then axis="$previous_axis"; else axis=vertical; fi
+            previous_axis=null
+        else
+            previous_axis=null
+        fi
+    fi
+    if (( dry_run )); then
+        printf 'Would set %s layout to %s with %s workspace axis.\n' "$mode" "$selected_layout" "$axis"
+        return 0
+    fi
+    ensure_baseline_and_states
+    restore_tuple "$mode" "$selected_layout" "$axis" "$previous_axis"
+}
+
+set_axis() {
+    local mode="$1" selected_axis="$2" dry_run="$3" active layout previous_axis=null
+    is_valid_axis "$selected_axis" || fail "Invalid workspace axis: $selected_axis"
+    if (( ! dry_run )); then acquire_transition_lock; fi
+    active="$(active_mode 2>/dev/null || true)"
+    [[ "$active" == "$mode" ]] || fail "Cannot change $mode presentation while $active is active."
+    layout="$(read_runtime_layout)" || fail 'Cannot read the current Hyprland layout.'
+    if is_scrolling_layout "$layout"; then
+        fail 'Workspace Axis is locked to Vertical while Scrolling is active.'
+    fi
+    if (( dry_run )); then
+        printf 'Would set %s workspace axis to %s.\n' "$mode" "$selected_axis"
+        return 0
+    fi
+    ensure_baseline_and_states
+    restore_tuple "$mode" "$layout" "$selected_axis" "$previous_axis"
+}
+
+restore_mode() {
+    local mode="$1" dry_run="$2" state layout axis previous_axis
+    validate_state_file "$mode" || fail "The $mode workspace presentation state is malformed."
+    if [[ ! -f "$(mode_state_file "$mode")" ]]; then
+        if (( dry_run )); then
+            validate_baseline || fail 'The workspace presentation baseline is malformed.'
+            if [[ -f "$(baseline_file)" ]]; then
+                state="$(read_baseline)" || fail 'Cannot read the workspace presentation baseline.'
+                IFS=$'\t' read -r layout axis previous_axis <<< "$state"
+            else
+                state="$(read_runtime_tuple)" || fail 'Cannot read the current Hyprland layout and workspace axis.'
+                IFS=$'\t' read -r layout axis <<< "$state"
+                previous_axis=null
+                if is_scrolling_layout "$layout"; then
+                    if previous_axis="$(read_legacy_axis)"; then :; fi
+                fi
+            fi
+            printf 'Would initialize and restore %s layout %s and %s workspace axis.\n' "$mode" "$layout" "$axis"
+            return 0
+        fi
+        ensure_baseline_and_states
+    fi
+    state="$(read_state "$mode")" || fail "Cannot read the $mode workspace presentation state."
+    IFS=$'\t' read -r layout axis previous_axis <<< "$state"
+    if (( dry_run )); then
+        printf 'Would restore %s layout %s and %s workspace axis.\n' "$mode" "$layout" "$axis"
+        return 0
+    fi
+    restore_tuple "$mode" "$layout" "$axis" "$previous_axis"
+}
+
+main() {
+    local command mode argument dry_run=0
+    [[ "$HYPR_LUA_LIBRARY" == /* ]] || fail "Paths must be absolute: $HYPR_LUA_LIBRARY"
+    for argument in "$HYPR_CONFIG" "$DECORATIONS_CONFIG" "$ANIMATIONS_CONFIG" "$HYPRCTL_BIN" "$JQ_BIN" "$STATE_DIR" "$LEGACY_AXIS_STATE_FILE" "$SHELL_MODE_LOCK_FILE"; do
+        [[ "$argument" == /* ]] || fail "Paths must be absolute: $argument"
+    done
+    [[ -f "$DECORATIONS_CONFIG" ]] || fail "Hyprland layout config not found: $DECORATIONS_CONFIG"
+    [[ -f "$ANIMATIONS_CONFIG" ]] || fail "Hyprland animation config not found: $ANIMATIONS_CONFIG"
+    [[ -x "$JQ_BIN" ]] || fail "jq not found: $JQ_BIN"
+    [[ -x "$HYPRCTL_BIN" ]] || fail "hyprctl not found: $HYPRCTL_BIN"
+    [[ -f "$HYPR_CONFIG" ]] || fail "Hyprland config not found: $HYPR_CONFIG"
+    (( $# > 0 )) || { usage >&2; exit 2; }
+    command="$1"
+    shift
+    case "$command" in
+        status)
+            [[ $# == 1 ]] || { usage >&2; exit 2; }
+            mode="$1"
+            is_valid_mode "$mode" || fail "Invalid shell mode: $mode"
+            status_mode "$mode"
+            ;;
+        set-layout|set-axis)
+            [[ $# == 2 || $# == 3 ]] || { usage >&2; exit 2; }
+            mode="$1"
+            argument="$2"
+            if [[ $# == 3 ]]; then
+                [[ "$3" == --dry-run ]] || { usage >&2; exit 2; }
+                dry_run=1
+            fi
+            is_valid_mode "$mode" || fail "Invalid shell mode: $mode"
+            if [[ "$command" == set-layout ]]; then set_layout "$mode" "$argument" "$dry_run"; else set_axis "$mode" "$argument" "$dry_run"; fi
+            ;;
+        capture|restore|validate)
+            [[ $# == 1 || ( $# == 2 && "$2" == --dry-run ) ]] || { usage >&2; exit 2; }
+            mode="$1"
+            [[ $# != 2 ]] || dry_run=1
+            is_valid_mode "$mode" || fail "Invalid shell mode: $mode"
+            case "$command" in
+                validate) validate_state_file "$mode" || fail "The $mode workspace presentation state is malformed." ;;
+                capture)
+                    if (( dry_run )); then printf 'Would capture the active presentation for %s.\n' "$mode"; return 0; fi
+                    ensure_baseline_and_states
+                    capture_mode "$mode"
+                    ;;
+                restore) restore_mode "$mode" "$dry_run" ;;
+            esac
+            ;;
+        -h|--help) usage ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"
