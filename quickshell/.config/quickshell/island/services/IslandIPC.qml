@@ -36,6 +36,7 @@ IpcHandler {
     function openClipboard(): void { IslandController.toggleMode(IslandState.clipboardMode); }
     function openChromack(): void { IslandController.toggleMode(IslandState.chromackMode); }
     function openWallhaven(): void { IslandController.toggleMode(IslandState.wallhavenMode); }
+    function openCalendar(): void { IslandController.toggleMode(IslandState.calendarMode); }
     function openNetworkSpeedTest(): void { IslandController.openNetworkSpeedTest(); }
     function openDiskSpeedTest(): void { IslandController.openDiskSpeedTest(); }
     function openLauncher(): void { IslandController.toggleMode(IslandState.launcherMode); }

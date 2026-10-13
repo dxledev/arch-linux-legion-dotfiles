@@ -23,6 +23,7 @@ ShellRoot {
             ["openClipboard", IslandState.clipboardMode],
             ["openChromack", IslandState.chromackMode],
             ["openWallhaven", IslandState.wallhavenMode],
+            ["openCalendar", IslandState.calendarMode],
             ["openThemeSelector", IslandState.themeSelectorMode],
             ["openWallpaperSelector", IslandState.wallpaperSelectorMode],
             ["openNavigation", IslandState.navigationMode],

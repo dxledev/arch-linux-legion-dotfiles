@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+test_root="$(/usr/bin/mktemp -d /tmp/island-calendar.XXXXXX)"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+helper="$test_dir/../dashboard-tasks"
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/dashboard"
+/usr/bin/chmod 700 "$test_root/runtime"
+
+tasks="$test_root/dashboard/tasks.json"
+/usr/bin/cat > "$tasks" <<'JSON'
+[
+  {"task": "Daily fixture", "recurrence_type": "daily", "recurrence_value": "daily", "created_at": "2026-03-01T08:00:00Z"},
+  {"task": "Monday fixture", "recurrence_type": "weekly", "recurrence_value": "Mon,Thu", "created_at": "2026-03-01T08:01:00Z"},
+  {"task": "Dated fixture", "recurrence_type": "date", "recurrence_value": "2026-10-14", "created_at": "2026-03-01T08:02:00Z"}
+]
+JSON
+
+# Quote fixture in the API's format: distinct quotes, one very long, plus the rate-limit pseudo-quote.
+/usr/bin/jq -n '[range(0; 12) | {q: ("Fixture quote number \(.) for the calendar header"), a: "Fixture Author"}]
+    + [{q: ("A very long motivational quote that cannot possibly fit inside the calendar header strip, " * 3), a: "Long Author"},
+       {q: "Too many requests. Obtain an auth key for unlimited access.", a: "zenquotes.io"}]' > "$test_root/quotes.json"
+export ISLAND_QUOTES_URL="file://$test_root/quotes.json"
+
+# Helper checks: the same writes the dashboard CLI makes, never on a damaged file.
+export ISLAND_DASHBOARD_TASKS_FILE="$test_root/dashboard/helper.json"
+/usr/bin/cp "$tasks" "$ISLAND_DASHBOARD_TASKS_FILE"
+"$helper" add "Helper one" weekly "Tue,Fri"
+"$helper" add "Helper one" date 2026-12-24
+/usr/bin/jq -e 'length == 5 and (map(select(.task == "Helper one")) | length) == 2 and (.[3:] | all(.created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")))' "$ISLAND_DASHBOARD_TASKS_FILE" >/dev/null \
+    || fail "helper add did not write the dashboard schema"
+created="$(/usr/bin/jq -r '.[3].created_at' "$ISLAND_DASHBOARD_TASKS_FILE")"
+"$helper" remove "Helper one" "$created"
+/usr/bin/jq -e 'length == 4' "$ISLAND_DASHBOARD_TASKS_FILE" >/dev/null || fail "helper remove must drop exactly one matching task"
+if "$helper" add "Bad" weekly "Funday" 2>/dev/null; then fail "helper accepted an invalid weekday"; fi
+if "$helper" add "Bad" date 2026-02-30 2>/dev/null; then fail "helper accepted an invalid date"; fi
+if "$helper" remove "Nope" "2026-01-01T00:00:00Z" 2>/dev/null; then fail "helper removed a missing task"; fi
+printf 'not json\n' > "$ISLAND_DASHBOARD_TASKS_FILE"
+if "$helper" add "Never written" daily x 2>/dev/null; then fail "helper wrote over a damaged tasks file"; fi
+[[ "$(/usr/bin/cat "$ISLAND_DASHBOARD_TASKS_FILE")" == "not json" ]] || fail "damaged tasks file was modified"
+printf 'PASS: dashboard-tasks helper\n'
+/usr/bin/node "$test_dir/calendar-events.js" || fail "calendar event rules failed"
+
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+config_home="$TEST_ROOT/config"
+settings_file="$TEST_ROOT/state/settings.json"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"test",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    wallpaper-directory) exit 0 ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+
+# Replace the live file the way `dashboard` does (temp file + mv) once the panel has loaded.
+(
+    /usr/bin/sleep 5
+    ext="$(/usr/bin/mktemp "$test_root/dashboard/.tasks.json.tmp.XXXXXX")"
+    /usr/bin/jq '. + [{task: "External fixture", recurrence_type: "date", recurrence_value: "2026-10-14", created_at: "2026-03-02T08:00:00Z"}]' "$tasks" > "$ext"
+    /usr/bin/mv "$ext" "$tasks"
+    /usr/bin/sleep 3
+    ext="$(/usr/bin/mktemp "$test_root/dashboard/.tasks.json.tmp.XXXXXX")"
+    /usr/bin/jq 'map(select(.task != "Dated fixture"))' "$tasks" > "$ext"
+    /usr/bin/mv "$ext" "$tasks"
+) &
+mutator=$!
+trap 'kill "$mutator" 2>/dev/null || true' EXIT
+
+log_file="$test_root/calendar-views.log"
+/usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/calendar-views.qml" > "$test_root/views.qml"
+export ISLAND_DASHBOARD_TASKS_FILE="$tasks"
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
+    XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
+    ISLAND_THEME_SCRIPT="$test_root/controller" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 40s /usr/bin/quickshell -p "$test_root/views.qml" \
+    > "$log_file" 2>&1; then
+    /usr/bin/cat "$log_file" >&2
+    fail "Could not run calendar-views.qml; fixture retained at $test_root"
+fi
+if ! /usr/bin/rg -q 'PASS: calendar panel, events, Dashboard task sync and routing' "$log_file" \
+    || /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop' "$log_file"; then
+    /usr/bin/cat "$log_file" >&2
+    fail "calendar-views.qml failed; fixture retained at $test_root"
+fi
+printf 'PASS: calendar-views.qml\n'
+/usr/bin/rm -rf "$test_root"

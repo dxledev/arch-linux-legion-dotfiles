@@ -26,6 +26,10 @@ QtObject {
     }
 
     function setMode(mode, monitorName) {
+        if (mode === IslandState.calendarMode && IslandState.mode !== IslandState.calendarMode) {
+            IslandState.calendarReturnMode = IslandState.mode === IslandState.expandedMode
+                ? IslandState.expandedMode : IslandState.navigationMode
+        }
         if (mode === IslandState.systemMode && IslandState.mode !== IslandState.systemMode) {
             IslandState.systemReturnMode = IslandState.mode === IslandState.powerMenuMode
                 ? IslandState.powerMenuMode : IslandState.navigationMode
@@ -138,6 +142,8 @@ QtObject {
     function openClipboard() { setMode(IslandState.clipboardMode) }
     function openChromack() { setMode(IslandState.chromackMode) }
     function openWallhaven() { setMode(IslandState.wallhavenMode) }
+    function openCalendar() { setMode(IslandState.calendarMode) }
+    function backFromCalendar() { setMode(IslandState.calendarReturnMode) }
 
     signal wifiQrRequested(string ssid, string iface, string monitorName)
 

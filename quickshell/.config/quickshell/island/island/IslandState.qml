@@ -31,6 +31,7 @@ QtObject {
     readonly property int clipboardMode: 20
     readonly property int chromackMode: 21
     readonly property int wallhavenMode: 22
+    readonly property int calendarMode: 23
 
     // =========================================================
     // STATE
@@ -38,6 +39,7 @@ QtObject {
 
     property int mode: defaultMode
     property int systemReturnMode: navigationMode
+    property int calendarReturnMode: navigationMode
     property string panelMonitorName: ""
     property string settingsSection: ""
 
@@ -91,5 +93,6 @@ QtObject {
         mode === bluetoothMode ||
         mode === clipboardMode ||
         mode === chromackMode ||
-        mode === wallhavenMode
+        mode === wallhavenMode ||
+        mode === calendarMode
 }

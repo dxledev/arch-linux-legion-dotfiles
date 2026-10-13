@@ -33,3 +33,5 @@ singleton WorkspaceService 1.0 WorkspaceService.qml
 singleton WallhavenService 1.0 WallhavenService.qml
 WallhavenJob 1.0 WallhavenJob.qml
 singleton LyricsService 1.0 LyricsService.qml
+singleton DashboardTasksService 1.0 DashboardTasksService.qml
+singleton QuoteService 1.0 QuoteService.qml

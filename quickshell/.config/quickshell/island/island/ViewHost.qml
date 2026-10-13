@@ -205,6 +205,9 @@ Item {
             case IslandState.wallhavenMode:
                 return wallhavenView
 
+            case IslandState.calendarMode:
+                return calendarView
+
             case IslandState.themeSelectorMode:
                 return themeSelectorView
 
@@ -244,6 +247,7 @@ Item {
     Component { id: clipboardView; ClipboardView {} }
     Component { id: chromackView; ChromackView {} }
     Component { id: wallhavenView; WallhavenView {} }
+    Component { id: calendarView; CalendarView {} }
 
     Component {
         id: defaultView

@@ -77,6 +77,7 @@ Item {
 
         DateView {
             visible: root.expanded
+            interactive: root.expanded
 
             anchors.horizontalCenter: parent.horizontalCenter
         }
