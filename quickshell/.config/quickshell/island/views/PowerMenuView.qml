@@ -3,6 +3,7 @@ import QtQuick
 import "../components"
 import "../services"
 import "../core"
+import "../island"
 
 FocusScope {
     id: root
@@ -16,6 +17,37 @@ FocusScope {
 
     Component.onCompleted: {
         forceActiveFocus()
+    }
+
+    // Shutdown and reboot are destructive, so they ask first via the status drawer
+    // (same card as the wallpaper delete confirmation).
+    property bool askedPower: false
+
+    function confirmPower(title, detail, acceptLabel, handler) {
+        if (StatusManager.confirming) StatusManager.resolveConfirm(false)
+        askedPower = true
+        StatusManager.confirm({
+            monitorName: IslandState.panelMonitorName,
+            title: title,
+            detail: detail,
+            acceptLabel: acceptLabel,
+            onAccepted: function() {
+                root.askedPower = false
+                handler()
+            }
+        })
+    }
+
+    function requestPoweroff() {
+        confirmPower("Shut down?", "Unsaved work in open apps will be lost.", "Shutdown", PowerService.poweroff)
+    }
+
+    function requestReboot() {
+        confirmPower("Reboot?", "Unsaved work in open apps will be lost.", "Reboot", PowerService.reboot)
+    }
+
+    Component.onDestruction: {
+        if (askedPower && StatusManager.confirming) StatusManager.resolveConfirm(false)
     }
 
     Keys.onPressed: function(event) {
@@ -44,11 +76,11 @@ FocusScope {
             switch (selectedIndex) {
 
             case 0:
-                PowerService.poweroff()
+                requestPoweroff()
                 break
 
             case 1:
-                PowerService.reboot()
+                requestReboot()
                 break
 
             case 2:
@@ -69,7 +101,10 @@ FocusScope {
 
         case Qt.Key_Escape:
 
-            IslandController.reset()
+            if (StatusManager.confirming) {
+                askedPower = false
+                StatusManager.resolveConfirm(false)
+            } else IslandController.reset()
 
             event.accepted = true
             break
@@ -85,16 +120,18 @@ FocusScope {
             selected: root.keyboardSelection && root.selectedIndex === 0
 
             icon: ""
-            title: "Power"
-            action: PowerService.poweroff
+            objectName: "session-shutdown-button"
+            title: "Shutdown"
+            action: root.requestPoweroff
         }
 
         PowerOption {
             selected: root.keyboardSelection && root.selectedIndex === 1
 
+            objectName: "session-reboot-button"
             icon: "󰑐"
             title: "Reboot"
-            action: PowerService.reboot
+            action: root.requestReboot
         }
 
         PowerOption {

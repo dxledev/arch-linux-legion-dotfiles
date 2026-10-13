@@ -27,7 +27,7 @@ local mode_owned_keys = {
     "SUPER + ALT + B", "SUPER + ALT + D", "SUPER + SHIFT + CTRL + W", "SUPER + SHIFT + L",
     "SUPER + ALT + A", "XF86AudioRaiseVolume", "XF86AudioLowerVolume", "SUPER + XF86AudioRaiseVolume",
     "SUPER + XF86AudioLowerVolume", "XF86AudioMute", "XF86MonBrightnessUp", "XF86MonBrightnessDown",
-    "SUPER + SHIFT + TAB", "SUPER + SHIFT + F1", "SUPER + F1", "SUPER + F2", "SUPER + SHIFT + F3", "SUPER + F3", "SUPER + F4",
+    "SUPER + SHIFT + F1", "SUPER + F1", "SUPER + F2", "SUPER + SHIFT + F3", "SUPER + F3", "SUPER + F4",
 }
 for _, key in ipairs(mode_owned_keys) do hl.unbind(key) end
 
@@ -63,7 +63,6 @@ for _, item in ipairs(panels) do bind(item[1], item[2], ipc .. item[3]) end
 
 local desktop = {
     { "SUPER + SHIFT + L", "Island Lock Screen", home .. "/bin/system-lock --wait" },
-    { "SUPER + SHIFT + TAB", "Toggle Mission Control", home .. "/bin/hypr-toggle-mission-control" },
     { "SUPER + S", "Region Screenshot", home .. "/bin/launch-screenshot-clipboard" },
     { "SUPER + SHIFT + S", "Monitor Screenshot", home .. "/bin/launch-screenshot-active-monitor-clipboard" },
     { "Print", "Monitor Screenshot", home .. "/bin/launch-screenshot-active-monitor-clipboard" },
