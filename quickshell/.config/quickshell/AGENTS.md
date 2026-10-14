@@ -30,3 +30,13 @@
   its own applied wallpaper. Anything that renames or deletes a Dynamic wallpaper must
   call `shared/wallpapers/relink` so the other shells' references follow. Follow
   `shared/wallpapers/README.md`; always pass the state root explicitly.
+
+# Shared clipboard
+
+- Caelestia, Island and Noctalia share clipboard history and pins: history is
+  cliphist's database, pins are the favorites store under
+  `~/.local/share/caelestia/clipboard`. Follow `shared/clipboard/README.md`;
+  do not add a per-shell history or pin store.
+- A pin's hash is the SHA-256 of the exact payload bytes. Read payloads without
+  trimming, add a pin's payload before its manifest entry, and keep the
+  `{"version":1,"items":[...]}` manifest format other shells validate.

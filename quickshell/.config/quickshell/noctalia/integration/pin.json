@@ -36,7 +36,8 @@
     "0032-display-window-workspace-canvas.patch",
     "0033-shared-notification-history.patch",
     "0034-calendar-holidays-tasks.patch",
-    "0035-calendar-task-editing.patch"
+    "0035-calendar-task-editing.patch",
+    "0036-shared-clipboard.patch"
   ],
   "schemes": [
     "m3-tonal-spot",
