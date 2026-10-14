@@ -16,8 +16,11 @@ Rectangle {
         ? monitorActive : monitorName === IslandState.panelMonitorName
     readonly property int mode: panelActive ? IslandState.mode : IslandState.defaultMode
     readonly property bool statusDrawerActive: mode !== IslandState.defaultMode
+    // The workspace section replaces the workspace OSD while it is open; the other OSDs drop below it.
+    readonly property bool workspaceOsdCovered: StatusManager.mode === "workspace"
+        && mode === IslandState.expandedMode && IslandState.workspacePanelOpen
     readonly property bool statusDrawerOpen: statusDrawerActive && StatusManager.visible
-        && StatusManager.isTargetScreen(monitorName)
+        && StatusManager.isTargetScreen(monitorName) && !workspaceOsdCovered
     readonly property real statusDrawerHeight: statusDrawer.implicitHeight
     readonly property real statusDrawerWidth: Math.min(statusDrawer.implicitWidth,
         Math.max(0, width - 2 * (radius + 24)))
@@ -172,6 +175,36 @@ Rectangle {
         anchors.alignWhenCentered: false
         // Keep content pinned to the top edge so height changes only move the bottom edge.
         y: 0
+    }
+
+    // Opens the expanded island's workspace section. It rides the capsule's animated bottom edge,
+    // so it slides down with the section instead of jumping to the final height.
+    Rectangle {
+        id: workspacePill
+        objectName: "workspace-panel-pill"
+        readonly property bool shown: root.panelActive && root.mode === IslandState.expandedMode
+        width: 88
+        height: 4
+        radius: height / 2
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.panelHeight - height - 5
+        z: 2
+        color: Theme.accent
+        opacity: !shown ? 0 : pillMouse.pressed ? 0.7 : pillMouse.containsMouse || IslandState.workspacePanelOpen ? 1 : 0.85
+        visible: opacity > 0
+        Accessible.role: Accessible.Button
+        Accessible.name: IslandState.workspacePanelOpen ? "Hide workspaces" : "Show workspaces"
+        Behavior on opacity { NumberAnimation { duration: Theme.animationFast; easing.type: Easing.OutCubic } }
+
+        MouseArea {
+            id: pillMouse
+            anchors.fill: parent
+            anchors.margins: -5
+            enabled: workspacePill.shown
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: IslandState.workspacePanelOpen = !IslandState.workspacePanelOpen
+        }
     }
 
     MouseArea {

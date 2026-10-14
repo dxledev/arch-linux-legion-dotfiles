@@ -53,3 +53,5 @@ LyricsPanel 1.0 LyricsPanel.qml
 SeekBar 1.0 SeekBar.qml
 CalendarDayCell 1.0 CalendarDayCell.qml
 CalendarTaskRow 1.0 CalendarTaskRow.qml
+WorkspaceChip 1.0 WorkspaceChip.qml
+WorkspacePanel 1.0 WorkspacePanel.qml

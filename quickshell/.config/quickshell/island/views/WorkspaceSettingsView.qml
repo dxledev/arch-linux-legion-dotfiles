@@ -31,4 +31,22 @@ SettingsPanel {
             maximum: 500; step: 10; suffix: " ms"
         }
     }
+    SettingSection {
+        title: "Expanded switcher style"
+        iconSource: "../assets/icons/workspaces.svg"
+        SettingToggle { objectName: "workspace-expanded-inherit"; text: "Inherit switcher style"; setting: "workspaceExpandedInheritStyle" }
+        SettingChoice {
+            label: "Style"
+            choices: ["default", "dots"]
+            selected: ThemeService.settings.workspaceExpandedStyle || "default"
+            enabled: !(ThemeService.settings.workspaceExpandedInheritStyle ?? true)
+            onChosen: value => ThemeService.setSetting("workspaceExpandedStyle", value)
+        }
+        SettingSlider {
+            label: "Dot size"; setting: "workspaceExpandedDotSize"
+            minimum: 1; maximum: IslandGeometry.compactHeight - 2
+            enabled: !(ThemeService.settings.workspaceExpandedInheritStyle ?? true)
+                && ThemeService.settings.workspaceExpandedStyle === "dots"
+        }
+    }
 }

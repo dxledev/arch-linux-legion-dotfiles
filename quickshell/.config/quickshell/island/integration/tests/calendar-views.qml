@@ -157,6 +157,10 @@ ShellRoot {
             check(view.quote && view.quote.q.length > 0, "Opening the panel picks a quote");
             const line = named(view, "calendar-quote");
             check(line.visible && line.text.includes(view.quote.q) && line.text.includes(view.quote.a), "Quote shows with its author");
+            if (!line.shouldScroll()) {
+                const edge = line.mapToItem(view, line.restX + line.textWidth, 0).x;
+                check(Math.abs(edge - line.mapToItem(view, line.maxWidth, 0).x) < 1.5, "A quote that fits is right-aligned next to the close button");
+            }
             check(Quotes.parse('[{"q":"Too many requests. Obtain an auth key for unlimited access.","a":"zenquotes.io"}]').length === 0,
                 "Rate-limit pseudo-quote is filtered");
             if (QuoteService.cache.quotes.length === 0) return;

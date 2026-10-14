@@ -125,7 +125,8 @@ FocusScope {
         event.accepted = handled
     }
 
-    // Sits in the header's free space, between the title and the close button, and scrolls when long.
+    // Sits in the header's free space, between the title and the close button: right-aligned beside the
+    // close button when it fits, scrolling when long.
     UiText {
         id: titleMeasure
         visible: false
@@ -141,6 +142,7 @@ FocusScope {
         x: startX
         y: root.panelPadding + (48 - height) / 2
         maxWidth: Math.max(0, endX - startX)
+        rightAligned: true
         visible: maxWidth > 80 && text.length > 0
         text: root.quoteText
         fontSize: 13

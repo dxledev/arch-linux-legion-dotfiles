@@ -46,6 +46,10 @@ QtObject {
     property string settingsSection: ""
 
     property bool islandPinned: false
+    // Expanded island's workspace section (persistent and special workspaces, overview toggles).
+    // Only meaningful while the island is expanded; any other mode closes it.
+    property bool workspacePanelOpen: false
+    onModeChanged: if (mode !== expandedMode) workspacePanelOpen = false
     property bool returnToExpanded: false
     property bool ignoreNextIslandTap: false
     // Media opened from a click: stay open until the cursor has entered the panel once.

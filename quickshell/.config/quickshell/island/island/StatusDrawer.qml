@@ -25,7 +25,9 @@ Item {
     Behavior on reveal {
         NumberAnimation {
             duration: root.animationDuration
-            easing.type: Easing.OutCubic
+            // Opening decelerates into place. Closing accelerates away: an ease-out there leaves a
+            // thin sliver of the drawer crawling shut, which reads as lag.
+            easing.type: root.opened ? Easing.OutCubic : Easing.InCubic
         }
     }
 

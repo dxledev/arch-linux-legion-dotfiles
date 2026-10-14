@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell.Hyprland
 import "../core"
+import "../services"
 import "../styles"
 
 Row {
@@ -14,6 +15,10 @@ Row {
     property var persistentIds: null
     property int animationDuration: 160
     property int dotSize: 8
+    property bool interactive: false
+    property color emptyColor: Theme.surface
+    property string namePrefix: "workspace-dot-"
+    signal workspaceClicked(int workspaceId)
     readonly property int diameter: Math.max(1, Math.min(dotSize, IslandGeometry.compactHeight - 2))
     readonly property var entries: workspaceEntries()
     spacing: 6
@@ -21,22 +26,7 @@ Row {
     Component.onCompleted: syncEntries()
 
     function workspaceEntries() {
-        const states = new Map();
-        if (persistent) {
-            const ids = persistentIds == null
-                ? Array.from({length: persistentCount}, (_, index) => index + 1)
-                : [...new Set(persistentIds)].sort((a, b) => a - b).slice(0, persistentCount);
-            for (const id of ids) states.set(id, false);
-        }
-        for (const workspace of workspaces ?? []) {
-            if (workspace.id <= 0) continue;
-            const occupied = (workspace.toplevels?.values.length ?? workspace.lastIpcObject?.windows ?? 0) > 0;
-            if (states.has(workspace.id) || occupied || workspace.id === activeWorkspace)
-                states.set(workspace.id, occupied);
-        }
-        if (activeWorkspace > 0 && !states.has(activeWorkspace))
-            states.set(activeWorkspace, false);
-        return [...states].sort((a, b) => a[0] - b[0]).map(([id, occupied]) => ({id, occupied}));
+        return WorkspaceService.workspaceEntries(workspaces, persistentIds, persistent, persistentCount, activeWorkspace);
     }
 
     function syncEntries() {
@@ -59,14 +49,23 @@ Row {
             required property int workspaceId
             required property bool occupied
             readonly property bool current: workspaceId === root.activeWorkspace
-            objectName: "workspace-dot-" + workspaceId
+            objectName: root.namePrefix + workspaceId
             width: root.diameter + (current ? 10 : 0)
             height: root.diameter
             radius: height / 2
-            color: current ? Theme.accent : occupied ? Theme.textSecondary : Theme.surface
+            color: current ? Theme.accent : occupied ? Theme.textSecondary : root.emptyColor
             Accessible.name: "Workspace " + workspaceId + (current ? ", active" : occupied ? ", occupied" : ", empty")
             Behavior on width { NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: root.animationDuration } }
+            MouseArea {
+                // Dots are small; the hit area reaches into the gaps and a 22 px minimum height.
+                anchors.centerIn: parent
+                width: parent.width + root.spacing
+                height: Math.max(parent.height, 22)
+                enabled: root.interactive
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.workspaceClicked(parent.workspaceId)
+            }
         }
     }
 }

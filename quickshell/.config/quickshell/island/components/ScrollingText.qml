@@ -13,6 +13,8 @@ Item {
     property real scrollSpeed: 36
     // Text that fits sits in the middle instead of against the left edge.
     property bool centered: false
+    // Text that fits sits against the right edge (a long one still scrolls from the left).
+    property bool rightAligned: false
     property bool bold: true
 
     // The text's own width, whatever room it is given.
@@ -38,7 +40,9 @@ Item {
         x: root.restX
     }
 
-    readonly property real restX: centered && label.width < maxWidth ? (maxWidth - label.width) / 2 : 0
+    readonly property real restX: label.width >= maxWidth ? 0
+        : rightAligned ? maxWidth - label.width
+        : centered ? (maxWidth - label.width) / 2 : 0
 
     readonly property real overflow: label.width - root.maxWidth
     readonly property int scrollDuration: Math.max(1200, Math.round(overflow / scrollSpeed * 1000))

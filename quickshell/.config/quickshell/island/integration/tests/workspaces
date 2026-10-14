@@ -22,7 +22,7 @@ check_settings() {
     read_settings | /usr/bin/jq -e '.monitor == "HDMI-A-1"' >/dev/null
     save_setting monitor all
     read_settings | /usr/bin/jq -e '.monitor == "all"' >/dev/null
-    read_settings | /usr/bin/jq -e '.workspaceStyle == "default" and .workspaceDotSize == 8 and .workspacePersistent and (.workspaceShowAllMonitors | not) and .workspaceCount == 11 and .workspaceAnimationDuration == 160' >/dev/null
+    read_settings | /usr/bin/jq -e '.workspaceStyle == "default" and .workspaceDotSize == 8 and .workspacePersistent and (.workspaceShowAllMonitors | not) and .workspaceCount == 11 and .workspaceAnimationDuration == 160 and .workspaceExpandedInheritStyle and .workspaceExpandedStyle == "default" and .workspaceExpandedDotSize == 8' >/dev/null
     save_setting workspaceDotSize 1
     save_setting workspaceDotSize 31
     read_settings | /usr/bin/jq -e '.workspaceDotSize == 31' >/dev/null
@@ -32,6 +32,11 @@ check_settings() {
     save_setting workspaceShowAllMonitors true
     save_setting workspaceCount 8
     save_setting workspaceAnimationDuration 100
+    save_setting workspaceExpandedInheritStyle false
+    save_setting workspaceExpandedStyle dots
+    save_setting workspaceExpandedDotSize 14
+    read_settings | /usr/bin/jq -e '(.workspaceExpandedInheritStyle | not) and .workspaceExpandedStyle == "dots" and .workspaceExpandedDotSize == 14' >/dev/null
+    save_setting workspaceExpandedInheritStyle true
     read_settings | /usr/bin/jq -e '.workspaceStyle == "dots" and .workspaceDotSize == 12 and (.workspacePersistent | not) and .workspaceShowAllMonitors and .workspaceCount == 8 and .workspaceAnimationDuration == 100' >/dev/null
     local before
     before="$(/usr/bin/sha256sum "$settings_file")"
@@ -40,7 +45,7 @@ check_settings() {
     [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
     dry_run=0
     local invalid
-    for invalid in 'workspaceStyle invalid' 'workspaceDotSize 0' 'workspaceDotSize 32' 'workspaceDotSize 8.5' 'workspaceDotSize invalid' 'workspacePersistent yes' 'workspaceShowAllMonitors yes' 'workspaceCount 0' 'workspaceCount 21' 'workspaceAnimationDuration -1' 'workspaceAnimationDuration 501'; do
+    for invalid in 'workspaceStyle invalid' 'workspaceDotSize 0' 'workspaceDotSize 32' 'workspaceDotSize 8.5' 'workspaceDotSize invalid' 'workspacePersistent yes' 'workspaceShowAllMonitors yes' 'workspaceCount 0' 'workspaceCount 21' 'workspaceAnimationDuration -1' 'workspaceAnimationDuration 501' 'workspaceExpandedInheritStyle yes' 'workspaceExpandedStyle invalid' 'workspaceExpandedDotSize 0' 'workspaceExpandedDotSize 32'; do
         if (save_setting ${invalid%% *} "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
     done
 }
@@ -90,4 +95,5 @@ check_views workspace-views.qml 'PASS: workspace states'
 check_views workspace-drawer-views.qml 'PASS: attached workspace drawer'
 check_views monitor-views.qml 'PASS: active monitor panels'
 check_views panel-morph-views.qml 'PASS: panel morph curve'
+check_views workspace-panel-views.qml 'PASS: workspace panel'
 printf 'PASS: saved workspace settings, defaults, validation, dry-run, dot states, occupancy updates, attached workspace drawer and rendered concave joins, compact workspace OSD, bidirectional transitions, active monitor panels, panel keybind toggles, monitor close animations, and monitor panel transfers\n'
