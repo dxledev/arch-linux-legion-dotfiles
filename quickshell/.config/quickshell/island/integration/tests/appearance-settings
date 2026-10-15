@@ -11,7 +11,7 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 source "$test_dir/../theme-functions"
 
 check_settings() {
-    read_settings | /usr/bin/jq -e '.islandWidth == 160 and .islandHeight == 33 and .islandBorderWidth == 0 and .islandAnimationDuration == 300 and .hoverToExpand and (.uiFontBold | not) and .uiLetterSpacing == 0 and .uiAnimationDuration == 300 and .panelAnimationStyle == "morph"' >/dev/null
+    read_settings | /usr/bin/jq -e '.islandWidth == 160 and .islandHeight == 33 and .islandBorderWidth == 0 and .islandAnimationDuration == 300 and .hoverToExpand and (.uiFontBold | not) and .uiLetterSpacing == 0 and .uiAnimationDuration == 300 and .panelAnimationStyle == "morph" and (.notchMode | not) and (.screenCorners | not) and .screenCornerRadius == 24' >/dev/null
     save_setting islandWidth 4
     save_setting islandHeight 24
     save_setting islandBorderWidth 4
@@ -22,6 +22,16 @@ check_settings() {
     save_setting hoverToExpand false
     save_setting panelAnimationStyle classic
     read_settings | /usr/bin/jq -e '.panelAnimationStyle == "classic"' >/dev/null
+    save_setting notchMode true
+    save_setting screenCorners true
+    save_setting screenCornerRadius 4
+    read_settings | /usr/bin/jq -e '.notchMode and .screenCorners and .screenCornerRadius == 4' >/dev/null
+    save_setting screenCornerRadius 64
+    read_settings | /usr/bin/jq -e '.screenCornerRadius == 64 and (.screenCornerRadius | type) == "number"' >/dev/null
+    save_setting notchMode false
+    save_setting screenCorners false
+    save_setting screenCornerRadius 24
+    read_settings | /usr/bin/jq -e '(.notchMode | not) and (.screenCorners | not) and .screenCornerRadius == 24' >/dev/null
     read_settings | /usr/bin/jq -e '.islandWidth == 4 and .islandHeight == 24 and .islandBorderWidth == 4 and .islandAnimationDuration == 0 and (.hoverToExpand | not) and .uiFontBold and .uiLetterSpacing == 1.25 and .uiAnimationDuration == 1000' >/dev/null
     local before invalid
     before="$(/usr/bin/sha256sum "$settings_file")"
@@ -37,7 +47,7 @@ check_settings() {
     save_setting panelAnimationStyle morph >/dev/null
     [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]] || fail 'Dry-run changed saved appearance settings.'
     dry_run=0
-    for invalid in 'islandWidth 3' 'islandWidth 601' 'islandWidth 80.5' 'islandHeight 23' 'islandHeight 81' 'islandBorderWidth -1' 'islandBorderWidth 5' 'islandAnimationDuration 1001' 'uiFontBold yes' 'uiLetterSpacing -1' 'uiLetterSpacing 3.1' 'uiLetterSpacing nope' 'uiAnimationDuration -1' 'uiAnimationDuration 1001' 'hoverToExpand yes' 'panelAnimationStyle fade' 'panelAnimationStyle Morph' 'panelAnimationStyle true'; do
+    for invalid in 'islandWidth 3' 'islandWidth 601' 'islandWidth 80.5' 'islandHeight 23' 'islandHeight 81' 'islandBorderWidth -1' 'islandBorderWidth 5' 'islandAnimationDuration 1001' 'uiFontBold yes' 'uiLetterSpacing -1' 'uiLetterSpacing 3.1' 'uiLetterSpacing nope' 'uiAnimationDuration -1' 'uiAnimationDuration 1001' 'hoverToExpand yes' 'panelAnimationStyle fade' 'panelAnimationStyle Morph' 'panelAnimationStyle true' 'notchMode yes' 'screenCorners 1' 'screenCornerRadius 3' 'screenCornerRadius 65' 'screenCornerRadius 12.5' 'screenCornerRadius nope'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted: $invalid"; fi
     done
     save_setting islandWidth 160

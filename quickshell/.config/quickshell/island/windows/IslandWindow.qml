@@ -74,7 +74,7 @@ PanelWindow {
         islandTop: IslandGeometry.topMargin
         islandBottom: IslandGeometry.topMargin + capsule.height
         islandWidth: capsule.width
-        islandRadius: capsule.radius
+        islandRadius: capsule.cornerRadius
     }
 
     LyricsWindow {
@@ -82,7 +82,7 @@ PanelWindow {
         islandTop: IslandGeometry.topMargin
         islandBottom: IslandGeometry.topMargin + capsule.height
         islandWidth: capsule.width
-        islandRadius: capsule.radius
+        islandRadius: capsule.cornerRadius
     }
 
     WifiQrWindow {

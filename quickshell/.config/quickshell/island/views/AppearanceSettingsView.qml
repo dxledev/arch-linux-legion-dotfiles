@@ -27,6 +27,14 @@ SettingsPanel {
                 ? "All" : ThemeService.settings.monitor
             onChosen: value => ThemeService.setSetting("monitor", value === "All" ? "all" : value)
         }
+        SettingToggle { objectName: "island-notch-mode-toggle"; text: "Notch mode"; setting: "notchMode" }
+        UiText {
+            width: parent.width
+            text: "Attaches the Island to the top edge of the screen with flared corners. Top margin is ignored."
+            color: Theme.textSecondary
+            font.pixelSize: 12
+            wrapMode: Text.Wrap
+        }
         SettingSlider {
             label: "Width"
             setting: "islandWidth"
@@ -41,7 +49,7 @@ SettingsPanel {
             wrapMode: Text.Wrap
         }
         SettingSlider { label: "Height"; setting: "islandHeight"; minimum: Math.max(24, IslandGeometry.minimumHeight); maximum: 80 }
-        SettingSlider { label: "Top margin"; setting: "topMargin"; maximum: 80 }
+        SettingSlider { label: "Top margin"; setting: "topMargin"; maximum: 80; enabled: !(ThemeService.settings.notchMode ?? false) }
         SettingSlider { label: "Bottom margin"; setting: "reservedSpaceBelow"; maximum: 100 }
         UiText {
             width: parent.width

@@ -149,6 +149,7 @@ Item {
                 case "launcher": return launcherSettingsView
                 case "menu": return menuSettingsView
                 case "appearance": return appearanceSettingsView
+                case "desktop": return desktopSettingsView
                 case "clock": return clockSettingsView
                 case "lock": return lockSettingsView
                 case "osd": return osdSettingsView
@@ -251,6 +252,7 @@ Item {
     Component { id: dynamicPaletteSettingsView; DynamicPaletteSettingsView {} }
     Component { id: workspacesSettingsView; WorkspaceSettingsView {} }
     Component { id: appearanceSettingsView; AppearanceSettingsView {} }
+    Component { id: desktopSettingsView; DesktopSettingsView {} }
     Component { id: clockSettingsView; ClockSettingsView {} }
     Component { id: lockSettingsView; LockSettingsView {} }
     Component { id: osdSettingsView; OsdSettingsView {} }

@@ -18,7 +18,7 @@ const controllerPath = path.join(islandRoot, "core/IslandController.qml");
 const controllerSource = fs.readFileSync(controllerPath, "utf8");
 const controllerActions = new Set(Array.from(controllerSource.matchAll(/function\s+(\w+)\s*\(/g), match => match[1]));
 const expectedSections = [
-    "launcher", "menu", "appearance", "displays", "clock", "lock", "osd", "workspaces",
+    "launcher", "menu", "appearance", "desktop", "displays", "clock", "lock", "osd", "workspaces",
     "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media"
 ];
 

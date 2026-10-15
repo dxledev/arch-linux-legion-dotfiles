@@ -23,6 +23,17 @@ ShellRoot {
             KeyboardService {}
             IslandIPC {}
             SpeedTest {}
+            WindowRounding {
+                radius: ThemeService.settings.screenCorners ? ThemeService.settings.screenCornerRadius ?? 24 : -1
+            }
+
+            Variants {
+                model: Quickshell.screens
+                ScreenCornersWindow {
+                    required property ShellScreen modelData
+                    screen: modelData
+                }
+            }
 
             Variants {
                 model: ThemeService.islandScreens

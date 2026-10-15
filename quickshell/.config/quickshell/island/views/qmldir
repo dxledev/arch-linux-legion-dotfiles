@@ -29,6 +29,7 @@ BluetoothView 1.0 BluetoothView.qml
 AIUsageView 1.0 AIUsageView.qml
 KeybindsView 1.0 KeybindsView.qml
 AppearanceSettingsView 1.0 AppearanceSettingsView.qml
+DesktopSettingsView 1.0 DesktopSettingsView.qml
 WorkspaceSettingsView 1.0 WorkspaceSettingsView.qml
 DynamicPaletteSettingsView 1.0 DynamicPaletteSettingsView.qml
 NotificationSettingsView 1.0 NotificationSettingsView.qml

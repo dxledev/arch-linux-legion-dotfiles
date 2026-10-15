@@ -10,6 +10,7 @@ singleton CavaService 1.0 CavaService.qml
 singleton IdleLockService 1.0 IdleLockService.qml
 singleton LockService 1.0 LockService.qml
 IslandIPC 1.0 IslandIPC.qml
+WindowRounding 1.0 WindowRounding.qml
 FilteredListModel 1.0 FilteredListModel.qml
 KeyboardService 1.0 KeyboardService.qml
 singleton KeybindService 1.0 KeybindService.qml

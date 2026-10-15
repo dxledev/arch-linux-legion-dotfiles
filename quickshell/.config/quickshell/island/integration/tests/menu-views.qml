@@ -21,7 +21,7 @@ ShellRoot {
         ["themes", "wallpapers", "settings"],
         ["themes", "wallpapers", "settings", "ai-usage"]
     ]
-    property var inlineSections: ["launcher", "menu", "appearance", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media"]
+    property var inlineSections: ["launcher", "menu", "appearance", "desktop", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media"]
     property var controllerRoutes: [
         ["session", IslandState.powerMenuMode],
         ["control-center", IslandState.controlCenterMode],

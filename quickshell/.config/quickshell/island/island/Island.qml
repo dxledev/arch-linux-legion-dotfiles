@@ -23,11 +23,10 @@ Rectangle {
         && StatusManager.isTargetScreen(monitorName) && !workspaceOsdCovered
     readonly property real statusDrawerHeight: statusDrawer.implicitHeight
     readonly property real statusDrawerWidth: Math.min(statusDrawer.implicitWidth,
-        Math.max(0, width - 2 * (radius + 24)))
+        Math.max(0, width - 2 * (cornerRadius + 24)))
     property real panelWidth: viewHost.implicitWidth
     property real panelHeight: viewHost.implicitHeight
-    readonly property color surfaceColor: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b,
-        Theme.background.a * (ThemeService.settings.opacity ?? 1))
+    readonly property color surfaceColor: IslandGeometry.surfaceColor
     property alias panelArea: panelArea
     property alias statusArea: statusDrawer
 
@@ -68,7 +67,14 @@ Rectangle {
         }
     }
 
-    radius: (ThemeService.settings.radius ?? Theme.capsuleRadius) * radiusScale
+    // Notch: the island hangs from the top edge of the screen with flared top corners, so the
+    // capsule widens by one flare per side and the Rectangle itself stops rounding (its rounded
+    // clip would cut the flares). cornerRadius keeps the real value for the shape and its neighbours.
+    readonly property bool notchMode: IslandGeometry.notchMode
+    readonly property real notchFlare: notchMode
+        ? Math.max(0, Math.min(Math.round((ThemeService.settings.radius ?? Theme.capsuleRadius) * 0.6), 14, panelHeight / 2)) : 0
+    readonly property real cornerRadius: (ThemeService.settings.radius ?? Theme.capsuleRadius) * radiusScale
+    radius: notchMode ? 0 : cornerRadius
     color: "transparent"
     border.width: ThemeService.settings.islandBorderWidth ?? 0
     border.color: "transparent"
@@ -76,7 +82,7 @@ Rectangle {
     width: implicitWidth
     height: implicitHeight
 
-    implicitWidth: panelWidth
+    implicitWidth: panelWidth + 2 * notchFlare
     implicitHeight: panelHeight + statusDrawerHeight
 
     readonly property bool osdMotion: mode === IslandState.defaultMode
@@ -112,9 +118,11 @@ Rectangle {
         objectName: "status-attached-surface"
         anchors.fill: parent
         panelHeight: root.panelHeight
-        panelRadius: root.radius
+        panelRadius: root.cornerRadius
         drawerWidth: root.statusDrawerWidth
-        joinRadius: Math.min(root.radius, 16)
+        joinRadius: Math.min(root.cornerRadius, 16)
+        notch: root.notchMode
+        flare: root.notchFlare
         borderWidth: root.border.width
         borderColor: Theme.border
         surfaceColor: root.surfaceColor
@@ -135,7 +143,7 @@ Rectangle {
         contentWidth: root.statusDrawerWidth
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.panelHeight
-        width: root.statusDrawerWidth + 2 * Math.min(root.radius, 16)
+        width: root.statusDrawerWidth + 2 * Math.min(root.cornerRadius, 16)
         height: root.statusDrawerHeight
     }
 
