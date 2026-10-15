@@ -201,29 +201,34 @@ FocusScope {
                         Behavior on color { ColorAnimation { duration: Theme.animationFast } }
                     }
 
-                    contentItem: Column {
-                        spacing: 6
-
-                        Item {
+                    // A Button puts its content at the top; centre the icon and label as one block.
+                    contentItem: Item {
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
                             width: parent.width
-                            height: 20
+                            spacing: 6
 
-                            SvgIcon {
-                                anchors.centerIn: parent
-                                source: segment.modelData.icon
-                                size: 20
-                                color: segment.current ? Theme.background : Theme.textPrimary
+                            Item {
+                                width: parent.width
+                                height: 20
+
+                                SvgIcon {
+                                    anchors.centerIn: parent
+                                    source: segment.modelData.icon
+                                    size: 20
+                                    color: segment.current ? Theme.background : Theme.textPrimary
+                                }
                             }
-                        }
 
-                        UiText {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: segment.modelData.title
-                            font.pixelSize: 12
-                            font.bold: true
-                            color: segment.current ? Theme.background : Theme.textPrimary
-                            elide: Text.ElideRight
+                            UiText {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: segment.modelData.title
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: segment.current ? Theme.background : Theme.textPrimary
+                                elide: Text.ElideRight
+                            }
                         }
                     }
                 }

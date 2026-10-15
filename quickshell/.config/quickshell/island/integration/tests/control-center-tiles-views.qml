@@ -259,6 +259,10 @@ ShellRoot {
                                "Power profile panel renders its selector and sliding indicator");
                     root.check(root.named(power, "power-profile-balanced") && root.named(power, "power-profile-power-saver"),
                                "Power profile panel offers Power saver and Balanced");
+                    const segment = root.named(power, "power-profile-balanced");
+                    const block = segment.contentItem.children[0];
+                    root.check(Math.abs(block.y + block.height / 2 - segment.height / 2) < 1,
+                               "Power profile icon and label are centred vertically in their segment");
                     root.check(ProtonVpnService.panelUsers === 1 && ProtonVpnService.enabled,
                                "Proton VPN panel holds the service while open");
                     root.check(root.named(vpn, "protonvpn-status-card").height > 0 && root.named(vpn, "protonvpn-status-title").text.length > 0,
