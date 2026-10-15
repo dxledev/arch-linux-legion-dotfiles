@@ -33,6 +33,7 @@ SettingsPanel {
         iconSource: "../assets/icons/lock.svg"
         SettingToggle { text: "Media controls"; setting: "lockShowMedia" }
         SettingToggle { text: "Battery status"; setting: "lockShowBattery" }
+        SettingToggle { text: "Session buttons"; setting: "lockShowSession" }
         SettingSlider { label: "Animation duration"; setting: "lockAnimationDuration"; minimum: 0; maximum: 1000; suffix: " ms" }
     }
 }

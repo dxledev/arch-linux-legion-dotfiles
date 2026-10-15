@@ -39,6 +39,19 @@ ShellRoot {
             if (!ThemeService.ready || elapsed < 300) return;
             check(password.echoMode === TextInput.Password, "Password remains masked");
             check(named(view, "lock-indicator") !== null, "Header keeps the lock icon");
+            const session = named(view, "lock-session");
+            check(session !== null && named(view, "lock-session-shutdown") !== null && named(view, "lock-session-reboot") !== null
+                && named(view, "lock-session-nightlight") !== null, "Lock offers the session buttons");
+            check(named(view, "lock-session-lock") === null, "Locking again is not offered while locked");
+            let fired = 0;
+            session.press("shutdown", true, () => fired++);
+            check(fired === 0 && session.armed === "shutdown", "First Shutdown click only arms the button");
+            session.press("shutdown", true, () => fired++);
+            check(fired === 1 && session.armed === "", "Second Shutdown click acts and disarms");
+            session.press("reboot", true, () => fired++);
+            session.press("shutdown", true, () => fired++);
+            check(fired === 1 && session.armed === "shutdown", "Arming another button never fires the first");
+            session.armed = "";
             check(!named(view, "lock-background").hasSnapshot, "Unavailable desktop capture uses the fallback");
             check(named(settings, "setting-slider-lockClockSize") !== null, "Lock settings are available");
             auth.buffer = "discarded";

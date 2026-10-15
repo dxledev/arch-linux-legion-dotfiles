@@ -14,6 +14,7 @@ FocusScope {
     readonly property string userName: Quickshell.env("USER") || "User"
     readonly property real clockSize: Math.min(ThemeService.settings.lockClockSize ?? 112, width * 0.2)
     readonly property bool mediaEnabled: ThemeService.settings.lockShowMedia ?? true
+    readonly property bool sessionEnabled: ThemeService.settings.lockShowSession ?? true
     // Wide displays put the clock beside the record player; narrow ones stack them, and the player
     // gives way (as before) when the stack would not fit.
     readonly property real gap: 96
@@ -22,6 +23,8 @@ FocusScope {
     readonly property bool showMedia: mediaEnabled && (wide ? height >= media.height + 120
         : height >= identity.height + media.height + 40 + 160)
     readonly property bool sideBySide: wide && showMedia
+    // The buttons sit under the stage, so they need the room below it and must not meet the battery text.
+    readonly property bool showSession: sessionEnabled && width >= 560 && (height - stage.height) / 2 >= session.height + 36
     property bool entered: false
     property alias passwordField: password
 
@@ -120,6 +123,20 @@ FocusScope {
             animationDuration: root.animationDuration
             onInteracted: root.focusInput()
         }
+    }
+
+    LockSession {
+        id: session
+        objectName: "lock-session"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 28
+        visible: root.showSession
+        opacity: root.entered ? 1 : 0
+        fontFamily: root.fontFamily
+        animationDuration: root.animationDuration
+        onInteracted: root.focusInput()
+        Behavior on opacity { NumberAnimation { duration: root.animationDuration } }
     }
 
     Text {

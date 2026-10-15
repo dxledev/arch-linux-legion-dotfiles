@@ -11,11 +11,12 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 source "$test_dir/../theme-functions"
 
 check_settings() {
-    read_settings | /usr/bin/jq -e '.lockFontFamily == "Noto Sans" and .lockClockSize == 112 and .lockShowMedia and .lockShowBattery and .lockAnimationDuration == 180 and .lockBlurRadius == 64 and .lockDimOpacity == 40 and .lockPasswordStyle == "default"' >/dev/null
+    read_settings | /usr/bin/jq -e '.lockFontFamily == "Noto Sans" and .lockClockSize == 112 and .lockShowMedia and .lockShowBattery and .lockShowSession and .lockAnimationDuration == 180 and .lockBlurRadius == 64 and .lockDimOpacity == 40 and .lockPasswordStyle == "default"' >/dev/null
     save_setting lockClockSize 128
     save_setting lockFontFamily 'Noto Sans'
     save_setting lockShowMedia false
     save_setting lockShowBattery false
+    save_setting lockShowSession false
     save_setting lockAnimationDuration 0
     save_setting lockBlurRadius 96
     save_setting lockDimOpacity 50

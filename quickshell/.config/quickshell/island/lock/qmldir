@@ -5,3 +5,4 @@ LockPassword 1.0 LockPassword.qml
 LockMedia 1.0 LockMedia.qml
 LockBackground 1.0 LockBackground.qml
 LockDot 1.0 LockDot.qml
+LockSession 1.0 LockSession.qml
