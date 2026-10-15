@@ -69,6 +69,9 @@ QtObject {
     property bool ignoreNextIslandTap: false
     // Media opened from a click: stay open until the cursor has entered the panel once.
     property bool awaitingMediaHover: false
+    // Item of an open dropdown list, which can reach past the panel. The window's input mask includes
+    // it so clicking an option is not taken for a click outside the panel (which closes it).
+    property Item dropdownArea: null
 
     // Floating lyrics card. Independent of the island mode: only the card's close button clears it.
     property bool lyricsOpen: false

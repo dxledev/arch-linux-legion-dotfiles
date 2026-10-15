@@ -99,8 +99,14 @@ Item {
         id: confirmRow
         objectName: "confirm-osd"
         visible: StatusManager.mode === "confirm"
-        anchors.centerIn: parent
-        width: parent.width - 56
+        // The accept label sits one button padding inside its pill, so the row's right edge moves out by
+        // that much: the gap right of the label then equals the gap left of the question.
+        readonly property real sideMargin: 28
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.left: parent.left
+        anchors.leftMargin: sideMargin
+        anchors.right: parent.right
+        anchors.rightMargin: sideMargin - confirmAccept.padding
         spacing: 10
         ColumnLayout {
             Layout.fillWidth: true
@@ -133,6 +139,7 @@ Item {
             onClicked: StatusManager.resolveConfirm(false)
         }
         TextActionButton {
+            id: confirmAccept
             objectName: "confirm-accept"
             text: StatusManager.confirmAcceptLabel
             danger: true

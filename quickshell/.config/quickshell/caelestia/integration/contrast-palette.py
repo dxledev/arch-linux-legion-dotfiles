@@ -3,73 +3,13 @@ import argparse
 import json
 import math
 import os
-import re
 import sys
 
+from neovim_palette import build_palette
+from palette_colour import contrast_ratio, luminance, oklab_chroma, oklab_distance, parse_colour
 
-HEX_PATTERN = re.compile(r"^#?([0-9a-fA-F]{6})$")
 MUTED_MAX_CHROMA = 0.06
-MUTED_CONTRAST_TARGET = 3.0
 ANSI_BRIGHT_BLACK_CONTRAST = 1.5
-SYNTAX_ROLES = (
-    ("subtext", "subtext0"),
-    ("constant", "peach"),
-    ("string", "green"),
-    ("function", "blue"),
-    ("keyword", "mauve"),
-    ("preprocessor", "pink"),
-    ("type", "teal"),
-    ("special", "sky"),
-    ("delimiter", "subtext1"),
-)
-
-
-def parse_colour(value):
-    match = HEX_PATTERN.fullmatch(str(value))
-    if not match:
-        raise ValueError(f"invalid colour: {value}")
-    return match.group(1).lower()
-
-
-def rgb(colour):
-    value = parse_colour(colour)
-    return tuple(int(value[index : index + 2], 16) / 255 for index in (0, 2, 4))
-
-
-def linear_channel(value):
-    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
-
-
-def luminance(colour):
-    red, green, blue = (linear_channel(channel) for channel in rgb(colour))
-    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
-
-
-def contrast_ratio(first, second):
-    high, low = sorted((luminance(first), luminance(second)), reverse=True)
-    return (high + 0.05) / (low + 0.05)
-
-
-def lab(colour):
-    red, green, blue = (linear_channel(channel) for channel in rgb(colour))
-    lightness_root = 0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue
-    green_root = 0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue
-    blue_root = 0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue
-    lightness_root, green_root, blue_root = (value ** (1 / 3) for value in (lightness_root, green_root, blue_root))
-    return (
-        0.2104542553 * lightness_root + 0.7936177850 * green_root - 0.0040720468 * blue_root,
-        1.9779984951 * lightness_root - 2.4285922050 * green_root + 0.4505937099 * blue_root,
-        0.0259040371 * lightness_root + 0.7827717662 * green_root - 0.8086757660 * blue_root,
-    )
-
-
-def oklab_distance(first, second):
-    return math.dist(lab(first), lab(second))
-
-
-def oklab_chroma(colour):
-    _, a, b = lab(colour)
-    return math.hypot(a, b)
 
 
 def minimum_separation(colour, assigned):
@@ -155,35 +95,6 @@ def load_palette(path):
     return palette, candidates, [parse_colour(value) for value in terminal]
 
 
-def select_muted_colour(original, background, candidates, contrast_target):
-    original = parse_colour(original)
-    original_contrast = contrast_ratio(original, background)
-    original_chroma = oklab_chroma(original)
-    if original_contrast >= contrast_target and original_chroma <= MUTED_MAX_CHROMA:
-        return original, None
-
-    measures = [
-        (candidate, contrast_ratio(candidate, background), oklab_chroma(candidate))
-        for candidate in candidates
-    ]
-    muted = [item for item in measures if item[1] >= contrast_target and item[2] <= MUTED_MAX_CHROMA]
-    if muted:
-        selected = min(muted, key=lambda item: (item[1], item[2], item[0]))
-        return selected[0], None
-
-    readable = [item for item in measures if item[1] >= contrast_target]
-    if readable:
-        selected = min(readable, key=lambda item: (item[2], item[1], item[0]))
-    else:
-        selected = min(measures, key=lambda item: (item[2], -item[1], item[0]))
-    warning = (
-        "Neovim muted: no source colour meets both "
-        f"{contrast_target:.2f}:1 contrast and OKLab chroma <= {MUTED_MAX_CHROMA:.3f}; "
-        f"selected #{selected[0]} at {selected[1]:.2f}:1"
-    )
-    return selected[0], warning
-
-
 def select_ansi_blacks(candidates, background, dark_mode):
     distinct = sorted(set(candidates), key=lambda colour: (luminance(colour), colour))
     if len(distinct) < 2:
@@ -208,7 +119,7 @@ def finite_target(name, value, minimum):
     return target
 
 
-def render_plan(palette, candidates, terminal, text_target, colour_target, distance_target):
+def render_plan(palette, candidates, terminal, text_target, colour_target, distance_target, nvim_options=None):
     colours = palette.get("colours", palette)
     background = parse_colour(colours["base"])
     changes = []
@@ -270,50 +181,8 @@ def render_plan(palette, candidates, terminal, text_target, colour_target, dista
         )
         selected_terminal[index] = colour
 
-    selected_neovim = {}
-    assigned = [*selected_terminal, text]
-    for role, source_key in SYNTAX_ROLES:
-        selected_neovim[source_key] = apply_role(
-            f"Neovim {role}",
-            source_key,
-            colours,
-            background,
-            candidates,
-            assigned,
-            colour_target,
-            distance_target,
-            changes,
-            unmet,
-            contrast_priority=True,
-        )
-
-    for role, source_key in (("error", "red"), ("warning", "yellow"), ("accent", "primary")):
-        selected_neovim[source_key] = apply_role(
-            f"Neovim {role}",
-            source_key,
-            colours,
-            background,
-            candidates,
-            assigned,
-            colour_target,
-            distance_target,
-            changes,
-            unmet,
-            contrast_priority=True,
-        )
-
-    muted_colour, muted_warning = select_muted_colour(
-        colours["subtext0"], background, candidates, MUTED_CONTRAST_TARGET
-    )
-    selected_neovim["muted"] = muted_colour
-    if muted_colour != parse_colour(colours["subtext0"]):
-        changes.append(
-            f"Neovim muted: #{parse_colour(colours['subtext0'])} -> #{muted_colour} "
-            f"(contrast {contrast_ratio(muted_colour, background):.2f}:1, "
-            f"chroma {oklab_chroma(muted_colour):.3f})"
-        )
-    if muted_warning:
-        unmet.append(muted_warning)
+    selected_neovim = build_palette(selected_terminal, background, palette.get("mode", "dark"),
+                                    palette.get("variant", "default"), **(nvim_options or {}))
 
     lines = ["Dynamic contrast report"]
     if changes:
@@ -326,6 +195,7 @@ def render_plan(palette, candidates, terminal, text_target, colour_target, dista
         lines.extend(f"- {line}" for line in unmet)
     else:
         lines.append("Unmet targets: none")
+    lines.extend(selected_neovim["report"])
 
     return {"text": text, "terminal": selected_terminal, "neovim": selected_neovim, "report": lines}
 
@@ -335,6 +205,13 @@ def main():
     parser.add_argument("--text-contrast", default=os.environ.get("THEME_RENDER_TEXT_CONTRAST", "4.5"))
     parser.add_argument("--color-contrast", default=os.environ.get("THEME_RENDER_COLOR_CONTRAST", "3"))
     parser.add_argument("--role-distance", default=os.environ.get("THEME_RENDER_ROLE_DISTANCE", "0.06"))
+    parser.add_argument("--nvim-text-contrast", default=os.environ.get("THEME_RENDER_NVIM_TEXT_CONTRAST", "4.5"))
+    parser.add_argument("--nvim-comment-contrast", default=os.environ.get("THEME_RENDER_NVIM_COMMENT_CONTRAST", "1.5"))
+    parser.add_argument("--nvim-punctuation-contrast", default=os.environ.get("THEME_RENDER_NVIM_PUNCTUATION_CONTRAST", "3"))
+    parser.add_argument("--nvim-comment-shade", default=os.environ.get("THEME_RENDER_NVIM_COMMENT_SHADE", "0.075"))
+    parser.add_argument("--nvim-neutral-chroma", default=os.environ.get("THEME_RENDER_NVIM_NEUTRAL_CHROMA", "0.035"))
+    parser.add_argument("--nvim-punctuation-darken", default=os.environ.get("THEME_RENDER_NVIM_PUNCTUATION_DARKEN", "0.10"))
+    parser.add_argument("--nvim-comment-darken", default=os.environ.get("THEME_RENDER_NVIM_COMMENT_DARKEN", "0.225"))
     parser.add_argument("palette")
     args = parser.parse_args()
 
@@ -342,8 +219,17 @@ def main():
         text_target = finite_target("text contrast", args.text_contrast, 1)
         colour_target = finite_target("color contrast", args.color_contrast, 1)
         distance_target = finite_target("role distance", args.role_distance, 0)
+        nvim_options = {
+            "text_target": finite_target("Neovim text contrast", args.nvim_text_contrast, 1),
+            "comment_target": finite_target("Neovim comment contrast", args.nvim_comment_contrast, 1),
+            "punctuation_target": finite_target("Neovim punctuation contrast", args.nvim_punctuation_contrast, 1),
+            "comment_shade": finite_target("Neovim comment shade", args.nvim_comment_shade, 0),
+            "neutral_chroma": finite_target("Neovim neutral chroma", args.nvim_neutral_chroma, 0),
+            "punctuation_darken": finite_target("Neovim punctuation darkening", args.nvim_punctuation_darken, 0),
+            "comment_darken": finite_target("Neovim comment darkening", args.nvim_comment_darken, 0),
+        }
         palette, candidates, terminal = load_palette(args.palette)
-        print(json.dumps(render_plan(palette, candidates, terminal, text_target, colour_target, distance_target)))
+        print(json.dumps(render_plan(palette, candidates, terminal, text_target, colour_target, distance_target, nvim_options)))
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         print(f"contrast-palette: {error}", file=sys.stderr)
         return 1

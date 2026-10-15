@@ -61,6 +61,14 @@ ShellRoot {
                 root.ask();
                 waitOpen();
                 compare(StatusManager.mode, "confirm");
+                {
+                    // The Delete label's right gap equals the question's left gap.
+                    const accept = root.named(island.statusArea, "confirm-accept");
+                    const question = root.named(island.statusArea, "confirm-title");
+                    const labelRight = accept.mapToItem(island.statusArea, accept.width - accept.padding, 0).x;
+                    const questionLeft = question.mapToItem(island.statusArea, 0, 0).x;
+                    compare(island.statusArea.width - labelRight, questionLeft, "confirmation padding is even");
+                }
                 clickButton("confirm-cancel");
                 verify(!StatusManager.confirming, "cancel resolves");
                 verify(!root.accepted, "cancel does not accept");

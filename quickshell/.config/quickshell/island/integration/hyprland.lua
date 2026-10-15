@@ -89,6 +89,6 @@ for _, item in ipairs(volume) do
 end
 hl.unbind("XF86AudioMute")
 hl.bind("XF86AudioMute", hl.dsp.exec_cmd(home .. "/bin/knob-press -- " .. ipc .. "openAudioDevices"), { description = "Island Audio", locked = true })
-hl.bind("XF86AudioMute", hl.dsp.exec_cmd(home .. "/bin/knob-release --quickshell"), { description = "Mute", locked = true, release = true })
+hl.bind("XF86AudioMute", hl.dsp.exec_cmd(home .. "/bin/knob-release --island"), { description = "Mute", locked = true, release = true })
 bind("XF86MonBrightnessUp", "Brightness Up", root .. "/scripts/brightness.sh +5%", { locked = true, repeating = true })
 bind("XF86MonBrightnessDown", "Brightness Down", root .. "/scripts/brightness.sh 5%-", { locked = true, repeating = true })

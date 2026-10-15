@@ -65,6 +65,8 @@ PanelWindow {
         id: capsuleMask
         Region { item: capsule.panelArea }
         Region { item: capsule.statusArea }
+        // The dropdown belongs to one window: other monitors must not block clicks at its position.
+        Region { item: root.panelActive && root.monitorActive ? IslandState.dropdownArea : null; radius: 18 }
     }
 
     mask: capsuleMask

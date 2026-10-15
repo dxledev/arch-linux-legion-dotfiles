@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "../island"
 import "../services"
 import "../styles"
 
@@ -61,6 +62,8 @@ Column {
             width: choice.width
             implicitHeight: Math.min(contentItem.implicitHeight + 12, 220)
             padding: 6
+            onOpened: IslandState.dropdownArea = background
+            onClosed: if (IslandState.dropdownArea === background) IslandState.dropdownArea = null
             background: Rectangle { radius: 18; color: Theme.surface; border.color: Theme.surfaceVariant }
             contentItem: ListView {
                 id: options

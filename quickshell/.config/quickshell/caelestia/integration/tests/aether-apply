@@ -40,7 +40,15 @@ fake_renderer="$test_root/theme-renderer"
 cat > "$fake_renderer" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == --dry-run || "${1:-}" == --force ]]; then palette="$2"; wallpaper="$3"; else palette="$1"; wallpaper="$2"; fi
+renderer_args=("$@")
+while (( $# )); do
+    case "$1" in
+        --provider) shift 2 ;;
+        --dry-run|--force) shift ;;
+        *) break ;;
+    esac
+done
+palette="$1" wallpaper="$2"
 /usr/bin/jq -e '
     . as $palette |
     $palette.provider == "aether" and
@@ -54,7 +62,7 @@ if [[ "${1:-}" == --dry-run || "${1:-}" == --force ]]; then palette="$2"; wallpa
 exec /usr/bin/env \
     THEMES_DIR="$AETHER_TEST_THEMES_DIR" THEME_TEMPLATE_DIR="$AETHER_TEST_TEMPLATE_DIR" \
     SPICETIFY_TEMPLATE_DIR="$AETHER_TEST_SPICETIFY_TEMPLATE_DIR" \
-    "$AETHER_TEST_REAL_RENDERER" "$@"
+    "$AETHER_TEST_REAL_RENDERER" "${renderer_args[@]}"
 EOF
 /usr/bin/chmod +x "$fake_renderer"
 
