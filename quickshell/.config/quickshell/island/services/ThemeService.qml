@@ -27,6 +27,8 @@ Singleton {
         && generatedPalettes.some(entry => entry.active)
     readonly property string activeGeneratedStyle: generatedPalettes.find(entry => entry.active)?.style ?? ""
     property var pending: []
+    // The controller action running now; saving a setting is quick and must not look like a theme change.
+    property string currentAction: ""
 
     function execute(args) {
         pending = [...pending, args];
@@ -40,6 +42,7 @@ Singleton {
         pending = pending.slice(1);
         busy = true;
         error = "";
+        currentAction = args[0] ?? "";
         worker.command = [controller, ...args];
         worker.running = true;
     }

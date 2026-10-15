@@ -73,6 +73,95 @@ ShellRoot {
                 const first = WallpaperService.allWallpapers.get(0).path;
                 const original = first.split("/").pop();
 
+                // The badge's star favourites a card without applying it; the header star moves favourites first.
+                const cellAt = n => cells().find(cell => cell.index === n);
+                const starAt = n => root.allNamed(cellAt(n), "wallpaper-favorite-button", [])[0];
+                const clickItem = item => {
+                    const spot = item.mapToItem(null, item.width / 2, item.height / 2);
+                    mouseClick(test, spot.x, spot.y);
+                };
+                const settle = () => tryVerify(() => !ThemeService.busy && ThemeService.pending.length === 0 && WallpaperService.pendingFavorites === null, 8000, "writes finish");
+                const order = () => cells().sort((x, y) => x.index - y.index).map(cell => cell.path);
+                const expectOrder = (expected, message) => {
+                    for (let waited = 0; waited < 4000 && order().join("\n") !== expected.join("\n"); waited += 50) wait(50);
+                    if (order().join("\n") !== expected.join("\n"))
+                        console.log("ORDER MISMATCH " + message + " got=" + JSON.stringify(order().map(p => p.split("/").pop())) + " want=" + JSON.stringify(expected.map(p => p.split("/").pop())));
+                    verify(order().join("\n") === expected.join("\n"), message);
+                };
+                const natural = order();
+                verify(natural.length >= 4, "enough cards for the sort check");
+                verify(starAt(0), "each card has a favorite button");
+                clickItem(starAt(2));
+                tryVerify(() => WallpaperService.isFavorite(natural[2]), 6000, "star saves the favorite");
+                settle();
+                compare(ThemeService.wallpaper, applied);
+                tryVerify(() => (ThemeService.settings.wallpaperFavorites || []).includes(natural[2]), 6000, "favorite is saved");
+                expectOrder(natural, "list order");
+
+                const favoritesToggle = root.named(island, "panel-favorites-toggle");
+                verify(favoritesToggle && favoritesToggle.visible, "header shows the favorites star");
+                // Favorites-only lists just the starred cards; unstarring the last one empties the list.
+                clickItem(favoritesToggle);
+                expectOrder([natural[2]], "favorites only");
+                settle();
+                clickItem(starAt(0));
+                tryVerify(() => !WallpaperService.isFavorite(natural[2]), 6000, "unstar inside the filter");
+                expectOrder([], "empty favorites list");
+                settle();
+                clickItem(favoritesToggle);
+                expectOrder(natural, "all wallpapers return");
+                settle();
+
+                // The favorites limit refuses another star once reached and says why; removing still works.
+                ThemeService.setSetting("wallpaperFavoritesLimit", 5);
+                tryVerify(() => WallpaperService.favoritesLimit === 5, 6000, "limit saved");
+                settle();
+                const filler = Array.from({length: 5}, (_, n) => "/tmp/not-a-real-wallpaper-" + n + ".png");
+                ThemeService.setSetting("wallpaperFavorites", JSON.stringify(filler));
+                tryVerify(() => WallpaperService.favorites.length === 5, 6000, "filler favorites saved");
+                settle();
+                clickItem(starAt(1));
+                tryVerify(() => WallpaperService.favoritesNotice.length > 0, 2000, "limit notice appears");
+                verify(!WallpaperService.isFavorite(natural[1]), "refused star is not saved");
+                compare(WallpaperService.favorites.length, 5);
+                // The notice also lengthens the status line; later steps measure the plain panel.
+                WallpaperService.favoritesNotice = "";
+                WallpaperService.toggleFavorite(filler[0]);
+                tryVerify(() => WallpaperService.favorites.length === 4, 6000, "removing works at the limit");
+                settle();
+                ThemeService.setSetting("wallpaperFavorites", "[]");
+                ThemeService.setSetting("wallpaperFavoritesLimit", 10);
+                settle();
+                tryVerify(() => WallpaperService.favorites.length === 0 && WallpaperService.favoritesLimit === 10, 6000, "limit test cleaned up");
+
+                // The sort menu orders by name or by modification time (the shell test sets distinct times).
+                const named = n => natural.find(path => path.endsWith("/" + n));
+                const addedAsc = ["d3.png", "d5.png", "d4.png", "d1.png", "My Pic.png", "Linked.png"].map(named);
+                const sortToggle = root.named(island, "panel-sort-toggle");
+                verify(sortToggle && sortToggle.visible, "header shows the sort button");
+                const pickSort = mode => {
+                    clickItem(sortToggle);
+                    tryVerify(() => root.named(island, "wallpaper-sort-menu").visible, 2000, "sort menu opens");
+                    clickItem(root.named(island, "wallpaper-sort-" + mode));
+                    tryVerify(() => !root.named(island, "wallpaper-sort-menu").visible, 2000, "sort menu closes");
+                    settle();
+                };
+                pickSort("name-desc");
+                expectOrder(natural.slice().reverse(), "name descending");
+                pickSort("added-asc");
+                expectOrder(addedAsc, "oldest first");
+                pickSort("added-desc");
+                expectOrder(addedAsc.slice().reverse(), "newest first");
+                tryVerify(() => ThemeService.settings.wallpaperSort === "added-desc", 6000, "sort is saved");
+                // Clicking elsewhere closes the menu without changing the order.
+                clickItem(sortToggle);
+                tryVerify(() => root.named(island, "wallpaper-sort-menu").visible, 2000, "menu opens again");
+                keyClick(Qt.Key_Escape);
+                tryVerify(() => !root.named(island, "wallpaper-sort-menu").visible, 2000, "Escape closes the menu");
+                compare(IslandState.mode, mode);
+                pickSort("name-asc");
+                expectOrder(natural, "name ascending");
+
                 // Right-click opens the editor on the stem, selected; the extension is shown beside it.
                 rightClick(cells()[0]);
                 let field = root.shownField(island);
@@ -180,6 +269,37 @@ ShellRoot {
                 // The applied wallpaper is the renamed file only when that is the one that was renamed.
                 const expected = applied === first ? first.slice(0, first.lastIndexOf("/") + 1) + renamed : applied;
                 tryVerify(() => ThemeService.wallpaper === expected, 8000, "applied wallpaper follows: " + ThemeService.wallpaper + " vs " + expected);
+                // Lowering the limit under the current favorites is refused with a drawer notice; once enough
+                // are removed the same change goes through.
+                const six = Array.from({length: 6}, (_, n) => "/tmp/not-a-real-wallpaper-" + n + ".png");
+                ThemeService.setSetting("wallpaperFavorites", JSON.stringify(six));
+                tryVerify(() => WallpaperService.favorites.length === 6, 6000, "six favorites saved");
+                settle();
+                IslandState.settingsSection = "wallpaperAnimation";
+                IslandController.setMode(IslandState.settingsSectionMode, "HDMI-A-1");
+                tryVerify(() => !!root.named(island, "setting-slider-wallpaperFavoritesLimit"), 5000, "limit slider shown");
+                const limitSlider = root.named(island, "setting-slider-wallpaperFavoritesLimit");
+                const limitSetting = limitSlider.parent;
+                compare(limitSlider.value, 10);
+                limitSlider.value = 5;
+                limitSetting.dirty = true;
+                limitSetting.saveValue();
+                tryVerify(() => StatusManager.visible && StatusManager.mode === "notice", 2000, "notice slides down");
+                compare(StatusManager.title, "Remove 1 favorite to lower the limit to 5");
+                tryCompare(limitSlider, "value", 10, 2000);
+                wait(300);
+                compare(ThemeService.settings.wallpaperFavoritesLimit, 10);
+                ThemeService.setSetting("wallpaperFavorites", JSON.stringify(six.slice(0, 5)));
+                tryVerify(() => WallpaperService.favorites.length === 5, 6000, "one favorite removed");
+                settle();
+                limitSlider.value = 5;
+                limitSetting.dirty = true;
+                limitSetting.saveValue();
+                tryVerify(() => ThemeService.settings.wallpaperFavoritesLimit === 5, 6000, "limit now applies");
+                settle();
+                ThemeService.setSetting("wallpaperFavoritesLimit", 10);
+                ThemeService.setSetting("wallpaperFavorites", "[]");
+                settle();
                 console.log("PASS: wallpaper rename editor");
             }
             function cleanupTestCase() { quitTimer.start(); }

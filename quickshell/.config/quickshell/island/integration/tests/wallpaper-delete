@@ -48,10 +48,12 @@ applied() { "$controller" ui | /usr/bin/jq -r .wallpaper; }
 "$controller" --dry-run delete-wallpapers "$static_dir/s2.png" >/dev/null
 [[ -f "$static_dir/s2.png" ]]
 
-# Deleting an unapplied wallpaper leaves the applied one alone.
+# Deleting an unapplied wallpaper leaves the applied one alone, and drops it from the favorites.
 "$controller" wallpaper "$static_dir/s1.png"
+"$controller" setting wallpaperFavorites "[\"$static_dir/s2.png\",\"$static_dir/s3.png\"]" >/dev/null
 "$controller" delete-wallpapers "$static_dir/s2.png"
 [[ ! -e "$static_dir/s2.png" && "$(applied)" == "$static_dir/s1.png" ]]
+"$controller" ui | /usr/bin/jq -e --arg keep "$static_dir/s3.png" '.settings.wallpaperFavorites == [$keep]' >/dev/null
 
 # Paths outside the active directory are ignored, and with nothing valid the command fails.
 outside="$test_root/outside.png"

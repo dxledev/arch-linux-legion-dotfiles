@@ -13,6 +13,10 @@ Rectangle {
     property bool active: false
     // Marked for deletion: tinted with the danger colour and badged with a check.
     property bool marked: false
+    // Favourite badge, drawn top-left (the deletion mark owns top-right): filled when favourited,
+    // an outline while the pointer is over the card or it is selected, hidden otherwise.
+    property bool favorite: false
+    property bool favoriteHint: false
 
     width: 160
     height: 100
@@ -110,6 +114,24 @@ Rectangle {
             anchors.centerIn: parent
             source: "../assets/icons/check.svg"
             color: Theme.background
+            size: 14
+        }
+    }
+
+    Rectangle {
+        objectName: "wallpaper-favorite"
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: 8
+        width: 24
+        height: 24
+        radius: 12
+        visible: root.favorite || root.favoriteHint
+        color: Qt.rgba(0, 0, 0, 0.55)
+        SvgIcon {
+            anchors.centerIn: parent
+            source: root.favorite ? "../assets/icons/star-filled.svg" : "../assets/icons/star.svg"
+            color: root.favorite ? Theme.warning : "white"
             size: 14
         }
     }

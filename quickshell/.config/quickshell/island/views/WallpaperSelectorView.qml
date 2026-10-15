@@ -59,6 +59,7 @@ FocusScope {
     Component.onDestruction: exitDeleteMode()
     onVisibleChanged: {
         cancelRename();
+        sortMenuOpen = false;
         if (visible) {
             searchField.forceActiveFocus();
             selectActiveWallpaper();
@@ -75,8 +76,11 @@ FocusScope {
     FilteredListModel {
         id: filteredWallpapers
         sourceModel: WallpaperService.currentModel
+        // Both functions read service state without tracking it; the Connections below rebuild on favorites changes.
+        filter: WallpaperService.favoritesOnly ? (row => WallpaperService.favoriteSet[row.path] === true) : null
+        comparator: root.comparatorFor(WallpaperService.sortMode)
         searchText: searchField.text
-        roles: ["path", "thumbnail"]
+        roles: ["path", "thumbnail", "added"]
         searchRoles: ["path"]
         searchFileNames: true
         onRebuilt: function(resetSelection) {
@@ -181,6 +185,51 @@ FocusScope {
             activate(filteredWallpapers.model.get(index).path);
     }
 
+    // Names compare case-insensitively with digit runs as numbers, so "wall 2" precedes "wall 10".
+    function naturalCompare(a, b) {
+        const left = a.toLowerCase().split(/(\d+)/);
+        const right = b.toLowerCase().split(/(\d+)/);
+        for (let i = 0; i < Math.min(left.length, right.length); i++) {
+            if (left[i] === right[i]) continue;
+            if (i % 2 === 1) {
+                const difference = Number(left[i]) - Number(right[i]);
+                if (difference !== 0) return difference;
+            }
+            return left[i] < right[i] ? -1 : 1;
+        }
+        return left.length - right.length;
+    }
+    function comparatorFor(mode) {
+        const sign = mode.endsWith("desc") ? -1 : 1;
+        const byName = (a, b) => naturalCompare(a.path.split("/").pop(), b.path.split("/").pop()) || naturalCompare(a.path, b.path);
+        if (mode.startsWith("added")) return (a, b) => sign * ((a.added || 0) - (b.added || 0)) || byName(a, b);
+        return (a, b) => sign * byName(a, b);
+    }
+
+    // The selected card keeps its place when the list is re-ordered or filtered.
+    function followSelection() {
+        const index = selectedIndex;
+        if (index < 0 || index >= filteredWallpapers.model.count) return;
+        followPath = filteredWallpapers.model.get(index).path;
+        followTimer.restart();
+    }
+
+    function toggleFavorite(path) {
+        WallpaperService.toggleFavorite(path);
+    }
+
+    function toggleFavoritesOnly() {
+        followSelection();
+        WallpaperService.toggleFavoritesOnly();
+    }
+
+    property bool sortMenuOpen: false
+    function chooseSort(mode) {
+        sortMenuOpen = false;
+        followSelection();
+        WallpaperService.setSort(mode);
+    }
+
     function toggleMark(path) {
         const next = Object.assign({}, marked);
         if (next[path]) delete next[path];
@@ -282,6 +331,12 @@ FocusScope {
         });
     }
 
+    // The ordering function reads the favorites without tracking them, so changes re-sort explicitly.
+    Connections {
+        target: WallpaperService
+        function onFavoriteSetChanged() { if (WallpaperService.favoritesOnly) filteredWallpapers.rebuild(false); }
+    }
+
     Connections {
         target: WallpaperService.allWallpapers
         function onCountChanged() { if (root.markedCount > 0) root.pruneMarks(); }
@@ -313,7 +368,11 @@ FocusScope {
                 selected: index === root.selectedIndex
                 active: path === ThemeService.wallpaper
                 marked: root.marked[path] === true
+                favorite: WallpaperService.favoriteSet[path] === true
+                favoriteHint: !root.deleteMode && !parent.renaming
+                    && (cellHover.hovered || index === root.selectedIndex)
             }
+            HoverHandler { id: cellHover }
             UiText {
                 visible: !parent.renaming
                 anchors.top: thumbnail.bottom
@@ -339,6 +398,22 @@ FocusScope {
                     root.focusGallery();
                     root.selectedIndex = index;
                     root.activate(path);
+                }
+            }
+            // Declared after the cell's click area so it takes clicks on the badge before apply does.
+            MouseArea {
+                objectName: "wallpaper-favorite-button"
+                anchors.top: thumbnail.top
+                anchors.left: thumbnail.left
+                width: 40
+                height: 40
+                enabled: !root.deleteMode && !parent.renaming && !ThemeService.busy
+                cursorShape: Qt.PointingHandCursor
+                Accessible.role: Accessible.Button
+                Accessible.name: WallpaperService.favoriteSet[path] === true ? "Remove from favorites" : "Add to favorites"
+                onClicked: {
+                    root.focusGallery();
+                    root.toggleFavorite(path);
                 }
             }
             RenameField {
@@ -372,8 +447,19 @@ FocusScope {
         }
     }
 
+    // Clicking anywhere but the sort button or its menu closes the menu (the button toggles it itself).
+    TapHandler {
+        enabled: root.sortMenuOpen
+        onTapped: eventPoint => {
+            if (root.insideItem(sortMenu, eventPoint.scenePosition)) return;
+            if (root.insideItem(header.sortButton, eventPoint.scenePosition)) return;
+            root.sortMenuOpen = false;
+        }
+    }
+
     Keys.onEscapePressed: {
-        if (StatusManager.confirming) StatusManager.resolveConfirm(false);
+        if (sortMenuOpen) sortMenuOpen = false;
+        else if (StatusManager.confirming) StatusManager.resolveConfirm(false);
         else if (deleteMode) exitDeleteMode();
         else IslandController.reset();
     }
@@ -419,6 +505,15 @@ FocusScope {
             titleClickable: !root.deleteMode
             titleDescription: "Browse Wallpapers"
             onTitleClicked: IslandController.openWallhaven()
+            favoritesVisible: true
+            favoritesActive: WallpaperService.favoritesOnly
+            favoritesDescription: WallpaperService.favoritesOnly ? "Showing favorites only" : "Show favorites only"
+            onFavoritesToggled: root.toggleFavoritesOnly()
+            sortVisible: true
+            sortActive: WallpaperService.sortMode !== "name-asc" || root.sortMenuOpen
+            sortIcon: WallpaperService.sortMode.endsWith("desc") ? "../assets/icons/sort-desc.svg" : "../assets/icons/sort-asc.svg"
+            sortDescription: "Sort: " + WallpaperService.sortLabels[WallpaperService.sortMode]
+            onSortToggled: root.sortMenuOpen = !root.sortMenuOpen
             deleteVisible: true
             deleteActive: root.deleteMode
             deleteConfirmVisible: root.deleteMode && root.markedCount > 0
@@ -477,7 +572,8 @@ FocusScope {
                 anchors.centerIn: parent
                 width: parent.width
                 visible: filteredWallpapers.model.count === 0
-                text: ThemeService.error || (searchField.text.trim() ? "No wallpapers match your search." : "No wallpapers found for this theme.")
+                text: ThemeService.error || (searchField.text.trim() ? "No wallpapers match your search."
+                    : WallpaperService.favoritesOnly ? "No favorite wallpapers yet. Tap a star to add one." : "No wallpapers found for this theme.")
                 color: ThemeService.error ? Theme.danger : Theme.textSecondary
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
@@ -527,11 +623,73 @@ FocusScope {
             id: status
             width: parent.width
             text: ThemeService.error && filteredWallpapers.model.count > 0 ? ThemeService.error
-                : ThemeService.busy && ThemeService.state.source === "dynamic" ? "Applying…" : ""
+                : WallpaperService.favoritesNotice ? WallpaperService.favoritesNotice
+                : ThemeService.busy && ThemeService.currentAction !== "setting" && ThemeService.state.source === "dynamic" ? "Applying…" : ""
             visible: text.length > 0
-            color: ThemeService.error ? Theme.danger : Theme.textSecondary
+            color: ThemeService.error ? Theme.danger : WallpaperService.favoritesNotice ? Theme.warning : Theme.textSecondary
             wrapMode: Text.Wrap
             font.pixelSize: 13
+        }
+    }
+
+    // Sort menu: drops from the header's sort button over the search field and gallery.
+    Rectangle {
+        id: sortMenu
+        objectName: "wallpaper-sort-menu"
+        z: 10
+        visible: root.sortMenuOpen
+        anchors.right: parent.right
+        anchors.rightMargin: 24 + 36 + 8
+        y: 24 + header.height + 2
+        width: 200
+        height: sortColumn.implicitHeight + 12
+        radius: 14
+        color: Theme.surface
+        border.width: 1
+        border.color: Theme.border
+        Column {
+            id: sortColumn
+            anchors.fill: parent
+            anchors.margins: 6
+            spacing: 2
+            Repeater {
+                model: WallpaperService.sortModes
+                delegate: Rectangle {
+                    required property string modelData
+                    objectName: "wallpaper-sort-" + modelData
+                    width: sortColumn.width
+                    height: 32
+                    radius: 10
+                    color: sortMouse.containsMouse ? Theme.surfaceVariant : "transparent"
+                    UiText {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 10
+                        anchors.right: check.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: WallpaperService.sortLabels[parent.modelData]
+                        color: parent.modelData === WallpaperService.sortMode ? Theme.accent : Theme.textPrimary
+                        font.pixelSize: 13
+                        elide: Text.ElideRight
+                    }
+                    SvgIcon {
+                        id: check
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: parent.modelData === WallpaperService.sortMode
+                        source: "../assets/icons/check.svg"
+                        color: Theme.accent
+                        size: 14
+                    }
+                    MouseArea {
+                        id: sortMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.chooseSort(parent.modelData)
+                    }
+                }
+            }
         }
     }
 }

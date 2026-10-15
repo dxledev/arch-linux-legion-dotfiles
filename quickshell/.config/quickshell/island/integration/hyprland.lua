@@ -54,6 +54,8 @@ local panels = {
     { "SUPER + ALT + V", "Island Audio", "openAudioDevices" },
     { "SUPER + ALT + A", "Island Controls", "openControlCenter" },
     { "SUPER + SHIFT + N", "Island Notifications", "openNotifications" },
+    { "SUPER + ALT + N", "Island Notifications", "openNotifications" },
+    { "SUPER + SHIFT + ALT + SPACE", "Browse Wallpapers (Wallhaven)", "openWallhaven" },
     { "SUPER + SHIFT + P", "Island Displays", "openDisplays" },
     { "SUPER + ALT + C", "Island Clipboard", "openClipboard" },
     { "SUPER + SHIFT + C", "Island Chromack", "openChromack" },

@@ -15,6 +15,88 @@ Singleton {
     property string snapshotDirectory: ""
     property bool snapshotPending: false
 
+    // Favorites live in Island's settings; the pending copy keeps quick consecutive toggles from
+    // overwriting each other while the setting round-trips through the state file.
+    property var pendingFavorites: null
+    readonly property var favorites: pendingFavorites ?? sanitizeFavorites(ThemeService.settings.wallpaperFavorites)
+    readonly property var favoriteSet: {
+        const set = {};
+        for (const path of favorites) set[path] = true;
+        return set;
+    }
+    // Favorites-only filter and the sort order are saved settings too; the pending copies keep the
+    // header buttons responsive while the setting round-trips.
+    property var pendingFavoritesOnly: null
+    readonly property bool favoritesOnly: pendingFavoritesOnly ?? (ThemeService.settings.wallpaperFavoritesOnly === true)
+    readonly property var sortModes: ["name-asc", "name-desc", "added-desc", "added-asc"]
+    readonly property var sortLabels: ({
+        "name-asc": "Name (A–Z)", "name-desc": "Name (Z–A)",
+        "added-desc": "Recently added", "added-asc": "Oldest first"
+    })
+    property var pendingSort: null
+    readonly property string sortMode: {
+        const value = pendingSort ?? ThemeService.settings.wallpaperSort;
+        return sortModes.includes(value) ? value : "name-asc";
+    }
+
+    function sanitizeFavorites(value) {
+        return Array.isArray(value) ? value.filter(path => typeof path === "string" && path.startsWith("/")) : [];
+    }
+    function isFavorite(path) { return favoriteSet[path] === true; }
+    readonly property int favoritesLimit: {
+        const value = Math.round(Number(ThemeService.settings.wallpaperFavoritesLimit));
+        return isFinite(value) ? Math.max(5, Math.min(value, 20)) : 10;
+    }
+    // Shown briefly by the selector when a star is refused because the limit is reached.
+    property string favoritesNotice: ""
+
+    function toggleFavorite(path) {
+        if (!ThemeService.ready) return;
+        const next = favorites.filter(entry => entry !== path);
+        if (next.length === favorites.length) {
+            // Removing is always allowed, even when a lowered limit leaves more favorites than it permits.
+            if (favorites.length >= favoritesLimit) {
+                favoritesNotice = "Favorites are limited to " + favoritesLimit + ". Remove one, or raise the limit in Settings → Wallpaper.";
+                noticeTimer.restart();
+                return;
+            }
+            next.push(path);
+        }
+        pendingFavorites = next;
+        ThemeService.setSetting("wallpaperFavorites", JSON.stringify(next));
+    }
+    function toggleFavoritesOnly() {
+        pendingFavoritesOnly = !favoritesOnly;
+        ThemeService.setSetting("wallpaperFavoritesOnly", pendingFavoritesOnly);
+    }
+    function setSort(mode) {
+        if (!sortModes.includes(mode) || mode === sortMode) return;
+        pendingSort = mode;
+        ThemeService.setSetting("wallpaperSort", mode);
+    }
+
+    Timer {
+        id: noticeTimer
+        interval: 3500
+        onTriggered: root.favoritesNotice = ""
+    }
+
+    Connections {
+        target: ThemeService
+        function onSettingsChanged() {
+            const saved = root.sanitizeFavorites(ThemeService.settings.wallpaperFavorites);
+            if (!ThemeService.busy && ThemeService.pending.length === 0) {
+                if (JSON.stringify(saved) === JSON.stringify(root.pendingFavorites)) root.pendingFavorites = null;
+                if ((ThemeService.settings.wallpaperFavoritesOnly === true) === root.pendingFavoritesOnly)
+                    root.pendingFavoritesOnly = null;
+                if (ThemeService.settings.wallpaperSort === root.pendingSort) root.pendingSort = null;
+            }
+        }
+        function onErrorChanged() {
+            if (ThemeService.error) { root.pendingFavorites = null; root.pendingFavoritesOnly = null; root.pendingSort = null; }
+        }
+    }
+
     function setFilter(theme) { reload(); }
     function apply(path) { ThemeService.execute(["wallpaper", path]); }
     function rename(path, stem) { ThemeService.execute(["rename-wallpaper", path, stem]); }
@@ -44,8 +126,12 @@ Singleton {
             const row = rows[index];
             if (index >= allWallpapers.count) allWallpapers.append(row);
             else if (allWallpapers.get(index).path !== row.path) allWallpapers.set(index, row);
-            else if (allWallpapers.get(index).thumbnail !== row.thumbnail)
-                allWallpapers.setProperty(index, "thumbnail", row.thumbnail);
+            else {
+                if (allWallpapers.get(index).thumbnail !== row.thumbnail)
+                    allWallpapers.setProperty(index, "thumbnail", row.thumbnail);
+                if (allWallpapers.get(index).added !== row.added)
+                    allWallpapers.setProperty(index, "added", row.added);
+            }
         }
         if (allWallpapers.count > rows.length)
             allWallpapers.remove(rows.length, allWallpapers.count - rows.length);

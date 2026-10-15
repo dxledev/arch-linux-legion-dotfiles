@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "../core"
 import "../services"
 import "../styles"
 
@@ -13,9 +14,18 @@ Column {
     property real maximum: 100
     property real step: 1
     property bool dirty: false
+    // Optional function(value) -> string. A non-empty answer refuses the change: it is shown as a
+    // drawer notice and the slider returns to the saved value.
+    property var guard: null
     function saveValue() {
         if (!dirty) return;
         dirty = false;
+        const refusal = guard ? guard(slider.value) : "";
+        if (refusal) {
+            StatusManager.show({mode: "notice", icon: "󰓎", title: refusal});
+            slider.value = Qt.binding(() => ThemeService.settings[root.setting] ?? root.minimum);
+            return;
+        }
         ThemeService.setSetting(setting, slider.value);
     }
     width: parent.width

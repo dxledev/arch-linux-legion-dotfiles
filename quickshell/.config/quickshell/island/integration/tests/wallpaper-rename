@@ -59,8 +59,27 @@ refuses() {
 [[ "$("$controller" --dry-run rename-wallpaper "$static_dir/s2.png" Sunset)" == "Island nord rename: $static_dir/s2.png -> $static_dir/Sunset.png" ]]
 [[ -f "$static_dir/s2.png" && ! -e "$static_dir/Sunset.png" ]]
 
+# Favorites are saved as a validated JSON array and follow a rename.
+"$controller" setting wallpaperFavorites "[\"$static_dir/s2.png\",\"$static_dir/s4.png\"]" >/dev/null
+if "$controller" setting wallpaperFavorites '["relative.png"]' 2>/dev/null; then printf 'FAIL: relative favorite accepted\n' >&2; exit 1; fi
+"$controller" setting wallpaperFavoritesOnly true >/dev/null
+"$controller" setting wallpaperSort added-desc >/dev/null
+if "$controller" setting wallpaperSort sideways 2>/dev/null; then printf 'FAIL: invalid sort accepted\n' >&2; exit 1; fi
+"$controller" ui | /usr/bin/jq -e '.settings.wallpaperFavoritesLimit == 10' >/dev/null
+for invalid in 4 21 ten; do
+    if "$controller" setting wallpaperFavoritesLimit "$invalid" 2>/dev/null; then printf 'FAIL: favorites limit %s accepted\n' "$invalid" >&2; exit 1; fi
+done
+"$controller" setting wallpaperFavoritesLimit 5 >/dev/null
+"$controller" setting wallpaperFavorites '["/a.png","/b.png","/c.png","/d.png","/e.png","/f.png"]' >/dev/null
+# The limit cannot drop below the number of favorites.
+if "$controller" setting wallpaperFavoritesLimit 5 2>/dev/null; then printf 'FAIL: limit lowered under the favorites\n' >&2; exit 1; fi
+"$controller" setting wallpaperFavorites "[\"$static_dir/s2.png\",\"$static_dir/s4.png\"]" >/dev/null
+"$controller" setting wallpaperFavoritesLimit 10 >/dev/null
+"$controller" ui | /usr/bin/jq -e '.settings.wallpaperFavoritesOnly == true and .settings.wallpaperSort == "added-desc"' >/dev/null
+
 # Renaming an unapplied wallpaper keeps the extension and leaves the applied one alone.
 "$controller" rename-wallpaper "$static_dir/s2.png" Sunset >/dev/null
+"$controller" ui | /usr/bin/jq -e --arg a "$static_dir/Sunset.png" --arg b "$static_dir/s4.png" '.settings.wallpaperFavorites | sort == ([$a, $b] | sort)' >/dev/null
 [[ -f "$static_dir/Sunset.png" && ! -e "$static_dir/s2.png" && "$(applied)" == "$static_dir/s1.png" ]]
 
 # Renaming the applied wallpaper keeps it applied under the new path, without another awww call.
@@ -142,6 +161,17 @@ before="$(/usr/bin/sha256sum "$test_root/linked-target.png")"
 [[ -L "$dynamic_dir/Linked.png" && ! -e "$dynamic_dir/ln.png" && "$(/usr/bin/readlink "$dynamic_dir/Linked.png")" == "$test_root/linked-target.png" ]]
 [[ "$(/usr/bin/sha256sum "$test_root/linked-target.png")" == "$before" && "$(applied)" == "$now" ]]
 [[ "$(/usr/bin/readlink "$other/noctalia/extra-wallpaper")" == "$dynamic_dir/Linked.png" ]]
+
+# Distinct modification times drive the "recently added" sort in the views test.
+n=1
+for file in d3 d5 d4 d1; do /usr/bin/touch -d "2020-01-0$n" "$dynamic_dir/$file.png"; n=$((n + 1)); done
+/usr/bin/touch -d 2020-01-06 "$now"
+/usr/bin/touch -d 2020-01-07 "$test_root/linked-target.png"
+
+# The views test starts from a clean favorites state.
+"$controller" setting wallpaperFavorites '[]' >/dev/null
+"$controller" setting wallpaperFavoritesOnly false >/dev/null
+"$controller" setting wallpaperSort name-asc >/dev/null
 
 # Right-click editor inside a full Island (a missing PASS line means a failed check). Dynamic is active here.
 /usr/bin/ln -s "$integration_dir" "$test_root/integration"

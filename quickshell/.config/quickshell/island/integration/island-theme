@@ -270,7 +270,7 @@ delete_wallpapers() {
     # Other shells that remembered a deleted wallpaper move to the one Island now shows.
     survivor="$(selected_wallpaper)"
     for entry in "${!doomed[@]}"; do relink_wallpaper "$entry" "$survivor" replaced; done
-    for entry in "${!doomed[@]}"; do /usr/bin/rm -f -- "$entry"; done
+    for entry in "${!doomed[@]}"; do update_favorites "$entry" ""; /usr/bin/rm -f -- "$entry"; done
 }
 
 # Renames a wallpaper in the active theme directory, keeping its extension. The helper validates the name and
@@ -318,6 +318,7 @@ rename_wallpaper() {
         write_json "$wallpapers_file" "$(/usr/bin/jq -c --arg old "$path" --arg new "$new" \
             'to_entries | map(if .value == $old then .value = $new else . end) | from_entries' "$wallpapers_file")"
     fi
+    update_favorites "$path" "$new"
     if (( was_selected )); then save_wallpaper "$new"; fi
     relink_wallpaper "$path" "$new"
 }

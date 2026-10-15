@@ -11,13 +11,14 @@ Item {
     property string monitorName: ""
     readonly property var brightnessRows: StatusManager.brightnessForScreen(monitorName)
     readonly property bool brightnessLabels: ThemeService.islandScreens.length === 1
-    readonly property bool textStatus: StatusManager.mode === "keyboard" || StatusManager.mode === "nightlight"
+    readonly property bool textStatus: StatusManager.mode === "keyboard" || StatusManager.mode === "nightlight" || StatusManager.mode === "notice"
     implicitWidth: {
         switch (StatusManager.mode) {
         case "workspace": return workspaceView.implicitWidth;
         case "volume": return volumeRow.implicitWidth;
         case "brightness": return Math.max(160, ...brightnessRows.map((event, index) => brightnessRepeater.itemAt(index)?.implicitWidth ?? 0));
         case "nightlight": return Math.max(StatusManager.statusWidth, textRow.implicitWidth + 28);
+        case "notice": return Math.max(Theme.statusKeyboardWidth, textRow.implicitWidth + 28);
         case "keyboard": return Math.max(Theme.statusKeyboardWidth, textRow.implicitWidth + 28);
         case "confirm": return StatusManager.statusWidth;
         default: return Theme.statusDefaultWidth;

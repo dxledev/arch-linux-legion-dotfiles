@@ -8,6 +8,10 @@ QtObject {
     property var searchRoles: []
     property bool searchFileNames: false
     property int maximumCount: 0
+    // Optional function(row) -> bool that drops rows, and function(a, b) -> number that orders the rest
+    // (ties keep source order). Both read outside state, so callers rebuild when that state changes.
+    property var filter: null
+    property var comparator: null
     readonly property ListModel model: ListModel {}
     signal rebuilt(bool resetSelection)
 
@@ -27,8 +31,13 @@ QtObject {
             if (query && !matches(source, query)) continue;
             const row = {};
             for (const role of roles) row[role] = source[role];
+            if (filter && !filter(row)) continue;
             rows.push(row);
-            if (maximumCount > 0 && rows.length >= maximumCount) break;
+            if (maximumCount > 0 && !comparator && rows.length >= maximumCount) break;
+        }
+        if (comparator) {
+            rows.sort(comparator);
+            if (maximumCount > 0) rows.length = Math.min(rows.length, maximumCount);
         }
         return rows;
     }
@@ -56,6 +65,8 @@ QtObject {
     onSourceModelChanged: rebuild(true)
     onSearchTextChanged: rebuild(true)
     onMaximumCountChanged: rebuild(true)
+    onFilterChanged: rebuild(false)
+    onComparatorChanged: rebuild(false)
     Component.onCompleted: rebuild(true)
     readonly property Connections sourceChanges: Connections {
         target: root.sourceModel

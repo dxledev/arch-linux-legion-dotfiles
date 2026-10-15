@@ -96,7 +96,8 @@ def scan(args, failures):
                 except (OSError, ValueError, Image.DecompressionBombError) as error:
                     failures.add(target)
                     print(f"Island preview: {path}: {error}", file=sys.stderr, flush=True)
-            rows.append({"path": str(path), "thumbnail": target.as_uri() if target.is_file() else ""})
+            rows.append({"path": str(path), "thumbnail": target.as_uri() if target.is_file() else "",
+                         "added": int(path.stat().st_mtime)})
         except OSError:
             continue
     failures.intersection_update(active)

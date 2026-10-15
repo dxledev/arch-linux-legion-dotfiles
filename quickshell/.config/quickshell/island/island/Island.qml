@@ -86,7 +86,7 @@ Rectangle {
     implicitHeight: panelHeight + statusDrawerHeight
 
     readonly property bool osdMotion: mode === IslandState.defaultMode
-        && ["volume", "brightness", "nightlight", "keyboard"].includes(StatusManager.mode)
+        && ["volume", "brightness", "nightlight", "keyboard", "notice"].includes(StatusManager.mode)
     readonly property bool workspaceMotion: mode === IslandState.defaultMode && StatusManager.mode === "workspace"
     readonly property var panelWidthCurve: osdMotion ? Theme.curveOutCubic
         : workspaceMotion || classicStyle ? Theme.curveOutBack : Theme.morphCurve

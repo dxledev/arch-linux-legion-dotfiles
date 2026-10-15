@@ -28,12 +28,24 @@ Item {
     property string deleteConfirmDescription: "Delete selected"
     // The trash toggle greys out while something else (a name edit) owns the panel.
     property bool deleteEnabled: true
+    // Optional sort button left of the star; the panel owns the menu it opens.
+    property bool sortVisible: false
+    property bool sortActive: false
+    property url sortIcon: "../assets/icons/sort-asc.svg"
+    property string sortDescription: "Sort"
+    readonly property Item sortButton: sortToggle
+    // Optional star toggle left of the trash, for panels whose list can put favorites first.
+    property bool favoritesVisible: false
+    property bool favoritesActive: false
+    property string favoritesDescription: "Show favorites only"
     // A name edit reuses the confirm slot: the same check saves it.
     property bool editConfirmVisible: false
     property string editConfirmDescription: "Save name"
     readonly property Item editConfirmButton: editConfirm
     readonly property Item trailingAnchor: actions.width > 0 ? actions : closeButton
     signal back()
+    signal sortToggled()
+    signal favoritesToggled()
     signal deleteToggled()
     signal deleteConfirmed()
     signal editConfirmed()
@@ -172,7 +184,7 @@ Item {
         anchors.rightMargin: 8
         anchors.verticalCenter: parent.verticalCenter
         spacing: 8
-        visible: root.deleteVisible
+        visible: root.deleteVisible || root.favoritesVisible || root.sortVisible
         width: visible ? implicitWidth : 0
         IconButton {
             objectName: "panel-delete-confirm"
@@ -190,6 +202,23 @@ Item {
             iconColor: Theme.accent
             description: root.editConfirmDescription
             onClicked: root.editConfirmed()
+        }
+        IconButton {
+            id: sortToggle
+            objectName: "panel-sort-toggle"
+            visible: root.sortVisible
+            iconSource: root.sortIcon
+            iconColor: root.sortActive ? Theme.accent : Theme.textPrimary
+            description: root.sortDescription
+            onClicked: root.sortToggled()
+        }
+        IconButton {
+            objectName: "panel-favorites-toggle"
+            visible: root.favoritesVisible
+            iconSource: root.favoritesActive ? "../assets/icons/star-filled.svg" : "../assets/icons/star.svg"
+            iconColor: root.favoritesActive ? Theme.accent : Theme.textPrimary
+            description: root.favoritesDescription
+            onClicked: root.favoritesToggled()
         }
         IconButton {
             objectName: "panel-delete-toggle"

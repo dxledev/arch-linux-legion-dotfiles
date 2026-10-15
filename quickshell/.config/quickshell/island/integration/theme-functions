@@ -7,7 +7,7 @@ write_json() {
 }
 
 read_settings() {
-    local defaults='{"launcherShowAllApps":true,"launcherColorizeIcons":false,"launcherMatching":"Fuzzy","launcherSearchOrder":"Relevance","launcherDefaultOrder":"App list order","launcherSearchDescriptions":false,"menuPinnedEntries":[],"menuRows":2,"menuColumns":2,"uiFontFamily":"Noto Sans","uiFontBold":false,"uiLetterSpacing":0,"uiAnimationDuration":300,"clockInheritUiFont":false,"osdInheritUiFont":false,"clockFontFamily":"JetBrainsMono Nerd Font","clockFontSize":18,"clockFontBold":true,"clock12Hour":false,"lockFontFamily":"Noto Sans","lockClockSize":112,"lockShowMedia":true,"lockShowBattery":true,"lockAnimationDuration":180,"lockBlurRadius":64,"lockDimOpacity":40,"osdFontFamily":"JetBrainsMono Nerd Font","osdFontSize":18,"osdFontBold":true,"osdIconSize":18,"osdSliderWidth":180,"osdSliderHeight":6,"osdSliderRadius":3,"osdSliderAnimationDuration":180,"osdAnimationDuration":120,"osdTimeout":1800,"osdShowPercentage":true,"monitor":"all","islandWidth":160,"islandHeight":33,"islandBorderWidth":0,"islandAnimationDuration":300,"panelAnimationStyle":"morph","topMargin":10,"notchMode":false,"screenCorners":false,"screenCornerRadius":24,"radius":23,"opacity":1,"hoverToExpand":true,"hoverDelay":100,"collapseDelay":250,"reservedSpaceBelow":0,"visualizer":true,"scrollAnimationDuration":180,"scrollWheelStep":64,"scrollProgressAlwaysVisible":true,"scrollProgressVisibleDuration":1500,"scrollProgressShowOnNonScrollable":false,"scrollProgressAnimationDuration":180,"workspaceStyle":"default","workspaceDotSize":8,"workspaceExpandedInheritStyle":true,"workspaceExpandedStyle":"default","workspaceExpandedDotSize":8,"workspacePersistent":true,"workspaceShowAllMonitors":false,"workspaceCount":11,"workspaceAnimationDuration":160,"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationStackVisible":3,"notificationStackSpacing":8,"notificationAnimationDuration":300,"notificationTimeout":5000,"wallpaperRows":3,"wallpaperColumns":3,"wallpaperScrollDirection":"vertical","wallpaperInfiniteScroll":true,"transition":"grow","transitionDuration":3.2,"transitionFps":120,"audioAllowOverAmplification":false,"audioOverAmplificationLimit":50,"lyricsIslandMinWidth":340}'
+    local defaults='{"launcherShowAllApps":true,"launcherColorizeIcons":false,"launcherMatching":"Fuzzy","launcherSearchOrder":"Relevance","launcherDefaultOrder":"App list order","launcherSearchDescriptions":false,"menuPinnedEntries":[],"menuRows":2,"menuColumns":2,"uiFontFamily":"Noto Sans","uiFontBold":false,"uiLetterSpacing":0,"uiAnimationDuration":300,"clockInheritUiFont":false,"osdInheritUiFont":false,"clockFontFamily":"JetBrainsMono Nerd Font","clockFontSize":18,"clockFontBold":true,"clock12Hour":false,"lockFontFamily":"Noto Sans","lockClockSize":112,"lockShowMedia":true,"lockShowBattery":true,"lockAnimationDuration":180,"lockBlurRadius":64,"lockDimOpacity":40,"osdFontFamily":"JetBrainsMono Nerd Font","osdFontSize":18,"osdFontBold":true,"osdIconSize":18,"osdSliderWidth":180,"osdSliderHeight":6,"osdSliderRadius":3,"osdSliderAnimationDuration":180,"osdAnimationDuration":120,"osdTimeout":1800,"osdShowPercentage":true,"monitor":"all","islandWidth":160,"islandHeight":33,"islandBorderWidth":0,"islandAnimationDuration":300,"panelAnimationStyle":"morph","topMargin":10,"notchMode":false,"screenCorners":false,"screenCornerRadius":24,"radius":23,"opacity":1,"hoverToExpand":true,"hoverDelay":100,"collapseDelay":250,"reservedSpaceBelow":0,"visualizer":true,"scrollAnimationDuration":180,"scrollWheelStep":64,"scrollProgressAlwaysVisible":true,"scrollProgressVisibleDuration":1500,"scrollProgressShowOnNonScrollable":false,"scrollProgressAnimationDuration":180,"workspaceStyle":"default","workspaceDotSize":8,"workspaceExpandedInheritStyle":true,"workspaceExpandedStyle":"default","workspaceExpandedDotSize":8,"workspacePersistent":true,"workspaceShowAllMonitors":false,"workspaceCount":11,"workspaceAnimationDuration":160,"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationStackVisible":3,"notificationStackSpacing":8,"notificationAnimationDuration":300,"notificationTimeout":5000,"wallpaperRows":3,"wallpaperColumns":3,"wallpaperScrollDirection":"vertical","wallpaperInfiniteScroll":true,"wallpaperFavorites":[],"wallpaperFavoritesOnly":false,"wallpaperFavoritesLimit":10,"wallpaperSort":"name-asc","transition":"grow","transitionDuration":3.2,"transitionFps":120,"audioAllowOverAmplification":false,"audioOverAmplificationLimit":50,"lyricsIslandMinWidth":340}'
     if [[ -r "$config_home/background/bg-set.conf" ]]; then
         local key value
         while IFS='=' read -r key value; do
@@ -36,6 +36,12 @@ save_setting() {
         launcherDefaultOrder) [[ "$value" == Alphabetical || "$value" == "App list order" || "$value" == "Most used" || "$value" == "Recently used" ]] || fail "Invalid launcher default order." ;;
         menuPinnedEntries)
             value="$(/usr/bin/jq -ce 'if type == "array" and length <= 16 and all(.[]; type == "string" and test("^[A-Za-z][A-Za-z0-9_-]{0,79}$")) and (unique | length) == length then . else error("invalid pinned menu entries") end' <<< "$value")" || fail 'Pinned menu entries must be a JSON array of up to sixteen unique safe IDs.' ;;
+        wallpaperFavoritesLimit) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 5 && "$value" -le 20 ]] || fail 'Favorite wallpaper limit must be 5-20.'
+            read_settings | /usr/bin/jq -e --argjson limit "$value" '(.wallpaperFavorites | length) <= $limit' >/dev/null \
+                || fail 'Remove favorite wallpapers before lowering the limit.' ;;
+        wallpaperSort) [[ "$value" == name-asc || "$value" == name-desc || "$value" == added-asc || "$value" == added-desc ]] || fail 'Wallpaper sort must be name-asc, name-desc, added-asc or added-desc.' ;;
+        wallpaperFavorites)
+            value="$(/usr/bin/jq -ce 'if type == "array" and length <= 2000 and all(.[]; type == "string" and startswith("/") and (test("[\\n\\r]") | not)) and (unique | length) == length then . else error("invalid wallpaper favorites") end' <<< "$value")" || fail 'Wallpaper favorites must be a JSON array of unique absolute paths.' ;;
         menuRows|menuColumns) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 2 && "$value" -le 4 ]] || fail 'Menu rows and columns must be 2-4.' ;;
         wallpaperRows) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 1 && "$value" -le 5 ]] || fail 'Wallpaper rows must be 1-5.' ;;
         wallpaperColumns) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 2 && "$value" -le 5 ]] || fail 'Wallpaper columns must be 2-5.' ;;
@@ -59,7 +65,7 @@ save_setting() {
         osdSliderAnimationDuration|osdAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'OSD animation duration must be 0-1000 ms.' ;;
         osdTimeout) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 500 && "$value" -le 10000 ]] || fail 'OSD display duration must be 500-10000 ms.' ;;
         monitor) [[ "$value" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || fail 'Invalid monitor name.' ;;
-        launcherShowAllApps|launcherColorizeIcons|launcherSearchDescriptions|uiFontBold|hoverToExpand|clockFontBold|clockInheritUiFont|osdInheritUiFont|clock12Hour|osdFontBold|osdShowPercentage|lockShowMedia|lockShowBattery|visualizer|workspacePersistent|workspaceShowAllMonitors|workspaceExpandedInheritStyle|scrollProgressAlwaysVisible|scrollProgressShowOnNonScrollable|audioAllowOverAmplification|wallpaperInfiniteScroll|notchMode|screenCorners) [[ "$value" == true || "$value" == false ]] || fail "$key must be true or false." ;;
+        launcherShowAllApps|launcherColorizeIcons|launcherSearchDescriptions|uiFontBold|hoverToExpand|clockFontBold|clockInheritUiFont|osdInheritUiFont|clock12Hour|osdFontBold|osdShowPercentage|lockShowMedia|lockShowBattery|visualizer|workspacePersistent|workspaceShowAllMonitors|workspaceExpandedInheritStyle|scrollProgressAlwaysVisible|scrollProgressShowOnNonScrollable|audioAllowOverAmplification|wallpaperInfiniteScroll|wallpaperFavoritesOnly|notchMode|screenCorners) [[ "$value" == true || "$value" == false ]] || fail "$key must be true or false." ;;
         screenCornerRadius) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 4 && "$value" -le 64 ]] || fail 'Screen corner radius must be 4-64 px.' ;;
         scrollProgressVisibleDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -ge 100 && "$value" -le 10000 ]] || fail 'Scroll indicator display duration must be 100-10000 ms.' ;;
         scrollProgressAnimationDuration) [[ "$value" =~ ^[0-9]+$ && "$value" -le 1000 ]] || fail 'Scroll indicator animation duration must be 0-1000 ms.' ;;
@@ -92,9 +98,21 @@ save_setting() {
             ;;
         *) fail "Unknown setting: $key" ;;
     esac
-    if [[ "$key" == launcherMatching || "$key" == launcherSearchOrder || "$key" == launcherDefaultOrder || "$key" == transition || "$key" == monitor || "$key" == workspaceStyle || "$key" == workspaceExpandedStyle || "$key" == panelAnimationStyle || "$key" == uiFontFamily || "$key" == clockFontFamily || "$key" == osdFontFamily || "$key" == lockFontFamily || "$key" == wallpaperScrollDirection ]]; then value="$(/usr/bin/jq -Rn --arg value "$value" '$value')"; fi
+    if [[ "$key" == launcherMatching || "$key" == launcherSearchOrder || "$key" == launcherDefaultOrder || "$key" == transition || "$key" == monitor || "$key" == workspaceStyle || "$key" == workspaceExpandedStyle || "$key" == panelAnimationStyle || "$key" == uiFontFamily || "$key" == clockFontFamily || "$key" == osdFontFamily || "$key" == lockFontFamily || "$key" == wallpaperScrollDirection || "$key" == wallpaperSort ]]; then value="$(/usr/bin/jq -Rn --arg value "$value" '$value')"; fi
     settings="$(read_settings | /usr/bin/jq -c --arg key "$key" --argjson value "$value" '.[$key]=$value')"
     if (( dry_run )); then printf '%s\n' "$settings"; else write_json "$settings_file" "$settings"; fi
+}
+
+# Favorites are absolute paths in settings.json. Renames move an entry and deletes drop it ("" removes), so
+# a favorite never points at a file that is gone. Island-only: Noctalia keeps its own favorites.
+update_favorites() {
+    local old="$1" new="$2" settings
+    (( ! dry_run )) || return 0
+    [[ -r "$settings_file" ]] || return 0
+    settings="$(/usr/bin/jq -c --arg old "$old" --arg new "$new" \
+        'if (.wallpaperFavorites | type) == "array" and (.wallpaperFavorites | index($old)) != null
+         then .wallpaperFavorites |= (map(if . == $old then $new else . end) | map(select(. != "")) | unique_by(.)) else . end' "$settings_file")" || return 0
+    write_json "$settings_file" "$settings"
 }
 
 scan_wallpapers() {

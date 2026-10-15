@@ -22,6 +22,18 @@ SettingsPanel {
         }
     }
     SettingSection {
+        title: "Favorites"
+        iconSource: "../assets/icons/star.svg"
+        // Lowering the limit under the current favorites would orphan some; ask the user to unstar first.
+        SettingSlider {
+            label: "Favorite limit"; setting: "wallpaperFavoritesLimit"; minimum: 5; maximum: 20; suffix: ""
+            guard: value => {
+                const extra = WallpaperService.favorites.length - Math.round(value);
+                return extra > 0 ? "Remove " + extra + (extra === 1 ? " favorite" : " favorites") + " to lower the limit to " + Math.round(value) : "";
+            }
+        }
+    }
+    SettingSection {
         title: "Animation"
         iconSource: "../assets/icons/sparkles.svg"
         SettingChoice {

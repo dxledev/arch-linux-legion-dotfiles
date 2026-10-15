@@ -89,14 +89,14 @@ Singleton {
         value = data.value;
         statusWidth = data.statusWidth ?? 160;
         statusHeight = data.statusHeight ?? 33;
-        animationDuration = data.animationDuration ?? (["volume", "brightness", "nightlight", "keyboard"].includes(mode) ? OsdSettings.animationDuration : 0);
+        animationDuration = data.animationDuration ?? (["volume", "brightness", "nightlight", "keyboard", "notice"].includes(mode) ? OsdSettings.animationDuration : 0);
         visible = true;
         hideTimer.restart();
     }
 
     Timer {
         id: hideTimer
-        interval: ["volume", "brightness", "nightlight", "keyboard"].includes(root.mode) ? OsdSettings.timeout : 1800
+        interval: ["volume", "brightness", "nightlight", "keyboard", "notice"].includes(root.mode) ? OsdSettings.timeout : 1800
         onTriggered: {
             if (root.confirming) root.showConfirm();
             else root.visible = false;
