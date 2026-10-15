@@ -1,5 +1,6 @@
 import QtQuick
 import "../components"
+import "../services"
 
 SettingsPanel {
     title: "Lock screen"
@@ -15,6 +16,17 @@ SettingsPanel {
         SettingFont { setting: "lockFontFamily" }
         SettingSlider { label: "Clock size"; setting: "lockClockSize"; minimum: 72; maximum: 160 }
         SettingToggle { text: "12-hour time (AM/PM)"; setting: "clock12Hour" }
+    }
+    SettingSection {
+        title: "Password"
+        iconSource: "../assets/icons/lock.svg"
+        SettingChoice {
+            label: "Password dots"
+            choices: ["default", "random"]
+            choiceLabel: value => value === "random" ? "Random icons" : "Filled circles"
+            selected: ThemeService.settings.lockPasswordStyle || "default"
+            onChosen: value => ThemeService.setSetting("lockPasswordStyle", value)
+        }
     }
     SettingSection {
         title: "Details"

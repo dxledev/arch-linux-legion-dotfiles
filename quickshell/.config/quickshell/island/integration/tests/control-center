@@ -127,6 +127,7 @@ make_fixture
 export TEST_ROOT="$test_root" ISLAND_DDCUTIL_BIN="$test_root/ddcutil" ISLAND_BRIGHTNESSCTL_BIN="$test_root/brightnessctl"
 export XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl"
 export ISLAND_NIGHTLIGHT_SCRIPT="$test_root/nightlight"
+export ISLAND_SUNSHINE_SCRIPT=/usr/bin/true
 check_helper
 if ! QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a /usr/bin/timeout 20s /usr/bin/bash "$0" --session "$test_root"; then

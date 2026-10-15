@@ -61,6 +61,12 @@ assert.ok(registry.filterEntries("provider credits").some(entry => entry.id === 
 assert.ok(registry.filterEntries("anthropic").some(entry => entry.id === "ai-usage"), "AI Usage can be found by provider names");
 for (const query of ["bluetooth", "headphones", "pairing"])
     assert.ok(registry.filterEntries(query).some(entry => entry.id === "bluetooth"), `Bluetooth can be found by ${query}`);
+for (const query of ["battery performance profile", "power profile", "battery", "power saver", "balanced", "performance"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "power-profile"), `Power profile can be found by ${query}`);
+for (const query of ["protonvpn", "proton vpn", "vpn", "kill switch", "country"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "proton-vpn"), `Proton VPN can be found by ${query}`);
+assert.equal(registry.findEntryById("power-profile").route.action, "openPowerProfile", "Power profile opens its own panel");
+assert.equal(registry.findEntryById("proton-vpn").route.action, "openProtonVpn", "Proton VPN opens its own panel");
 for (const query of ["clipboard", "cliphist", "paste", "copy history"])
     assert.ok(registry.filterEntries(query).some(entry => entry.id === "clipboard"), `Clipboard can be found by ${query}`);
 for (const query of ["chromack", "color picker", "eyedropper", "hex", "shades", "color theory"])

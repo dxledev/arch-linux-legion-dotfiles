@@ -134,6 +134,30 @@ Item {
                 onIconToggled: MediaService.togglePlayback()
                 onClicked: IslandController.openMediaControls()
             }
+
+            // A seventh tile would sit alone in the last row, so Sunshine spans it.
+            ControlCard {
+                Layout.fillWidth: true
+                Layout.columnSpan: 3
+                objectName: "sunshine-control-card"
+                iconSource: SunshineService.icon
+
+                title: "Sunshine"
+
+                subtitle: SunshineService.subtitle
+
+                active: SunshineService.running
+                iconEnabled: !SunshineService.busy
+                panelEnabled: !SunshineService.busy
+                trailingIconSource: Qt.resolvedUrl("../assets/icons/external-link.svg")
+                trailingLabel: "Open Sunshine web UI"
+                onIconToggled: SunshineService.toggle()
+                onClicked: SunshineService.toggle()
+                onTrailingClicked: {
+                    SunshineService.openWebUi();
+                    IslandController.reset();
+                }
+            }
         }
 
         AudioControls {

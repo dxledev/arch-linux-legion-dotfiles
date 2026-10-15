@@ -36,6 +36,17 @@ esac
 CONTROLLER
 /usr/bin/chmod +x "$test_root/controller"
 
+cat > "$test_root/bin/protonvpn" <<'COMMAND'
+#!/usr/bin/env bash
+case "${1:-}" in
+    status) printf 'Status: Disconnected\n' ;;
+    info) printf "Account: 'tester@example.com'\n" ;;
+    config) printf 'kill-switch  off\n' ;;
+    countries) printf 'Country  Code\n-------  ----\nIceland  IS\n' ;;
+esac
+COMMAND
+/usr/bin/chmod +x "$test_root/bin/protonvpn"
+
 for command_name in nmcli bluetoothctl wpctl pactl; do
     cat > "$test_root/bin/$command_name" <<'COMMAND'
 #!/usr/bin/env bash
@@ -50,13 +61,19 @@ COMMAND
     /usr/bin/chmod +x "$test_root/bin/$command_name"
 done
 
+cat > "$test_root/bin/sunshine-toggle" <<'COMMAND'
+#!/usr/bin/env bash
+printf 'sunshine-toggle\n' >> "$TEST_ROOT/sunshine.log"
+COMMAND
+/usr/bin/chmod +x "$test_root/bin/sunshine-toggle"
+
 /usr/bin/node "$test_dir/media-selection.js"
 
 if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
     PATH="$test_root/bin:$PATH" QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     TEST_ROOT="$test_root" TEST_DIR="$test_dir" XDG_RUNTIME_DIR="$test_root/runtime" \
     XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
-    ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_NIGHTLIGHT_SCRIPT=/usr/bin/true \
+    ISLAND_THEME_SCRIPT="$test_root/controller" ISLAND_NIGHTLIGHT_SCRIPT=/usr/bin/true ISLAND_SUNSHINE_SCRIPT="$test_root/bin/sunshine-toggle" ISLAND_PROTONVPN_CLI="$test_root/bin/protonvpn" ISLAND_PROTONVPN_NMCLI="$test_root/bin/nmcli" \
     ISLAND_NIGHTLIGHT_STATE_FILE="$test_root/runtime/nightlight.state" ISLAND_IDLE_LOCK_SCRIPT=/usr/bin/true \
     ISLAND_DDCUTIL_BIN=/usr/bin/true ISLAND_BRIGHTNESSCTL_BIN=/usr/bin/true \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 35s /usr/bin/quickshell -p "$test_root/views.qml" \
@@ -67,6 +84,10 @@ fi
 if ! /usr/bin/rg -q 'PASS: tile action separation' "$test_root/views.log" \
     || /usr/bin/rg -q 'FAIL:|ERROR qml:|ReferenceError|TypeError|Binding loop|Cannot assign' "$test_root/views.log"; then
     fail 'Control Center tile interaction test failed.'
+fi
+
+if [ "$(/usr/bin/grep -c sunshine-toggle "$test_root/sunshine.log" 2>/dev/null || true)" != 2 ]; then
+    fail 'Sunshine icon and tile body should each run the toggle script exactly once.'
 fi
 
 if /usr/bin/rg -q '^(nmcli radio|bluetoothctl power|wpctl set-mute)' "$test_root/commands.log" 2>/dev/null; then

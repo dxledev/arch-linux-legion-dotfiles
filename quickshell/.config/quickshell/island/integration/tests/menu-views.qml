@@ -28,6 +28,8 @@ ShellRoot {
         ["audio-devices", IslandState.audioDevicesMode],
         ["wifi", IslandState.wifiMode],
         ["bluetooth", IslandState.bluetoothMode],
+        ["power-profile", IslandState.powerProfileMode],
+        ["proton-vpn", IslandState.protonVpnMode],
         ["clipboard", IslandState.clipboardMode],
         ["chromack", IslandState.chromackMode],
         ["browse-wallpapers", IslandState.wallhavenMode],

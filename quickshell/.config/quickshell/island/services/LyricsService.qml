@@ -8,7 +8,7 @@ import "../island"
 
 // Synced lyrics for the active media player, backed by Caelestia's Lyrics service
 // (LRCLIB / NetEase, shared from the common plugin directory). Only fetches while the
-// floating lyrics card is open.
+// floating lyrics card, the island lyric clock or a lock screen media card is showing.
 //
 // The backend forgets a track whenever it is asked about it again, and players re-send
 // metadata on pause/resume, so results are kept here per track: a song that has been found
@@ -17,7 +17,9 @@ import "../island"
 Singleton {
     id: root
 
-    readonly property bool active: IslandState.lyricsOpen || IslandState.lyricsClockMonitor !== ""
+    // Lock screen media cards currently on screen (one per display); lyrics are wanted while any shows.
+    property int lockScreenViewers: 0
+    readonly property bool active: IslandState.lyricsOpen || IslandState.lyricsClockMonitor !== "" || lockScreenViewers > 0
     readonly property var player: MediaService.player
 
     // What the card shows. Plain properties: the backend's notify signals are unreliable.

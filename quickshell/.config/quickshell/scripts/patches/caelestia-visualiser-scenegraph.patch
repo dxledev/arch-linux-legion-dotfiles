@@ -1,0 +1,297 @@
+diff --git a/plugin/src/Caelestia/Components/visualiserbars.cpp b/plugin/src/Caelestia/Components/visualiserbars.cpp
+index 18c1e919..8a768105 100644
+--- a/plugin/src/Caelestia/Components/visualiserbars.cpp
++++ b/plugin/src/Caelestia/Components/visualiserbars.cpp
+@@ -1,18 +1,17 @@
+ #include "visualiserbars.hpp"
+ 
+-#include <qbrush.h>
+-#include <qpainter.h>
+-#include <qpainterpath.h>
+-#include <qpen.h>
++#include <qsgnode.h>
++#include <qsgvertexcolormaterial.h>
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <cstring>
+ 
+ namespace caelestia::components {
+ 
+ VisualiserBars::VisualiserBars(QQuickItem* parent)
+-    : QQuickPaintedItem(parent) {
+-    setAntialiasing(true);
++    : QQuickItem(parent) {
++    setFlag(ItemHasContents, true);
+ }
+ 
+ void VisualiserBars::advance(qreal dt) {
+@@ -45,42 +44,95 @@ void VisualiserBars::advance(qreal dt) {
+     }
+ }
+ 
+-void VisualiserBars::paint(QPainter* painter) {
+-    if (m_displayValues.isEmpty())
+-        return;
++// The bars are drawn as scene graph geometry (vertex colours) instead of through QQuickPaintedItem, which
++// rasterised a screen sized QImage on the GUI thread and re-uploaded it every frame.
++namespace {
+ 
+-    painter->setRenderHint(QPainter::Antialiasing, true);
+-    painter->setPen(Qt::NoPen);
++constexpr int k_cornerSegments = 4;
++// Bottom-left, bottom-right plus (segments + 1) points on each rounded corner.
++constexpr int k_maxPolyVerts = 2 + 2 * (k_cornerSegments + 1);
++// Fan triangles for the body, plus a one pixel anti-aliasing fringe quad (6 vertices) per non-bottom edge.
++constexpr int k_maxBarVerts = (k_maxPolyVerts - 2) * 3 + (k_maxPolyVerts - 1) * 6;
+ 
+-    const qreal h = height();
+-    const qreal maxBarHeight = h * 0.4;
++} // namespace
+ 
+-    QLinearGradient gradient(0, h - maxBarHeight, 0, h);
+-    gradient.setColorAt(0, m_primaryColor);
+-    gradient.setColorAt(1, m_secondaryColor);
+-    painter->setBrush(gradient);
++QSGNode* VisualiserBars::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
++    auto* node = static_cast<QSGGeometryNode*>(oldNode);
+ 
+-    drawSide(painter, false);
+-    drawSide(painter, true);
++    if (m_displayValues.isEmpty() || width() <= 0 || height() <= 0) {
++        delete node;
++        return nullptr;
++    }
++
++    // Build into scratch space first so the geometry can be sized exactly.
++    m_scratch.resize(m_displayValues.size() * 2 * k_maxBarVerts);
++    qsizetype n = buildSide(m_scratch.data(), false);
++    n += buildSide(m_scratch.data() + n, true);
++
++    // Don't hand the renderer an empty geometry node: it can fail to pick the node up once it later grows.
++    if (n == 0) {
++        delete node;
++        return nullptr;
++    }
++
++    QSGGeometry* geometry;
++    if (!node) {
++        node = new QSGGeometryNode;
++        geometry = new QSGGeometry(QSGGeometry::defaultAttributes_ColoredPoint2D(), static_cast<int>(n));
++        geometry->setDrawingMode(QSGGeometry::DrawTriangles);
++        geometry->setVertexDataPattern(QSGGeometry::DynamicPattern);
++        node->setGeometry(geometry);
++        node->setFlag(QSGNode::OwnsGeometry);
++
++        auto* material = new QSGVertexColorMaterial;
++        material->setFlag(QSGMaterial::Blending, true);
++        node->setMaterial(material);
++        node->setFlag(QSGNode::OwnsMaterial);
++    } else {
++        geometry = node->geometry();
++        geometry->allocate(static_cast<int>(n));
++    }
++
++    if (n > 0)
++        std::memcpy(geometry->vertexData(), m_scratch.constData(), static_cast<size_t>(n) * sizeof(Vertex));
++    node->markDirty(QSGNode::DirtyGeometry);
++    return node;
+ }
+ 
+-void VisualiserBars::drawSide(QPainter* painter, bool rightSide) {
++qsizetype VisualiserBars::buildSide(Vertex* out, bool rightSide) const {
+     const qreal w = width();
+     const qreal h = height();
+     const auto count = m_displayValues.size();
+ 
+     if (count == 0)
+-        return;
++        return 0;
+ 
+     const qreal sideWidth = w * 0.4;
+     const qreal slotWidth = sideWidth / static_cast<qreal>(count);
+     const qreal barWidth = slotWidth - m_spacing;
+ 
+     if (barWidth <= 0)
+-        return;
++        return 0;
+ 
+     const qreal sideOffset = rightSide ? w * 0.6 : 0;
+     const qreal maxBarHeight = h * 0.4;
++    const qreal gradTop = h - maxBarHeight;
++
++    // Colour at a given y along the vertical gradient (primary at gradTop -> secondary at the bottom), premultiplied.
++    const auto colourAt = [&](qreal y, Vertex& v) {
++        const qreal t = std::clamp((y - gradTop) / maxBarHeight, 0.0, 1.0);
++        const qreal a = static_cast<qreal>(m_primaryColor.alphaF()) * (1 - t) + static_cast<qreal>(m_secondaryColor.alphaF()) * t;
++        const auto ch = [&](qreal p, qreal s) {
++            return static_cast<uchar>(std::clamp((p * (1 - t) + s * t) * a, 0.0, 1.0) * 255.0 + 0.5);
++        };
++        v.r = ch(m_primaryColor.redF(), m_secondaryColor.redF());
++        v.g = ch(m_primaryColor.greenF(), m_secondaryColor.greenF());
++        v.b = ch(m_primaryColor.blueF(), m_secondaryColor.blueF());
++        v.a = static_cast<uchar>(a * 255.0 + 0.5);
++    };
++
++    Vertex* const start = out;
++    Vertex poly[k_maxPolyVerts];
+ 
+     for (qsizetype i = 0; i < count; ++i) {
+         const qsizetype valueIndex = rightSide ? i : (count - i - 1);
+@@ -94,24 +146,97 @@ void VisualiserBars::drawSide(QPainter* painter, bool rightSide) {
+         const qreal y = h - barHeight;
+         const qreal r = std::min({ m_rounding, barWidth / 2.0, barHeight });
+ 
+-        QPainterPath path;
+-        path.moveTo(x, h);
+-        path.lineTo(x, y + r);
++        int np = 0;
++        const auto add = [&](qreal px, qreal py) {
++            poly[np].x = static_cast<float>(px);
++            poly[np].y = static_cast<float>(py);
++            colourAt(py, poly[np]);
++            ++np;
++        };
+ 
++        add(x, h);
+         if (r > 0) {
+-            path.arcTo(x, y, r * 2, r * 2, 180, -90);
+-            path.lineTo(x + barWidth - r, y);
+-            path.arcTo(x + barWidth - r * 2, y, r * 2, r * 2, 90, -90);
++            // Top-left corner then top-right corner, matching the original arcs.
++            for (int s = 0; s <= k_cornerSegments; ++s) {
++                const qreal th = (M_PI / 2) * s / k_cornerSegments;
++                add(x + r - r * std::cos(th), y + r - r * std::sin(th));
++            }
++            for (int s = 0; s <= k_cornerSegments; ++s) {
++                const qreal th = (M_PI / 2) * s / k_cornerSegments;
++                add(x + barWidth - r + r * std::sin(th), y + r - r * std::cos(th));
++            }
+         } else {
+-            path.lineTo(x, y);
+-            path.lineTo(x + barWidth, y);
++            add(x, y);
++            add(x + barWidth, y);
++        }
++        add(x + barWidth, h);
++
++        // Convex polygon, triangulate as a fan.
++        for (int k = 1; k + 1 < np; ++k) {
++            *out++ = poly[0];
++            *out++ = poly[k];
++            *out++ = poly[k + 1];
+         }
+ 
+-        path.lineTo(x + barWidth, h);
+-        path.closeSubpath();
++        // Anti-aliasing fringe: a one pixel outward ramp from the bar colour to transparent along every edge but
++        // the bottom one (which sits on the window edge). Normals point away from the centroid.
++        qreal cx = 0, cy = 0;
++        for (int k = 0; k < np; ++k) {
++            cx += static_cast<qreal>(poly[k].x);
++            cy += static_cast<qreal>(poly[k].y);
++        }
++        cx /= np;
++        cy /= np;
+ 
+-        painter->drawPath(path);
++        qreal enx[k_maxPolyVerts], eny[k_maxPolyVerts];
++        for (int k = 0; k < np; ++k) {
++            const Vertex& p0 = poly[k];
++            const Vertex& p1 = poly[(k + 1) % np];
++            const qreal dx = static_cast<qreal>(p1.x - p0.x);
++            const qreal dy = static_cast<qreal>(p1.y - p0.y);
++            const qreal len = std::hypot(dx, dy);
++            if (len < 1e-6) {
++                enx[k] = eny[k] = 0;
++                continue;
++            }
++            qreal nx = dy / len;
++            qreal ny = -dx / len;
++            const qreal mx = static_cast<qreal>(p0.x + p1.x) / 2 - cx;
++            const qreal my = static_cast<qreal>(p0.y + p1.y) / 2 - cy;
++            if (nx * mx + ny * my < 0) {
++                nx = -nx;
++                ny = -ny;
++            }
++            enx[k] = nx;
++            eny[k] = ny;
++        }
++
++        Vertex outer[k_maxPolyVerts];
++        for (int k = 0; k < np; ++k) {
++            const int prev = (k + np - 1) % np;
++            qreal nx = enx[prev] + enx[k];
++            qreal ny = eny[prev] + eny[k];
++            if (k == 0 || k == np - 1)
++                ny = 0; // Bottom corners only grow sideways
++            const qreal len = std::hypot(nx, ny);
++            if (len > 1e-6) {
++                nx /= len;
++                ny /= len;
++            }
++            outer[k] = { poly[k].x + static_cast<float>(nx), poly[k].y + static_cast<float>(ny), 0, 0, 0, 0 };
++        }
++
++        for (int k = 0; k + 1 < np; ++k) {
++            *out++ = poly[k];
++            *out++ = poly[k + 1];
++            *out++ = outer[k + 1];
++            *out++ = poly[k];
++            *out++ = outer[k + 1];
++            *out++ = outer[k];
++        }
+     }
++
++    return out - start;
+ }
+ 
+ QVector<double> VisualiserBars::values() const {
+diff --git a/plugin/src/Caelestia/Components/visualiserbars.hpp b/plugin/src/Caelestia/Components/visualiserbars.hpp
+index 9760605a..73ef616c 100644
+--- a/plugin/src/Caelestia/Components/visualiserbars.hpp
++++ b/plugin/src/Caelestia/Components/visualiserbars.hpp
+@@ -3,12 +3,12 @@
+ #include <qcolor.h>
+ #include <qobject.h>
+ #include <qqmlintegration.h>
+-#include <qquickpainteditem.h>
++#include <qquickitem.h>
+ #include <qvector.h>
+ 
+ namespace caelestia::components {
+ 
+-class VisualiserBars : public QQuickPaintedItem {
++class VisualiserBars : public QQuickItem {
+     Q_OBJECT
+     QML_ELEMENT
+ 
+@@ -23,8 +23,6 @@ class VisualiserBars : public QQuickPaintedItem {
+ public:
+     explicit VisualiserBars(QQuickItem* parent = nullptr);
+ 
+-    void paint(QPainter* painter) override;
+-
+     Q_INVOKABLE void advance(qreal dt);
+ 
+     [[nodiscard]] QVector<double> values() const;
+@@ -56,9 +54,17 @@ signals:
+     void animationDurationChanged();
+     void settledChanged();
+ 
+-private:
+-    void drawSide(QPainter* painter, bool rightSide);
++protected:
++    QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* data) override;
+ 
++private:
++    struct Vertex {
++        float x, y;
++        uchar r, g, b, a;
++    };
++    qsizetype buildSide(Vertex* out, bool rightSide) const;
++
++    QVector<Vertex> m_scratch;
+     QVector<double> m_targetValues;
+     QVector<double> m_displayValues;
+     QColor m_primaryColor;

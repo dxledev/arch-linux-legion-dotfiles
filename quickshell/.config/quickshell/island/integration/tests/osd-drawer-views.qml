@@ -31,6 +31,8 @@ ShellRoot {
         {name: "Audio devices", mode: IslandState.audioDevicesMode},
         {name: "Wi-Fi", mode: IslandState.wifiMode},
         {name: "Bluetooth", mode: IslandState.bluetoothMode},
+        {name: "Power profile", mode: IslandState.powerProfileMode},
+        {name: "Proton VPN", mode: IslandState.protonVpnMode},
         {name: "Clipboard", mode: IslandState.clipboardMode},
         {name: "Chromack", mode: IslandState.chromackMode},
         {name: "Browse Wallpapers", mode: IslandState.wallhavenMode},

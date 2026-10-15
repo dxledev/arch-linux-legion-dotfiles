@@ -23,6 +23,7 @@ prepare_caelestia() {
     run /usr/bin/mkdir -p -- "$source_dir"
     run /usr/bin/cp -a -- "$sources/caelestia/." "$source_dir/"
     run /usr/bin/git -C "$source_dir" apply "$root/scripts/patches/caelestia-launcher-icon-colorization.patch"
+    run /usr/bin/git -C "$source_dir" apply "$root/scripts/patches/caelestia-visualiser-scenegraph.patch"
 }
 build_cmake() {
     local project="$1"

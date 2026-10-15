@@ -213,6 +213,8 @@ QtObject {
 
     function openWifi() { setMode(IslandState.wifiMode) }
     function openBluetooth() { setMode(IslandState.bluetoothMode) }
+    function openPowerProfile() { setMode(IslandState.powerProfileMode) }
+    function openProtonVpn() { setMode(IslandState.protonVpnMode) }
     function openClipboard() { setMode(IslandState.clipboardMode) }
     function openChromack() { setMode(IslandState.chromackMode) }
     function openWallhaven() { setMode(IslandState.wallhavenMode) }

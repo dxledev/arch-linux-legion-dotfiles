@@ -13,6 +13,15 @@ FocusScope {
     readonly property int animationDuration: ThemeService.settings.lockAnimationDuration ?? 180
     readonly property string userName: Quickshell.env("USER") || "User"
     readonly property real clockSize: Math.min(ThemeService.settings.lockClockSize ?? 112, width * 0.2)
+    readonly property bool mediaEnabled: ThemeService.settings.lockShowMedia ?? true
+    // Wide displays put the clock beside the record player; narrow ones stack them, and the player
+    // gives way (as before) when the stack would not fit.
+    readonly property real gap: 96
+    readonly property real leftWidth: Math.min(Math.max(380, clockText.implicitWidth + 8), width - 48)
+    readonly property bool wide: width >= leftWidth + media.width + gap + 96
+    readonly property bool showMedia: mediaEnabled && (wide ? height >= media.height + 120
+        : height >= identity.height + media.height + 40 + 160)
+    readonly property bool sideBySide: wide && showMedia
     property bool entered: false
     property alias passwordField: password
 
@@ -42,61 +51,75 @@ FocusScope {
 
     SystemClock { id: clock; precision: SystemClock.Minutes }
 
-    Column {
-        id: content
+    Item {
+        id: stage
         anchors.centerIn: parent
-        width: Math.min(360, root.width - 48)
-        spacing: 0
+        width: root.sideBySide ? root.leftWidth + root.gap + media.width : root.leftWidth
+        height: root.sideBySide ? Math.max(identity.height, media.height)
+            : identity.height + (root.showMedia ? 40 + media.height : 0)
         opacity: root.entered ? 1 : 0
         scale: root.entered ? 1 : 0.97
         Behavior on opacity { NumberAnimation { duration: root.animationDuration } }
         Behavior on scale { NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic } }
 
-        Text {
-            objectName: "lock-clock"
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: Qt.formatDateTime(clock.date, ThemeService.settings.clock12Hour ? "h:mm" : "HH:mm")
-            color: Theme.textPrimary
-            font.family: root.fontFamily
-            font.pixelSize: root.clockSize
-            font.weight: Font.Light
-            font.letterSpacing: -4
-        }
-        Text {
-            objectName: "lock-date"
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: Qt.formatDateTime(clock.date, "dddd, MMMM d")
-                + (ThemeService.settings.clock12Hour ? "  ·  " + Qt.formatDateTime(clock.date, "AP") : "")
-            color: Theme.textSecondary
-            font.family: root.fontFamily
-            font.pixelSize: 14
-        }
-        Item { width: 1; height: 48 }
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: root.userName
-            color: Theme.textSecondary
-            font.family: root.fontFamily
-            font.pixelSize: 13
-        }
-        Item { width: 1; height: 16 }
-        LockPassword {
-            id: password
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: Math.min(320, parent.width)
-            auth: root.auth
-            fontFamily: root.fontFamily
-        }
-    }
+        Column {
+            id: identity
+            width: root.leftWidth
+            y: root.sideBySide ? (stage.height - height) / 2 : 0
+            spacing: 0
+            readonly property int textAlign: root.sideBySide ? Text.AlignLeft : Text.AlignHCenter
 
-    LockMedia {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 64
-        width: Math.min(360, root.width - 48)
-        visible: (ThemeService.settings.lockShowMedia ?? true) && MediaService.hasPlayer
-            && root.height > content.height + height + 190
-        fontFamily: root.fontFamily
+            Text {
+                width: parent.width
+                horizontalAlignment: identity.textAlign
+                text: "Welcome back, " + root.userName
+                color: Theme.textSecondary
+                font.family: root.fontFamily
+                font.pixelSize: 18
+                elide: Text.ElideRight
+            }
+            Text {
+                id: clockText
+                objectName: "lock-clock"
+                width: parent.width
+                horizontalAlignment: identity.textAlign
+                text: Qt.formatDateTime(clock.date, ThemeService.settings.clock12Hour ? "h:mm" : "HH:mm")
+                color: Theme.textPrimary
+                font.family: root.fontFamily
+                font.pixelSize: root.clockSize
+                font.weight: Font.Light
+                font.letterSpacing: -4
+            }
+            Text {
+                objectName: "lock-date"
+                width: parent.width
+                horizontalAlignment: identity.textAlign
+                text: Qt.formatDateTime(clock.date, "dddd, MMMM d")
+                    + (ThemeService.settings.clock12Hour ? "  ·  " + Qt.formatDateTime(clock.date, "AP") : "")
+                color: Theme.textSecondary
+                font.family: root.fontFamily
+                font.pixelSize: 15
+            }
+            Item { width: 1; height: 40 }
+            LockPassword {
+                id: password
+                x: root.sideBySide ? 0 : (parent.width - width) / 2
+                width: Math.min(340, parent.width)
+                auth: root.auth
+                fontFamily: root.fontFamily
+            }
+        }
+
+        LockMedia {
+            id: media
+            x: root.sideBySide ? root.leftWidth + root.gap : (stage.width - width) / 2
+            y: root.sideBySide ? (stage.height - height) / 2 : identity.height + 40
+            width: Math.min(440, root.width - 48)
+            visible: root.showMedia
+            fontFamily: root.fontFamily
+            animationDuration: root.animationDuration
+            onInteracted: root.focusInput()
+        }
     }
 
     Text {

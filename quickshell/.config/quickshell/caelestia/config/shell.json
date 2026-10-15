@@ -37,16 +37,16 @@
             "position": "middle-right",
             "scale": 1.004426903487569,
             "shadow": {
-                "blur": 0.6497626035911602,
+                "blur": 0.5497626035911602,
                 "enabled": true,
-                "opacity": 1
+                "opacity": 0.9
             }
         },
         "enabled": true,
         "visualiser": {
             "autoHide": true,
-            "blur": true,
-            "enabled": true,
+            "blur": false,
+            "enabled": false,
             "rounding": 2,
             "spacing": 0.8001122237569062
         },

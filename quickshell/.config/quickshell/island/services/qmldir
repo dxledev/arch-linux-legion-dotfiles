@@ -39,3 +39,5 @@ singleton LyricsService 1.0 LyricsService.qml
 singleton DashboardTasksService 1.0 DashboardTasksService.qml
 singleton QuoteService 1.0 QuoteService.qml
 singleton WeatherService 1.0 WeatherService.qml
+singleton SunshineService 1.0 SunshineService.qml
+singleton ProtonVpnService 1.0 ProtonVpnService.qml

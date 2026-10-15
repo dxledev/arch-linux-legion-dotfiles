@@ -35,6 +35,10 @@ IpcHandler {
     function openAudioDevices(): void { IslandController.toggleMode(IslandState.audioDevicesMode); }
     function openWifi(): void { IslandController.toggleMode(IslandState.wifiMode); }
     function openBluetooth(): void { IslandController.toggleMode(IslandState.bluetoothMode); }
+    function openPowerProfile(): void { IslandController.toggleMode(IslandState.powerProfileMode); }
+    function openProtonVpn(): void { IslandController.toggleMode(IslandState.protonVpnMode); }
+    function sunshineEnabled(): bool { return SunshineService.running; }
+    function toggleSunshine(): void { SunshineService.toggle(); }
     function openClipboard(): void { IslandController.toggleMode(IslandState.clipboardMode); }
     function openChromack(): void { IslandController.toggleMode(IslandState.chromackMode); }
     function openWallhaven(): void { IslandController.toggleMode(IslandState.wallhavenMode); }

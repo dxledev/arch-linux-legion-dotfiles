@@ -33,7 +33,10 @@ Item {
         anchors.margins: CUtils.clamp(anchors.leftMargin - Config.border.thickness, 0, anchors.leftMargin)
         anchors.bottomMargin: 0
 
-        active: root.shouldBeActive || root.visible
+        // Keep the notification dock alive once created (and build it off the open path): tearing it down on close
+        // meant re-laying out the whole history on every open, a ~100ms GUI thread stall.
+        asynchronous: true
+        active: true
 
         sourceComponent: Content {
             implicitWidth: Tokens.sizes.sidebar.width - content.anchors.leftMargin - content.anchors.margins

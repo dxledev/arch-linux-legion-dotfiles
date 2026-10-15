@@ -53,6 +53,18 @@ ShellRoot {
 
     TestEvent { id: input }
 
+    Loader {
+        id: powerProfileLoader
+        active: root.phase >= 6
+        source: "../../views/PowerProfileView.qml"
+    }
+
+    Loader {
+        id: protonVpnLoader
+        active: root.phase >= 6
+        source: "../../views/ProtonVpnView.qml"
+    }
+
     FloatingWindow {
         visible: true
         implicitWidth: 1280
@@ -158,8 +170,22 @@ ShellRoot {
                     const nightlight = root.named(controlCenter, "nightlight-button");
                     const idleLock = root.named(controlCenter, "idle-lock-button");
                     const media = root.named(controlCenter, "media-control-card");
-                    root.check(wifi && bluetooth && microphone && nightlight && idleLock && media,
-                               "All six Control Center tiles render");
+                    const sunshine = root.named(controlCenter, "sunshine-control-card");
+                    root.check(wifi && bluetooth && microphone && nightlight && idleLock && media && sunshine,
+                               "All seven Control Center tiles render");
+                    root.check(sunshine.width > wifi.width * 2.5 && Math.abs(sunshine.x - wifi.x) < 1,
+                               "Sunshine spans the last row instead of sitting alone in one column");
+                    const sunshineOpen = root.named(sunshine, "control-card-trailing");
+                    root.check(root.named(sunshine, "control-card-toggle").enabled
+                                   && root.named(sunshine, "control-card-navigation").enabled
+                                   && sunshineOpen && sunshineOpen.visible && sunshineOpen.enabled,
+                               "Sunshine has a toggle, a body toggle and a separate open-page button");
+                    root.check(root.named(sunshine, "control-card-trailing") !== null
+                                   && !root.named(wifi, "control-card-trailing").visible,
+                               "Only Sunshine shows the trailing open-page button");
+                    root.click(root.named(sunshine, "control-card-toggle"));
+                    root.check(IslandState.mode === IslandState.controlCenterMode,
+                               "Sunshine toggle does not navigate away");
                     for (const tile of [nightlight, idleLock]) {
                         root.check(!root.named(tile, "control-card-navigation").enabled,
                                    tile.objectName + " keeps its outer route reserved");
@@ -195,6 +221,10 @@ ShellRoot {
                     IslandController.openControlCenter();
                     root.next();
                 } else if (root.phase === 4) {
+                    const sunshineCard = root.named(controlCenter, "sunshine-control-card");
+                    root.click(root.named(sunshineCard, "control-card-navigation"));
+                    root.check(IslandState.mode === IslandState.controlCenterMode,
+                               "Sunshine tile body toggles the service instead of opening the web UI");
                     const media = root.named(controlCenter, "media-control-card");
                     root.click(root.named(media, "control-card-navigation"));
                     root.check(IslandState.mode === IslandState.mediaControlsMode,
@@ -220,6 +250,26 @@ ShellRoot {
                     root.click(root.named(media, "control-card-toggle"));
                     root.check(Mpris.players.values[1].toggleCount === 2 && MediaService.isPlaying,
                                "A second media inner action resumes the same player");
+                    root.next();
+                } else if (root.phase === 6) {
+                    const power = powerProfileLoader.item;
+                    const vpn = protonVpnLoader.item;
+                    if (!power || !vpn || root.elapsed < 400) return;
+                    root.check(root.named(power, "power-profile-selector") && root.named(power, "power-profile-indicator"),
+                               "Power profile panel renders its selector and sliding indicator");
+                    root.check(root.named(power, "power-profile-balanced") && root.named(power, "power-profile-power-saver"),
+                               "Power profile panel offers Power saver and Balanced");
+                    root.check(ProtonVpnService.panelUsers === 1 && ProtonVpnService.enabled,
+                               "Proton VPN panel holds the service while open");
+                    root.check(root.named(vpn, "protonvpn-status-card").height > 0 && root.named(vpn, "protonvpn-status-title").text.length > 0,
+                               "Proton VPN panel renders its status");
+                    root.next();
+                } else if (root.phase === 7) {
+                    protonVpnLoader.active = false;
+                    root.next();
+                } else if (root.phase === 8) {
+                    root.check(ProtonVpnService.panelUsers === 0 && !ProtonVpnService.enabled,
+                               "Proton VPN service stops polling once its panel closes");
                     console.log("PASS: tile action separation, disabled routes, independent hover feedback, and Control Center navigation");
                     Qt.quit();
                 }

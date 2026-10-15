@@ -207,6 +207,12 @@ Item {
             case IslandState.bluetoothMode:
                 return bluetoothView
 
+            case IslandState.powerProfileMode:
+                return powerProfileView
+
+            case IslandState.protonVpnMode:
+                return protonVpnView
+
             case IslandState.clipboardMode:
                 return clipboardView
 
@@ -263,6 +269,8 @@ Item {
     Component { id: audioDevicesView; AudioDevicesView {} }
     Component { id: wifiView; WifiView {} }
     Component { id: bluetoothView; BluetoothView {} }
+    Component { id: powerProfileView; PowerProfileView {} }
+    Component { id: protonVpnView; ProtonVpnView {} }
     Component { id: clipboardView; ClipboardView {} }
     Component { id: chromackView; ChromackView {} }
     Component { id: wallhavenView; WallhavenView {} }

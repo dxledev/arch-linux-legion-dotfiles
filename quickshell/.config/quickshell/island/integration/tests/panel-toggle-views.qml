@@ -20,6 +20,8 @@ ShellRoot {
             ["openAudioDevices", IslandState.audioDevicesMode],
             ["openWifi", IslandState.wifiMode],
             ["openBluetooth", IslandState.bluetoothMode],
+            ["openPowerProfile", IslandState.powerProfileMode],
+            ["openProtonVpn", IslandState.protonVpnMode],
             ["openClipboard", IslandState.clipboardMode],
             ["openChromack", IslandState.chromackMode],
             ["openWallhaven", IslandState.wallhavenMode],

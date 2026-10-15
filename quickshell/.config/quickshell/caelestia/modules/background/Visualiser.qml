@@ -40,7 +40,8 @@ Item {
         id: wrapper
 
         anchors.fill: parent
-        layer.enabled: true
+        // Only needed as a mask for the blur; without it the bars can draw straight to the window.
+        layer.enabled: Config.background.visualiser.blur
 
         Loader {
             asynchronous: true

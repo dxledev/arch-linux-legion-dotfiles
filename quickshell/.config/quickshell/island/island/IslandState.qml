@@ -36,6 +36,8 @@ QtObject {
     readonly property int workspaceAxisMode: 25
     readonly property int keybindsMode: 26
     readonly property int forecastMode: 27
+    readonly property int powerProfileMode: 28
+    readonly property int protonVpnMode: 29
 
     // =========================================================
     // STATE
@@ -122,5 +124,7 @@ QtObject {
         mode === layoutSwitcherMode ||
         mode === workspaceAxisMode ||
         mode === keybindsMode ||
-        mode === forecastMode
+        mode === forecastMode ||
+        mode === powerProfileMode ||
+        mode === protonVpnMode
 }

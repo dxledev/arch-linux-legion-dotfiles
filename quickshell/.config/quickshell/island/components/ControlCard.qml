@@ -13,9 +13,13 @@ Rectangle {
     property bool active: false
     property bool iconEnabled: true
     property bool panelEnabled: false
+    property url trailingIconSource: ""
+    property string trailingLabel: ""
+    readonly property real trailingWidth: trailingIconSource != "" ? trailingButton.width + 10 : 0
 
     signal clicked()
     signal iconToggled()
+    signal trailingClicked()
 
     implicitWidth: 150
     implicitHeight: 60
@@ -146,7 +150,7 @@ Rectangle {
             anchors.top: parent.top
             anchors.topMargin: 1
             spacing: 2
-            width: parent.width - iconButton.width - parent.spacing
+            width: parent.width - iconButton.width - parent.spacing - root.trailingWidth
 
             UiText {
                 width: parent.width
@@ -164,6 +168,46 @@ Rectangle {
                 font.pixelSize: 11
                 elide: Text.ElideRight
             }
+        }
+
+        Button {
+            id: trailingButton
+            objectName: "control-card-trailing"
+
+            visible: root.trailingIconSource != ""
+            width: 36
+            height: 36
+            padding: 0
+            hoverEnabled: true
+            focusPolicy: Qt.TabFocus
+
+            Accessible.name: root.trailingLabel
+            Accessible.role: Accessible.Button
+
+            contentItem: Item {
+                SvgIcon {
+                    anchors.centerIn: parent
+                    source: root.trailingIconSource
+                    size: 18
+                    color: Theme.textPrimary
+                }
+            }
+
+            background: Rectangle {
+                radius: width / 2
+                color: trailingButton.down ? Theme.buttonPressed
+                    : trailingButton.hovered ? Theme.surfaceVariant : Theme.buttonBackground
+                border.width: trailingButton.activeFocus ? 2 : 0
+                border.color: Theme.accent
+                Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+            }
+
+            HoverHandler {
+                enabled: trailingButton.hovered
+                cursorShape: Qt.PointingHandCursor
+            }
+
+            onClicked: root.trailingClicked()
         }
     }
 
