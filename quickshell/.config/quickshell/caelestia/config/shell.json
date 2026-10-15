@@ -161,7 +161,7 @@
                 "/usr/bin/pavucontrol"
             ],
             "explorer": [
-                "/usr/bin/nemo"
+                "/home/dxle/.local/bin/omafiles"
             ],
             "playback": [
                 "/usr/bin/celluloid"

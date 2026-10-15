@@ -104,7 +104,7 @@ local simple_binds = {
   { mainMod .. " SHIFT", "RETURN", "Main Tmux", "~/bin/launch-tmux-main" },
   { mainMod .. " CTRL ALT", "C", "Color Picker", "~/bin/launch-colorpicker" },
   { mainMod .. " SHIFT", "A", "Activity", "~/bin/launch-terminal btop" },
-  { mainMod .. " SHIFT ALT", "F", "Launch File Explorer", "nemo" },
+  { mainMod .. " SHIFT ALT", "F", "Launch File Explorer", "/home/dxle/bin/launch-file-explorer" },
   { mainMod, "B", "Launch Browser", "brave" },
   { mainMod .. " SHIFT CTRL ALT", "B", "Launch Alt Browser", "chromium" },
 }

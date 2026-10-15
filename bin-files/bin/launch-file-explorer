@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-FILE_EXPLORER="nemo"
+usage() {
+    printf 'Usage: launch-file-explorer [--dry-run] [PATH|file://URI]\n'
+}
 
-# Exit if nothing was passed
-[ -z "$1" ] && exit 1
+main() {
+    local file_explorer="${FILE_EXPLORER:-$HOME/.local/bin/omafiles}"
+    local dry_run=0
 
-# Launch detached so it does not occupy the current terminal.
-nohup "$FILE_EXPLORER" "$@" >/dev/null 2>&1 &
+    case "${1:-}" in
+        --dry-run) dry_run=1; shift ;;
+        --help|-h) usage; return 0 ;;
+    esac
+    if [[ "${1:-}" == -- ]]; then shift; fi
+    if (( $# > 1 )) || [[ "${1:-}" == -* ]]; then
+        usage >&2
+        return 2
+    fi
+    if [[ "$file_explorer" != /* || ! -x "$file_explorer" ]]; then
+        /usr/bin/notify-send Files "File manager executable is unavailable: $file_explorer" || true
+        return 127
+    fi
+    if (( $# == 1 )) && [[ "$1" != file://* && ! -e "$1" ]]; then
+        /usr/bin/notify-send Files "Path does not exist: $1" || true
+        return 1
+    fi
+    if (( dry_run )); then
+        printf '%q' "$file_explorer"
+        if (( $# )); then printf ' %q' "$1"; fi
+        printf '\n'
+        return 0
+    fi
+    /usr/bin/setsid --fork -- "$file_explorer" "$@" >/dev/null 2>&1
+}
 
-
-
+main "$@"
