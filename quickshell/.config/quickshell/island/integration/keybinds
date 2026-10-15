@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+hyprctl_bin="${ISLAND_KEYBINDS_HYPRCTL:-/usr/bin/hyprctl}"
+mode_config="${ISLAND_KEYBINDS_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/island-mode-keybindings.lua}"
+
+usage() {
+    printf 'Usage: keybinds {list|run ID [--dry-run]}\n'
+}
+
+fail() {
+    printf 'keybinds: %s\n' "$*" >&2
+    exit 1
+}
+
+read_bindings() {
+    local output
+    output="$("$hyprctl_bin" -j binds)" || fail 'Could not read Hyprland keybinds.'
+    /usr/bin/jq -e 'type == "array" and all(.[]; type == "object")' <<< "$output" >/dev/null \
+        || fail 'Hyprland returned an invalid keybind list.'
+    printf '%s\n' "$output"
+}
+
+normalize_bindings() {
+    /usr/bin/jq -c --argjson island "${1:-[]}" -f "$script_dir/keybinds.jq"
+}
+
+list_bindings() {
+    local island_bindings
+    [[ -f "$mode_config" ]] || mode_config="$script_dir/hyprland.lua"
+    island_bindings="$(/usr/bin/lua "$script_dir/keybinds.lua" "$mode_config")" \
+        || fail 'Could not read the Island keybind configuration.'
+    read_bindings | normalize_bindings "$island_bindings" | /usr/bin/jq 'unique_by(.id) | sort_by(.source, (.description | ascii_downcase), .shortcut)'
+}
+
+dispatch_binding() {
+    local binding="$1" dry_run="$2" dispatcher argument output
+    local -a command
+    dispatcher="$(/usr/bin/jq -r '.dispatcher' <<< "$binding")"
+    argument="$(/usr/bin/jq -r '.args' <<< "$binding")"
+    if [[ "$dispatcher" == __lua ]]; then
+        [[ "$argument" =~ ^[1-9][0-9]*$ ]] || fail 'The Lua keybind callback is unavailable.'
+        # Lua dispatchers are registry callbacks, including binds with dynamic behavior.
+        command=("$hyprctl_bin" dispatch "debug.getregistry()[$argument]")
+    else
+        [[ "$dispatcher" =~ ^[a-zA-Z0-9_:]+$ ]] || fail 'Invalid Hyprland dispatcher.'
+        command=("$hyprctl_bin" dispatch -- "$dispatcher" "$argument")
+    fi
+    if (( dry_run )); then
+        /usr/bin/jq -cn --args '$ARGS.positional' -- "${command[@]}"
+        return
+    fi
+    output="$("${command[@]}")" || fail 'Hyprland could not run the keybind.'
+    [[ "$output" == ok ]] || fail "${output:-Hyprland could not run the keybind.}"
+}
+
+run_binding() {
+    local id="$1" dry_run="$2" matches binding
+    [[ ${#id} -le 16384 && "$id" =~ ^[a-zA-Z0-9+/=]+$ ]] || fail 'Invalid keybind ID.'
+    matches="$(read_bindings | normalize_bindings | /usr/bin/jq -c --arg id "$id" '.[] | select(.id == $id)')"
+    [[ -n "$matches" ]] || fail 'This keybind changed or was removed. Refresh the panel.'
+    while IFS= read -r binding; do
+        dispatch_binding "$binding" "$dry_run"
+    done <<< "$matches"
+}
+
+main() {
+    [[ "$hyprctl_bin" == /* && -x "$hyprctl_bin" ]] || fail 'Hyprland command must be an executable absolute path.'
+    case "${1:-}" in
+        list) [[ $# -eq 1 ]] || fail 'list does not accept arguments.'; list_bindings ;;
+        run)
+            [[ $# -eq 2 || ( $# -eq 3 && "$3" == --dry-run ) ]] || fail 'run requires a keybind ID and optional --dry-run.'
+            run_binding "$2" "$(( $# == 3 ))"
+            ;;
+        --help|-h) usage ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"

@@ -262,6 +262,8 @@ reload_portals() {
 }
 
 reload_applications() {
+    # MetaDots palette sync
+    queue_reload metadots "/home/dxle/.local/bin/metadots" --config "/home/dxle/.config/metadots/theme.json" theme sync
     local mode="$1" spotify_mode
     if [[ "$mode" == dynamic ]]; then spotify_mode=dynamic; else spotify_mode="$(/usr/bin/basename -- "$(/usr/bin/readlink -f -- "$themes_dir/current")")"; fi
     queue_reload nemo "$script_dir/reload-nemo"

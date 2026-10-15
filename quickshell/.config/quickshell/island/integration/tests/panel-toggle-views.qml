@@ -32,7 +32,9 @@ ShellRoot {
             ["openSettings", IslandState.settingsMode],
             ["openShellSwitcher", IslandState.shellSwitcherMode],
             ["openLayoutSwitcher", IslandState.layoutSwitcherMode],
+            ["openMediaControls", IslandState.mediaControlsMode],
             ["openAIUsage", IslandState.aiUsageMode],
+            ["openKeybinds", IslandState.keybindsMode],
             ["openSystem", IslandState.systemMode]
         ];
         for (const [method, mode] of panels) {

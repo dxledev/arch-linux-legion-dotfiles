@@ -24,6 +24,8 @@ IpcHandler {
     function openPowerMenu(): void { IslandController.toggleMode(IslandState.powerMenuMode); }
     function openSystem(): void { IslandController.toggleMode(IslandState.systemMode); }
     function openAIUsage(): void { IslandController.toggleMode(IslandState.aiUsageMode); }
+    function openKeybinds(): void { IslandController.toggleMode(IslandState.keybindsMode); }
+    function openMediaControls(): void { IslandController.toggleMode(IslandState.mediaControlsMode); }
     function openExpandedHome(): void { IslandController.toggleMode(IslandState.expandedMode); }
     function reset(): void { IslandController.reset(); }
     function openWallpaperSelector(): void { IslandController.toggleMode(IslandState.wallpaperSelectorMode); }
@@ -36,7 +38,7 @@ IpcHandler {
     function openClipboard(): void { IslandController.toggleMode(IslandState.clipboardMode); }
     function openChromack(): void { IslandController.toggleMode(IslandState.chromackMode); }
     function openWallhaven(): void { IslandController.toggleMode(IslandState.wallhavenMode); }
-    function openCalendar(): void { IslandController.toggleMode(IslandState.calendarMode); }
+    function openCalendar(): void { IslandController.toggleMode(IslandState.calendarMode, [IslandState.forecastMode]); }
     function toggleLyrics(): void { IslandController.toggleLyricsInIsland(); }
     function openNetworkSpeedTest(): void { IslandController.openNetworkSpeedTest(); }
     function openDiskSpeedTest(): void { IslandController.openDiskSpeedTest(); }

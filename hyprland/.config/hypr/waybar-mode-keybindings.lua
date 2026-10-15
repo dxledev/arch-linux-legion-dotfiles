@@ -64,6 +64,7 @@ local mode_owned_keys = {
   "CTRL + ALT + SHIFT + SPACE",
   "SUPER + CTRL + SPACE",
   "SUPER + CTRL + ALT + Q",
+  "SUPER + ALT + M",
 }
 
 for _, key in ipairs(mode_owned_keys) do

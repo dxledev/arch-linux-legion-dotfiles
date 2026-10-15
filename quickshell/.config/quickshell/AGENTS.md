@@ -1,3 +1,10 @@
+# Temporary storage
+
+- Use `~/builds/.tmp/` instead of `/tmp` for any directory expected to exceed
+  1 GB, including build trees, caches and scratch output. Configure these paths
+  before starting large jobs. If a temporary directory grows beyond 1 GB,
+  relocate it to `~/builds/.tmp/` before continuing.
+
 # Shared display configuration
 
 - Saved monitor layouts and workspace assignments are shared across Caelestia,

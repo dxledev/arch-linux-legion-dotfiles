@@ -188,6 +188,9 @@ Item {
             case IslandState.aiUsageMode:
                 return aiUsageView
 
+            case IslandState.keybindsMode:
+                return keybindsView
+
             case IslandState.controlCenterMode:
                 return null
 
@@ -215,6 +218,9 @@ Item {
             case IslandState.calendarMode:
                 return calendarView
 
+            case IslandState.forecastMode:
+                return forecastView
+
             case IslandState.themeSelectorMode:
                 return themeSelectorView
 
@@ -233,6 +239,7 @@ Item {
     Component { id: launcherView; LauncherView {} }
     Component { id: systemView; SystemView {} }
     Component { id: aiUsageView; AIUsageView {} }
+    Component { id: keybindsView; KeybindsView {} }
     Component { id: launcherSettingsView; LauncherSettingsView {} }
     Component { id: menuSettingsView; MenuSettingsView {} }
     Component { id: navigationView; NavigationView {} }
@@ -258,6 +265,7 @@ Item {
     Component { id: chromackView; ChromackView {} }
     Component { id: wallhavenView; WallhavenView {} }
     Component { id: calendarView; CalendarView {} }
+    Component { id: forecastView; ForecastView {} }
 
     Component {
         id: defaultView

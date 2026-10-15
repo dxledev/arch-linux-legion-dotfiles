@@ -185,6 +185,8 @@ FocusScope {
             onTextChanged: searchDelay.restart()
             onNavigateDown: root.activeList.selectRelative(1)
             Keys.onUpPressed: root.activeList.selectRelative(-1)
+            Keys.onLeftPressed: root.cycleFilter(-1)
+            Keys.onRightPressed: root.cycleFilter(1)
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                     root.cycleFilter(event.key === Qt.Key_Backtab ? -1 : 1);
@@ -327,7 +329,7 @@ FocusScope {
         UiText {
             objectName: "clipboard-footer"
             Layout.fillWidth: true
-            text: root.activeList.count + " items    ↑ ↓ Select    Enter Copy & close    Double-click Copy    Tab Filter    Esc Close"
+            text: root.activeList.count + " items    ↑ ↓ Select    Enter Copy & close    Double-click Copy    ← → / Tab Filter    Esc Close"
             color: Theme.textMuted
             font.pixelSize: 11
             elide: Text.ElideRight

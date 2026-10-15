@@ -27,6 +27,7 @@ AudioDevicesView 1.0 AudioDevicesView.qml
 WifiView 1.0 WifiView.qml
 BluetoothView 1.0 BluetoothView.qml
 AIUsageView 1.0 AIUsageView.qml
+KeybindsView 1.0 KeybindsView.qml
 AppearanceSettingsView 1.0 AppearanceSettingsView.qml
 WorkspaceSettingsView 1.0 WorkspaceSettingsView.qml
 DynamicPaletteSettingsView 1.0 DynamicPaletteSettingsView.qml
@@ -39,3 +40,4 @@ ChromackView 1.0 ChromackView.qml
 MenuSettingsView 1.0 MenuSettingsView.qml
 WallhavenView 1.0 WallhavenView.qml
 CalendarView 1.0 CalendarView.qml
+ForecastView 1.0 ForecastView.qml

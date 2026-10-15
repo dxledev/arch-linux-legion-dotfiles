@@ -55,7 +55,7 @@ local screenshot = root .. "/active/integration/screenshot"
 local knob_hold = (os.getenv("HOME") .. "/bin/knob-press -- " .. root .. "/scripts/caelestia shell popouts openAudio")
 local audio_popout_binding = "SUPER + ALT + V"
 local superseded_audio_binding = "SUPER + CTRL + V"
-for _, key in ipairs({ "SUPER + ALT + N", "SUPER + ALT + W" }) do
+for _, key in ipairs({ "SUPER + ALT + N", "SUPER + ALT + W", "SUPER + ALT + M" }) do
     hl.unbind(key)
 end
 

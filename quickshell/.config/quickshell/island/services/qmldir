@@ -12,6 +12,7 @@ singleton LockService 1.0 LockService.qml
 IslandIPC 1.0 IslandIPC.qml
 FilteredListModel 1.0 FilteredListModel.qml
 KeyboardService 1.0 KeyboardService.qml
+singleton KeybindService 1.0 KeybindService.qml
 singleton MediaService 1.0 MediaService.qml
 singleton MenuService 1.0 MenuService.qml
 singleton MicrophoneService 1.0 MicrophoneService.qml
@@ -36,3 +37,4 @@ WallhavenJob 1.0 WallhavenJob.qml
 singleton LyricsService 1.0 LyricsService.qml
 singleton DashboardTasksService 1.0 DashboardTasksService.qml
 singleton QuoteService 1.0 QuoteService.qml
+singleton WeatherService 1.0 WeatherService.qml

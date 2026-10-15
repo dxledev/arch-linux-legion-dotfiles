@@ -62,7 +62,8 @@ QtObject {
         if (mode === IslandState.workspaceAxisMode
                 && (!workspaceAxisModeAuthorized || !WorkspacePresentationService.canOpenAxis))
             return false
-        if (mode === IslandState.calendarMode && IslandState.mode !== IslandState.calendarMode) {
+        if (mode === IslandState.calendarMode && IslandState.mode !== IslandState.calendarMode
+                && IslandState.mode !== IslandState.forecastMode) {
             IslandState.calendarReturnMode = IslandState.mode === IslandState.expandedMode
                 ? IslandState.expandedMode : IslandState.navigationMode
         }
@@ -196,6 +197,8 @@ QtObject {
 
     function openAIUsage() { setMode(IslandState.aiUsageMode) }
 
+    function openKeybinds() { setMode(IslandState.keybindsMode) }
+
     function openControlCenter() {
         setMode(IslandState.controlCenterMode)
     }
@@ -215,6 +218,15 @@ QtObject {
     function openWallhaven() { setMode(IslandState.wallhavenMode) }
     function openCalendar() { setMode(IslandState.calendarMode) }
     function backFromCalendar() { setMode(IslandState.calendarReturnMode) }
+    // The Calendar hands over its selected day, quote and card height: Back restores the first two and
+    // the Forecast matches the third.
+    function openForecast(dateKey, quote, cardHeight) {
+        IslandState.calendarSelectedKey = dateKey || ""
+        IslandState.calendarQuote = quote || null
+        IslandState.calendarCardHeight = cardHeight || 0
+        setMode(IslandState.forecastMode)
+    }
+    function backFromForecast() { setMode(IslandState.calendarMode) }
 
     signal wifiQrRequested(string ssid, string iface, string monitorName)
 

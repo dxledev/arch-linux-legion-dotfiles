@@ -100,3 +100,6 @@ alias random-pokemon='pokemon-colorscripts -r -b'
 
 # browser
 alias firefox='~/bin/launch-firefox'
+
+# open other drive
+alias mnt='open /mnt/storage'

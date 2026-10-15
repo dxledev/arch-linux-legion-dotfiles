@@ -34,6 +34,8 @@ QtObject {
     readonly property int calendarMode: 23
     readonly property int layoutSwitcherMode: 24
     readonly property int workspaceAxisMode: 25
+    readonly property int keybindsMode: 26
+    readonly property int forecastMode: 27
 
     // =========================================================
     // STATE
@@ -42,6 +44,12 @@ QtObject {
     property int mode: defaultMode
     property int systemReturnMode: navigationMode
     property int calendarReturnMode: navigationMode
+    // Day (yyyy-MM-dd) the Calendar and its Forecast panel share. Opening the Forecast stores the
+    // calendar's selection; Back reopens the calendar on it and clears it. "" means today.
+    property string calendarSelectedKey: ""
+    property var calendarQuote: null
+    // Height of the calendar's month card, so the Forecast fills the same space. 0 until known.
+    property real calendarCardHeight: 0
     property string panelMonitorName: ""
     property string settingsSection: ""
 
@@ -49,7 +57,14 @@ QtObject {
     // Expanded island's workspace section (persistent and special workspaces, overview toggles).
     // Only meaningful while the island is expanded; any other mode closes it.
     property bool workspacePanelOpen: false
-    onModeChanged: if (mode !== expandedMode) workspacePanelOpen = false
+    onModeChanged: {
+        if (mode !== expandedMode) workspacePanelOpen = false
+        if (mode !== calendarMode && mode !== forecastMode) {
+            calendarSelectedKey = ""
+            calendarQuote = null
+            calendarCardHeight = 0
+        }
+    }
     property bool returnToExpanded: false
     property bool ignoreNextIslandTap: false
     // Media opened from a click: stay open until the cursor has entered the panel once.
@@ -102,5 +117,7 @@ QtObject {
         mode === wallhavenMode ||
         mode === calendarMode ||
         mode === layoutSwitcherMode ||
-        mode === workspaceAxisMode
+        mode === workspaceAxisMode ||
+        mode === keybindsMode ||
+        mode === forecastMode
 }

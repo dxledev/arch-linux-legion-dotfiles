@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+island_root="$(/usr/bin/realpath "$test_dir/../..")"
+test_root="$(/usr/bin/mktemp -d /tmp/island-keybinds.XXXXXX)"
+
+fail() {
+    printf '%s\n' "$*" >&2
+    [[ ! -f "$test_root/views.log" ]] || /usr/bin/tail -80 "$test_root/views.log" >&2
+    [[ ! -f "$test_root/dispatch.log" ]] || /usr/bin/python3 -c 'import pathlib,sys; print(repr(pathlib.Path(sys.argv[1]).read_bytes()))' "$test_root/dispatch.log" >&2
+    printf 'Fixture retained at %s\n' "$test_root" >&2
+    exit 1
+}
+
+cleanup() {
+    local status="$?"
+    if (( status == 0 )); then
+        /usr/bin/rm -rf "$test_root"
+    fi
+}
+trap cleanup EXIT
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/cache" "$test_root/config"
+/usr/bin/chmod 700 "$test_root/runtime"
+cat > "$test_root/mode.lua" <<'LUA'
+hl.bind("SUPER + ALT + K", hl.dsp.exec_cmd("fixture-island-command"), { description = "Island Panel" })
+hl.bind("SUPER + ALT + X", hl.dsp.exec_cmd("fixture-removed-command"), { description = "Island Removed" })
+hl.unbind("SUPER + ALT + X")
+LUA
+
+cat > "$test_root/binds.json" <<'JSON'
+[
+  {"modmask":64,"key":"H","keycode":0,"submap":"","release":false,"longPress":false,"mouse":false,"description":"Global Window Left","dispatcher":"movefocus","arg":"l"},
+  {"modmask":72,"key":"K","keycode":0,"submap":"","release":false,"longPress":false,"mouse":false,"description":"Island Panel","dispatcher":"__lua","arg":"731"},
+  {"modmask":72,"key":"X","keycode":0,"submap":"","release":false,"longPress":false,"mouse":false,"description":"Island Removed","dispatcher":"exec","arg":"stale"},
+  {"modmask":72,"key":"B","keycode":0,"submap":"","release":false,"longPress":false,"mouse":false,"description":"   ","dispatcher":"exec","arg":"blank"},
+  {"modmask":72,"key":"N","keycode":0,"submap":"","release":false,"longPress":false,"mouse":false,"dispatcher":"exec","arg":"no-description"}
+]
+JSON
+
+cat > "$test_root/hyprctl" <<'HYPRCTL'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == -j && "${2:-}" == binds && $# == 2 ]]; then
+    /usr/bin/cat "$KEYBINDS_BINDS_FILE"
+    exit 0
+fi
+if [[ "${1:-}" == dispatch ]]; then
+    printf '%s\0' "$@" >> "$KEYBINDS_DISPATCH_LOG"
+    printf '\n' >> "$KEYBINDS_DISPATCH_LOG"
+    if [[ -n "${KEYBINDS_DISPATCH_RESPONSE:-}" ]]; then
+        printf '%s\n' "$KEYBINDS_DISPATCH_RESPONSE"
+    else
+        printf 'ok\n'
+    fi
+    exit 0
+fi
+printf 'unexpected fake hyprctl invocation\n' >&2
+exit 2
+HYPRCTL
+/usr/bin/chmod +x "$test_root/hyprctl"
+
+export ISLAND_KEYBINDS_HYPRCTL="$test_root/hyprctl"
+export ISLAND_KEYBINDS_CONFIG="$test_root/mode.lua"
+export KEYBINDS_BINDS_FILE="$test_root/binds.json"
+export KEYBINDS_DISPATCH_LOG="$test_root/dispatch.log"
+
+list="$("$island_root/integration/keybinds" list)" || fail 'Could not list fixture keybinds.'
+/usr/bin/jq -e '
+    length == 3
+    and all(.[]; (.description | test("\\S")))
+    and any(.[]; .description == "Island Panel" and .source == "Island" and .shortcut == "SUPER + ALT + K")
+    and any(.[]; .description == "Global Window Left" and .source == "Global" and .shortcut == "SUPER + H")
+    and any(.[]; .description == "Island Removed" and .source == "Global")
+    and all(.[]; (.id | type == "string" and length > 0))
+' <<< "$list" >/dev/null || fail 'List did not filter descriptions or classify active Island binds.'
+
+island_id="$(/usr/bin/jq -r '.[] | select(.description == "Island Panel") | .id' <<< "$list")"
+global_id="$(/usr/bin/jq -r '.[] | select(.description == "Global Window Left") | .id' <<< "$list")"
+reordered="$(/usr/bin/jq 'reverse' "$test_root/binds.json")"
+printf '%s\n' "$reordered" > "$test_root/binds.json"
+reordered_list="$("$island_root/integration/keybinds" list)" || fail 'Could not relist reordered fixture binds.'
+[[ "$(/usr/bin/jq -r '.[] | select(.description == "Island Panel") | .id' <<< "$reordered_list")" == "$island_id" ]] \
+    || fail 'An unchanged keybind received a different ID after ordering changed.'
+
+dry_command="$("$island_root/integration/keybinds" run "$global_id" --dry-run)" || fail 'Global dry-run failed.'
+/usr/bin/jq -e --arg helper "$test_root/hyprctl" \
+    '. == [$helper, "dispatch", "--", "movefocus", "l"]' <<< "$dry_command" >/dev/null \
+    || fail 'Global dry-run returned a different dispatch argv.'
+[[ ! -s "$test_root/dispatch.log" ]] || fail 'Dry-run dispatched a keybind.'
+
+"$island_root/integration/keybinds" run "$global_id" >/dev/null || fail 'Global keybind did not run.'
+"$island_root/integration/keybinds" run "$island_id" >/dev/null || fail 'Lua keybind did not run.'
+/usr/bin/python3 - "$test_root/dispatch.log" <<'PY' || fail 'Dispatch argv did not preserve normal and Lua routes.'
+import pathlib
+import sys
+
+records = [record.split(b"\0")[:-1] for record in pathlib.Path(sys.argv[1]).read_bytes().splitlines()]
+assert records == [
+    [b"dispatch", b"--", b"movefocus", b"l"],
+    [b"dispatch", b"debug.getregistry()[731]"],
+], records
+PY
+
+/usr/bin/jq 'map(if .description == "Island Panel" then .arg = "846" else . end)' \
+    "$test_root/binds.json" > "$test_root/updated-ref.json"
+/usr/bin/mv "$test_root/updated-ref.json" "$test_root/binds.json"
+updated_list="$("$island_root/integration/keybinds" list)" || fail 'Could not reload the updated Lua callback.'
+updated_id="$(/usr/bin/jq -r '.[] | select(.description == "Island Panel") | .id' <<< "$updated_list")"
+[[ "$updated_id" == "$island_id" ]] || fail 'Changing a Lua registry ref changed the stable keybind ID.'
+"$island_root/integration/keybinds" run "$island_id" >/dev/null || fail 'The refreshed Lua callback did not run.'
+/usr/bin/python3 - "$test_root/dispatch.log" <<'PY' || fail 'A stable Lua keybind ID did not resolve its current registry ref.'
+import pathlib
+import sys
+
+records = [record.split(b"\0")[:-1] for record in pathlib.Path(sys.argv[1]).read_bytes().splitlines()]
+assert records[-1] == [b"dispatch", b"debug.getregistry()[846]"], records[-1]
+PY
+
+before_count="$(/usr/bin/python3 -c 'import pathlib,sys; print(len(pathlib.Path(sys.argv[1]).read_bytes().splitlines()))' "$test_root/dispatch.log")"
+/usr/bin/jq 'map(select(.description != "Island Panel"))' "$test_root/binds.json" > "$test_root/without-island.json"
+/usr/bin/mv "$test_root/without-island.json" "$test_root/binds.json"
+if "$island_root/integration/keybinds" run "$island_id" >/dev/null 2>&1; then
+    fail 'A removed keybind was dispatched from a stale ID.'
+fi
+after_count="$(/usr/bin/python3 -c 'import pathlib,sys; print(len(pathlib.Path(sys.argv[1]).read_bytes().splitlines()))' "$test_root/dispatch.log")"
+[[ "$after_count" == "$before_count" ]] || fail 'A stale keybind ID reached the dispatcher.'
+
+if KEYBINDS_DISPATCH_RESPONSE='unknown dispatcher' \
+    "$island_root/integration/keybinds" run "$global_id" >/dev/null 2>&1; then
+    fail 'A dispatcher error printed with exit status zero was treated as success.'
+fi
+
+cat > "$test_root/fixture-list" <<'LIST'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    list) /usr/bin/cat "$KEYBINDS_VIEW_ENTRIES" ;;
+    run)
+        [[ $# == 2 ]] || exit 2
+        printf '%s\n' "$2" >> "$KEYBINDS_RUN_LOG"
+        if [[ "$2" == failure-id ]]; then
+            printf 'synthetic dispatch failure\n' >&2
+            exit 1
+        fi
+        ;;
+    *) exit 2 ;;
+esac
+LIST
+/usr/bin/chmod +x "$test_root/fixture-list"
+cat > "$test_root/view-entries.json" <<'JSON'
+[
+  {"id":"global-id","description":"Global Window Left","shortcut":"SUPER + H","source":"Global","dispatcher":"movefocus","args":"l"},
+  {"id":"island-id","description":"Island Panel","shortcut":"SUPER + ALT + K","source":"Island","dispatcher":"__lua","args":"731"},
+  {"id":"failure-id","description":"Failing Shortcut","shortcut":"SUPER + F","source":"Island","dispatcher":"exec","args":"failure"}
+]
+JSON
+/usr/bin/sed "s|\"../../|\"file://$test_dir/../../|g" "$test_dir/keybinds-views.qml" > "$test_root/views.qml"
+
+if ! QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+    QML_IMPORT_PATH="$test_dir/../../../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+    XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" \
+    ISLAND_STATE_DIR="$test_root/state" SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" \
+    ISLAND_KEYBINDS_SCRIPT="$test_root/fixture-list" KEYBINDS_VIEW_ENTRIES="$test_root/view-entries.json" \
+    KEYBINDS_RUN_LOG="$test_root/view-run.log" \
+    /usr/bin/dbus-run-session -- /usr/bin/timeout 20s /usr/bin/quickshell -p "$test_root/views.qml" \
+    > "$test_root/views.log" 2>&1; then
+    fail 'Could not run Keybinds panel views.'
+fi
+/usr/bin/rg -q 'PASS: keybinds search, descriptions' "$test_root/views.log" \
+    || fail 'Keybinds panel view assertions failed.'
+if /usr/bin/rg -q 'FAIL:|ERROR|ReferenceError|TypeError|Binding loop|Cannot assign' "$test_root/views.log"; then
+    fail 'Keybinds panel logged an error.'
+fi
+/usr/bin/python3 - "$test_root/view-run.log" <<'PY' || fail 'Keyboard, failure, and pointer activation did not execute the expected keybinds.'
+import pathlib
+import sys
+
+assert pathlib.Path(sys.argv[1]).read_text().splitlines() == ["island-id", "failure-id", "global-id"]
+PY
+
+printf 'PASS: keybind listing and source classification, stable IDs, safe dispatch and stale-ID refusal, offscreen search and panel activation\n'

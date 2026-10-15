@@ -3,9 +3,11 @@ import QtQuick
 import Quickshell
 import "../components"
 import "../core"
+import "../island"
 import "../services"
 import "../styles"
 import "../services/CalendarEvents.js" as Events
+import "../services/WeatherData.js" as Weather
 
 // Month calendar with holidays and global events, beside the selected day's events and the
 // Dashboard's tasks. Opens on the current month with today selected.
@@ -28,7 +30,7 @@ FocusScope {
 
     readonly property date now: clock.date
     readonly property string todayKey: DashboardTasksService.dateKey(now)
-    property date selectedDate: new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    property date selectedDate: initialDate()
     readonly property int viewYear: selectedDate.getFullYear()
     readonly property int viewMonth: selectedDate.getMonth()
     readonly property string selectedKey: DashboardTasksService.dateKey(selectedDate)
@@ -42,12 +44,19 @@ FocusScope {
     implicitWidth: panelPadding * 2 + gridWidth + cardPadding * 2 + 24 + sidePaneWidth
     implicitHeight: panelPadding * 2 + content.implicitHeight
     // A fresh motivational quote each time the panel opens (QuoteService steps on every take()).
-    property var quote: null
+    property var quote: IslandState.calendarQuote
     readonly property string quoteText: quote ? "\u201C" + quote.q + "\u201D  \u2014 " + quote.a : ""
 
+    // Back from the Forecast reopens on the day that was open there, with the quote it had.
     Component.onCompleted: {
-        quote = QuoteService.take()
+        if (!quote) quote = QuoteService.take()
         forceActiveFocus()
+    }
+
+    function initialDate() {
+        const parts = IslandState.calendarSelectedKey.split("-").map(Number)
+        const restored = parts.length === 3 ? new Date(parts[0], parts[1] - 1, parts[2]) : null
+        return restored && !isNaN(restored.getTime()) ? restored : new Date(now.getFullYear(), now.getMonth(), now.getDate())
     }
 
     function select(date) {
@@ -65,6 +74,14 @@ FocusScope {
     }
 
     function goToday() { select(now) }
+
+    // Forecasts cover today and the days after it, as far as Open-Meteo reaches.
+    readonly property int selectedOffset: daysFromToday(selectedDate)
+    readonly property bool forecastAvailable: selectedOffset >= 0 && selectedOffset < Weather.forecastDays
+
+    function openForecast() {
+        if (forecastAvailable) IslandController.openForecast(selectedKey, quote, monthCard.height)
+    }
 
     function daysFromToday(date) {
         const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -118,6 +135,7 @@ FocusScope {
         case Qt.Key_PageDown: root.shiftMonths(1); break
         case Qt.Key_Home:
         case Qt.Key_T: root.goToday(); break
+        case Qt.Key_F: root.openForecast(); break
         case Qt.Key_N:
         case Qt.Key_A: taskField.forceActiveFocus(); break
         default: handled = false
@@ -384,7 +402,7 @@ FocusScope {
                     }
                     UiText {
                         objectName: "calendar-day-title"
-                        width: parent.width
+                        width: parent.width - forecastButton.width - 8
                         text: Qt.formatDate(root.selectedDate, "dddd")
                         elide: Text.ElideRight
                         font.pixelSize: 26
@@ -395,6 +413,56 @@ FocusScope {
                         text: Qt.formatDate(root.selectedDate, "MMMM d, yyyy")
                         font.pixelSize: 13
                         color: Theme.textSecondary
+                    }
+                }
+
+                Rectangle {
+                    id: forecastButton
+                    objectName: "calendar-forecast-button"
+                    x: parent.width - 20 - width
+                    y: 38
+                    width: forecastRow.implicitWidth + 24
+                    height: 30
+                    radius: 15
+                    opacity: root.forecastAvailable ? 1 : 0.4
+                    color: forecastTap.pressed && root.forecastAvailable ? Theme.buttonPressed
+                        : forecastHover.hovered && root.forecastAvailable ? Theme.surfaceVariant : Theme.card
+                    border.width: forecastButton.activeFocus ? 2 : 0
+                    border.color: Theme.accent
+                    activeFocusOnTab: true
+                    Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Forecast for " + Qt.formatDate(root.selectedDate, "dddd, MMMM d")
+                    Accessible.onPressAction: root.openForecast()
+                    Keys.onReturnPressed: root.openForecast()
+                    Keys.onSpacePressed: root.openForecast()
+                    Row {
+                        id: forecastRow
+                        anchors.centerIn: parent
+                        spacing: 6
+                        SvgIcon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: "../assets/icons/weather-cloud-sun.svg"
+                            size: 16
+                            color: Theme.textPrimary
+                        }
+                        UiText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Forecast"
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            color: Theme.textPrimary
+                        }
+                    }
+                    HoverHandler {
+                        id: forecastHover
+                        cursorShape: root.forecastAvailable ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    }
+                    TapHandler { id: forecastTap; enabled: root.forecastAvailable; onTapped: root.openForecast() }
+                    IslandTooltip {
+                        parent: forecastButton
+                        visible: forecastHover.hovered && !root.forecastAvailable
+                        text: root.selectedOffset < 0 ? "Forecasts start today" : "Forecasts reach " + (Weather.forecastDays - 1) + " days ahead"
                     }
                 }
 
