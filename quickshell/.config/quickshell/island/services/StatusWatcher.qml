@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import "../core"
+import "../island"
 
 Item {
     id: root
@@ -32,6 +33,8 @@ Item {
         const type = parts[0];
         const value = Number(parts[1]);
         if (!Number.isFinite(value) || value < (type === "volume" ? -1 : 0) || value > (type === "volume" ? 150 : 100)) return;
+        // The Control Center's own sliders show these levels, so the event is dropped on every monitor.
+        if ((type === "volume" || type === "brightness") && IslandState.mode === IslandState.controlCenterMode) return;
         if (type === "volume") {
             StatusManager.show({mode: "volume", icon: volumeIcon(value), title: value < 0 ? "Muted" : value + "%", value: value});
         } else if (type === "brightness") {

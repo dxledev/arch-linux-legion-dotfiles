@@ -62,12 +62,14 @@ ShellRoot {
                 waitOpen();
                 compare(StatusManager.mode, "confirm");
                 {
-                    // The Delete label's right gap equals the question's left gap.
+                    // The right edge is tucked in by half a button padding: the pill ends nearer the edge than the question
+                    // starts, and the label ends further in.
                     const accept = root.named(island.statusArea, "confirm-accept");
                     const question = root.named(island.statusArea, "confirm-title");
-                    const labelRight = accept.mapToItem(island.statusArea, accept.width - accept.padding, 0).x;
+                    const labelGap = island.statusArea.width - accept.mapToItem(island.statusArea, accept.width - accept.padding, 0).x;
+                    const pillGap = island.statusArea.width - accept.mapToItem(island.statusArea, accept.width, 0).x;
                     const questionLeft = question.mapToItem(island.statusArea, 0, 0).x;
-                    compare(island.statusArea.width - labelRight, questionLeft, "confirmation padding is even");
+                    verify(pillGap < questionLeft && questionLeft < labelGap, "confirmation padding " + pillGap + "/" + labelGap + "/" + questionLeft);
                 }
                 clickButton("confirm-cancel");
                 verify(!StatusManager.confirming, "cancel resolves");

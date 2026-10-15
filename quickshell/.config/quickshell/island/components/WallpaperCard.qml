@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell.Widgets
 import "../styles"
 
@@ -9,7 +10,7 @@ Rectangle {
 
     property string imageSource: ""
     property bool selected: false
-    // The applied wallpaper is dimmed; the keyboard selection gets the outline.
+    // The applied wallpaper is blurred, dimmed and labelled "Active"; the keyboard selection gets the outline.
     property bool active: false
     // Marked for deletion: tinted with the danger colour and badged with a check.
     property bool marked: false
@@ -57,6 +58,16 @@ Rectangle {
             sourceSize.width: root.width * 2
 
             sourceSize.height: root.height * 2
+
+            // Blurring fades the texture's edges to transparent; the overscan crops that fringe.
+            scale: root.active ? 1.4 : 1
+            layer.enabled: root.active
+            layer.effect: MultiEffect {
+                autoPaddingEnabled: false
+                blurEnabled: true
+                blur: 1
+                blurMax: 32
+            }
         }
     }
 
@@ -71,6 +82,25 @@ Rectangle {
         color: active
            ? Theme.wallpaperOverlay
            : "transparent"
+    }
+
+    // A dark chip like the star badge's keeps the label readable over any wallpaper and theme.
+    Rectangle {
+        objectName: "wallpaper-active-label"
+        anchors.centerIn: parent
+        visible: root.active
+        width: activeText.implicitWidth + 24
+        height: activeText.implicitHeight + 10
+        radius: height / 2
+        color: Qt.rgba(0, 0, 0, 0.55)
+        UiText {
+            id: activeText
+            anchors.centerIn: parent
+            text: "Active"
+            color: "white"
+            font.pixelSize: 13
+            font.bold: true
+        }
     }
 
     // Selection outline
