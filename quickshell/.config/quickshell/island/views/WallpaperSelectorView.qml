@@ -367,6 +367,10 @@ FocusScope {
                 imageSource: parent.thumbnail
                 selected: index === root.selectedIndex
                 active: path === ThemeService.wallpaper
+                blurActive: WallpaperService.activeBlur
+                blurStrength: WallpaperService.blurStrength
+                blurRadius: WallpaperService.blurRadius
+                blurPasses: WallpaperService.blurPasses
                 marked: root.marked[path] === true
                 favorite: WallpaperService.favoriteSet[path] === true
                 favoriteHint: !root.deleteMode && !parent.renaming

@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Notifications
+import "../island"
 
 Singleton {
     id: root
@@ -119,10 +120,29 @@ Singleton {
         entry.destroy();
     }
 
+    // Spotify announces every track change. While the media panel is open, or the floating lyrics card
+    // is (and the lyrics are not also projected onto the island clock), the player is already on
+    // screen, so the popup would only repeat it. The notification still goes to the history.
+    readonly property string mediaNotificationApp: "spotify-media-controls"
+    function mediaNotificationCovered(notification) {
+        if (notification.appName !== mediaNotificationApp) return false;
+        if (IslandState.mode === IslandState.mediaControlsMode) return true;
+        return IslandState.lyricsOpen && IslandState.lyricsClockMonitor === "";
+    }
+
     function receive(notification) {
         notification.tracked = true;
         const existing = entries.find(entry => entry.notificationId === notification.id);
         if (existing) { promote(existing); return; }
+        if (mediaNotificationCovered(notification)) {
+            updateHistory({
+                notification: notification, notificationId: notification.id, app: notification.appName,
+                summary: notification.summary, body: notification.body, icon: getAppIcon(notification),
+                image: imageSource(notification.image)
+            });
+            notification.tracked = false;
+            return;
+        }
         const entry = notificationComponent.createObject(root, {
             notification: notification, notificationId: notification.id, monitorName: popupMonitor()
         });

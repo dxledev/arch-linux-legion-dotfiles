@@ -34,6 +34,15 @@ SettingsPanel {
         }
     }
     SettingSection {
+        title: "Active wallpaper"
+        iconSource: "../assets/icons/image.svg"
+        SettingToggle { id: blurToggle; text: "Blur active wallpaper"; setting: "wallpaperActiveBlur" }
+        // The ranges are capped so the blur stays cheap: each pass re-renders the card.
+        SettingSlider { visible: blurToggle.checked; label: "Blur strength"; setting: "wallpaperBlurStrength"; minimum: 20; maximum: 100; step: 5; suffix: "%" }
+        SettingSlider { visible: blurToggle.checked; label: "Blur radius"; setting: "wallpaperBlurRadius"; minimum: 8; maximum: 48; step: 4 }
+        SettingSlider { visible: blurToggle.checked; label: "Blur passes"; setting: "wallpaperBlurPasses"; minimum: 1; maximum: 3; suffix: "" }
+    }
+    SettingSection {
         title: "Animation"
         iconSource: "../assets/icons/sparkles.svg"
         SettingChoice {

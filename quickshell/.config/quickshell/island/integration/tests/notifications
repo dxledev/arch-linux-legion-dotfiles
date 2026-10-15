@@ -73,6 +73,11 @@ notify() {
         org.freedesktop.Notifications Notify susssasa{sv}i 'Island Test' "$1" dialog-information "$2" "$3" "${@:4}"
 }
 
+notify_app() {
+    /usr/bin/busctl --user call -- org.freedesktop.Notifications /org/freedesktop/Notifications \
+        org.freedesktop.Notifications Notify susssasa{sv}i "$1" 0 dialog-information "$2" "$3" 0 0 0
+}
+
 wait_for() {
     local attempt
     for (( attempt=0; attempt<60; attempt++ )); do
@@ -103,6 +108,32 @@ start_fixture() {
         /usr/bin/sleep 0.05
     done
     fail 'Notification fixture did not become ready.'
+}
+
+check_media() {
+    # Spotify's track announcements are skipped while the media panel, or lyrics that are not already on
+    # the island clock, show the player; they still reach the history, and other apps are unaffected.
+    ipc media panel
+    notify_app spotify-media-controls 'Track A' 'Artist' >/dev/null
+    wait_for '.history == 1 and .popups == 0'
+    notify_app Other 'Not media' 'Shown' >/dev/null
+    wait_for '.history == 2 and .popups == 1'
+    ipc dismiss
+    ipc clear
+    wait_for '.popups == 0 and .history == 0'
+    ipc media lyrics
+    notify_app spotify-media-controls 'Track B' 'Artist' >/dev/null
+    wait_for '.history == 1 and .popups == 0'
+    ipc media lyrics-clock
+    notify_app spotify-media-controls 'Track C' 'Artist' >/dev/null
+    wait_for '.history == 2 and .popups == 1'
+    ipc dismiss
+    ipc media none
+    notify_app spotify-media-controls 'Track D' 'Artist' >/dev/null
+    wait_for '.history == 3 and .popups == 1'
+    ipc dismiss
+    ipc clear
+    wait_for '.popups == 0 and .history == 0'
 }
 
 check_restart() {
@@ -237,6 +268,7 @@ run_session() {
     wait_for '.popups == 0 and .history == 0 and .unread == 0'
     wait_store 'length == 0'
     check_markup
+    check_media
     check_restart
 }
 
@@ -259,5 +291,5 @@ else
         /usr/bin/cat "$test_root/views.log" >&2
         fail 'Notification fixture logged errors.'
     fi
-    printf 'PASS: notification settings, dry-run, private D-Bus delivery, Pango markup, animation, monitor routing, stacking, replacements, hover pause, expiry, dismissal, actions, history, and shared history persistence\n'
+    printf 'PASS: notification settings, dry-run, private D-Bus delivery, Pango markup, animation, monitor routing, Spotify announcements hidden behind the media panel and lyrics card, stacking, replacements, hover pause, expiry, dismissal, actions, history, and shared history persistence\n'
 fi

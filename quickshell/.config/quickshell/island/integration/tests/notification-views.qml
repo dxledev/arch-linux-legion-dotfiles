@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "../../island"
 import "../../windows"
 import "../../services"
 import "../../styles"
@@ -99,6 +100,11 @@ ShellRoot {
         function moveAway(): void { NotificationService.entries[0].monitorName = "other-monitor"; }
         function moveBack(): void { NotificationService.entries[0].monitorName = window.monitorName; }
         function clear(): void { NotificationService.clear(); }
+        function media(state: string): void {
+            IslandState.mode = state === "panel" ? IslandState.mediaControlsMode : IslandState.defaultMode;
+            IslandState.lyricsOpen = state === "lyrics" || state === "lyrics-clock";
+            IslandState.lyricsClockMonitor = state === "lyrics-clock" ? window.monitorName : "";
+        }
         function removeFirst(): void { NotificationService.remove(0); }
         function expanded(): void { window.islandBottom = 200; window.islandWidth = 560; }
         function settings(): void {

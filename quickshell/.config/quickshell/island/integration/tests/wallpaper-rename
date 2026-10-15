@@ -77,6 +77,21 @@ if "$controller" setting wallpaperFavoritesLimit 5 2>/dev/null; then printf 'FAI
 "$controller" setting wallpaperFavoritesLimit 10 >/dev/null
 "$controller" ui | /usr/bin/jq -e '.settings.wallpaperFavoritesOnly == true and .settings.wallpaperSort == "added-desc"' >/dev/null
 
+# The active wallpaper's blur is a toggle plus clamped strength, radius and pass count.
+"$controller" ui | /usr/bin/jq -e '.settings.wallpaperActiveBlur == true and .settings.wallpaperBlurStrength == 100 and .settings.wallpaperBlurRadius == 32 and .settings.wallpaperBlurPasses == 1' >/dev/null
+"$controller" setting wallpaperActiveBlur false >/dev/null
+if "$controller" setting wallpaperActiveBlur maybe 2>/dev/null; then printf 'FAIL: invalid blur toggle accepted\n' >&2; exit 1; fi
+for pair in wallpaperBlurStrength:19 wallpaperBlurStrength:101 wallpaperBlurRadius:7 wallpaperBlurRadius:49 wallpaperBlurPasses:0 wallpaperBlurPasses:4 wallpaperBlurPasses:two; do
+    if "$controller" setting "${pair%%:*}" "${pair#*:}" 2>/dev/null; then printf 'FAIL: %s accepted\n' "$pair" >&2; exit 1; fi
+done
+"$controller" setting wallpaperBlurStrength 20 >/dev/null
+"$controller" setting wallpaperBlurRadius 48 >/dev/null
+"$controller" setting wallpaperBlurPasses 3 >/dev/null
+"$controller" setting wallpaperActiveBlur true >/dev/null
+"$controller" setting wallpaperBlurStrength 100 >/dev/null
+"$controller" setting wallpaperBlurRadius 32 >/dev/null
+"$controller" setting wallpaperBlurPasses 1 >/dev/null
+
 # Renaming an unapplied wallpaper keeps the extension and leaves the applied one alone.
 "$controller" rename-wallpaper "$static_dir/s2.png" Sunset >/dev/null
 "$controller" ui | /usr/bin/jq -e --arg a "$static_dir/Sunset.png" --arg b "$static_dir/s4.png" '.settings.wallpaperFavorites | sort == ([$a, $b] | sort)' >/dev/null

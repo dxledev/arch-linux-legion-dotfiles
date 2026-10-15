@@ -47,6 +47,17 @@ Singleton {
         const value = Math.round(Number(ThemeService.settings.wallpaperFavoritesLimit));
         return isFinite(value) ? Math.max(5, Math.min(value, 20)) : 10;
     }
+    // The applied wallpaper's blur. Every value is clamped here as well as when saved, so a hand-edited
+    // settings file cannot make the blur expensive: each pass re-renders the card, and the radius sets
+    // how many samples every pass takes.
+    function clampedSetting(key, low, high, fallback) {
+        const value = Math.round(Number(ThemeService.settings[key]));
+        return isFinite(value) ? Math.max(low, Math.min(value, high)) : fallback;
+    }
+    readonly property bool activeBlur: ThemeService.settings.wallpaperActiveBlur ?? true
+    readonly property real blurStrength: clampedSetting("wallpaperBlurStrength", 20, 100, 100) / 100
+    readonly property int blurRadius: clampedSetting("wallpaperBlurRadius", 8, 48, 32)
+    readonly property int blurPasses: clampedSetting("wallpaperBlurPasses", 1, 3, 1)
     // Shown briefly by the selector when a star is refused because the limit is reached.
     property string favoritesNotice: ""
 

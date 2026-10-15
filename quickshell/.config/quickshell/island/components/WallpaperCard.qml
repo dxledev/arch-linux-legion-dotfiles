@@ -12,12 +12,20 @@ Rectangle {
     property bool selected: false
     // The applied wallpaper is blurred, dimmed and labelled "Active"; the keyboard selection gets the outline.
     property bool active: false
+    // Blur of the applied wallpaper. The caller clamps these (see WallpaperService); the passes are
+    // chained layers, each one blurring the previous result again.
+    property bool blurActive: true
+    property real blurStrength: 1
+    property int blurRadius: 32
+    property int blurPasses: 1
     // Marked for deletion: tinted with the danger colour and badged with a check.
     property bool marked: false
     // Favourite badge, drawn top-left (the deletion mark owns top-right): filled when favourited,
     // an outline while the pointer is over the card or it is selected, hidden otherwise.
     property bool favorite: false
     property bool favoriteHint: false
+
+    readonly property bool blurShown: active && blurActive
 
     width: 160
     height: 100
@@ -36,37 +44,37 @@ Rectangle {
         radius: root.radius
 
 
-        Image {
-
+        // Passes two and three wrap the first; a layer that is off draws its content untouched. Each wrapper is
+        // scaled up a little so its own blur fringe falls outside the card.
+        Item {
+            id: outerPass
             anchors.fill: parent
+            scale: root.blurShown && root.blurPasses >= 3 ? 1.2 : 1
+            layer.enabled: root.blurShown && root.blurPasses >= 3
+            layer.effect: MultiEffect { autoPaddingEnabled: false; blurEnabled: true; blur: root.blurStrength; blurMax: root.blurRadius }
 
+            Item {
+                id: middlePass
+                anchors.fill: parent
+                scale: root.blurShown && root.blurPasses >= 2 ? 1.2 : 1
+                layer.enabled: root.blurShown && root.blurPasses >= 2
+                layer.effect: MultiEffect { autoPaddingEnabled: false; blurEnabled: true; blur: root.blurStrength; blurMax: root.blurRadius }
 
-            source: root.imageSource
+                Image {
+                    anchors.fill: parent
+                    source: root.imageSource
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                    smooth: true
+                    sourceSize.width: root.width * 2
+                    sourceSize.height: root.height * 2
 
-
-            fillMode: Image.PreserveAspectCrop
-
-
-            asynchronous: true
-
-            cache: true
-
-
-            smooth: true
-
-
-            sourceSize.width: root.width * 2
-
-            sourceSize.height: root.height * 2
-
-            // Blurring fades the texture's edges to transparent; the overscan crops that fringe.
-            scale: root.active ? 1.4 : 1
-            layer.enabled: root.active
-            layer.effect: MultiEffect {
-                autoPaddingEnabled: false
-                blurEnabled: true
-                blur: 1
-                blurMax: 32
+                    // Blurring fades the texture's edges to transparent; the overscan crops that fringe.
+                    scale: root.blurShown ? 1.4 : 1
+                    layer.enabled: root.blurShown
+                    layer.effect: MultiEffect { autoPaddingEnabled: false; blurEnabled: true; blur: root.blurStrength; blurMax: root.blurRadius }
+                }
             }
         }
     }
