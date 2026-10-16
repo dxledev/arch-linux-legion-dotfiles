@@ -52,6 +52,8 @@ QtObject {
     property color dangerHover: "#DC2626"
     property color warning: "#F59E0B"
     property color success: "#22C55E"
+    // Recording indicators stay red in every theme.
+    property color recording: "#EF4444"
 
     // Inputs / sliders
     property color sliderBackground: "#303030"

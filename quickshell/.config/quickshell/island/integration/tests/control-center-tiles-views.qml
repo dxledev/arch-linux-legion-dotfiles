@@ -21,6 +21,19 @@ ShellRoot {
         if (!condition) throw new Error(message);
     }
 
+    // Whether any text inside the cards is cut short.
+    function truncatedNames(items) {
+        const found = [];
+        const walk = item => {
+            if (item.truncated === true) found.push(item.text + " " + Math.round(item.implicitWidth) + ">" + Math.round(item.width));
+            for (const child of item.children) walk(child);
+        };
+        items.forEach(walk);
+        return found.join("|");
+    }
+
+    function truncated(items) { return truncatedNames(items) !== ""; }
+
     function named(item, objectName) {
         if (!item) return null;
         if (item.objectName === objectName) return item;
@@ -88,7 +101,7 @@ ShellRoot {
             objectName: "control-center-loader"
             x: 220
             y: 24
-            width: 560
+            width: 630
             source: "../../views/ControlCenterView.qml"
             onLoaded: item.objectName = "control-center-view"
         }
@@ -173,8 +186,64 @@ ShellRoot {
                     const sunshine = root.named(controlCenter, "sunshine-control-card");
                     root.check(wifi && bluetooth && microphone && nightlight && idleLock && media && sunshine,
                                "All seven Control Center tiles render");
-                    root.check(sunshine.width > wifi.width * 2.5 && Math.abs(sunshine.x - wifi.x) < 1,
-                               "Sunshine spans the last row instead of sitting alone in one column");
+                    const bell = root.named(controlCenter, "notifications-button");
+                    root.check(bell, "Notifications button renders");
+                    const timerCard = root.named(controlCenter, "timer-control-card");
+                    root.check(timerCard, "Timer card renders");
+                    root.check(Math.abs(sunshine.x - wifi.x) < 1 && Math.abs(bell.x + bell.width - (media.x + media.width)) < 1,
+                               "Sunshine, Timer and the notifications button fill the last row edge to edge: " + [sunshine.x, sunshine.width, timerCard.x, timerCard.width, bell.x, bell.width, wifi.x, media.x, media.width].map(Math.round).join(","));
+                    root.check(timerCard.x > sunshine.x + sunshine.width && bell.x > timerCard.x + timerCard.width
+                                   && Math.abs(bell.y - sunshine.y) < 1 && Math.abs(timerCard.y - sunshine.y) < 1,
+                               "Timer sits between Sunshine and the notifications button");
+                    root.check(!root.truncated([sunshine, timerCard, bell]), "Nothing in the last row is cut off (idle): " + root.truncatedNames([sunshine, timerCard, bell]));
+                    // The timer card: a clock until a timer runs, then a lit icon with a draining ring that pauses it.
+                    root.check(timerCard.title === "Timer" && timerCard.subtitle === "Off" && !timerCard.active && timerCard.progress < 0
+                                   && String(timerCard.iconSource).endsWith("clock.svg") && !root.named(timerCard, "control-card-progress").visible,
+                               "With no timer the card is a plain clock");
+                    root.check(TimerService.start(120, "", false), "Start a timer");
+                    root.check(timerCard.title === "Active Timer" && /^0[12]:\d\d$/.test(timerCard.subtitle) && timerCard.active
+                                   && timerCard.progress > 0.9 && root.named(timerCard, "control-card-progress").visible
+                                   && String(timerCard.iconSource).endsWith("clock.svg"),
+                               "A running timer lights the icon, shows the time left and the ring: " + timerCard.subtitle);
+                    root.check(!root.truncated([sunshine, timerCard, bell]), "Nothing in the last row is cut off (running): " + root.truncatedNames([sunshine, timerCard, bell]));
+                    root.click(root.named(timerCard, "control-card-toggle"));
+                    root.check(TimerService.leadingPaused && IslandState.mode === IslandState.controlCenterMode
+                                   && /^0[12]:\d\d paused$/.test(timerCard.subtitle) && String(timerCard.iconSource).endsWith("player-pause.svg"),
+                               "Pressing the icon pauses the timer without leaving: " + timerCard.subtitle);
+                    root.check(!root.truncated([sunshine, timerCard, bell]), "Nothing in the last row is cut off (paused): " + root.truncatedNames([sunshine, timerCard, bell]));
+                    const frozen = timerCard.subtitle;
+                    root.click(root.named(timerCard, "control-card-toggle"));
+                    root.check(!TimerService.leadingPaused && timerCard.subtitle === frozen.replace(" paused", ""),
+                               "Pressing it again resumes the timer where it stopped: " + timerCard.subtitle);
+                    TimerService.cancelAll();
+                    root.check(timerCard.title === "Timer" && timerCard.progress < 0, "Cancelling the timer puts the clock back");
+                    root.click(root.named(timerCard, "control-card-toggle"));
+                    root.check(IslandState.mode === IslandState.timerMode, "With no timer the icon opens the timer panel");
+                    IslandState.mode = IslandState.controlCenterMode;
+                    root.click(root.named(timerCard, "control-card-navigation"));
+                    root.check(IslandState.mode === IslandState.timerMode, "The card's body opens the timer panel");
+                    IslandState.mode = IslandState.controlCenterMode;
+                    root.check(bell.x > sunshine.x + sunshine.width && Math.abs(bell.y - sunshine.y) < 1,
+                               "Notifications button sits to the right of Sunshine");
+                    root.check(/^\d+\+?$/.test(bell.subtitle),
+                               "Notifications button describes the count");
+                    root.check(!NotificationService.doNotDisturb && !bell.active, "Do Not Disturb starts off");
+                    root.click(root.named(bell, "control-card-toggle"));
+                    root.check(NotificationService.doNotDisturb && bell.active
+                                   && IslandState.mode === IslandState.controlCenterMode,
+                               "Bell icon turns Do Not Disturb on without navigating");
+                    root.check(bell.title === "Do Not Disturb" && bell.subtitle === "Silent mode on",
+                               "Do Not Disturb replaces the title and description");
+                    root.check(!root.truncated([sunshine, timerCard, bell]), "Nothing in the last row is cut off (Do Not Disturb): " + root.truncatedNames([sunshine, timerCard, bell]));
+                    root.click(root.named(bell, "control-card-toggle"));
+                    root.check(!NotificationService.doNotDisturb && bell.title === "Alerts",
+                               "Bell icon turns Do Not Disturb off");
+                    root.click(root.named(bell, "control-card-navigation"));
+                    root.check(IslandState.mode === IslandState.notificationsMode,
+                               "Notifications body opens the notification panel");
+                    IslandState.mode = IslandState.controlCenterMode;
+                    root.check(root.named(controlCenter, "open-notifications") === null,
+                               "Control Center no longer embeds the notification section");
                     const sunshineOpen = root.named(sunshine, "control-card-trailing");
                     root.check(root.named(sunshine, "control-card-toggle").enabled
                                    && root.named(sunshine, "control-card-navigation").enabled

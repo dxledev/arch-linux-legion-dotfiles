@@ -39,6 +39,8 @@ QtObject {
     readonly property int powerProfileMode: 28
     readonly property int protonVpnMode: 29
     readonly property int libreOfficeMode: 30
+    readonly property int recordOptionsMode: 31
+    readonly property int timerMode: 32
 
     // =========================================================
     // STATE
@@ -128,5 +130,7 @@ QtObject {
         mode === forecastMode ||
         mode === powerProfileMode ||
         mode === protonVpnMode ||
-        mode === libreOfficeMode
+        mode === libreOfficeMode ||
+        mode === recordOptionsMode ||
+        mode === timerMode
 }

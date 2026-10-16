@@ -45,3 +45,6 @@ CalendarView 1.0 CalendarView.qml
 ForecastView 1.0 ForecastView.qml
 PowerProfileView 1.0 PowerProfileView.qml
 ProtonVpnView 1.0 ProtonVpnView.qml
+ScreenRecordingSettingsView 1.0 ScreenRecordingSettingsView.qml
+RecordOptionsView 1.0 RecordOptionsView.qml
+TimerView 1.0 TimerView.qml

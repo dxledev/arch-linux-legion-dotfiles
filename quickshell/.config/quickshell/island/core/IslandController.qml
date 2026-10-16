@@ -43,6 +43,27 @@ QtObject {
         }
     }
 
+    // The folder picker for recordings opens its own window, so the settings panel folds away while it is up and
+    // comes back, on the same monitor, once it closes (unless something else has been opened meanwhile).
+    property string folderPickerReturnSection: ""
+    property string folderPickerReturnMonitor: ""
+    property Connections recorderFolderPickerConnections: Connections {
+        target: RecorderService
+        function onDirectoryPickerOpening() {
+            const inSettings = IslandState.mode === IslandState.settingsSectionMode && IslandState.settingsSection === "screenRecording"
+            root.folderPickerReturnSection = inSettings ? IslandState.settingsSection : ""
+            root.folderPickerReturnMonitor = IslandState.panelMonitorName
+            if (inSettings) root.reset()
+        }
+        function onDirectoryPickerClosed() {
+            const section = root.folderPickerReturnSection
+            root.folderPickerReturnSection = ""
+            if (section === "" || IslandState.mode !== IslandState.defaultMode) return
+            IslandState.settingsSection = section
+            root.setMode(IslandState.settingsSectionMode, root.folderPickerReturnMonitor)
+        }
+    }
+
     readonly property var settingsSections: MenuEntries.settingsSections.map(section => section.key)
 
     function openMenuEntry(id) {
@@ -216,6 +237,13 @@ QtObject {
     function openPowerProfile() { setMode(IslandState.powerProfileMode) }
     function openProtonVpn() { setMode(IslandState.protonVpnMode) }
     function openLauncherSubmenu(submenu) { if (submenu === "libreoffice") setMode(IslandState.libreOfficeMode) }
+    // The options popup for a new recording. Back returns to the expanded island with its workspace section open.
+    function openRecordOptions() { setMode(IslandState.recordOptionsMode) }
+    function closeRecordOptions() {
+        openExpanded()
+        IslandState.workspacePanelOpen = true
+    }
+    function openTimer() { setMode(IslandState.timerMode) }
     function openClipboard() { setMode(IslandState.clipboardMode) }
     function openChromack() { setMode(IslandState.chromackMode) }
     function openWallhaven() { setMode(IslandState.wallhavenMode) }

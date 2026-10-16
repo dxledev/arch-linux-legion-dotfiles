@@ -21,12 +21,12 @@ Singleton {
     readonly property var visiblePinnedIds: MenuEntries.sanitizePinnedIds(pinnedIds, availableEntries)
     readonly property bool workspaceAxisStatusError: IslandState.mode === IslandState.navigationMode
         && !WorkspacePresentationService.statusKnown && WorkspacePresentationService.error.length > 0
-    readonly property var displayedIds: MenuEntries.chooseDisplayedIds(visiblePinnedIds,
-        WorkspacePresentation.filterAvailableIds(randomizedIds, availableIds), cardLimit, undefined, false, availableIds)
+    readonly property var displayedIds: MenuEntries.listDisplayedIds(visiblePinnedIds,
+        WorkspacePresentation.filterAvailableIds(randomizedIds, availableIds), availableIds)
 
     function beginOpen() {
         workspaceAxisVisibilityValidated = false
-        randomizedIds = MenuEntries.shuffleIds(MenuEntries.menuEntries.map(entry => entry.id));
+        randomizedIds = MenuEntries.shuffleIds(MenuEntries.browsableIds());
         WorkspacePresentationService.refresh()
     }
 

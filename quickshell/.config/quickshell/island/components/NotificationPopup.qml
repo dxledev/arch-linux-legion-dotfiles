@@ -198,6 +198,8 @@ Item {
                 Layout.fillWidth: true
                 spacing: 6
                 visible: actions.count > 0
+                // Buttons start at the right edge: the first action is the rightmost.
+                layoutDirection: Qt.RightToLeft
                 Repeater {
                     id: actions
                     model: root.entry.actions.filter(action => action.identifier !== "default")

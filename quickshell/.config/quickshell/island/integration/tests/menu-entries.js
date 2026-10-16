@@ -19,7 +19,7 @@ const controllerSource = fs.readFileSync(controllerPath, "utf8");
 const controllerActions = new Set(Array.from(controllerSource.matchAll(/function\s+(\w+)\s*\(/g), match => match[1]));
 const expectedSections = [
     "launcher", "menu", "appearance", "desktop", "displays", "clock", "lock", "osd", "workspaces",
-    "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media"
+    "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media", "screenRecording"
 ];
 
 assert.deepEqual(JSON.parse(JSON.stringify(registry.settingsSections.map(section => section.key))), expectedSections);
@@ -28,7 +28,30 @@ for (const section of registry.settingsSections) {
     const entry = registry.findEntryById(`settings-${section.key}`);
     assert.ok(entry, `settings section ${section.key} has a menu entry`);
     assert.deepEqual(JSON.parse(JSON.stringify(entry.route)), { type: "settings", section: section.key });
+    assert.equal(entry.title, `Settings > ${section.title}`, `${section.key} menu entry is labelled by its parent panel`);
 }
+for (const entry of registry.menuEntries.filter(entry => entry.route.type !== "settings"))
+    assert.ok(!entry.title.startsWith("Settings >"), `${entry.id} is not a settings page`);
+
+assert.ok(registry.menuEntries.filter(entry => entry.route.type === "settings").every(entry => entry.searchOnly), "settings pages are search-only");
+
+const timerEntry = registry.findEntryById("timer");
+assert.ok(timerEntry && timerEntry.title === "Timer" && timerEntry.route.action === "openTimer", "the menu offers the timer panel");
+for (const query of ["timer", "countdown", "alarm", "pomodoro"])
+    assert.ok(registry.filterEntries(query).some(entry => entry.id === "timer"), `${query} finds the timer`);
+assert.ok(registry.filterEntries("").every(entry => entry.route.type !== "settings"), "blank search hides settings pages");
+assert.ok(registry.filterEntries("settings").filter(entry => entry.route.type === "settings").length === expectedSections.length, "a query lists every settings page");
+assert.deepEqual(JSON.parse(JSON.stringify(registry.filterEntries("", undefined, ["settings-clock", "themes"]).slice(0, 2).map(entry => entry.id))), ["settings-clock", "themes"], "pinned settings pages stay visible");
+assert.ok(registry.browsableIds().every(id => registry.findEntryById(id).route.type !== "settings"), "browsing never offers settings pages");
+assert.ok(registry.chooseDisplayedIds([], undefined, 16, () => 0.5).every(id => registry.findEntryById(id).route.type !== "settings"), "default grid fill skips settings pages");
+
+const sectionKeys = query => JSON.parse(JSON.stringify(registry.filterSettingsSections(query).map(section => section.key)));
+assert.equal(sectionKeys("").length, expectedSections.length, "empty settings query lists every section");
+assert.deepEqual(sectionKeys("LOCKSCREEN blur"), ["lock"], "settings search spans keywords and ignores case");
+assert.ok(sectionKeys("monitors").includes("displays"), "settings search matches descriptions");
+assert.ok(sectionKeys("record").includes("screenRecording"), "settings search finds screen recording");
+assert.ok(sectionKeys("settings").length === 0, "settings search does not match the menu-only prefix");
+assert.deepEqual(sectionKeys("zzzz"), [], "settings search returns nothing for unknown terms");
 
 for (const entry of registry.menuEntries) {
     assert.ok(entry.title.trim(), `${entry.id} has a title`);
@@ -106,6 +129,12 @@ assert.equal(JSON.stringify(pins), pinsBefore, "chooser does not mutate pinned i
 assert.equal(JSON.stringify(eligible), eligibleBefore, "chooser does not mutate eligible input");
 assert.equal(registry.chooseDisplayedIds([], allIds, 16, randomizeToKeepOrder).length, 16, "a 4x4 grid fills sixteen cards");
 assert.equal(registry.chooseDisplayedIds([], allIds, 99, randomizeToKeepOrder).length, 16, "card limit is capped at sixteen");
+
+const listed = toPlainIds(registry.listDisplayedIds(inRegistry('["themes"]'), eligible, undefined));
+assert.deepEqual(listed, ["themes", ...eligible], "the unsearched grid lists pins first, then every eligible entry");
+assert.deepEqual(toPlainIds(registry.listDisplayedIds(inRegistry('["themes", "settings"]'), eligible, inRegistry('["themes", "wallpapers"]'))), ["themes", "wallpapers", "settings", "shell-mode"], "unavailable pins are dropped but eligible entries are kept");
+assert.equal(registry.listDisplayedIds([], undefined, undefined).length, registry.browsableIds().length, "the default list covers every browsable entry");
+function toPlainIds(value) { return JSON.parse(JSON.stringify(value)); }
 
 const toPlain = value => JSON.parse(JSON.stringify(value));
 const pinOrder = inRegistry('["themes", "wallpapers", "settings", "shell-mode"]');

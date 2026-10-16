@@ -12,7 +12,8 @@ Item {
 
     clip: true
     
-    implicitWidth: 560
+    // Wide enough for the last row: Sunshine (with its open button), Timer and Do Not Disturb in a wide UI font.
+    implicitWidth: 630
     implicitHeight: content.implicitHeight + 44
 
     ColumnLayout {
@@ -135,27 +136,76 @@ Item {
                 onClicked: IslandController.openMediaControls()
             }
 
-            // A seventh tile would sit alone in the last row, so Sunshine spans it.
-            ControlCard {
+            // Sunshine, the timer and the notification button share the last row evenly, as wide as the cards above.
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.columnSpan: 3
-                objectName: "sunshine-control-card"
-                iconSource: SunshineService.icon
+                spacing: 12
 
-                title: "Sunshine"
+                ControlCard {
+                    Layout.fillWidth: true
+                    // The last row's cards are the same width as each other and as the cards above.
+                    Layout.preferredWidth: 1
+                    objectName: "sunshine-control-card"
+                    iconSource: SunshineService.icon
 
-                subtitle: SunshineService.subtitle
+                    title: "Sunshine"
 
-                active: SunshineService.running
-                iconEnabled: !SunshineService.busy
-                panelEnabled: !SunshineService.busy
-                trailingIconSource: Qt.resolvedUrl("../assets/icons/external-link.svg")
-                trailingLabel: "Open Sunshine web UI"
-                onIconToggled: SunshineService.toggle()
-                onClicked: SunshineService.toggle()
-                onTrailingClicked: {
-                    SunshineService.openWebUi();
-                    IslandController.reset();
+                    subtitle: SunshineService.subtitle
+
+                    active: SunshineService.running
+                    iconEnabled: !SunshineService.busy
+                    panelEnabled: !SunshineService.busy
+                    trailingIconSource: Qt.resolvedUrl("../assets/icons/external-link.svg")
+                    trailingLabel: "Open Sunshine web UI"
+                    onIconToggled: SunshineService.toggle()
+                    onClicked: SunshineService.toggle()
+                    onTrailingClicked: {
+                        SunshineService.openWebUi();
+                        IslandController.reset();
+                    }
+                }
+
+                // A clock until a timer runs; then the icon lights up with a ring that drains with the time left, and
+                // pressing it pauses the timers (or resumes them). The rest of the card opens the timer panel.
+                ControlCard {
+                    Layout.fillWidth: true
+                    objectName: "timer-control-card"
+                    Layout.preferredWidth: 1
+                    iconSource: Qt.resolvedUrl(TimerService.leadingPaused
+                        ? "../assets/icons/player-pause.svg"
+                        : "../assets/icons/clock.svg")
+
+                    title: TimerService.active ? "Active Timer" : "Timer"
+
+                    subtitle: !TimerService.active ? "Off"
+                        : TimerService.leadingPaused ? TimerService.leadingText + " paused" : TimerService.leadingText
+
+                    active: TimerService.active
+                    progress: TimerService.active ? TimerService.leadingProgress : -1
+                    iconEnabled: true
+                    panelEnabled: true
+                    onIconToggled: TimerService.active ? TimerService.toggleAllPaused() : IslandController.openTimer()
+                    onClicked: IslandController.openTimer()
+                }
+
+                ControlCard {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    objectName: "notifications-button"
+                    iconSource: Qt.resolvedUrl(NotificationService.doNotDisturb
+                        ? "../assets/icons/bell-off.svg"
+                        : "../assets/icons/bell.svg")
+
+                    title: NotificationService.doNotDisturb ? "Do Not Disturb" : "Alerts"
+
+                    subtitle: NotificationService.doNotDisturb ? "Silent mode on" : NotificationService.countText
+
+                    active: NotificationService.doNotDisturb
+                    iconEnabled: true
+                    panelEnabled: true
+                    onIconToggled: NotificationService.toggleDoNotDisturb()
+                    onClicked: IslandController.openNotifications()
                 }
             }
         }
@@ -167,24 +217,6 @@ Item {
         BrightnessControls {
             id: brightnessControls
             Layout.fillWidth: true
-        }
-
-        Rectangle {
-
-            Layout.fillWidth: true
-            Layout.preferredHeight: notificationPreview.implicitHeight + 28
-
-            radius: 26
-
-            color: Theme.surface
-
-            clip: true
-
-            NotificationView {
-                id: notificationPreview
-                anchors.fill: parent
-                anchors.margins: 14
-            }
         }
     }
 }

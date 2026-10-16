@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+island_root="$test_dir/../.."
+export QML_IMPORT_PATH="$island_root/../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+test_root="$(/usr/bin/mktemp -d /tmp/island-screen-recording.XXXXXX)"
+config_home="$test_root/config"
+settings_file="$test_root/state/settings.json"
+dry_run=0
+script="$island_root/integration/screen-record"
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+cleanup() {
+    local status="$?"
+    [[ ! -f "$test_root/fake.pid" ]] || kill "$(< "$test_root/fake.pid")" 2>/dev/null || true
+    if (( status )); then printf 'Screen recording test failed; fixture retained at %s\n' "$test_root" >&2; fi
+}
+trap cleanup EXIT
+source "$test_dir/../theme-functions"
+
+check_settings() {
+    read_settings | /usr/bin/jq -e '.recordFormat == "mp4" and .recordDirectory == "" and .recordFramerate == "60" and .recordQuality == "very_high" and .recordCursor and .recordCameraDevice == "auto"' >/dev/null
+    save_setting recordFormat mkv
+    save_setting recordDirectory '/home/test/Videos/My Clips'
+    save_setting recordFramerate auto
+    save_setting recordQuality ultra
+    save_setting recordCursor false
+    save_setting recordCameraDevice /dev/video2
+    read_settings | /usr/bin/jq -e '.recordFormat == "mkv" and .recordDirectory == "/home/test/Videos/My Clips" and .recordFramerate == "auto" and .recordQuality == "ultra" and (.recordCursor | not) and .recordCameraDevice == "/dev/video2"' >/dev/null
+    save_setting recordDirectory '~/Recordings'
+    save_setting recordDirectory ''
+    read_settings | /usr/bin/jq -e '.recordDirectory == ""' >/dev/null
+    local before
+    before="$(/usr/bin/sha256sum "$settings_file")"
+    dry_run=1
+    save_setting recordFormat mp4 >/dev/null
+    [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
+    dry_run=0
+    local invalid
+    for invalid in 'recordFormat webm' 'recordFormat MP4' 'recordDirectory relative/path' 'recordDirectory ~other/x' 'recordFramerate 120' 'recordFramerate fast' 'recordQuality best' 'recordCursor yes' 'recordCameraDevice /dev/sda' 'recordCameraDevice video0'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
+    done
+    if (save_setting recordDirectory "$(printf '/a\nb')") >/dev/null 2>&1; then fail 'Accepted a folder with a newline.'; fi
+    save_setting recordFormat mp4
+    save_setting recordDirectory ''
+    save_setting recordFramerate 60
+    save_setting recordQuality very_high
+    save_setting recordCursor true
+    save_setting recordCameraDevice auto
+    read_settings | /usr/bin/jq -e '.recordMode == "screen" and .recordMonitor == "" and (.recordWebcam | not) and (.recordAudio | not) and .recordWebcamX == 100 and .recordWebcamY == 100' >/dev/null
+    save_setting recordMode window
+    save_setting recordMonitor HDMI-A-1
+    save_setting recordWebcam true
+    save_setting recordAudio true
+    save_setting recordWebcamX 0
+    save_setting recordWebcamY 75
+    read_settings | /usr/bin/jq -e '.recordMode == "window" and .recordMonitor == "HDMI-A-1" and .recordWebcam and .recordAudio and .recordWebcamX == 0 and .recordWebcamY == 75' >/dev/null
+    for invalid in 'recordMode desktop' 'recordMonitor a/b' 'recordWebcam yes' 'recordAudio 1' 'recordWebcamX 101' 'recordWebcamX -1' 'recordWebcamY 7.5'; do
+        if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
+    done
+    save_setting recordMode screen
+    save_setting recordMonitor ''
+    save_setting recordWebcam false
+    save_setting recordAudio false
+    save_setting recordWebcamX 100
+    save_setting recordWebcamY 100
+}
+
+make_fakes() {
+    /usr/bin/mkdir -p "$test_root/bin" "$test_root/state" "$test_root/runtime" "$test_root/out"
+    # A recorder that logs its arguments, writes a video when told to stop and counts pause toggles. A bash
+    # background job ignores SIGINT, so the script's SIGTERM fallback is what ends it here (the real one handles SIGINT).
+    # The shebang names bash directly so the process is called gsr-fake, as the script's pid check expects.
+    /usr/bin/cat > "$test_root/bin/gsr-fake" <<'FAKE'
+#!/usr/bin/bash
+if [[ "${1:-}" == --list-v4l2-devices ]]; then
+    printf '/dev/video0|1280x720@30hz|mjpeg\n/dev/video0|640x480@30hz|yuyv\n/dev/video2|1920x1080@30hz|mjpeg\n'
+    exit 0
+fi
+printf '%s\n' "$*" > "$FAKE_DIR/argv"
+output=''
+while (( $# )); do [[ "$1" == -o ]] && output="$2"; shift; done
+[[ -z "${FAKE_FAIL:-}" ]] || { printf 'gsr error: no encoder\n' >&2; exit 54; }
+trap 'printf x >> "$FAKE_DIR/pauses"' USR2
+trap 'printf video > "$output"; exit 0' INT TERM
+while :; do /usr/bin/sleep 0.05; done
+FAKE
+    /usr/bin/cat > "$test_root/bin/slurp-fake" <<'FAKE'
+#!/usr/bin/env bash
+[[ -z "${FAKE_CANCEL:-}" ]] || exit 1
+printf '640x480+2000+100\n'
+FAKE
+    /usr/bin/cat > "$test_root/bin/hyprctl-fake" <<'FAKE'
+#!/usr/bin/env bash
+case "$1" in
+    monitors) printf '%s\n' '[{"id":0,"name":"DP-1","x":0,"y":0,"width":1920,"height":1080,"scale":1,"refreshRate":143.99,"activeWorkspace":{"id":10},"specialWorkspace":{"id":0}},{"id":1,"name":"HDMI-A-1","x":1920,"y":0,"width":2560,"height":1440,"scale":1.25,"refreshRate":59.94,"activeWorkspace":{"id":1},"specialWorkspace":{"id":0}}]' ;;
+    clients) printf '%s\n' '[{"address":"0xaaa","mapped":true,"hidden":false,"at":[1932,45],"size":[2024,1095],"workspace":{"id":1,"name":"1"},"monitor":1},{"address":"0xbbb","mapped":true,"hidden":false,"at":[5,5],"size":[100,100],"workspace":{"id":2,"name":"2"},"monitor":1}]' ;;
+esac
+FAKE
+    /usr/bin/cat > "$test_root/bin/notify-fake" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_DIR/notifications"
+FAKE
+    # The folder picker: records how it was called and answers with PICK_ANSWER (nothing, and a failure, when unset).
+    /usr/bin/cat > "$test_root/bin/picker-fake" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s|%s\n' "${GTK_USE_PORTAL:-}" "$*" > "$FAKE_DIR/picker-call"
+[[ -n "${PICK_ANSWER:-}" ]] || exit 1
+printf '%s\n' "$PICK_ANSWER"
+FAKE
+    /usr/bin/cat > "$test_root/bin/ui-controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+settings_file="$TEST_ROOT/state/settings.json"
+config_home="$TEST_ROOT/config"
+dry_run=0
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+source "$TEST_DIR/../theme-functions"
+case "${1:-}" in
+    ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"static",mode:"dark",variant:"tonalspot"},label:"rosepine",settings:$settings,wallpaper:"",colors:{background:"#191724",backgroundGray:"#1f1d2e",foreground:"#e0def4",foregroundInactive:"#908caa",muted:"#6e6a86",primary:"#c4a7e7",danger:"#eb6f92",warning:"#f6c177",success:"#9ccfd8"}}' ;;
+    themes) printf '[]\n' ;;
+    setting) save_setting "$2" "$3" ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+    /usr/bin/cat > "$test_root/bin/qml-script" <<'FAKE'
+#!/usr/bin/env bash
+# The script the QML test drives: logs every call and serves the state file like the real one.
+printf '%s\n' "$*" >> "$RECORD_CALL_LOG"
+case "${1:-}" in
+    status) /usr/bin/cat "$ISLAND_RECORD_STATE_DIR/state.json" 2>/dev/null || printf '{"running":false,"stopping":false,"paused":false}\n' ;;
+    cameras) printf '/dev/video0|Desk camera|1280x720\n/dev/video2|Laptop camera|1600x1200\n' ;;
+    directory) printf '/tmp/recordings-test\n' ;;
+    choose-directory) /usr/bin/sleep 0.6; printf '/tmp/recordings-picked\n' ;;
+esac
+FAKE
+    /usr/bin/chmod +x "$test_root"/bin/*
+}
+
+record() {
+    FAKE_DIR="$test_root" ISLAND_RECORD_STATE_DIR="$test_root/runtime/record" ISLAND_RECORD_WORK_DIR="$test_root/work" \
+        ISLAND_SETTINGS_FILE="$settings_file" ISLAND_RECORD_BIN="$test_root/bin/gsr-fake" ISLAND_RECORD_COMM=gsr-fake \
+        ISLAND_RECORD_SLURP="$test_root/bin/slurp-fake" ISLAND_RECORD_HYPRCTL="$test_root/bin/hyprctl-fake" \
+        ISLAND_RECORD_PICKER="$test_root/bin/picker-fake" \
+        ISLAND_RECORD_NOTIFY="$test_root/bin/notify-fake" ISLAND_RECORD_OPEN=/usr/bin/true ISLAND_RECORD_SETTLE_MS=300 ISLAND_RECORD_STOP_TIMEOUT=1 \
+        "$script" "$@"
+}
+
+state_is() { record status | /usr/bin/jq -e "$1" >/dev/null; }
+argv_has() { /usr/bin/grep -q -F -- "$1" "$test_root/argv" || fail "Recorder arguments lack '$1': $(< "$test_root/argv")"; }
+last_video() { /usr/bin/ls -t "$test_root/out"/*."$1" 2>/dev/null | /usr/bin/head -n 1; }
+
+check_script() {
+    save_setting recordDirectory "$test_root/out"
+    state_is '.running == false' || fail 'Fresh state is not idle.'
+    record cameras | /usr/bin/cut -d'|' -f1 | /usr/bin/diff -q - <(printf '/dev/video0\n/dev/video2\n') >/dev/null || fail 'Cameras are not listed once each.'
+    [[ "$(record directory)" == "$test_root/out" ]] || fail 'The recordings folder is not reported.'
+    save_setting recordDirectory '~/Clips'
+    [[ "$(record directory)" == "$HOME/Clips" ]] || fail 'A ~/ folder is not expanded.'
+    save_setting recordDirectory "$test_root/out"
+
+    # The folder picker opens in the recordings folder through the portal and hands back what was chosen.
+    [[ "$(PICK_ANSWER="$test_root/Chosen Folder/" record choose-directory)" == "$test_root/Chosen Folder" ]] || fail 'The chosen folder is not reported.'
+    [[ "$(< "$test_root/picker-call")" == "1|--file-selection --directory --title Save recordings to --filename $test_root/out/" ]] || fail "The picker was called wrongly: $(< "$test_root/picker-call")"
+    if record choose-directory >"$test_root/picked" 2>/dev/null; then fail 'A closed picker counted as a choice.'; fi
+    [[ ! -s "$test_root/picked" ]] || fail 'A closed picker reported a folder.'
+    save_setting recordDirectory "$test_root/not/yet/made"
+    PICK_ANSWER=/x record choose-directory >/dev/null
+    [[ "$(< "$test_root/picker-call")" == *"--filename $test_root/"* ]] || fail 'The picker did not start in an existing parent folder.'
+    save_setting recordDirectory "$test_root/out"
+
+    # Screen: the monitor and its refresh rate, the saved quality and container, no sound or webcam unless asked.
+    save_setting recordFramerate auto
+    record start --mode screen --monitor DP-1
+    state_is '.running and (.paused | not) and .mode == "screen"' || fail 'Screen recording did not start.'
+    argv_has '-w DP-1 -f 144 -c mp4 -q very_high -cursor yes'
+    ! /usr/bin/grep -q -- ' -a ' "$test_root/argv" || fail 'Sound was not asked for.'
+    if record start --mode screen --monitor DP-1 2>/dev/null; then fail 'A second recording started.'; fi
+    # Pausing toggles the recorder and the timer bookkeeping; the second press resumes.
+    record pause
+    state_is '.paused and .pausedAt > 0' || fail 'Pause is not recorded.'
+    /usr/bin/sleep 0.3
+    [[ "$(< "$test_root/pauses")" == x ]] || fail 'Pause did not reach the recorder.'
+    record pause
+    state_is '(.paused | not) and .pausedAt == 0 and .pausedTotal >= 200' || fail 'Resume did not bank the paused time.'
+    record stop
+    state_is '.running == false and .stopping == false' || fail 'Stop left the recording running.'
+    [[ "$(< "$(last_video mp4)")" == video ]] || fail 'The video did not reach the recordings folder.'
+    [[ ! -e "$test_root/work/recording.mp4" ]] || fail 'The unfinished file was left behind.'
+    /usr/bin/grep -q 'Recording saved' "$test_root/notifications" || fail 'No saved notification.'
+
+    # Region: slurp picks it, the busiest monitor it touches sets the rate (HDMI-A-1 is 60 Hz), webcam is composited, sound on.
+    save_setting recordFormat mkv
+    save_setting recordCursor false
+    save_setting recordCameraDevice /dev/video2
+    record start --mode region --webcam --audio
+    argv_has '-w region|/dev/video2;halign=start;valign=start;x=75%;y=81%;width=25%;height=25% -f 60 -c mkv'
+    # The 640x480 region is narrower than the 16:9 camera, so the picture is shorter than the box and may sit lower.
+    argv_has '-cursor no'
+    argv_has '-region 640x480+2000+100'
+    argv_has '-a default_output'
+    record stop
+    [[ -n "$(last_video mkv)" ]] || fail 'No mkv was saved.'
+    save_setting recordCameraDevice auto
+    FAKE_CANCEL=1 record start --mode region
+    state_is '.running == false' || fail 'A cancelled selection started a recording.'
+
+    # A saved position past what fits is pulled back so the picture stays inside the video (100 is flush).
+    record start --mode screen --monitor DP-1 --webcam --webcam-x 100 --webcam-y 100
+    argv_has 'DP-1|/dev/video0;halign=start;valign=start;x=75%;y=75%;width=25%;height=25%'
+    record stop
+
+    # Window: the window's logical rectangle, only while it is on a showing workspace.
+    save_setting recordFramerate 30
+    record start --mode window --window 0xaaa --webcam --webcam-x 10 --webcam-y 40
+    argv_has '-w region|/dev/video0;halign=start;valign=start;x=10%;y=40%;width=25%;height=25%'
+    argv_has '-region 2024x1095+1932+45'
+    argv_has '-f 30'
+    record stop
+    if record start --mode screen --monitor DP-1 --webcam --webcam-x 101 2>/dev/null; then fail 'Accepted a webcam outside the video.'; fi
+    if record start --mode screen --monitor DP-1 --webcam --webcam-y -1 2>/dev/null; then fail 'Accepted a negative webcam position.'; fi
+    if record start --mode window --window 0xbbb 2>/dev/null; then fail 'Recorded a window on a hidden workspace.'; fi
+    if record start --mode window --window nonsense 2>/dev/null; then fail 'Accepted a malformed window address.'; fi
+    if record start --mode screen --monitor DP-9 2>/dev/null; then fail 'Recorded a monitor that is not connected.'; fi
+    if record start --mode screen --monitor 'a b' 2>/dev/null; then fail 'Accepted a malformed monitor name.'; fi
+    if record start --mode fullscreen 2>/dev/null; then fail 'Accepted an unknown mode.'; fi
+    state_is '.running == false' || fail 'A refused start left state behind.'
+
+    # A recorder that dies at once is reported, not left looking busy.
+    if FAKE_FAIL=1 record start --mode screen --monitor DP-1 2>/dev/null; then fail 'A failing recorder counted as started.'; fi
+    state_is '.running == false' || fail 'A failed start is still marked running.'
+    /usr/bin/grep -q 'Recording failed' "$test_root/notifications" || fail 'A failed start was not announced.'
+
+    # A recorder ended behind our back (another shell killing every gpu-screen-recorder) still yields its file.
+    save_setting recordFormat mp4
+    record start --mode screen --monitor DP-1
+    kill -TERM "$(record status | /usr/bin/jq -r .pid)"
+    /usr/bin/sleep 0.3
+    state_is '.running == false' || fail 'A recorder that ended on its own still shows as running.'
+    [[ "$(< "$(last_video mp4)")" == video ]] || fail 'The video of a vanished recorder was lost.'
+    save_setting recordFormat mp4
+
+    # A stop that died half way leaves "stopping" behind: with the recorder gone the file is still finished,
+    # with the recorder alive the controls are released so the user can stop again.
+    local before_count
+    before_count="$(/usr/bin/ls "$test_root/out" | /usr/bin/wc -l)"
+    printf video > "$test_root/work/recording.mp4"
+    printf '%s\n' "{\"running\":true,\"stopping\":true,\"paused\":false,\"pid\":999999,\"startedAt\":1,\"pausedAt\":0,\"pausedTotal\":0,\"temporary\":\"$test_root/work/recording.mp4\",\"format\":\"mp4\",\"mode\":\"screen\"}" > "$test_root/runtime/record/state.json"
+    state_is '.running == false and .stopping == false' || fail 'An interrupted stop left the controls locked.'
+    (( $(/usr/bin/ls "$test_root/out" | /usr/bin/wc -l) == before_count + 1 )) || fail 'An interrupted stop lost the video.'
+    record start --mode screen --monitor DP-1
+    record status | /usr/bin/jq -c '.stopping = true' > "$test_root/stopping.json" && /usr/bin/cp "$test_root/stopping.json" "$test_root/runtime/record/state.json"
+    state_is '.running and (.stopping | not)' || fail 'A stop that never began did not release the controls.'
+    record stop
+}
+
+check_views() {
+    local state_dir="$test_root/runtime/views"
+    /usr/bin/mkdir -p "$state_dir"
+    /usr/bin/sed "s|\"../../|\"file:$test_dir/../../|g" "$test_dir/record-views.qml" > "$test_root/views.qml"
+    : > "$test_root/calls.log"
+    if ! QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" ISLAND_STATE_DIR="$test_root/state" \
+        ISLAND_THEME_SCRIPT="$test_root/bin/ui-controller" TEST_ROOT="$test_root" TEST_DIR="$test_dir" \
+        ISLAND_SCREEN_RECORD_SCRIPT="$test_root/bin/qml-script" ISLAND_RECORD_STATE_DIR="$state_dir" RECORD_CALL_LOG="$test_root/calls.log" \
+        /usr/bin/dbus-run-session -- /usr/bin/timeout 20s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+        /usr/bin/cat "$test_root/views.log" >&2
+        fail 'Could not run record-views.qml.'
+    fi
+    /usr/bin/rg -q 'PASS: recording controls, options popup and recorder hand-off' "$test_root/views.log" || { /usr/bin/cat "$test_root/views.log" >&2; fail 'record-views.qml failed.'; }
+    if /usr/bin/rg -q 'FAIL:|ReferenceError|TypeError|Type .* unavailable' "$test_root/views.log"; then /usr/bin/cat "$test_root/views.log" >&2; fail 'record-views.qml errors.'; fi
+}
+
+make_fakes
+export TEST_ROOT="$test_root" TEST_DIR="$test_dir"
+/usr/bin/node "$test_dir/record-targets.js"
+check_settings
+check_script
+check_views
+printf 'PASS: screen recording settings, recorder script (screen, region, window, webcam, sound, pause, stop, failures, vanished recorder), targets, controls and options popup\n'

@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Timer logic, then the whole feature in a private D-Bus session: the service, real alerts through
+# notify-send and Island's notification server, the island readout (clock, lyrics, expanded), the panel, and
+# the `quickshell ipc` commands.
+# TIMER_SHOTS=<dir> also saves screenshots of the island and the panel there; TIMER_LOG=<file> keeps the fixture's log.
+
+test_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+island_root="$test_dir/../.."
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+# The commands other tools use (keybinds, scripts): start, list and cancel timers, and the alert that follows.
+run_ipc() {
+    local ipc="/usr/bin/quickshell -p $test_root/ipc.qml ipc call island" answer
+    /usr/bin/quickshell -p "$test_root/ipc.qml" > "$test_root/ipc.log" 2>&1 &
+    local shell_pid=$!
+    local attempt
+    for (( attempt=0; attempt<100; attempt++ )); do
+        if $ipc ready 2>/dev/null | /usr/bin/rg -qx true; then break; fi
+        /usr/bin/sleep 0.1
+    done
+    $ipc ready 2>/dev/null | /usr/bin/rg -qx true || { /usr/bin/cat "$test_root/ipc.log" >&2; fail 'The IPC fixture did not become ready.'; }
+    [[ "$($ipc startTimer 600 "Tea time" false "")" == true ]] || fail 'startTimer refused a timer.'
+    [[ "$($ipc startTimer 0 "" false "")" == false ]] || fail 'startTimer accepted an empty timer.'
+    [[ "$($ipc startTimer 3 "  Soon  " true bell)" == true ]] || fail 'startTimer refused a second timer.'
+    answer="$($ipc timers)"
+    /usr/bin/jq -e 'length == 2 and .[0].label == "Soon" and .[0].keepAlert == true and .[0].sound == "bell" and .[0].snooze == 0 and .[0].remaining <= 3 and .[1].label == "Tea time" and .[1].keepAlert == false and .[1].sound == "" and .[1].remaining > 590' <<< "$answer" >/dev/null \
+        || fail "timers lists the wrong timers: $answer"
+    # The short timer goes off: its alert reaches the shared history through Island's notification server.
+    for (( attempt=0; attempt<100; attempt++ )); do
+        if "$ISLAND_NOTIFICATION_HISTORY" list 2>/dev/null | /usr/bin/jq -e 'any(.[]; .summary == "Soon" and .app == "Island Timer")' >/dev/null; then break; fi
+        /usr/bin/sleep 0.1
+    done
+    "$ISLAND_NOTIFICATION_HISTORY" list | /usr/bin/jq -e 'any(.[]; .summary == "Soon" and .app == "Island Timer" and (.body | startswith("Your 3 s timer is up")))' >/dev/null \
+        || fail 'The timer did not send its alert.'
+    for (( attempt=0; attempt<30; attempt++ )); do /usr/bin/grep -q 'bell.oga$' "$test_root/played" && break; /usr/bin/sleep 0.1; done
+    [[ "$(/usr/bin/grep -c 'sounds/bell.oga$' "$test_root/played")" == 1 ]] || fail "The timer's sound did not play once: $(< "$test_root/played")"
+    $ipc timers | /usr/bin/jq -e 'length == 1 and .[0].label == "Tea time"' >/dev/null || fail 'A finished timer is still listed.'
+    /usr/bin/jq -e '.timers | length == 1' "$test_root/state/timers.json" >/dev/null || fail 'The timer file does not hold the running timer.'
+    $ipc toggleTimerPause >/dev/null
+    $ipc timers | /usr/bin/jq -e 'length == 1 and .[0].paused == true and .[0].remaining > 580' >/dev/null || fail 'toggleTimerPause did not pause the timer.'
+    $ipc toggleTimerPause >/dev/null
+    $ipc timers | /usr/bin/jq -e 'length == 1 and .[0].paused == false and .[0].remaining > 580' >/dev/null || fail 'toggleTimerPause did not resume the timer.'
+    $ipc openTimer >/dev/null
+    $ipc cancelTimers >/dev/null
+    [[ "$($ipc timers)" == "[]" ]] || fail 'cancelTimers left timers running.'
+    kill "$shell_pid" 2>/dev/null || true
+    printf 'PASS: timer IPC starts, lists and cancels timers and the alert and its sound arrive\n'
+}
+
+if [[ "${1:-}" == --ipc ]]; then
+    test_root="$2"
+    export ISLAND_NOTIFICATION_HISTORY="$island_root/../shared/notifications/history"
+    run_ipc
+    exit 0
+fi
+
+
+test_root="$(/usr/bin/mktemp -d /tmp/island-timer.XXXXXX)"
+cleanup() {
+    local status="$?"
+    if (( status )); then printf 'Timer test failed; fixture retained at %s\n' "$test_root" >&2; else /usr/bin/rm -rf "$test_root"; fi
+}
+trap cleanup EXIT
+
+/usr/bin/node "$test_dir/timer-logic.js"
+
+/usr/bin/mkdir -p "$test_root/runtime" "$test_root/state" "$test_root/cache"
+/usr/bin/chmod 700 "$test_root/runtime"
+/usr/bin/cp -a "$island_root" "$test_root/island"
+# Xvfb cannot initialize the Wayland layer-shell attached object.
+/usr/bin/sed -i '/WlrLayershell\./d' "$test_root/island/windows/NotificationWindow.qml"
+# A copy of the compact island with lyrics forced on, since no player is running here.
+/usr/bin/sed 's|readonly property bool showLyrics: .*|readonly property bool showLyrics: lyricsActive|' "$test_root/island/views/DefaultView.qml" > "$test_root/island/views/DefaultViewLyrics.qml"
+printf 'DefaultViewLyrics 1.0 DefaultViewLyrics.qml\n' >> "$test_root/island/views/qmldir"
+/usr/bin/grep -q 'readonly property bool showLyrics: lyricsActive$' "$test_root/island/views/DefaultViewLyrics.qml" || fail 'Could not force lyrics on in the test copy.'
+# The same for the expanded island's centre.
+/usr/bin/sed 's|readonly property bool showLyrics: .*|readonly property bool showLyrics: lyricsActive|' "$test_root/island/components/CenterSection.qml" > "$test_root/island/components/CenterSectionLyrics.qml"
+printf 'CenterSectionLyrics 1.0 CenterSectionLyrics.qml\n' >> "$test_root/island/components/qmldir"
+/usr/bin/grep -q 'readonly property bool showLyrics: lyricsActive$' "$test_root/island/components/CenterSectionLyrics.qml" || fail 'Could not force lyrics on in the expanded test copy.'
+/usr/bin/sed 's|"../../|"island/|g' "$test_dir/timer-views.qml" > "$test_root/views.qml"
+cat > "$test_root/controller" <<'CONTROLLER'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+    ui) printf '%s\n' '{"theme":{"source":"static","mode":"dark","variant":"tonalspot"},"label":"fixture","settings":{"notificationWidth":400,"notificationStartWidthPercent":50,"notificationMargin":10,"notificationSlideDistance":24,"notificationAnimationDuration":300,"notificationTimeout":2500,"radius":23,"opacity":1,"islandWidth":160,"clockFontSize":18,"clockFontBold":true},"wallpaper":"","colors":{"background":"#191724","backgroundGray":"#1f1d2e","foreground":"#e0def4","foregroundInactive":"#908caa","muted":"#6e6a86","primary":"#c4a7e7","border":"#c4a7e7","danger":"#eb6f92","warning":"#f6c177","success":"#9ccfd8"}}' ;;
+    themes) printf '[]\n' ;;
+    *) exit 2 ;;
+esac
+CONTROLLER
+/usr/bin/chmod +x "$test_root/controller"
+# A player that notes what it was asked to play, keeps "playing" for a few seconds like a real sound, and notes
+# when it is cut off. The "Message" sound is a short one, to see an alarm repeat.
+cat > "$test_root/player" <<'PLAYER'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "$TIMER_PLAYED"
+case "$1" in */message-new-instant.oga) length=0.8 ;; *) length=6 ;; esac
+sleep "$length" &
+sleeper=$!
+trap 'kill "$sleeper" 2>/dev/null; printf "%s\n" "$1" >> "$TIMER_PLAYED.stopped"; exit 0' TERM
+wait "$sleeper"
+PLAYER
+/usr/bin/chmod +x "$test_root/player"
+: > "$test_root/played"
+: > "$test_root/played.stopped"
+[[ -z "${TIMER_SHOTS:-}" ]] || /usr/bin/mkdir -p "$TIMER_SHOTS"
+
+fixture_env() {
+    QML_IMPORT_PATH="$island_root/../.runtime/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" QT_QPA_PLATFORM=xcb QT_NO_XDG_DESKTOP_PORTAL=1 GTK_USE_PORTAL=0 \
+        LIBGL_ALWAYS_SOFTWARE=1 QSG_RHI_BACKEND=opengl QT_FORCE_STDERR_LOGGING=1 QML_XHR_ALLOW_FILE_READ=1 WAYLAND_DISPLAY= HYPRLAND_INSTANCE_SIGNATURE= \
+        XDG_RUNTIME_DIR="$test_root/runtime" XDG_CACHE_HOME="$test_root/cache" XDG_STATE_HOME="$test_root/state" \
+        ISLAND_STATE_DIR="$test_root/state" ISLAND_TIMER_STATE="$test_root/state/timers.json" ISLAND_THEME_SCRIPT="$test_root/controller" \
+        SHELL_NOTIFICATION_HISTORY="$test_root/notification-history.jsonl" ISLAND_NOTIFICATION_HISTORY="$island_root/../shared/notifications/history" \
+        ISLAND_TIMER_RING_LIMIT=4000 ISLAND_TIMER_PLAYER="$test_root/player" ISLAND_TIMER_SOUND_DIR="$test_root/sounds" TIMER_PLAYED="$test_root/played" \
+        TIMER_SHOTS="${TIMER_SHOTS:-}" "$@"
+}
+
+if ! fixture_env /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a -s '-screen 0 1280x1024x24' /usr/bin/timeout 120s /usr/bin/quickshell -p "$test_root/views.qml" > "$test_root/views.log" 2>&1; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Timer fixture failed.'
+fi
+[[ -z "${TIMER_LOG:-}" ]] || /usr/bin/cp "$test_root/views.log" "$TIMER_LOG"
+# The real view host pulls in the audio service, which has no PipeWire to reach in this sandbox: that one line is
+# expected, any other error is not.
+if /usr/bin/rg -v 'quickshell\.service\.pipewire' "$test_root/views.log" | /usr/bin/rg -q 'FAIL:|ReferenceError|TypeError|Cannot assign|Binding loop|is not a type|unavailable|ERROR'; then
+    /usr/bin/cat "$test_root/views.log" >&2
+    fail 'Timer fixture logged errors.'
+fi
+/usr/bin/rg -q '^.*PASS: timer service' "$test_root/views.log" || { /usr/bin/cat "$test_root/views.log" >&2; fail 'Timer fixture did not finish.'; }
+/usr/bin/rg -o 'PASS: timer service.*' "$test_root/views.log" | /usr/bin/head -n 1
+
+# Second stage: the same services behind IslandIPC, driven from outside like a keybind or script would.
+/usr/bin/rm -f "$test_root/state/timers.json" "$test_root/notification-history.jsonl"
+: > "$test_root/played"
+: > "$test_root/played.stopped"
+cat > "$test_root/ipc.qml" <<'IPCQML'
+import QtQuick
+import Quickshell
+import "island/services"
+import "island/core"
+
+ShellRoot {
+    readonly property var notifications: NotificationService
+    readonly property var timers: TimerService
+    IslandIPC {}
+}
+IPCQML
+fixture_env /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a -s '-screen 0 1280x1024x24' /usr/bin/timeout 120s /usr/bin/bash "$test_dir/timer" --ipc "$test_root" \
+    || { [[ ! -f "$test_root/ipc.log" ]] || /usr/bin/cat "$test_root/ipc.log" >&2; fail 'Timer IPC check failed.'; }

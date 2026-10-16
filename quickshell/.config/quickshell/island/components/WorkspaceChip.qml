@@ -10,9 +10,11 @@ Rectangle {
     property url iconSource
     property bool active: false
     property bool dimmed: false
+    property color iconColor: Theme.textPrimary
     property string description: ""
     property int fontSize: 13
     signal clicked
+    signal rightClicked
 
     implicitWidth: 32
     implicitHeight: 28
@@ -41,15 +43,16 @@ Rectangle {
         anchors.centerIn: parent
         visible: root.iconSource != ""
         source: root.iconSource
-        color: root.active ? Theme.background : Theme.textPrimary
+        color: root.active ? Theme.background : root.iconColor
         size: 16
     }
     MouseArea {
         id: mouse
         anchors.fill: parent
         hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.clicked()
+        onClicked: mouse => mouse.button === Qt.RightButton ? root.rightClicked() : root.clicked()
     }
     IslandTooltip {
         parent: root

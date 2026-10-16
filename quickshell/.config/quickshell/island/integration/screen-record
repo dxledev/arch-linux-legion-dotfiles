@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+# Island screen recording on top of gpu-screen-recorder, modelled on Caelestia's `caelestia record`:
+# the recorder runs detached, so a shell reload never ends a recording, and the file only reaches the
+# recordings folder once the recorder has finished writing it. State lives in a JSON file that
+# Island's RecorderService watches, so the controls, the timer and a keybind always agree.
+set -euo pipefail
+
+state_dir="${ISLAND_RECORD_STATE_DIR:-${XDG_RUNTIME_DIR:-/tmp}/island-screen-record}"
+state_file="$state_dir/state.json"
+log_file="$state_dir/recorder.log"
+# Recordings can be gigabytes, so the unfinished file goes on disk, never on the tmpfs runtime dir.
+work_dir="${ISLAND_RECORD_WORK_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island/record}"
+settings_file="${ISLAND_SETTINGS_FILE:-${ISLAND_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island}/settings.json}"
+recorder_bin="${ISLAND_RECORD_BIN:-/usr/bin/gpu-screen-recorder}"
+recorder_comm="${ISLAND_RECORD_COMM:-gpu-screen-reco}"
+slurp_bin="${ISLAND_RECORD_SLURP:-/usr/bin/slurp}"
+hyprctl_bin="${ISLAND_RECORD_HYPRCTL:-/usr/bin/hyprctl}"
+notify_bin="${ISLAND_RECORD_NOTIFY:-notify-send}"
+opener_bin="${ISLAND_RECORD_OPEN:-/usr/bin/xdg-open}"
+picker_bin="${ISLAND_RECORD_PICKER:-/usr/bin/zenity}"
+settle_ms="${ISLAND_RECORD_SETTLE_MS:-1000}"
+stop_timeout_s="${ISLAND_RECORD_STOP_TIMEOUT:-30}"
+
+usage() {
+    printf 'Usage: screen-record start --mode screen|region|window [--monitor NAME] [--window ADDRESS] [--webcam [--webcam-x PERCENT] [--webcam-y PERCENT]] [--audio]\n'
+    printf '       screen-record stop|pause|status|cameras|directory|choose-directory\n'
+}
+
+fail() {
+    printf 'screen-record: %s\n' "$*" >&2
+    exit 1
+}
+
+# Failures that happen with no terminal in sight (a button press) also reach the user as a notification.
+fail_notify() {
+    "$notify_bin" -a 'Screen recording' -u critical 'Recording failed' "$*" >/dev/null 2>&1 || true
+    fail "$*"
+}
+
+now_ms() { /usr/bin/date +%s%3N; }
+
+# A bare setting falls back to its default when the key is missing or the file does not exist yet.
+setting() {
+    local key="$1" fallback="$2" value
+    value="$(/usr/bin/jq -r --arg key "$key" --arg fallback "$fallback" \
+        'if has($key) and .[$key] != null then .[$key] else $fallback end | tostring' "$settings_file" 2>/dev/null)" || value=''
+    printf '%s' "${value:-$fallback}"
+}
+
+recordings_directory() {
+    local directory
+    directory="$(setting recordDirectory '')"
+    if [[ -z "$directory" ]]; then
+        directory="$(/usr/bin/xdg-user-dir VIDEOS 2>/dev/null || true)"
+        [[ -n "$directory" && "$directory" != "$HOME" ]] || directory="$HOME/Videos"
+        directory="$directory/Recordings"
+    fi
+    [[ "$directory" == '~/'* ]] && directory="$HOME/${directory#\~/}"
+    [[ "$directory" == /* ]] || fail "Recordings folder must be an absolute path: $directory"
+    printf '%s' "$directory"
+}
+
+write_state() {
+    local temporary
+    /usr/bin/mkdir -p -- "$state_dir"
+    temporary="$(/usr/bin/mktemp "$state_file.XXXXXX")"
+    printf '%s\n' "$1" > "$temporary"
+    /usr/bin/mv -f -- "$temporary" "$state_file"
+}
+
+state_value() {
+    /usr/bin/jq -r --arg key "$1" '.[$key] // empty' "$state_file" 2>/dev/null || true
+}
+
+# Only a live gpu-screen-recorder counts, so a recycled pid is never signalled.
+recorder_alive() {
+    local pid="$1" comm
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    { read -r comm < "/proc/$pid/comm"; } 2>/dev/null || return 1
+    [[ "$comm" == "$recorder_comm"* ]]
+}
+
+idle_state() { write_state '{"running":false,"stopping":false,"paused":false}'; }
+
+open_lock() {
+    /usr/bin/mkdir -p -- "$state_dir"
+    exec 9> "$state_dir/lock"
+    /usr/bin/flock -x 9
+}
+
+# Moves the finished file into the recordings folder and tells the user where it went.
+finish_recording() {
+    local temporary="$1" format="$2" directory destination action
+    directory="$(recordings_directory)"
+    if [[ ! -s "$temporary" ]]; then
+        idle_state
+        fail_notify 'The recorder did not write a video file.'
+    fi
+    /usr/bin/mkdir -p -- "$directory"
+    destination="$directory/recording_$(/usr/bin/date +%Y%m%d_%H-%M-%S).$format"
+    # Never replace an earlier recording, even one saved in the same second.
+    local suffix=1
+    while [[ -e "$destination" ]]; do
+        destination="$directory/recording_$(/usr/bin/date +%Y%m%d_%H-%M-%S)_$suffix.$format"
+        suffix=$(( suffix + 1 ))
+    done
+    /usr/bin/mv -n -- "$temporary" "$destination"
+    idle_state
+    (
+        action="$("$notify_bin" -a 'Screen recording' --action=watch=Watch --action=folder='Show in folder' \
+            'Recording saved' "$destination" 2>/dev/null)" || exit 0
+        case "$action" in
+            watch) "$opener_bin" "$destination" ;;
+            folder) "$opener_bin" "$directory" ;;
+        esac
+    ) >/dev/null 2>&1 9>&- &
+    disown 2>/dev/null || true
+    printf '%s\n' "$destination"
+}
+
+monitors_json() { "$hyprctl_bin" monitors -j; }
+
+# Highest refresh rate (rounded) among the monitors a logical rectangle touches.
+refresh_for_rect() {
+    local width="$1" height="$2" x="$3" y="$4"
+    monitors_json | /usr/bin/jq -r --argjson w "$width" --argjson h "$height" --argjson x "$x" --argjson y "$y" '
+        [.[] | select(.x < $x + $w and .x + (.width / .scale) > $x and .y < $y + $h and .y + (.height / .scale) > $y)
+            | .refreshRate | round] | (max // 60)'
+}
+
+# Width and height shares (percent of the video, rounded up) of the camera's picture when it is fitted into a
+# box a quarter of the video's width and height. Arguments: camera device, video width, video height.
+camera_shares() {
+    local mode_size
+    mode_size="$("$recorder_bin" --list-v4l2-devices 2>/dev/null | /usr/bin/awk -F'|' -v device="$1" '$1 == device { sub(/@.*/, "", $2); print $2; exit }')"
+    /usr/bin/awk -v size="${mode_size:-4x3}" -v width="$2" -v height="$3" 'BEGIN {
+        split(size, camera, "x"); camera_aspect = camera[1] / camera[2]; target_aspect = width / height
+        if (target_aspect > camera_aspect) { w = 25 * camera_aspect / target_aspect; h = 25 } else { w = 25; h = 25 * target_aspect / camera_aspect }
+        printf "%d %d\n", w + 0.999, h + 0.999 }'
+}
+
+first_camera() {
+    "$recorder_bin" --list-v4l2-devices 2>/dev/null | /usr/bin/awk -F'|' 'NR == 1 { print $1 }'
+}
+
+# One camera per line as "device|name|WxH"; the name comes from the kernel so two webcams can be told apart,
+# and the size is the recorder's first (best) mode, which gives the picture's proportions.
+cameras() {
+    local device name size
+    while IFS='|' read -r device size; do
+        name=''
+        { read -r name < "/sys/class/video4linux/${device##*/}/name"; } 2>/dev/null || true
+        printf '%s|%s|%s\n' "$device" "$name" "$size"
+    done < <("$recorder_bin" --list-v4l2-devices 2>/dev/null | /usr/bin/awk -F'|' '!seen[$1]++ { sub(/@.*/, "", $2); print $1 "|" $2 }')
+}
+
+start_recording() {
+    local mode='' monitor='' window='' webcam=0 audio=0 webcam_x=100 webcam_y=100
+    while (( $# )); do
+        case "$1" in
+            --mode) mode="${2:-}"; shift 2 ;;
+            --monitor) monitor="${2:-}"; shift 2 ;;
+            --window) window="${2:-}"; shift 2 ;;
+            --webcam) webcam=1; shift ;;
+            --webcam-x) webcam_x="${2:-}"; shift 2 ;;
+            --webcam-y) webcam_y="${2:-}"; shift 2 ;;
+            --audio) audio=1; shift ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    [[ "$mode" == screen || "$mode" == region || "$mode" == window ]] || fail 'Mode must be screen, region or window.'
+    [[ "$webcam_x" =~ ^[0-9]+$ && "$webcam_x" -le 100 && "$webcam_y" =~ ^[0-9]+$ && "$webcam_y" -le 100 ]] || fail 'Webcam position must be 0-100 percent.'
+
+    open_lock
+    local pid
+    pid="$(state_value pid)"
+    if [[ "$(state_value running)" == true ]] && recorder_alive "$pid"; then
+        fail 'A recording is already in progress.'
+    fi
+
+    local format quality framerate cursor source rate region='' geometry target_width=16 target_height=9
+    format="$(setting recordFormat mp4)"
+    quality="$(setting recordQuality very_high)"
+    framerate="$(setting recordFramerate 60)"
+    cursor="$(setting recordCursor true)"
+    [[ "$format" == mp4 || "$format" == mkv ]] || fail_notify "Unsupported recording format: $format"
+
+    case "$mode" in
+        screen)
+            [[ "$monitor" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || fail 'Screen mode needs --monitor NAME.'
+            rate="$(monitors_json | /usr/bin/jq -r --arg name "$monitor" '.[] | select(.name == $name) | .refreshRate | round')"
+            [[ -n "$rate" ]] || fail_notify "Monitor $monitor is not connected."
+            source="$monitor"
+            # Proportions of the recorded video, for placing the webcam; a rotated monitor swaps them.
+            read -r target_width target_height < <(monitors_json | /usr/bin/jq -r --arg name "$monitor" '.[] | select(.name == $name) | if ((.transform // 0) % 2) == 1 then "\(.height) \(.width)" else "\(.width) \(.height)" end')
+            ;;
+        region)
+            # Cancelling the selection (Escape) is not an error: nothing starts.
+            region="$("$slurp_bin" -f '%wx%h+%x+%y' 2>/dev/null)" || exit 0
+            ;;
+        window)
+            [[ "$window" =~ ^0x[0-9a-f]+$ ]] || fail 'Window mode needs --window ADDRESS.'
+            # gpu-screen-recorder only captures a window by id on X11, so a Wayland window is recorded as
+            # the screen rectangle it occupies right now. Only a window on a visible workspace can be.
+            geometry="$("$hyprctl_bin" clients -j | /usr/bin/jq -r --arg address "$window" --argjson monitors "$(monitors_json)" '
+                .[] | select(.address == $address and .mapped and (.hidden | not)) as $client
+                | ($monitors[] | select(.id == $client.monitor)) as $monitor
+                | select($client.workspace.id == $monitor.activeWorkspace.id or $client.workspace.id == $monitor.specialWorkspace.id)
+                | "\($client.size[0])x\($client.size[1])+\($client.at[0])+\($client.at[1])"')"
+            [[ -n "$geometry" ]] || fail_notify 'That window is not visible, so it cannot be recorded.'
+            region="$geometry"
+            ;;
+    esac
+
+    if [[ -n "$region" ]]; then
+        [[ "$region" =~ ^([0-9]+)x([0-9]+)\+(-?[0-9]+)\+(-?[0-9]+)$ ]] || fail "Invalid region: $region"
+        rate="$(refresh_for_rect "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}")"
+        source=region
+        target_width="${BASH_REMATCH[1]}" target_height="${BASH_REMATCH[2]}"
+    fi
+
+    case "$framerate" in
+        auto) ;;
+        30|60) rate="$framerate" ;;
+        *) rate=60 ;;
+    esac
+
+    if (( webcam )); then
+        local camera
+        camera="$(setting recordCameraDevice auto)"
+        [[ "$camera" != auto ]] || camera="$(first_camera)"
+        [[ "$camera" == /dev/video* ]] || fail_notify 'No webcam was found.'
+        # Top-left corner at x%/y% of the video. The camera keeps its proportions inside a box a quarter of the
+        # video's width and height, so the picture can be narrower than the box; the preview mirrors that.
+        # Whatever was saved, the picture is kept inside the video: 100 means flush against the edge.
+        local share_x share_y
+        read -r share_x share_y < <(camera_shares "$camera" "$target_width" "$target_height")
+        (( webcam_x <= 100 - share_x )) || webcam_x=$(( 100 - share_x ))
+        (( webcam_y <= 100 - share_y )) || webcam_y=$(( 100 - share_y ))
+        source="$source|$camera;halign=start;valign=start;x=${webcam_x}%;y=${webcam_y}%;width=25%;height=25%"
+    fi
+
+    local -a args=(-w "$source" -f "$rate" -c "$format" -q "$quality" -cursor "$([[ "$cursor" == false ]] && printf no || printf yes)")
+    [[ -z "$region" ]] || args+=(-region "$region")
+    (( ! audio )) || args+=(-a default_output)
+
+    local temporary="$work_dir/recording.$format"
+    /usr/bin/mkdir -p -- "$work_dir"
+    /usr/bin/rm -f -- "$temporary"
+    args+=(-o "$temporary")
+
+    # A new session so closing the terminal or the shell never takes the recorder with it, and fd 9 closed
+    # so the recorder does not hold the lock for as long as it runs.
+    /usr/bin/setsid "$recorder_bin" "${args[@]}" > "$log_file" 2>&1 < /dev/null 9>&- &
+    pid=$!
+    disown 2>/dev/null || true
+
+    # A bad argument, a busy camera or a missing GPU capability shows up as an immediate exit.
+    local waited=0
+    while (( waited < settle_ms )); do
+        /usr/bin/sleep 0.1
+        waited=$(( waited + 100 ))
+        recorder_alive "$pid" || break
+    done
+    if ! recorder_alive "$pid"; then
+        local reason
+        reason="$(/usr/bin/grep -i -E 'error|fail' "$log_file" 2>/dev/null | /usr/bin/tail -n 1 || true)"
+        idle_state
+        fail_notify "gpu-screen-recorder exited at once. ${reason:-See $log_file.}"
+    fi
+
+    write_state "$(/usr/bin/jq -cn --argjson pid "$pid" --argjson started "$(now_ms)" --arg temporary "$temporary" --arg format "$format" --arg mode "$mode" \
+        '{running: true, stopping: false, paused: false, pid: $pid, startedAt: $started, pausedAt: 0, pausedTotal: 0, temporary: $temporary, format: $format, mode: $mode}')"
+}
+
+stop_recording() {
+    open_lock
+    local pid temporary format
+    pid="$(state_value pid)"
+    temporary="$(state_value temporary)"
+    format="$(state_value format)"
+    if [[ "$(state_value running)" != true ]]; then
+        exit 0
+    fi
+    # The timer freezes while the recorder flushes the last frames.
+    write_state "$(/usr/bin/jq -c '.stopping = true' "$state_file")"
+    if recorder_alive "$pid"; then
+        # A paused recorder still finalizes straight away on SIGINT.
+        kill -INT "$pid" 2>/dev/null || true
+        local waited=0
+        while recorder_alive "$pid" && (( waited < stop_timeout_s * 10 )); do
+            /usr/bin/sleep 0.1
+            waited=$(( waited + 1 ))
+        done
+        if recorder_alive "$pid"; then
+            kill -TERM "$pid" 2>/dev/null || true
+            /usr/bin/sleep 1
+        fi
+    fi
+    finish_recording "$temporary" "$format"
+}
+
+pause_recording() {
+    open_lock
+    local pid
+    pid="$(state_value pid)"
+    [[ "$(state_value running)" == true && "$(state_value stopping)" != true ]] || exit 0
+    recorder_alive "$pid" || exit 0
+    kill -USR2 "$pid"
+    local now paused_at
+    now="$(now_ms)"
+    paused_at="$(state_value pausedAt)"
+    if [[ "${paused_at:-0}" == 0 ]]; then
+        write_state "$(/usr/bin/jq -c --argjson now "$now" '.paused = true | .pausedAt = $now' "$state_file")"
+    else
+        write_state "$(/usr/bin/jq -c --argjson now "$now" '.paused = false | .pausedTotal += ($now - .pausedAt) | .pausedAt = 0' "$state_file")"
+    fi
+}
+
+# Prints the state, first dealing with a recorder that ended without being asked to (another shell's
+# stop button killing every gpu-screen-recorder, a crash): what it managed to write is still kept.
+report_status() {
+    [[ -f "$state_file" ]] || { open_lock; [[ -f "$state_file" ]] || idle_state; }
+    # A stop that was interrupted (the shell restarting mid-save) leaves "stopping" behind with nobody working
+    # on it. stop holds the lock the whole time it works, so a free lock means it is gone.
+    if [[ "$(state_value stopping)" == true ]]; then
+        /usr/bin/mkdir -p -- "$state_dir"
+        exec 9> "$state_dir/lock"
+        if /usr/bin/flock -n 9 && [[ "$(state_value stopping)" == true ]]; then
+            if recorder_alive "$(state_value pid)"; then
+                write_state "$(/usr/bin/jq -c '.stopping = false' "$state_file")"
+            else
+                ( finish_recording "$(state_value temporary)" "$(state_value format)" ) >/dev/null 2>&1 || true
+            fi
+        fi
+        exec 9>&-
+    fi
+    if [[ "$(state_value running)" == true && "$(state_value stopping)" != true ]] && ! recorder_alive "$(state_value pid)"; then
+        open_lock
+        if [[ "$(state_value running)" == true && "$(state_value stopping)" != true ]] && ! recorder_alive "$(state_value pid)"; then
+            ( finish_recording "$(state_value temporary)" "$(state_value format)" ) >/dev/null 2>&1 || true
+        fi
+    fi
+    /usr/bin/cat -- "$state_file"
+}
+
+# Opens a folder picker, starting in the current recordings folder (or its nearest existing parent), and prints
+# the chosen path. GTK_USE_PORTAL sends it through the desktop's file chooser portal, so it is the same picker
+# every other app gets. Nothing is printed, and it fails, when the picker is closed without a choice.
+choose_directory() {
+    local start choice
+    start="$(recordings_directory)"
+    while [[ ! -d "$start" && "$start" != / ]]; do start="${start%/*}"; start="${start:-/}"; done
+    [[ -x "$picker_bin" ]] || fail "No folder picker found: $picker_bin"
+    choice="$(GTK_USE_PORTAL=1 "$picker_bin" --file-selection --directory --title 'Save recordings to' --filename "${start%/}/" 2>/dev/null)" || exit 1
+    [[ "$choice" == /* ]] || exit 1
+    [[ "$choice" == / ]] || choice="${choice%/}"
+    printf '%s\n' "$choice"
+}
+
+main() {
+    local action="${1:-}"
+    (( $# )) && shift
+    case "$action" in
+        start) start_recording "$@" ;;
+        stop) stop_recording ;;
+        pause) pause_recording ;;
+        status) report_status ;;
+        cameras) cameras ;;
+        directory) recordings_directory; printf '\n' ;;
+        choose-directory) choose_directory ;;
+        --help|help) usage ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"

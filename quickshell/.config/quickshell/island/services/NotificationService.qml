@@ -15,6 +15,10 @@ Singleton {
     property var entries: []
     property int unreadCount: 0
     property int storedSerial: 0
+    // Do Not Disturb keeps notifications in the history but shows no popup, except critical ones.
+    property bool doNotDisturb: false
+    readonly property string countText: history.count > 99 ? "99+" : String(history.count)
+    function toggleDoNotDisturb() { doNotDisturb = !doNotDisturb; }
     readonly property url defaultIcon: Qt.resolvedUrl("../assets/icons/bell.svg")
     // Shared with Caelestia, Noctalia and Waybar; see shared/notifications/README.md.
     readonly property string historyScript: Quickshell.env("ISLAND_NOTIFICATION_HISTORY")
@@ -124,6 +128,10 @@ Singleton {
     // is (and the lyrics are not also projected onto the island clock), the player is already on
     // screen, so the popup would only repeat it. The notification still goes to the history.
     readonly property string mediaNotificationApp: "spotify-media-controls"
+    // A timer's alert was asked for by the user, so Do Not Disturb does not hold it back.
+    readonly property string timerApp: "Island Timer"
+    // The hint a timer's alert carries: the id of the timer, so its buttons reach the right one.
+    readonly property string timerHint: "x-island-timer"
     function mediaNotificationCovered(notification) {
         if (notification.appName !== mediaNotificationApp) return false;
         if (IslandState.mode === IslandState.mediaControlsMode) return true;
@@ -134,7 +142,9 @@ Singleton {
         notification.tracked = true;
         const existing = entries.find(entry => entry.notificationId === notification.id);
         if (existing) { promote(existing); return; }
-        if (mediaNotificationCovered(notification)) {
+        if (mediaNotificationCovered(notification)
+                || (doNotDisturb && notification.urgency !== NotificationUrgency.Critical
+                    && notification.appName !== timerApp)) {
             updateHistory({
                 notification: notification, notificationId: notification.id, app: notification.appName,
                 summary: notification.summary, body: notification.body, icon: getAppIcon(notification),

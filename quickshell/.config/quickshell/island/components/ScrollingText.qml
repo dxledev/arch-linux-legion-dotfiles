@@ -40,9 +40,14 @@ Item {
         x: root.restX
     }
 
-    readonly property real restX: label.width >= maxWidth ? 0
-        : rightAligned ? maxWidth - label.width
-        : centered ? (maxWidth - label.width) / 2 : 0
+    // Where the text rests when it fits. A function, so refresh() can ask for the current answer: when
+    // maxWidth has just changed, the restX binding has not caught up yet.
+    function restPosition() {
+        return label.width >= root.maxWidth ? 0
+            : root.rightAligned ? root.maxWidth - label.width
+            : root.centered ? (root.maxWidth - label.width) / 2 : 0
+    }
+    readonly property real restX: restPosition()
 
     readonly property real overflow: label.width - root.maxWidth
     readonly property int scrollDuration: Math.max(1200, Math.round(overflow / scrollSpeed * 1000))
@@ -91,7 +96,7 @@ Item {
     function refresh() {
         scrollAnimation.stop()
 
-        label.x = root.restX
+        label.x = root.restPosition()
 
         if (shouldScroll())
             scrollAnimation.start()

@@ -1,0 +1,258 @@
+diff --git a/src/launcher/app_provider.cpp b/src/launcher/app_provider.cpp
+index 50b2e42e1..a59e7b145 100644
+--- a/src/launcher/app_provider.cpp
++++ b/src/launcher/app_provider.cpp
+@@ -27,6 +27,11 @@ namespace {
+   constexpr std::string_view kDefaultAppIcon = "application-x-executable";
+   constexpr double kNameMatchPriority = 3'000.0;
+   constexpr double kLocalizedNameMatchPriority = 1'500.0;
++  // The stock LibreOffice Start Center opens the LibreOffice submenu (visible libreoffice*.desktop
++  // entries, like ~/bin/menu-libreoffice). apps.list names the same launcher as "libreoffice-menu".
++  constexpr std::string_view kLibreOfficeSubmenu = "libreoffice";
++  constexpr std::string_view kLibreOfficeOpenerId = "libreoffice-startcenter";
++  constexpr std::string_view kLibreOfficeListedId = "libreoffice-menu";
+ 
+   std::unordered_set<std::string> listedAppIds() {
+     const char* home = std::getenv("HOME");
+@@ -275,11 +280,24 @@ void AppProvider::refreshEntriesIfNeeded() const {
+   m_entriesVersion = version;
+ }
+ 
+-std::vector<LauncherResult> AppProvider::query(std::string_view text) const {
++std::vector<LauncherResult> AppProvider::query(std::string_view text) const { return queryEntries(text, {}); }
++
++std::vector<LauncherResult> AppProvider::querySubmenu(std::string_view submenu, std::string_view text) const {
++  return submenu == kLibreOfficeSubmenu ? queryEntries(text, submenu) : std::vector<LauncherResult>{};
++}
++
++std::vector<LauncherResult> AppProvider::queryEntries(std::string_view text, std::string_view submenu) const {
+   refreshEntriesIfNeeded();
++  const bool inSubmenu = !submenu.empty();
+   const bool showAllApps = m_config == nullptr || m_config->config().shell.launcher.showAllApps;
+-  const auto allowedIds = showAllApps ? std::unordered_set<std::string>{} : listedAppIds();
++  const auto allowedIds = showAllApps || inSubmenu ? std::unordered_set<std::string>{} : listedAppIds();
+   const auto allowed = [&](const DesktopEntry& entry) {
++    if (inSubmenu) {
++      return entry.id.starts_with(kLibreOfficeSubmenu);
++    }
++    if (entry.id == kLibreOfficeOpenerId && allowedIds.contains(std::string(kLibreOfficeListedId))) {
++      return true;
++    }
+     return showAllApps || allowedIds.contains(entry.id);
+   };
+   const std::string normalizedText = StringUtils::toLower(text);
+@@ -298,6 +316,9 @@ std::vector<LauncherResult> AppProvider::query(std::string_view text) const {
+     if (const auto index = primaryCategoryIndex(entry.categories)) {
+       result.category = appCategoryLabel(kAppCategories[*index].id);
+     }
++    if (!inSubmenu && entry.id == kLibreOfficeOpenerId) {
++      result.submenu = std::string(kLibreOfficeSubmenu);
++    }
+     result.score = s;
+     return result;
+   };
+@@ -308,6 +329,7 @@ std::vector<LauncherResult> AppProvider::query(std::string_view text) const {
+     result.title = action.name;
+     result.subtitle = entry.name;
+     result.desktopActionId = action.id;
++    result.submenu.clear();
+     return result;
+   };
+ 
+@@ -333,7 +355,7 @@ std::vector<LauncherResult> AppProvider::query(std::string_view text) const {
+       scored.emplace_back(s, std::make_pair(&entry, nullptr));
+     }
+ 
+-    if (m_config == nullptr || !m_config->config().shell.launcher.showAppActions) {
++    if (inSubmenu || m_config == nullptr || !m_config->config().shell.launcher.showAppActions) {
+       continue;
+     }
+     for (const auto& action : entry.actions) {
+diff --git a/src/launcher/app_provider.h b/src/launcher/app_provider.h
+index 2fb5924a2..1363df9cf 100644
+--- a/src/launcher/app_provider.h
++++ b/src/launcher/app_provider.h
+@@ -25,10 +25,12 @@ public:
+ 
+   [[nodiscard]] std::vector<LauncherCategory> categories() const override;
+   [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
++  [[nodiscard]] std::vector<LauncherResult> querySubmenu(std::string_view submenu, std::string_view text) const override;
+ 
+   bool activate(const LauncherResult& result) override;
+ 
+ private:
++  [[nodiscard]] std::vector<LauncherResult> queryEntries(std::string_view text, std::string_view submenu) const;
+   void refreshEntriesIfNeeded() const;
+ 
+   ConfigService* m_config = nullptr;
+diff --git a/src/launcher/launcher_provider.h b/src/launcher/launcher_provider.h
+index ea263306b..2d206a9b2 100644
+--- a/src/launcher/launcher_provider.h
++++ b/src/launcher/launcher_provider.h
+@@ -38,6 +38,9 @@ struct LauncherResult {
+   // When launching an application via AppProvider, matches DesktopAction::id (primary Exec leaves this empty).
+   std::string desktopActionId;
+   std::string category;
++  // Non-empty when activating this result opens a dedicated launcher submenu (e.g. "libreoffice")
++  // instead of launching; the submenu is not reachable through a provider prefix.
++  std::string submenu;
+   std::string presentation;
+   std::optional<std::string> query;
+   double score = 0.0;
+@@ -116,6 +119,12 @@ public:
+   // Query after this provider's prefix was explicitly matched.
+   [[nodiscard]] virtual std::vector<LauncherResult> queryPrefixed(std::string_view text) const { return query(text); }
+ 
++  // Results for a dedicated submenu opened from one of this provider's results. Submenus are only
++  // reachable through LauncherResult::submenu, never through prefix routing or global search.
++  [[nodiscard]] virtual std::vector<LauncherResult> querySubmenu(std::string_view /*submenu*/, std::string_view /*text*/) const {
++    return {};
++  }
++
+   virtual bool activate(const LauncherResult& result) = 0;
+ 
+ private:
+diff --git a/src/shell/launcher/launcher_panel.cpp b/src/shell/launcher/launcher_panel.cpp
+index 7cbf633d4..6fbb22e26 100644
+--- a/src/shell/launcher/launcher_panel.cpp
++++ b/src/shell/launcher/launcher_panel.cpp
+@@ -1251,7 +1251,8 @@ void LauncherPanel::syncLauncherViewLayout(Renderer* renderer) {
+   m_grid->setScale(scale);
+   m_listAdapter->setListStyle(style);
+   m_gridAdapter->setListStyle(style);
+-  const bool reorderEnabled = m_query.empty() && m_scopedProviderId.empty() && m_activeCategoryType == All;
++  const bool reorderEnabled =
++      m_query.empty() && m_scopedProviderId.empty() && m_submenu.empty() && m_activeCategoryType == All;
+   const bool listReorderEnabledChanged = m_listAdapter->setReorderEnabled(reorderEnabled);
+   const bool gridReorderEnabledChanged = m_gridAdapter->setReorderEnabled(reorderEnabled);
+   const bool reorderEnabledChanged = listReorderEnabledChanged || gridReorderEnabledChanged;
+@@ -1373,6 +1374,8 @@ void LauncherPanel::doLayout(Renderer& renderer, float width, float height) {
+ }
+ 
+ void LauncherPanel::onOpen(std::string_view context) {
++  // A reopen with a new context (e.g. a panel-open command) always starts from the apps list.
++  m_submenu.clear();
+   for (auto& provider : m_providers) {
+     applyProviderConfig(*provider);
+   }
+@@ -1423,6 +1426,7 @@ void LauncherPanel::onClose() {
+   m_query.clear();
+   m_results.clear();
+   m_allResults.clear();
++  m_submenu.clear();
+   m_scopedProviderId.clear();
+   m_scopedPlaceholder.clear();
+   m_activeCategoryType = All;
+@@ -1553,7 +1557,18 @@ void LauncherPanel::onInputChanged(const std::string& text) {
+   bool hasRecentlyUsed = false;
+   bool anyProviderLoading = false;
+ 
+-  if (!m_scopedProviderId.empty()) {
++  if (!m_submenu.empty()) {
++    for (auto& provider : m_providers) {
++      auto results = provider->querySubmenu(m_submenu, text);
++      for (auto& result : results) {
++        result.providerId = provider->id();
++      }
++      m_allResults.insert(
++          m_allResults.end(), std::make_move_iterator(results.begin()), std::make_move_iterator(results.end())
++      );
++    }
++    sortResultsByScore(m_allResults);
++  } else if (!m_scopedProviderId.empty()) {
+     for (auto& provider : m_providers) {
+       if (provider->id() != m_scopedProviderId) {
+         continue;
+@@ -1696,7 +1711,7 @@ void LauncherPanel::onInputChanged(const std::string& text) {
+     rebuildCategoryFilter(newCategories);
+   }
+ 
+-  if (text.empty() && m_scopedProviderId.empty()) {
++  if (text.empty() && m_scopedProviderId.empty() && m_submenu.empty()) {
+     applyPinnedApplicationOrder();
+   }
+ 
+@@ -2175,6 +2190,34 @@ bool LauncherPanel::openAppActionsMenu(std::size_t index, float anchorX, float a
+   return true;
+ }
+ 
++void LauncherPanel::openSubmenu(std::string submenu) {
++  m_submenu = std::move(submenu);
++  m_selectedIndex = 0;
++  if (m_input != nullptr) {
++    m_input->setPlaceholder(std::string("LibreOffice…"));
++    m_input->setValue("");
++  }
++  if (m_grid != nullptr) {
++    m_grid->scrollView().setScrollOffset(0.0F);
++  }
++  onInputChanged("");
++}
++
++void LauncherPanel::closeSubmenu() {
++  m_submenu.clear();
++  m_selectedIndex = 0;
++  if (m_input != nullptr) {
++    m_input->setPlaceholder(
++        m_scopedPlaceholder.empty() ? i18n::tr("launcher.search-placeholder") : m_scopedPlaceholder
++    );
++    m_input->setValue("");
++  }
++  if (m_grid != nullptr) {
++    m_grid->scrollView().setScrollOffset(0.0F);
++  }
++  onInputChanged("");
++}
++
+ void LauncherPanel::activateAt(std::size_t index) {
+   if (index >= m_results.size()) {
+     return;
+@@ -2204,6 +2247,11 @@ void LauncherPanel::activateSelected() {
+     return;
+   }
+ 
++  if (!result.submenu.empty()) {
++    openSubmenu(result.submenu);
++    return;
++  }
++
+   // Dispatch only to the provider that produced this result. Providers can use
+   // overlapping id shapes, so probing every provider risks side effects.
+   for (auto& provider : m_providers) {
+@@ -2265,6 +2313,13 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
+     return true;
+   };
+ 
++  if (!m_submenu.empty()
++      && (KeybindMatcher::matches(KeybindAction::Cancel, sym, modifiers)
++          || (KeySymbol::isBackspace(sym) && modifiers == 0 && m_query.empty()))) {
++    closeSubmenu();
++    return true;
++  }
++
+   if (sym == XKB_KEY_F6 && (modifiers & ~(KeyMod::Shift)) == 0) {
+     return cycleCategory((modifiers & KeyMod::Shift) != 0);
+   }
+diff --git a/src/shell/launcher/launcher_panel.h b/src/shell/launcher/launcher_panel.h
+index 724827bca..4484e757c 100644
+--- a/src/shell/launcher/launcher_panel.h
++++ b/src/shell/launcher/launcher_panel.h
+@@ -79,6 +79,10 @@ private:
+   void refreshResults();
+   void activateAt(std::size_t index);
+   void activateSelected();
++  // Dedicated launcher submenu (e.g. LibreOffice): opened by activating a result with a submenu,
++  // left with Cancel or Backspace on an empty query. Not reachable through provider prefixes.
++  void openSubmenu(std::string submenu);
++  void closeSubmenu();
+   bool handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers);
+   void applyEmptyState();
+   void bindDetailResult();
+@@ -122,6 +126,7 @@ private:
+   std::unique_ptr<LauncherAppGridAdapter> m_gridAdapter;
+ 
+   std::string m_query;
++  std::string m_submenu;
+   std::string m_scopedProviderId;
+   std::string m_scopedPlaceholder;
+   ActiveCategoryType m_activeCategoryType = All;

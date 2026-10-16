@@ -13,6 +13,8 @@ Rectangle {
     property bool active: false
     property bool iconEnabled: true
     property bool panelEnabled: false
+    // 0 to 1 draws a ring round the icon that drains as the value falls; -1 (the default) draws none.
+    property real progress: -1
     property url trailingIconSource: ""
     property string trailingLabel: ""
     readonly property real trailingWidth: trailingIconSource != "" ? trailingButton.width + 10 : 0
@@ -126,6 +128,7 @@ Rectangle {
             }
 
             background: Rectangle {
+                id: iconBackground
                 radius: width / 2
                 color: iconButton.down
                     ? root.active ? Theme.accentPressed : Theme.buttonPressed
@@ -135,6 +138,17 @@ Rectangle {
                 border.width: iconButton.activeFocus ? 2 : iconButton.hovered ? 1 : 0
                 border.color: iconButton.activeFocus ? Theme.textPrimary : root.active ? Theme.background : Theme.accent
                 Behavior on color { ColorAnimation { duration: Theme.animationFast } }
+
+                CountdownRing {
+                    objectName: "control-card-progress"
+                    anchors.fill: parent
+                    visible: root.progress >= 0
+                    thickness: 3
+                    progress: Math.max(0, root.progress)
+                    // On the lit icon the ring is drawn in the background colour so it reads against the accent.
+                    ringColor: root.active ? Theme.background : Theme.accent
+                    trackColor: root.active ? Qt.alpha(Theme.background, 0.28) : Theme.surfaceVariant
+                }
             }
 
             HoverHandler {

@@ -41,3 +41,5 @@ singleton QuoteService 1.0 QuoteService.qml
 singleton WeatherService 1.0 WeatherService.qml
 singleton SunshineService 1.0 SunshineService.qml
 singleton ProtonVpnService 1.0 ProtonVpnService.qml
+singleton RecorderService 1.0 RecorderService.qml
+singleton TimerService 1.0 TimerService.qml

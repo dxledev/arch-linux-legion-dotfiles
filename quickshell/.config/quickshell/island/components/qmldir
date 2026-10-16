@@ -55,3 +55,10 @@ CalendarDayCell 1.0 CalendarDayCell.qml
 CalendarTaskRow 1.0 CalendarTaskRow.qml
 WorkspaceChip 1.0 WorkspaceChip.qml
 WorkspacePanel 1.0 WorkspacePanel.qml
+RecordControls 1.0 RecordControls.qml
+SettingText 1.0 SettingText.qml
+RecordChoice 1.0 RecordChoice.qml
+RecordViewfinder 1.0 RecordViewfinder.qml
+RecordingIndicator 1.0 RecordingIndicator.qml
+TimerReadout 1.0 TimerReadout.qml
+TimerDial 1.0 TimerDial.qml

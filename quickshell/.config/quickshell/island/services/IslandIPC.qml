@@ -61,6 +61,31 @@ IpcHandler {
             IslandState.settingsSectionMode, IslandState.clockSettingsMode, IslandState.osdSettingsMode
         ]);
     }
+    function openRecordOptions(): void { IslandController.toggleMode(IslandState.recordOptionsMode); }
+    function recording(): bool { return RecorderService.running; }
+    function stopRecording(): void { RecorderService.stop(); }
+    function pauseRecording(): void { RecorderService.togglePause(); }
+    // Keybind: stops the recording in progress, or opens the options for a new one.
+    function toggleRecording(): void {
+        if (RecorderService.running) RecorderService.stop();
+        else IslandController.toggleMode(IslandState.recordOptionsMode);
+    }
+    function openTimer(): void { IslandController.toggleMode(IslandState.timerMode); }
+    // Starts a countdown of the given length; keepAlert makes its alert stay until closed, and sound (one of the
+    // panel's sound names such as "bell", or "" for silence) plays when it ends. Whether the alert offers Snooze, and
+    // for how long, follows the panel.
+    function startTimer(seconds: int, label: string, keepAlert: bool, sound: string): bool {
+        return TimerService.start(seconds, label, keepAlert, sound);
+    }
+    function cancelTimers(): void { TimerService.cancelAll(); }
+    // Pauses the running timers, or resumes them when they are all paused.
+    function toggleTimerPause(): void { TimerService.toggleAllPaused(); }
+    // Running timers, soonest first, as JSON: label, seconds left and whether the alert stays until closed.
+    function timers(): string {
+        return JSON.stringify(TimerService.timers.map(timer => ({
+            id: timer.id, label: timer.label, remaining: TimerService.remainingSeconds(timer), paused: timer.paused, keepAlert: timer.indefinite, sound: timer.sound, snooze: timer.snooze
+        })));
+    }
     function openShellSwitcher(): void { IslandController.toggleMode(IslandState.shellSwitcherMode); }
     function openLayoutSwitcher(): void { IslandController.toggleMode(IslandState.layoutSwitcherMode); }
     function openWorkspaceAxis(): void { IslandController.toggleWorkspaceAxis(); }

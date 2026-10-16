@@ -16,8 +16,9 @@ var settingsSections = [
     { key: "dynamicPalette", title: "Dynamic palette", icon: "../assets/icons/palette.svg" },
     { key: "notifications", title: "Notifications", icon: "../assets/icons/bell.svg" },
     { key: "interaction", title: "Interaction", icon: "../assets/icons/touch.svg" },
-    { key: "wallpaperAnimation", title: "Wallpaper", menuTitle: "Wallpaper Settings", icon: "../assets/icons/sparkles.svg" },
-    { key: "media", title: "Media", menuTitle: "Media Settings", icon: "../assets/icons/music.svg" }
+    { key: "wallpaperAnimation", title: "Wallpaper", icon: "../assets/icons/sparkles.svg" },
+    { key: "media", title: "Media", icon: "../assets/icons/music.svg" },
+    { key: "screenRecording", title: "Screen recording", icon: "../assets/icons/screen-record.svg" }
 ]
 
 var menuEntries = [
@@ -44,17 +45,22 @@ var menuEntries = [
     { id: "system", title: "System", subtitle: "CPU, memory, and storage", keywords: ["stats", "statistics", "hardware", "resources", "performance", "processor", "cpu", "memory", "ram", "disk", "storage", "uptime"], icon: "../assets/icons/display.svg", route: { type: "controller", action: "openSystem" } },
     { id: "ai-usage", title: "AI Usage", subtitle: "Provider quotas and reset times", keywords: ["ai", "usage", "provider", "quota", "limits", "credits", "tokens", "codex", "openai", "claude", "anthropic", "gemini", "copilot", "cursor"], icon: "../assets/icons/sparkles.svg", route: { type: "controller", action: "openAIUsage" } },
     { id: "calendar", title: "Calendar", subtitle: "Dates, holidays, events and tasks", keywords: ["calendar", "date", "dates", "month", "today", "holiday", "holidays", "events", "event", "agenda", "schedule", "tasks", "task", "todo", "to-do", "reminders", "dashboard", "moon", "planner", "weather", "forecast"], icon: "../assets/icons/calendar.svg", route: { type: "controller", action: "openCalendar" } },
+    { id: "timer", title: "Timer", subtitle: "Countdowns with labels and alerts", keywords: ["timer", "timers", "countdown", "alarm", "alert", "reminder", "pomodoro", "kitchen", "cooking", "minutes", "remaining"], icon: "../assets/icons/timer.svg", route: { type: "controller", action: "openTimer" } },
     { id: "notification-panel", title: "Notification history", subtitle: "Your recent notifications", keywords: ["notifications", "alerts", "history"], icon: "../assets/icons/bell.svg", route: { type: "controller", action: "openNotifications" } },
     { id: "media-controls", title: "Media controls", subtitle: "Playback and track controls", keywords: ["media", "music", "player", "playback", "song"], icon: "../assets/icons/music.svg", route: { type: "controller", action: "openMediaControls" } }
 ]
 
+// Menu search results show where a settings page lives: "Settings > Clock".
+var settingsPrefix = "Settings > "
+
 settingsSections.forEach(function(section) {
     menuEntries.push({
         id: "settings-" + section.key,
-        title: section.menuTitle || section.title,
+        title: settingsPrefix + section.title,
         subtitle: settingsSubtitle(section.key),
         keywords: settingsKeywords(section.key),
         icon: section.icon,
+        searchOnly: true,
         route: { type: "settings", section: section.key }
     })
 })
@@ -74,7 +80,8 @@ function settingsSubtitle(key) {
         notifications: "Alerts and popup behavior",
         interaction: "Clicks and hover behavior",
         wallpaperAnimation: "Gallery layout and transitions",
-        media: "Lyrics width on the Island"
+        media: "Lyrics width on the Island",
+        screenRecording: "Format, quality and where recordings go"
     }
     return descriptions[key] || "Island preferences"
 }
@@ -94,25 +101,49 @@ function settingsKeywords(key) {
         notifications: ["alerts", "popup", "notification"],
         interaction: ["click", "hover", "gesture", "behavior"],
         wallpaperAnimation: ["transition", "wallpaper", "animation", "effects", "gallery", "grid", "rows", "columns", "scroll", "layout", "infinite", "wrap"],
-        media: ["media", "music", "player", "lyrics", "song", "width", "minimum", "island", "clock"]
+        media: ["media", "music", "player", "lyrics", "song", "width", "minimum", "island", "clock"],
+        screenRecording: ["record", "recording", "screen recorder", "capture", "gpu-screen-recorder", "video", "webcam", "camera", "mp4", "mkv", "format", "folder", "directory", "quality", "fps", "frame rate", "cursor"]
     }
     return keywords[key] || []
 }
 
+function searchTerms(query) {
+    return String(query || "").trim().toLowerCase().split(/\s+/).filter(function(term) { return term.length > 0 })
+}
+
+function matchesTerms(terms, entry) {
+    var searchable = [entry.title, entry.subtitle].concat(entry.keywords || []).join(" ").toLowerCase()
+    return terms.every(function(term) { return searchable.indexOf(term) !== -1 })
+}
+
+// Settings panel rows keep their plain names; subtitles and keywords still make them searchable.
+function filterSettingsSections(query) {
+    var terms = searchTerms(query)
+    return settingsSections.filter(function(section) {
+        return matchesTerms(terms, { title: section.title, subtitle: settingsSubtitle(section.key), keywords: settingsKeywords(section.key) })
+    })
+}
+
 function filterEntries(query, entries, pinnedIds) {
     var source = entries || menuEntries
-    var terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(function(term) { return term.length > 0 })
-    var matches = terms.length === 0 ? source.slice() : source.filter(function(entry) {
-        var searchable = [entry.title, entry.subtitle].concat(entry.keywords || []).join(" ").toLowerCase()
-        return terms.every(function(term) { return searchable.indexOf(term) !== -1 })
-    })
+    var terms = searchTerms(query)
     var pins = sanitizePinnedIds(pinnedIds)
+    // Search-only entries (settings pages) stay hidden until a query asks for them, unless pinned.
+    var matches = source.filter(function(entry) {
+        if (terms.length === 0) return !entry.searchOnly || pins.indexOf(entry.id) !== -1
+        return matchesTerms(terms, entry)
+    })
     var pinnedMatches = []
     for (var index = 0; index < pins.length; index++) {
         var pinned = findEntryById(pins[index], matches)
         if (pinned) pinnedMatches.push(pinned)
     }
     return pinnedMatches.concat(matches.filter(function(entry) { return pins.indexOf(entry.id) === -1 }))
+}
+
+// Entries shown in the unsearched grid; search-only entries appear only through search or pins.
+function browsableIds() {
+    return menuEntries.filter(function(entry) { return !entry.searchOnly }).map(function(entry) { return entry.id })
 }
 
 function findEntryById(id, entries) {
@@ -172,7 +203,7 @@ function chooseDisplayedIds(pinnedIds, eligibleIds, limit, randomFn, shuffleElig
         pins = pins.filter(function(id) { return availableIds.indexOf(id) !== -1 })
     var candidates = []
     var seen = pins.slice()
-    var eligible = Array.isArray(eligibleIds) ? eligibleIds : menuEntries.map(function(entry) { return entry.id })
+    var eligible = Array.isArray(eligibleIds) ? eligibleIds : browsableIds()
     for (var index = 0; index < eligible.length; index++) {
         var id = eligible[index]
         if (findEntryById(id) && seen.indexOf(id) === -1) {
@@ -182,4 +213,19 @@ function chooseDisplayedIds(pinnedIds, eligibleIds, limit, randomFn, shuffleElig
     }
     var filler = shuffleEligible === false ? candidates : shuffleIds(candidates, randomFn)
     return pins.slice(0, maximum).concat(filler.slice(0, Math.max(0, maximum - pins.length)))
+}
+
+// The unsearched grid: pins first, then every other available entry in the cached random order.
+// The first cardLimit cards are what fits on screen; the rest are reached by scrolling.
+function listDisplayedIds(pinnedIds, eligibleIds, availableIds) {
+    var pins = sanitizePinnedIds(pinnedIds)
+    if (Array.isArray(availableIds))
+        pins = pins.filter(function(id) { return availableIds.indexOf(id) !== -1 })
+    var result = pins.slice()
+    var eligible = Array.isArray(eligibleIds) ? eligibleIds : browsableIds()
+    for (var index = 0; index < eligible.length; index++) {
+        var id = eligible[index]
+        if (findEntryById(id) && result.indexOf(id) === -1) result.push(id)
+    }
+    return result
 }

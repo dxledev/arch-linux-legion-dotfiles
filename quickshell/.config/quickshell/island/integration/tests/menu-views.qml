@@ -21,7 +21,7 @@ ShellRoot {
         ["themes", "wallpapers", "settings"],
         ["themes", "wallpapers", "settings", "ai-usage"]
     ]
-    property var inlineSections: ["launcher", "menu", "appearance", "desktop", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media"]
+    property var inlineSections: ["launcher", "menu", "appearance", "desktop", "clock", "lock", "osd", "workspaces", "dynamicPalette", "notifications", "interaction", "wallpaperAnimation", "media", "screenRecording"]
     property var controllerRoutes: [
         ["session", IslandState.powerMenuMode],
         ["control-center", IslandState.controlCenterMode],
@@ -126,13 +126,13 @@ ShellRoot {
         if (phase === 0) {
             check(ThemeService.settings.menuPinnedEntries.length === 0, "Fixture starts without saved pins");
             openMenu();
-            check(menu.entries.length === 4, "Closed menu shows four cards");
+            check(menu.entries.length > MenuService.cardLimit && menu.entries.every(entry => entry.route.type !== "settings"), "Closed menu lists more than its visible cards for scrolling, without settings pages");
             phase = 1;
         } else if (phase === 1) {
             check(menu.implicitHeight === 392 && menu.height === 392, "Menu is 392 px tall when search is closed: " + menu.height);
             const grid = named(menu, "menu-grid");
             check(grid.height === 276, "Menu card grid keeps its height");
-            check(grid.contentHeight + grid.bottomMargin === grid.height && grid.contentY === 0, "Four cards do not create blank scroll space");
+            check(grid.interactive && grid.contentHeight + grid.bottomMargin > grid.height && grid.contentY === 0, "The closed grid scrolls past its two visible rows");
             const firstCard = card(menu, menu.entries[0].id);
             const secondColumnCard = card(menu, menu.entries[1].id);
             check(firstCard && firstCard.height === 132, "Navigation cards are 132 px tall");
@@ -144,20 +144,21 @@ ShellRoot {
             grid.forceActiveFocus();
             check(grid.currentIndex === 0, "Closed menu starts keyboard navigation at the first card");
             input.keyClick(Qt.Key_Down, Qt.NoModifier, 0);
-            check(grid.currentIndex >= 2 && grid.contentY === 0, "Down to the last row keeps the four-card grid at the top");
-            check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over the closed four-card grid");
+            check(grid.currentIndex >= 2 && grid.contentY === 0, "Down to the last visible row keeps the grid at the top");
+            check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over the closed grid");
             scrollSettleTicks = 0;
             phase = 100;
         } else if (phase === 100) {
             if (++scrollSettleTicks < 4) return;
-            check(named(menu, "menu-grid").contentY === 0, "Wheel input cannot scroll the closed four-card grid");
+            check(named(menu, "menu-grid").contentY === 144, "One wheel step scrolls the closed grid by a row: " + named(menu, "menu-grid").contentY);
             click(named(menu, "panel-title-action"));
             check(menu.implicitHeight === 452, "Opening search reports the final menu height immediately");
             check(named(menu, "menu-grid").y === 0, "Cards slide down with the search reveal instead of jumping");
             phase = 101;
         } else if (phase === 101) {
             const grid = named(menu, "menu-grid");
-            check(menu.searchVisible && menu.entries.length === MenuEntries.menuEntries.length, "Search opens with all menu entries");
+            check(menu.searchVisible && menu.entries.length === MenuEntries.browsableIds().length, "Search opens with every non-settings entry");
+            check(menu.entries.every(entry => entry.route.type !== "settings"), "Blank search hides settings pages");
             check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over all search results");
             scrollSettleTicks = 0;
             phase = 102;
@@ -187,7 +188,7 @@ ShellRoot {
             check(menu.searchVisible && named(menu, "menu-search").activeFocus, "Search action focuses the search field");
             check(menu.height === 452, "Open search adds 60 px to menu height: " + menu.height);
             check(named(menu, "menu-grid").y === 60 && named(menu, "menu-search").opacity === 1, "Search reveal settles above the cards");
-            check(menu.entries.length === MenuEntries.menuEntries.length, "Empty query shows every entry");
+            check(menu.entries.length === MenuEntries.browsableIds().length, "Empty query shows every non-settings entry");
             named(menu, "menu-search").text = "session";
             phase = 3;
         } else if (phase === 3) {
@@ -350,13 +351,13 @@ ShellRoot {
             if (ThemeService.settings.menuRows !== 3 || ThemeService.settings.menuColumns !== 4) return;
             if (++scrollSettleTicks < 4) return;
             const grid = named(menu, "menu-grid");
-            check(MenuService.cardLimit === 12 && menu.entries.length === 12, "A 3x4 grid shows twelve cards");
+            check(MenuService.cardLimit === 12 && menu.entries.length > 12, "A 3x4 grid shows twelve cards and scrolls to the rest");
             check(menu.implicitWidth === 884 && menu.width === 884, "Four columns widen the menu: " + menu.width);
             
             const first = card(menu, menu.entries[0].id);
             const fourth = card(menu, menu.entries[3].id);
             const fifth = card(menu, menu.entries[4].id);
-            check(grid.height === 420 && grid.contentHeight + grid.bottomMargin === grid.height, "Three rows fill the grid without blank scroll space");
+            check(grid.height === 420 && grid.contentHeight + grid.bottomMargin > grid.height, "Three visible rows scroll to the remaining entries");
             check(first.width === 200 && fourth.x - first.x === 636 && fifth.y - first.y === 144, "Larger grids keep 200 px cards and 12 px gaps");
             check(pinButton(menu, menu.entries[4].id).enabled, "A larger grid allows more pins");
             click(named(menu, "panel-title-action"));
@@ -372,7 +373,66 @@ ShellRoot {
         } else if (phase === 94) {
             if (++scrollSettleTicks < 5) return;
             check(named(menu, "menu-grid").contentY === 144, "One wheel step scrolls one row of four results: " + named(menu, "menu-grid").contentY);
-            console.log("PASS: menu layout, search, shared views, persistent pins, cap and refill, rapid queued toggles, keyboard routing, settings routes, mode transitions, and configurable grid size");
+            named(menu, "menu-search").text = "settings";
+            phase = 945;
+        } else if (phase === 945) {
+            const settingsEntries = menu.entries.filter(entry => entry.route.type === "settings");
+            check(settingsEntries.length === MenuEntries.settingsSections.length, "Search lists every settings page");
+            check(settingsEntries.every(entry => entry.title.startsWith("Settings > ")), "Settings pages are labelled Settings > <entry> in search");
+            check(menu.entries.filter(entry => entry.route.type !== "settings").every(entry => !entry.title.startsWith("Settings >")), "Other submenus are not labelled as settings");
+            named(menu, "menu-search").text = "settings > clock";
+            phase = 95;
+        } else if (phase === 95) {
+            check(menu.entries.length > 0 && menu.entries.length < 5 && menu.entries.some(entry => entry.id === "settings-clock" && entry.title === "Settings > Clock"), "Searching the full label finds the page: " + menu.entries.map(entry => entry.id));
+            menu.visible = false;
+            settingsPanel.visible = true;
+            settingsPanel.forceActiveFocus();
+            check(!settingsPanel.searchVisible && !named(settingsPanel, "settings-search").visible, "Settings search starts hidden");
+            check(named(settingsPanel, "settings-entry-clock") && named(settingsPanel, "settings-entry-lock"), "Settings lists every page when not searching");
+            input.keyClick(Qt.Key_Slash, Qt.ControlModifier, 0);
+            check(!settingsPanel.searchVisible, "Modified slash does not open settings search");
+            input.keyClick(Qt.Key_Slash, Qt.NoModifier, 0);
+            check(settingsPanel.searchVisible && named(settingsPanel, "settings-search").activeFocus, "Slash opens settings search and focuses the field");
+            check(settingsPanel.implicitHeight === 635, "Settings search keeps the panel at full height: " + settingsPanel.implicitHeight);
+            input.keyClick(Qt.Key_Slash, Qt.NoModifier, 0);
+            check(!settingsPanel.searchVisible && settingsPanel.searchText === "", "Slash in the field closes and clears settings search");
+            click(named(settingsPanel, "panel-title-action"));
+            check(settingsPanel.searchVisible && named(settingsPanel, "settings-search").activeFocus, "The header search button reveals the field");
+            named(settingsPanel, "settings-search").text = "lockscreen";
+            phase = 96;
+        } else if (phase === 96) {
+            check(settingsPanel.sections.length === 1 && settingsPanel.sections[0].key === "lock", "Settings search filters pages by keyword");
+            check(named(settingsPanel, "settings-entry-lock") && !named(settingsPanel, "settings-entry-clock"), "Only matching pages stay listed");
+            input.keyClick(Qt.Key_Down, Qt.NoModifier, 0);
+            check(named(settingsPanel, "settings-entry-lock").activeFocus, "Down moves from the field to the first page");
+            input.keyClick(Qt.Key_Up, Qt.NoModifier, 0);
+            check(named(settingsPanel, "settings-search").activeFocus, "Up from the first page returns to the field");
+            named(settingsPanel, "settings-search").text = "zzzz";
+            phase = 97;
+        } else if (phase === 97) {
+            check(settingsPanel.sections.length === 0, "Unknown terms match no pages");
+            named(settingsPanel, "settings-search").text = "lockscreen";
+            phase = 98;
+        } else if (phase === 98) {
+            input.keyClick(Qt.Key_Enter, Qt.NoModifier, 0);
+            check(IslandState.mode === IslandState.settingsSectionMode && IslandState.settingsSection === "lock", "Enter opens the first matching page");
+            IslandController.reset();
+            phase = 981;
+        } else if (phase === 981) {
+            named(settingsPanel, "settings-search").forceActiveFocus();
+            input.keyClick(Qt.Key_Escape, Qt.NoModifier, 0);
+            check(!settingsPanel.searchVisible && settingsPanel.searchText === "", "Escape hides and clears settings search first: " + settingsPanel.searchVisible + " " + named(settingsPanel, "settings-search").activeFocus + " " + IslandState.mode);
+            phase = 99;
+        } else if (phase === 99) {
+            settingsPanel.forceActiveFocus();
+            input.keyClick(Qt.Key_F, Qt.ControlModifier, 0);
+            check(settingsPanel.searchVisible && named(settingsPanel, "settings-search").activeFocus, "Ctrl+F reveals settings search");
+            input.keyClick(Qt.Key_Escape, Qt.NoModifier, 0);
+            IslandController.openSettings();
+            settingsPanel.forceActiveFocus();
+            input.keyClick(Qt.Key_Escape, Qt.NoModifier, 0);
+            check(IslandState.mode === IslandState.defaultMode, "Second Escape closes Settings");
+            console.log("PASS: menu layout, search, shared views, persistent pins, cap and refill, rapid queued toggles, keyboard routing, settings routes, settings labels and search, mode transitions, and configurable grid size");
             Qt.quit();
         }
     }
@@ -383,6 +443,7 @@ ShellRoot {
         implicitHeight: 760
         NavigationView { id: menu; width: implicitWidth; height: implicitHeight }
         NavigationView { id: secondMenu; x: 500; width: 460; height: implicitHeight }
+        SettingsView { id: settingsPanel; visible: false; width: implicitWidth; height: implicitHeight }
     }
     Timer {
         interval: 100; running: true; repeat: true

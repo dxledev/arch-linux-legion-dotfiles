@@ -35,7 +35,7 @@ Item {
         : ThemeService.settings.workspaceExpandedDotSize ?? 8
 
     implicitWidth: line.implicitWidth + 36
-    implicitHeight: line.implicitHeight + 34
+    implicitHeight: line.implicitHeight + 34 + recordControls.implicitHeight + recordControls.topGap
 
     // Nerd Font glyphs (Material Design range) are built from code points so the source stays ASCII.
     function glyph(codePoint) { return String.fromCodePoint(codePoint); }
@@ -162,5 +162,13 @@ Item {
                 onClicked: root.toggleOverview("hypr-toggle-mission-control")
             }
         }
+    }
+
+    // Screen recording controls on a line of their own under the workspaces.
+    RecordControls {
+        id: recordControls
+        readonly property real topGap: 10
+        y: line.y + line.height + topGap
+        anchors.horizontalCenter: parent.horizontalCenter
     }
 }

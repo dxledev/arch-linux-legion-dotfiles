@@ -159,6 +159,7 @@ Item {
                 case "interaction": return interactionSettingsView
                 case "wallpaperAnimation": return wallpaperAnimationSettingsView
                 case "media": return mediaSettingsView
+                case "screenRecording": return screenRecordingSettingsView
                 default: return settingsView
                 }
 
@@ -216,6 +217,12 @@ Item {
             case IslandState.libreOfficeMode:
                 return libreOfficeView
 
+            case IslandState.recordOptionsMode:
+                return recordOptionsView
+
+            case IslandState.timerMode:
+                return timerView
+
             case IslandState.clipboardMode:
                 return clipboardView
 
@@ -256,6 +263,9 @@ Item {
     Component { id: settingsView; SettingsView {} }
     Component { id: wallpaperAnimationSettingsView; WallpaperAnimationSettingsView {} }
     Component { id: mediaSettingsView; MediaSettingsView {} }
+    Component { id: screenRecordingSettingsView; ScreenRecordingSettingsView {} }
+    Component { id: recordOptionsView; RecordOptionsView {} }
+    Component { id: timerView; TimerView {} }
     Component { id: interactionSettingsView; InteractionSettingsView {} }
     Component { id: notificationsSettingsView; NotificationSettingsView {} }
     Component { id: dynamicPaletteSettingsView; DynamicPaletteSettingsView {} }

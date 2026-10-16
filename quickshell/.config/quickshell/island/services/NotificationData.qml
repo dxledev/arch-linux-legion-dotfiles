@@ -16,6 +16,8 @@ QtObject {
     readonly property var actions: closed ? [] : notification.actions
     property bool popup: false
     property bool closed: false
+    // The popup's time ran out, as opposed to being closed by someone.
+    property bool expired: false
     property bool hovered: false
     property real remaining: 0
     property real deadline: 0
@@ -61,9 +63,17 @@ QtObject {
         restartTimeout();
     }
 
+    // The timer a timer alert belongs to, "" for any other notification.
+    function timerId() {
+        if (notification.appName !== NotificationService.timerApp) return "";
+        return String(notification.hints?.[NotificationService.timerHint] ?? "");
+    }
+
     function closePopup() {
         if (closed) return;
         closed = true;
+        const timer = timerId();
+        if (timer !== "") TimerService.alertClosed(timer, expired);
         popup = false;
         timeout.stop();
         countdown.stop();
@@ -79,6 +89,12 @@ QtObject {
 
     function invoke(action) {
         if (closed) return;
+        // A timer's own buttons: Stop silences the alarm and leaves the alert up, Snooze closes it.
+        const timer = timerId();
+        if (timer !== "") {
+            if (TimerService.alertAction(timer, action.identifier)) dismiss();
+            return;
+        }
         const resident = notification.resident;
         action.invoke();
         if (!resident) dismiss();
@@ -102,6 +118,7 @@ QtObject {
 
     readonly property Timer timeout: Timer {
         onTriggered: {
+            root.expired = true;
             root.closePopup();
             root.notification.expire();
         }
