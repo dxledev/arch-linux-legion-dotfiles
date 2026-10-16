@@ -215,6 +215,7 @@ QtObject {
     function openBluetooth() { setMode(IslandState.bluetoothMode) }
     function openPowerProfile() { setMode(IslandState.powerProfileMode) }
     function openProtonVpn() { setMode(IslandState.protonVpnMode) }
+    function openLauncherSubmenu(submenu) { if (submenu === "libreoffice") setMode(IslandState.libreOfficeMode) }
     function openClipboard() { setMode(IslandState.clipboardMode) }
     function openChromack() { setMode(IslandState.chromackMode) }
     function openWallhaven() { setMode(IslandState.wallhavenMode) }

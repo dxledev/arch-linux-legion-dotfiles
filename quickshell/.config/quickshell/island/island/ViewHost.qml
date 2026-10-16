@@ -213,6 +213,9 @@ Item {
             case IslandState.protonVpnMode:
                 return protonVpnView
 
+            case IslandState.libreOfficeMode:
+                return libreOfficeView
+
             case IslandState.clipboardMode:
                 return clipboardView
 
@@ -271,6 +274,7 @@ Item {
     Component { id: bluetoothView; BluetoothView {} }
     Component { id: powerProfileView; PowerProfileView {} }
     Component { id: protonVpnView; ProtonVpnView {} }
+    Component { id: libreOfficeView; LibreOfficeView {} }
     Component { id: clipboardView; ClipboardView {} }
     Component { id: chromackView; ChromackView {} }
     Component { id: wallhavenView; WallhavenView {} }

@@ -11,7 +11,12 @@ FocusScope {
     id: root
     implicitWidth: 560
     implicitHeight: content.implicitHeight + 48
-    readonly property var results: LauncherService.search(searchField.text)
+    // Submenus (e.g. LibreOffice) reuse this panel with their own title, source list and back target.
+    property string title: "Apps"
+    property string placeholder: "Search apps…"
+    property var sourceApps: null
+    function goBack() { IslandController.openNavigation(); }
+    readonly property var results: sourceApps ? LauncherService.search(searchField.text, sourceApps) : LauncherService.search(searchField.text)
     onResultsChanged: { apps.currentIndex = results.length ? 0 : -1; apps.positionViewAtBeginning(); }
     Component.onCompleted: searchField.forceActiveFocus()
 
@@ -21,7 +26,9 @@ FocusScope {
     }
 
     function launchSelected() {
-        if (LauncherService.launch(results[apps.currentIndex])) IslandController.reset();
+        const app = results[apps.currentIndex];
+        if (app?.submenu) IslandController.openLauncherSubmenu(app.submenu);
+        else if (LauncherService.launch(app)) IslandController.reset();
     }
 
     Keys.onEscapePressed: IslandController.reset()
@@ -39,12 +46,12 @@ FocusScope {
         anchors.fill: parent
         anchors.margins: 24
         spacing: 12
-        PanelHeader { title: "Apps"; scrollTargets: [apps]; onBack: IslandController.openNavigation() }
+        PanelHeader { title: root.title; scrollTargets: [apps]; onBack: root.goBack() }
         SearchField {
             id: searchField
             objectName: "launcher-search"
             width: parent.width
-            placeholderText: "Search apps…"
+            placeholderText: root.placeholder
             onNavigateDown: root.moveSelection(1)
             Keys.onUpPressed: root.moveSelection(-1)
             onAccepted: root.launchSelected()

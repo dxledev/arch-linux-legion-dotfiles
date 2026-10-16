@@ -51,6 +51,14 @@ ShellRoot {
             check(!LauncherService.usage[custom.id], "Dry run does not record usage");
             check(LauncherService.launch(custom), "Custom launcher invokes configured helper");
             check(LauncherService.usage[custom.id].count === 1, "Successful dispatch records frequency");
+            const office = LauncherService.appFromRow({launcher: "libreoffice-menu.desktop", name: "LibreOffice", icon: ""});
+            check(office.submenu === "libreoffice" && LauncherService.launch(office) === false, "LibreOffice row opens a submenu instead of launching");
+            check(officeView.results.length > 0 && officeView.results.length === LauncherService.libreOfficeApps.length, "LibreOffice view lists the submenu apps");
+            check(named(officeView, "launcher-search").placeholderText === "LibreOffice…" && officeView.title === "LibreOffice", "LibreOffice view is titled");
+            IslandController.openLauncherSubmenu(office.submenu);
+            check(IslandState.mode === IslandState.libreOfficeMode && IslandState.modal, "LibreOffice submenu mode opens");
+            IslandController.reset();
+            check(LauncherService.libreOfficeApps.every(app => app.id.startsWith("libreoffice") && app.entry && !app.entry.noDisplay), "LibreOffice submenu lists visible libreoffice entries");
             const search = named(launcher, "launcher-search");
             search.text = "obsidian";
             check(launcher.results.length === 1 && launcher.results[0].name === "Obsidian", "Search updates visible model");
@@ -86,6 +94,7 @@ ShellRoot {
         implicitHeight: 700
         LauncherSettingsView { id: settings; x: 600 }
         LauncherView { id: launcher }
+        LibreOfficeView { id: officeView; x: 1200 }
     }
     Timer {
         interval: 100; running: true; repeat: true

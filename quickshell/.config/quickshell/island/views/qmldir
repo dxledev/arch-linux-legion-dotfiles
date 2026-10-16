@@ -13,6 +13,7 @@ PowerMenuView 1.0 PowerMenuView.qml
 SystemView 1.0 SystemView.qml
 SettingsView 1.0 SettingsView.qml
 LauncherView 1.0 LauncherView.qml
+LibreOfficeView 1.0 LibreOfficeView.qml
 LauncherSettingsView 1.0 LauncherSettingsView.qml
 ShellSwitcherView 1.0 ShellSwitcherView.qml
 LayoutSwitcherView 1.0 LayoutSwitcherView.qml

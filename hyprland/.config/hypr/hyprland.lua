@@ -1,4 +1,4 @@
-require("island-mode-keybindings")
+-- require("island-mode-keybindings")
 -- require("waybar-mode-keybindings")
 -- require("noctalia-mode-keybindings")
 

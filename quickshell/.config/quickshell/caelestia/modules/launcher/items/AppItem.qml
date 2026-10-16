@@ -25,8 +25,11 @@ Item {
         stateOpacity: 0
         onPositionChanged: mouse => root.list.selectFromPointer(root.index, mapToGlobal(mouse.x, mouse.y))
         onClicked: {
-            Apps.launch(root.modelData);
-            root.screenState.launcher = false;
+            const entry = root.modelData;
+            const list = root.list;
+            Apps.activate(entry, root.screenState);
+            if (entry?.submenu)
+                list.search.text = "";
         }
     }
 

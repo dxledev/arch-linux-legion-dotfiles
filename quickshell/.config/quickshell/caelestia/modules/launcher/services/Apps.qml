@@ -16,9 +16,36 @@ Searcher {
     property bool refreshPending: false
     property var configuredRows: []
 
+    // Same entries as ~/bin/menu-libreoffice: visible libreoffice*.desktop files, sorted by name.
+    readonly property var libreOfficeApps: DesktopEntries.applications.values
+        .filter(entry => entry.id.startsWith("libreoffice") && !entry.noDisplay)
+        .map(entry => ({ id: entry.id, name: entry.name, icon: entry.icon, comment: entry.comment,
+            genericName: entry.genericName, desktopEntry: entry }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
     function launch(entry: var): void {
+        if (!entry.launcher) {
+            entry.desktopEntry?.execute();
+            return;
+        }
         appDb.incrementFrequency(entry.id);
         Quickshell.execDetached(["/usr/bin/bash", appListScript, "--launch", entry.launcher]);
+    }
+
+    // Launches the entry and closes the launcher, or opens its dedicated submenu if it has one.
+    function activate(entry: var, screenState: var): void {
+        if (entry.submenu) {
+            screenState.launcherSubmenu = entry.submenu;
+            return;
+        }
+        launch(entry);
+        screenState.launcher = false;
+    }
+
+    function searchSubmenu(submenu: string, text: string): var {
+        const words = text.trim().toLowerCase().split(/\s+/).filter(word => word);
+        return (submenu === "libreoffice" ? libreOfficeApps : []).filter(entry =>
+            words.every(word => `${entry.name} ${entry.comment} ${entry.genericName}`.toLowerCase().includes(word)));
     }
 
     function refresh(): void {
@@ -91,6 +118,8 @@ Searcher {
             readonly property int listIndex: root.configuredRows.findIndex(row => row.launcher === modelData)
             readonly property var row: root.configuredRows[listIndex]
             readonly property string launcher: modelData
+            // apps.list launchers that open a rofi menu; the launcher shows its own panel instead.
+            readonly property string submenu: launcher === "libreoffice-menu.desktop" ? "libreoffice" : ""
             readonly property string id: launcher.replace(/\.desktop$/, "")
             readonly property var desktopEntry: DesktopEntries.byId(id)
             readonly property string name: row?.name ?? launcher

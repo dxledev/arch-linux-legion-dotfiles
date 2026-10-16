@@ -24,16 +24,25 @@ Singleton {
             description: entry.genericName || entry.comment || "", keywords: entry.keywords || [], entry: entry, launcher: ""};
     }
 
+    // Shared apps.list launchers that open a rofi menu; Island opens its own submenu panel instead.
+    readonly property var launcherSubmenus: ({"libreoffice-menu.desktop": "libreoffice"})
+    // Same entries as ~/bin/menu-libreoffice: visible libreoffice*.desktop files, sorted by name.
+    readonly property var libreOfficeApps: DesktopEntries.applications.values
+        .filter(entry => entry.id.startsWith("libreoffice") && !entry.noDisplay)
+        .map(entry => root.appFromEntry(entry))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
     function appFromRow(row) {
         const entry = DesktopEntries.byId(row.launcher.replace(/\.desktop$/, ""));
         return {id: row.launcher, name: row.name, icon: row.icon || "application-x-executable",
-            description: entry?.genericName || entry?.comment || "", keywords: entry?.keywords || [], entry: entry, launcher: row.launcher};
+            description: entry?.genericName || entry?.comment || "", keywords: entry?.keywords || [], entry: entry,
+            launcher: row.launcher, submenu: launcherSubmenus[row.launcher] || ""};
     }
 
-    function search(query) { return Search.results(applications, query, ThemeService.settings, usage); }
+    function search(query, apps = applications) { return Search.results(apps, query, ThemeService.settings, usage); }
 
     function launch(app, dryRun = false) {
-        if (!app) return false;
+        if (!app || app.submenu) return false;
         if (dryRun) return app.launcher || app.entry?.id || false;
         if (app.launcher) Quickshell.execDetached(["/usr/bin/bash", appListScript, "--launch", app.launcher]);
         else if (app.entry) app.entry.execute();

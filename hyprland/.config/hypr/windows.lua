@@ -25,6 +25,7 @@ hl.window_rule({
 })
 
 hl.window_rule({ match = { class = "kitty" }, opacity = "0.92 0.92 0.92" })
+hl.window_rule({ match = { class = "omafiles"} , opacity = "0.97 0.97 0.97" })
 hl.window_rule({ match = { class = "Alacritty" }, opacity = "0.92 0.92 0.92" })
 hl.window_rule({ match = { class = "^(obsidian|md\\.obsidian\\.Obsidian)$" }, opacity = "0.95 0.95 0.95" })
 hl.window_rule({ match = { class = "com.mitchellh.ghostty" }, opacity = "0.92 0.92 0.92" })

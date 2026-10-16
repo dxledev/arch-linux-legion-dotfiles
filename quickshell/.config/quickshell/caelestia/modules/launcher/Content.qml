@@ -22,11 +22,18 @@ Item {
     readonly property bool showingApps: !search.text.startsWith(GlobalConfig.launcher.actionPrefix)
 
     function openApps(): void {
+        screenState.launcherSubmenu = "";
         search.text = "";
         search.forceActiveFocus();
     }
 
+    function closeAppsSubmenu(): void {
+        screenState.launcherSubmenu = "";
+        search.text = "";
+    }
+
     function openSubmenu(submenu: string): void {
+        screenState.launcherSubmenu = "";
         search.text = GlobalConfig.launcher.actionPrefix + (submenu ? `${submenu} ` : "");
         search.forceActiveFocus();
     }
@@ -72,12 +79,15 @@ Item {
         topPadding: Math.round((Tokens.padding.medium + Tokens.padding.large) / 2)
         bottomPadding: Math.round((Tokens.padding.medium + Tokens.padding.large) / 2)
 
-        placeholderText: Tr.tr("Type \"%1\" for commands").arg(GlobalConfig.launcher.actionPrefix)
+        placeholderText: root.screenState.launcherSubmenu === "libreoffice" ? Tr.tr("LibreOffice…")
+            : Tr.tr("Type \"%1\" for commands").arg(GlobalConfig.launcher.actionPrefix)
 
         onAccepted: {
             const currentItem = list.currentList?.currentItem;
             if (currentItem) {
-                if (list.showWallpapers) {
+                if (root.screenState.launcherSubmenu) {
+                    Apps.activate(currentItem.modelData, root.screenState);
+                } else if (list.showWallpapers) {
                     if (Colours.scheme === "dynamic" && currentItem.modelData.path !== Wallpapers.actualCurrent)
                         Wallpapers.previewColourLock = true;
                     Wallpapers.setWallpaper(currentItem.modelData.path);
@@ -88,8 +98,10 @@ Item {
                     else
                         currentItem.modelData.onClicked(list.currentList);
                 } else {
-                    Apps.launch(currentItem.modelData);
-                    root.screenState.launcher = false;
+                    const entry = currentItem.modelData;
+                    Apps.activate(entry, root.screenState);
+                    if (entry.submenu)
+                        text = "";
                 }
             }
         }
@@ -97,9 +109,20 @@ Item {
         Keys.onUpPressed: list.currentList?.decrementCurrentIndex()
         Keys.onDownPressed: list.currentList?.incrementCurrentIndex()
 
-        Keys.onEscapePressed: root.screenState.launcher = false
+        Keys.onEscapePressed: {
+            if (root.screenState.launcherSubmenu)
+                root.closeAppsSubmenu();
+            else
+                root.screenState.launcher = false;
+        }
 
         Keys.onPressed: event => {
+            if (event.key === Qt.Key_Backspace && root.screenState.launcherSubmenu && !text) {
+                root.closeAppsSubmenu();
+                event.accepted = true;
+                return;
+            }
+
             if (!GlobalConfig.launcher.vimKeybinds)
                 return;
 
@@ -124,8 +147,10 @@ Item {
 
         Connections {
             function onLauncherChanged(): void {
-                if (!root.screenState.launcher)
+                if (!root.screenState.launcher) {
                     search.text = "";
+                    root.screenState.launcherSubmenu = "";
+                }
             }
 
             function onSessionChanged(): void {

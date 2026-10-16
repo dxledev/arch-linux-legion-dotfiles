@@ -7,6 +7,8 @@ PersistentProperties {
     property bool osd
     property bool session
     property bool launcher
+    // Dedicated launcher submenu (e.g. "libreoffice"); "" shows the normal apps list.
+    property string launcherSubmenu
     property bool dashboard
     property bool utilities
     property bool sidebar

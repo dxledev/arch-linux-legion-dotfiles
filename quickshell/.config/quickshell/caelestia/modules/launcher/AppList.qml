@@ -36,6 +36,9 @@ StyledListView {
     }
 
     function stateForText(text: string): string {
+        // Dedicated submenus ignore the command prefix.
+        if (screenState.launcherSubmenu)
+            return screenState.launcherSubmenu;
         const prefix = GlobalConfig.launcher.actionPrefix;
         if (text.startsWith(prefix)) {
             for (const action of ["calc", "theme", "scheme", "variant", "learn", "install", "fonts", "terminal-prompt", "shell-mode", ...DesktopMenus.menus])
@@ -49,6 +52,8 @@ StyledListView {
     }
 
     function resultsForText(text: string): var {
+        if (screenState.launcherSubmenu)
+            return Apps.searchSubmenu(screenState.launcherSubmenu, text);
         if (DesktopMenus.menus.includes(stateForText(text)))
             return DesktopMenus.query(text);
         switch (stateForText(text)) {
@@ -177,6 +182,13 @@ StyledListView {
 
             PropertyChanges {
                 root.delegate: fontItem
+            }
+        },
+        State {
+            name: "libreoffice"
+
+            PropertyChanges {
+                root.delegate: appItem
             }
         },
         State {
