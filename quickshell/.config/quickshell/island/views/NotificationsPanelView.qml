@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import "../components"
+import "../services/FocusNavigation.js" as FocusNavigation
 import "../core"
 import "../services"
 import "../styles"
@@ -62,7 +63,7 @@ FocusScope {
             objectName: "notification-search"
             Layout.fillWidth: true
             placeholderText: "Search notifications…"
-            onNavigateDown: list.forceActiveFocus()
+            onNavigateDown: FocusNavigation.move(root, search, 0, 1)
         }
 
         ListView {

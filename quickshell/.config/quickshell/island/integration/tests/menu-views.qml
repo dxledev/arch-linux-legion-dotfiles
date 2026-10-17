@@ -12,6 +12,8 @@ ShellRoot {
     property int phase: 0
     property int scrollSettleTicks: 0
     property int pinIndex: 0
+    property var reorderOrderBefore: null
+    property real reorderContentYBefore: 0
     property var randomizedAtOpen: null
     property string pendingId: ""
     property var pinChoices: ["themes", "wallpapers", "settings", "ai-usage"]
@@ -56,6 +58,22 @@ ShellRoot {
     }
     function card(view, id) { return named(view, "menu-entry-" + id); }
     function pinButton(view, id) { return named(card(view, id), "navigation-card-pin"); }
+    function dragCard(view, id, targetId) {
+        const source = card(view, id);
+        const target = card(view, targetId);
+        const grid = named(view, "menu-grid");
+        check(source && target, "Drag source and target cards exist");
+        input.mousePress(source, source.width / 2, source.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
+        const from = source.mapToItem(grid, source.width / 2, source.height / 2);
+        const to = target.mapToItem(grid, target.width / 2, target.height / 2);
+        input.mouseMove(grid, from.x + (to.x - from.x) / 2, from.y + (to.y - from.y) / 2, 0, Qt.LeftButton, Qt.NoModifier);
+        input.mouseMove(grid, to.x, to.y, 0, Qt.LeftButton, Qt.NoModifier);
+        check(source.reordering && view.reorderTarget !== view.reorderFrom, "Held pointer drag activates reordering and reaches a drop target");
+        const contentY = grid.contentY;
+        input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0);
+        check(grid.contentY === contentY && !grid.scrollAnimationRunning, "Wheel input does not scroll during a reorder");
+        input.mouseRelease(grid, to.x, to.y, Qt.LeftButton, Qt.NoModifier, 0);
+    }
     function openMenu() {
         IslandController.openNavigation();
         check(IslandState.mode === IslandState.navigationMode, "Menu opened");
@@ -132,7 +150,7 @@ ShellRoot {
             check(menu.implicitHeight === 392 && menu.height === 392, "Menu is 392 px tall when search is closed: " + menu.height);
             const grid = named(menu, "menu-grid");
             check(grid.height === 276, "Menu card grid keeps its height");
-            check(grid.interactive && grid.contentHeight + grid.bottomMargin > grid.height && grid.contentY === 0, "The closed grid scrolls past its two visible rows");
+            check(!grid.interactive && grid.contentHeight + grid.bottomMargin > grid.height && grid.contentY === 0, "The overflowing closed grid disables pointer flicking");
             const firstCard = card(menu, menu.entries[0].id);
             const secondColumnCard = card(menu, menu.entries[1].id);
             check(firstCard && firstCard.height === 132, "Navigation cards are 132 px tall");
@@ -316,6 +334,41 @@ ShellRoot {
             const pinned = ["themes", "settings", "ai-usage", "control-center"];
             check(pinned.every(id => card(menu, id).reorderable), "Pinned cards are reorderable outside search");
             check(!card(menu, "themes").dropTarget && !card(menu, "themes").reordering, "Pinned cards start without a drop target");
+            const grid = named(menu, "menu-grid");
+            grid.forceActiveFocus();
+            grid.currentIndex = 0;
+            check(card(menu, menu.entries[0].id).selected, "First pinned card is selected before drag");
+            reorderOrderBefore = MenuService.pinnedIds.slice();
+            reorderContentYBefore = grid.contentY;
+            dragCard(menu, menu.entries[0].id, menu.entries[2].id);
+            phase = 890;
+        } else if (phase === 890) {
+            if (++scrollSettleTicks < 3) return;
+            check(JSON.stringify(MenuService.pinnedIds) !== JSON.stringify(reorderOrderBefore), "Dragging the selected pinned card changes pin order");
+            check(named(menu, "menu-grid").contentY === reorderContentYBefore, "Dragging the selected pinned card does not scroll the grid");
+            const grid = named(menu, "menu-grid");
+            grid.currentIndex = 0;
+            const unselectedId = menu.entries[1].id;
+            check(!card(menu, unselectedId).selected, "Second pinned card is unselected before drag");
+            reorderOrderBefore = MenuService.pinnedIds.slice();
+            reorderContentYBefore = grid.contentY;
+            dragCard(menu, unselectedId, menu.entries[3].id);
+            scrollSettleTicks = 0;
+            phase = 891;
+        } else if (phase === 891) {
+            if (++scrollSettleTicks < 3) return;
+            check(JSON.stringify(MenuService.pinnedIds) !== JSON.stringify(reorderOrderBefore), "Dragging an unselected pinned card changes pin order");
+            check(named(menu, "menu-grid").contentY === reorderContentYBefore, "Dragging the unselected pinned card does not scroll the grid");
+            MenuService.movePin("ai-usage", 0);
+            MenuService.movePin("control-center", 1);
+            MenuService.movePin("themes", 2);
+            MenuService.movePin("settings", 3);
+            scrollSettleTicks = 0;
+            phase = 892;
+        } else if (phase === 892) {
+            const expected = ["ai-usage", "control-center", "themes", "settings"];
+            if (JSON.stringify(ThemeService.settings.menuPinnedEntries) !== JSON.stringify(expected)
+                || MenuService.pendingPinnedIds !== null || ++scrollSettleTicks < 3) return;
             startSearch(menu).text = queryFor("themes");
             scrollSettleTicks = 0;
             phase = 893;
@@ -366,7 +419,7 @@ ShellRoot {
         } else if (phase === 93) {
             if (++scrollSettleTicks < 4) return;
             const grid = named(menu, "menu-grid");
-            check(menu.searchVisible && grid.interactive && grid.contentY === 0, "Search results scroll in the larger grid");
+            check(menu.searchVisible && !grid.interactive && grid.contentY === 0, "Search results disable pointer flicking in the larger grid");
             check(input.mouseWheel(grid, grid.width / 2, grid.height / 2, Qt.NoButton, Qt.NoModifier, 0, -120, 0), "Deliver wheel input over the larger grid");
             scrollSettleTicks = 0;
             phase = 94;

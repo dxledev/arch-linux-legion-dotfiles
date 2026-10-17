@@ -246,6 +246,7 @@ FocusScope {
             height: 36
             SearchField {
                 id: userField
+                onNavigateDown: stepDown()
                 objectName: "wallhaven-username"
                 anchors.left: parent.left
                 width: 220

@@ -45,6 +45,8 @@ Item {
     property bool editConfirmVisible: false
     property string editConfirmDescription: "Save name"
     readonly property Item editConfirmButton: editConfirm
+    // Marks the header's buttons so keyboard navigation starts in the panel's content, below them.
+    readonly property bool panelHeader: true
     readonly property Item trailingAnchor: actions.width > 0 ? actions : closeButton
     signal back()
     signal sortToggled()
@@ -82,10 +84,15 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: titleAction.visible ? Math.min(implicitWidth, parent.width - titleAction.width - 8) : parent.width
                 text: root.title
-                color: root.titleClickable && titleMouse.containsMouse ? Theme.accent : Theme.textPrimary
+                color: root.titleClickable && (titleMouse.containsMouse || titleLabel.activeFocus) ? Theme.accent : Theme.textPrimary
                 font.pixelSize: 25
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
+                // Keyboard: a link-style title opens its related panel with Enter or Space.
+                activeFocusOnTab: root.titleClickable
+                Keys.onReturnPressed: root.titleClicked()
+                Keys.onEnterPressed: root.titleClicked()
+                Keys.onSpacePressed: root.titleClicked()
                 Behavior on color { ColorAnimation { duration: Theme.animationFast } }
                 MouseArea {
                     id: titleMouse
@@ -128,10 +135,14 @@ Item {
             visible: root.subtitle.length > 0
             width: Math.min(implicitWidth, parent.width)
             text: root.subtitle
-            color: root.subtitleClickable && subtitleMouse.containsMouse ? Theme.accent : Theme.textSecondary
+            color: root.subtitleClickable && (subtitleMouse.containsMouse || subtitleLabel.activeFocus) ? Theme.accent : Theme.textSecondary
             font.pixelSize: 12
-            font.underline: root.subtitleClickable && subtitleMouse.containsMouse
+            font.underline: root.subtitleClickable && (subtitleMouse.containsMouse || subtitleLabel.activeFocus)
             elide: Text.ElideRight
+            activeFocusOnTab: root.subtitleClickable
+            Keys.onReturnPressed: root.subtitleClicked()
+            Keys.onEnterPressed: root.subtitleClicked()
+            Keys.onSpacePressed: root.subtitleClicked()
             Behavior on color { ColorAnimation { duration: Theme.animationFast } }
             MouseArea {
                 id: subtitleMouse

@@ -15,6 +15,20 @@ Rectangle {
     implicitWidth: 473
     implicitHeight: 35
 
+    // Left and Right nudge the slider; the ring shows only for keyboard focus.
+    property real keyStep: 0.05
+    activeFocusOnTab: true
+    Keys.onLeftPressed: event => {
+        root.valueChangedByUser(Math.max(0, root.value - root.keyStep))
+        event.accepted = true
+    }
+    Keys.onRightPressed: event => {
+        root.valueChangedByUser(Math.min(1, root.value + root.keyStep))
+        event.accepted = true
+    }
+    border.width: activeFocus ? 2 : 0
+    border.color: Theme.accent
+
     radius: 20
 
     color: Theme.surface

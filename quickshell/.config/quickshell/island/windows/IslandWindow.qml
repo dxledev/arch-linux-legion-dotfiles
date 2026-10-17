@@ -24,7 +24,8 @@ PanelWindow {
 
     // niri has no focus-grab protocol: the panel takes the keyboard outright and the pointer through a
     // full-screen catcher (below) that closes it, which is what the grab's `cleared` does on Hyprland.
-    readonly property bool modalPanel: root.visible && IslandState.modal && root.panelActive && root.monitorActive
+    // Hover-driven panels (control center, media, expanded) join in when a key binding opened them.
+    readonly property bool modalPanel: root.visible && IslandState.keyboardPanel && root.panelActive && root.monitorActive
 
     HyprlandFocusGrab {
         id: focusGrab

@@ -3,6 +3,7 @@ import QtQuick
 import "../views"
 import "../core"
 import "../services"
+import "../services/FocusNavigation.js" as FocusNavigation
 import "../styles"
 
 Item {
@@ -44,6 +45,7 @@ Item {
     // Settings sections swap views without changing the mode, so they key the reveal too.
     readonly property string viewKey: mode + ":" + (mode === IslandState.settingsSectionMode ? IslandState.settingsSection : "")
     onViewKeyChanged: {
+        Qt.callLater(root.claimFocus)
         // Snap to hidden without animating so the previous panel's opacity never carries over.
         revealAnimated = false
         revealHeld = true
@@ -58,6 +60,90 @@ Item {
         })
     }
     onMorphClosenessChanged: if (!settled && !revealHeld && morphCloseness > 0.92) settled = true
+
+    // Panels that own the keyboard take focus when they open, so keys reach them even if the panel
+    // never asked for focus itself.
+    function claimFocus() {
+        const view = root.currentView
+        if (!view || root.mode === IslandState.defaultMode || !IslandState.keyboardPanel
+                || root.monitorName !== IslandState.panelMonitorName)
+            return
+        for (let item = Window.window?.activeFocusItem; item; item = item.parent) {
+            if (item === view) return
+        }
+        view.forceActiveFocus()
+    }
+    onCurrentViewChanged: Qt.callLater(root.claimFocus)
+    // A setting that saves disables its control for a moment, which drops its focus; give it back afterwards.
+    property Item lastFocus: null
+    Connections {
+        target: root.lastFocus
+        function onEnabledChanged() {
+            const focused = root.Window.window?.activeFocusItem
+            const nothing = !focused || focused === root.currentView
+            if (root.lastFocus?.enabled && root.lastFocus.visible && nothing && IslandState.keyboardPanel)
+                root.lastFocus.forceActiveFocus()
+        }
+    }
+    // Tab, the arrows and Shift+Tab can all land on a control outside the scrolled view.
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            const item = root.Window.window?.activeFocusItem
+            if (item && item !== root.currentView) root.lastFocus = item
+            for (let ancestor = item; ancestor && root.currentView; ancestor = ancestor.parent) {
+                if (ancestor !== root.currentView) continue
+                FocusNavigation.scrollIntoView(item)
+                break
+            }
+        }
+    }
+    Connections {
+        target: IslandState
+        function onKeyboardPanelChanged() { Qt.callLater(root.claimFocus) }
+    }
+
+    // Shift+Tab climbs one level, the way the panel's Back button does. A Shortcut, because a focused control
+    // would otherwise take the key for its own focus traversal before any handler saw it.
+    Shortcut {
+        sequences: ["Shift+Tab"]
+        enabled: root.monitorActive && root.mode !== IslandState.defaultMode && IslandState.keyboardPanel
+            && root.monitorName === IslandState.panelMonitorName
+        onActivated: IslandController.goBack()
+    }
+
+    // What no panel claimed: Escape closes it and the arrows walk the panel's focusable controls.
+    Keys.onPressed: event => {
+        if (!IslandState.keyboardPanel || root.mode === IslandState.defaultMode || !root.currentView) return
+        if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return
+        const focused = Window.window?.activeFocusItem
+        // A setting that is saving has dropped its focus; keys wait for it instead of jumping elsewhere.
+        if (ThemeService.busy && root.lastFocus && !root.lastFocus.enabled && (!focused || focused === root.currentView)) {
+            event.accepted = event.key === Qt.Key_Up || event.key === Qt.Key_Down
+                || event.key === Qt.Key_Left || event.key === Qt.Key_Right
+            if (event.accepted) return
+        }
+        // A text field keeps Left and Right for its cursor, even at either end of the text.
+        if (focused?.cursorPosition !== undefined && (event.key === Qt.Key_Left || event.key === Qt.Key_Right)) return
+        switch (event.key) {
+        case Qt.Key_Escape:
+            IslandController.reset()
+            event.accepted = true
+            break
+        case Qt.Key_Up:
+            event.accepted = FocusNavigation.move(root.currentView, focused, 0, -1)
+            break
+        case Qt.Key_Down:
+            event.accepted = FocusNavigation.move(root.currentView, focused, 0, 1)
+            break
+        case Qt.Key_Left:
+            event.accepted = FocusNavigation.move(root.currentView, focused, -1, 0)
+            break
+        case Qt.Key_Right:
+            event.accepted = FocusNavigation.move(root.currentView, focused, 1, 0)
+            break
+        }
+    }
 
     // Content can never stay hidden if a morph is interrupted or its target never arrives.
     Timer {

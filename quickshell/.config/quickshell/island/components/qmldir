@@ -5,6 +5,7 @@ Cava 1.0 Cava.qml
 CenterSection 1.0 CenterSection.qml
 ControlCard 1.0 ControlCard.qml
 ControlSlider 1.0 ControlSlider.qml
+FocusRing 1.0 FocusRing.qml
 IslandButton 1.0 IslandButton.qml
 UiText 1.0 UiText.qml
 LeftSection 1.0 LeftSection.qml

@@ -92,7 +92,7 @@ FocusScope {
     Component.onCompleted: BluetoothService.acquireList()
     Component.onDestruction: BluetoothService.releaseList()
 
-    Keys.onEscapePressed: IslandController.openControlCenter()
+    Keys.onEscapePressed: IslandController.reset()
 
     ColumnLayout {
         id: content
@@ -177,6 +177,9 @@ FocusScope {
                     implicitHeight: 26
                     padding: 0
                     enabled: root.available
+                    focusPolicy: Qt.TabFocus
+                    Keys.onReturnPressed: toggle()
+                    Keys.onEnterPressed: toggle()
                     checked: root.bluetoothOn
                     onToggled: BluetoothService.toggle()
 
@@ -187,6 +190,8 @@ FocusScope {
                         height: 26
                         radius: 13
                         color: powerSwitch.checked ? Theme.accent : Theme.surfaceVariant
+                        border.width: powerSwitch.activeFocus ? 2 : 0
+                        border.color: Theme.textPrimary
                         Behavior on color { ColorAnimation { duration: Theme.animationFast } }
 
                         Rectangle {

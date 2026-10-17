@@ -29,6 +29,25 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
+            // Keyboard: the arrows nudge saturation and value; at an edge they move on to the next control.
+            activeFocusOnTab: true
+            Keys.onPressed: event => {
+                const step = (event.modifiers & Qt.ShiftModifier) ? 0.1 : 0.02;
+                const saturation = root.colorState.saturation;
+                const value = root.colorState.value;
+                let nextSaturation = saturation;
+                let nextValue = value;
+                if (event.key === Qt.Key_Left) nextSaturation = Math.max(0, saturation - step);
+                else if (event.key === Qt.Key_Right) nextSaturation = Math.min(1, saturation + step);
+                else if (event.key === Qt.Key_Up) nextValue = Math.min(1, value + step);
+                else if (event.key === Qt.Key_Down) nextValue = Math.max(0, value - step);
+                else return;
+                if (nextSaturation === saturation && nextValue === value) return;
+                root.setHsv(root.colorState.hue, nextSaturation, nextValue);
+                event.accepted = true;
+            }
+            FocusRing { radius: 10 }
+
             Rectangle {
                 anchors.fill: parent
                 radius: 10
@@ -92,6 +111,21 @@ ColumnLayout {
             objectName: "chromack-hue"
             Layout.preferredWidth: 22
             Layout.fillHeight: true
+
+            // Keyboard: Up and Down turn the hue; at either end they move on to the next control.
+            activeFocusOnTab: true
+            Keys.onPressed: event => {
+                const step = (event.modifiers & Qt.ShiftModifier) ? 20 : 4;
+                const hue = root.colorState.hue;
+                let nextHue = hue;
+                if (event.key === Qt.Key_Up) nextHue = Math.max(0, hue - step);
+                else if (event.key === Qt.Key_Down) nextHue = Math.min(359, hue + step);
+                else return;
+                if (nextHue === hue) return;
+                root.setHsv(nextHue, root.colorState.saturation, root.colorState.value);
+                event.accepted = true;
+            }
+            FocusRing { radius: 8 }
 
             Rectangle {
                 anchors.fill: parent

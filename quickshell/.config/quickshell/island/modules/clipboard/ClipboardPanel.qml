@@ -188,8 +188,9 @@ FocusScope {
             Keys.onLeftPressed: root.cycleFilter(-1)
             Keys.onRightPressed: root.cycleFilter(1)
             Keys.onPressed: event => {
-                if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                    root.cycleFilter(event.key === Qt.Key_Backtab ? -1 : 1);
+                // Shift+Tab is the panel's Back; Left cycles the filter the other way.
+                if (event.key === Qt.Key_Tab) {
+                    root.cycleFilter(1);
                     event.accepted = true;
                 } else if (event.key === Qt.Key_PageDown || event.key === Qt.Key_PageUp) {
                     root.activeList.selectRelative(event.key === Qt.Key_PageUp ? -8 : 8);

@@ -83,7 +83,7 @@ FocusScope {
         if (entry) PowerProfiles.profile = entry.value;
     }
 
-    Keys.onEscapePressed: IslandController.openNavigation()
+    Keys.onEscapePressed: IslandController.reset()
     Keys.onLeftPressed: select(Math.max(0, currentIndex - 1))
     Keys.onRightPressed: select(Math.min(profiles.length - 1, currentIndex + 1))
 

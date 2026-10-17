@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import "../components"
 import "../styles"
 import "../services"
 
@@ -11,6 +12,13 @@ Item {
 
     implicitWidth: clock.implicitWidth
     implicitHeight: clock.implicitHeight
+
+    // Keyboard: Enter or Space flips between 12 and 24 hour time, like a click.
+    activeFocusOnTab: interactive && !ThemeService.busy
+    Keys.onReturnPressed: ThemeService.setSetting("clock12Hour", !(ThemeService.settings.clock12Hour ?? false))
+    Keys.onEnterPressed: ThemeService.setSetting("clock12Hour", !(ThemeService.settings.clock12Hour ?? false))
+    Keys.onSpacePressed: ThemeService.setSetting("clock12Hour", !(ThemeService.settings.clock12Hour ?? false))
+    FocusRing { anchors.margins: -4; radius: 8 }
 
     Text {
         id: clock

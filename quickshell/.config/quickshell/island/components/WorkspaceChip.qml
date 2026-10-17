@@ -16,6 +16,18 @@ Rectangle {
     signal clicked
     signal rightClicked
 
+    // Keyboard: Enter or Space presses it; Shift+Enter or the Menu key right-clicks.
+    activeFocusOnTab: true
+    border.width: activeFocus ? 2 : 0
+    border.color: Theme.accent
+    Keys.onPressed: event => {
+        const press = event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space;
+        if (event.key === Qt.Key_Menu || (press && (event.modifiers & Qt.ShiftModifier))) root.rightClicked();
+        else if (press) root.clicked();
+        else return;
+        event.accepted = true;
+    }
+
     implicitWidth: 32
     implicitHeight: 28
     radius: height / 2

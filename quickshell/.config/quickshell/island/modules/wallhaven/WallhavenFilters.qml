@@ -148,6 +148,7 @@ Rectangle {
             }
             SearchField {
                 id: keyField
+                onNavigateDown: stepDown()
                 objectName: "wallhaven-key"
                 x: root.labelWidth
                 width: parent.width - root.labelWidth - saveKey.width - 8

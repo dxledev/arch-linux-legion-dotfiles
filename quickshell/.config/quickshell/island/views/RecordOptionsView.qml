@@ -364,6 +364,11 @@ FocusScope {
                 font.underline: linkMouse.containsMouse
                 Accessible.role: Accessible.Button
                 Accessible.name: "Open screen recording settings"
+                activeFocusOnTab: true
+                Keys.onReturnPressed: IslandController.openSettingsSection("screenRecording")
+                Keys.onEnterPressed: IslandController.openSettingsSection("screenRecording")
+                Keys.onSpacePressed: IslandController.openSettingsSection("screenRecording")
+                FocusRing { anchors.margins: -4; radius: 6 }
                 MouseArea {
                     id: linkMouse
                     anchors.fill: parent

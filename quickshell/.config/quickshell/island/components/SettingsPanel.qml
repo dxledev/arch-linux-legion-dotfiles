@@ -13,7 +13,7 @@ FocusScope {
     property real maximumHeight: 650
     property string scrollObjectName: "settings-panel-scroll"
     property var backAction: () => IslandController.openSettings()
-    property var escapeAction: backAction
+    property var escapeAction: () => IslandController.reset()
     // Opt-in search: the header gets a search button and '/' or Ctrl+F reveals a field above the list.
     property bool searchable: false
     property bool searchVisible: false

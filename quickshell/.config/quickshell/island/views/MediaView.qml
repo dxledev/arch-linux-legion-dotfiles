@@ -165,6 +165,12 @@ Item {
 
                     color: IslandState.lyricsOpen ? "#33FFFFFF" : lyricsHover.hovered ? "#1FFFFFFF" : "transparent"
 
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: IslandController.openLyrics()
+                    Keys.onEnterPressed: IslandController.openLyrics()
+                    Keys.onSpacePressed: IslandController.openLyrics()
+                    FocusRing {}
+
                     Behavior on color { ColorAnimation { duration: Theme.animationFast } }
 
                     SvgIcon {
@@ -194,6 +200,12 @@ Item {
                         height: 32
                         anchors.verticalCenter: parent.verticalCenter
 
+                        activeFocusOnTab: true
+                        Keys.onReturnPressed: MediaService.previousTrack()
+                        Keys.onEnterPressed: MediaService.previousTrack()
+                        Keys.onSpacePressed: MediaService.previousTrack()
+                        FocusRing { radius: 16 }
+
                         SvgIcon {
                             anchors.centerIn: parent
                             size: 18
@@ -215,6 +227,12 @@ Item {
                         radius: 21
 
                         color: root.hasArt ? "#26FFFFFF" : Theme.accent
+
+                        activeFocusOnTab: true
+                        Keys.onReturnPressed: MediaService.togglePlayback()
+                        Keys.onEnterPressed: MediaService.togglePlayback()
+                        Keys.onSpacePressed: MediaService.togglePlayback()
+                        FocusRing {}
 
                         SvgIcon {
                             anchors.centerIn: parent
@@ -240,6 +258,12 @@ Item {
                         width: 32
                         height: 32
                         anchors.verticalCenter: parent.verticalCenter
+
+                        activeFocusOnTab: true
+                        Keys.onReturnPressed: MediaService.nextTrack()
+                        Keys.onEnterPressed: MediaService.nextTrack()
+                        Keys.onSpacePressed: MediaService.nextTrack()
+                        FocusRing { radius: 16 }
 
                         SvgIcon {
                             anchors.centerIn: parent

@@ -202,6 +202,7 @@ FocusScope {
 
                 SearchField {
                     id: labelField
+                    onNavigateDown: stepDown()
                     objectName: "timer-label-field"
                     width: parent.width
                     placeholderText: "Label (optional)"

@@ -21,7 +21,7 @@ Item {
 
     readonly property bool pressed: area.pressed
     readonly property bool hovered: area.containsMouse
-    readonly property real currentBarHeight: hoverEffect && (pressed || hovered) ? hoverBarHeight : barHeight
+    readonly property real currentBarHeight: hoverEffect && (pressed || hovered || activeFocus) ? hoverBarHeight : barHeight
     property real dragFraction: 0
     readonly property real shownFraction: pressed ? dragFraction : Math.max(0, Math.min(1, progress))
     // Only the fraction is smoothed, never the pixel width: when the panel morphs open the bar's
@@ -34,6 +34,20 @@ Item {
     }
 
     signal seekRequested(real fraction)
+
+    // Keyboard: Left and Right seek by a step; the bar thickens like it does under the pointer.
+    property real keyStep: 0.02
+    activeFocusOnTab: seekable
+    Keys.onLeftPressed: event => {
+        if (!seekable) return;
+        seekRequested(Math.max(0, progress - keyStep));
+        event.accepted = true;
+    }
+    Keys.onRightPressed: event => {
+        if (!seekable) return;
+        seekRequested(Math.min(1, progress + keyStep));
+        event.accepted = true;
+    }
 
     implicitHeight: 24
 
@@ -64,7 +78,7 @@ Item {
             x: fill.width - width / 2
             anchors.verticalCenter: parent.verticalCenter
             color: root.fillColor
-            opacity: root.hoverEffect && root.seekable && (root.pressed || root.hovered) ? 1 : 0
+            opacity: root.hoverEffect && root.seekable && (root.pressed || root.hovered || root.activeFocus) ? 1 : 0
 
             Behavior on opacity { NumberAnimation { duration: 120 } }
         }

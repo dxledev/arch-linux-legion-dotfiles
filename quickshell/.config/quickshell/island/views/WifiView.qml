@@ -95,7 +95,7 @@ FocusScope {
         if (root.promptSsid.length > 0)
             root.closePassword();
         else
-            IslandController.openControlCenter();
+            IslandController.reset();
     }
 
     ColumnLayout {
@@ -189,6 +189,9 @@ FocusScope {
                     implicitHeight: 26
                     padding: 0
                     checked: root.radioEnabled
+                    focusPolicy: Qt.TabFocus
+                    Keys.onReturnPressed: toggle()
+                    Keys.onEnterPressed: toggle()
                     onToggled: WifiService.setRadioEnabled(checked)
 
                     indicator: Rectangle {
@@ -198,6 +201,8 @@ FocusScope {
                         height: 26
                         radius: 13
                         color: radioSwitch.checked ? Theme.accent : Theme.surfaceVariant
+                        border.width: radioSwitch.activeFocus ? 2 : 0
+                        border.color: Theme.textPrimary
                         Behavior on color { ColorAnimation { duration: Theme.animationFast } }
 
                         Rectangle {
@@ -364,6 +369,7 @@ FocusScope {
 
                             SearchField {
                                 id: passwordField
+                                onNavigateDown: stepDown()
                                 objectName: "wifi-password-field"
                                 Layout.fillWidth: true
                                 placeholderText: "Password for " + entry.ssid

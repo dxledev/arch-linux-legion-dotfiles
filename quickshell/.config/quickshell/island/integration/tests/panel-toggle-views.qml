@@ -14,6 +14,7 @@ ShellRoot {
         const panels = [
             ["openLauncher", IslandState.launcherMode],
             ["openExpandedHome", IslandState.expandedMode],
+            ["toggleExpandedIsland", IslandState.expandedMode],
             ["openPowerMenu", IslandState.powerMenuMode],
             ["openControlCenter", IslandState.controlCenterMode],
             ["openNotifications", IslandState.notificationsMode],
@@ -47,11 +48,31 @@ ShellRoot {
             IslandState.islandPinned = true;
             IslandState.returnToExpanded = true;
             ipc[method]();
-            check(IslandState.mode === IslandState.defaultMode, method + " closes on second press");
+            const expandedHome = method === "openExpandedHome";
+            check(IslandState.mode === (expandedHome ? IslandState.expandedMode : IslandState.defaultMode),
+                method + (expandedHome ? " opens workspace section on second press" : " closes on second press"));
+            if (expandedHome) {
+                check(IslandState.workspacePanelOpen, "Second press opens the expanded workspace section");
+                ipc[method]();
+            }
+            check(IslandState.mode === IslandState.defaultMode, method + " closes on the final press");
             check(!IslandState.islandPinned && !IslandState.returnToExpanded, method + " clears pin and return state");
             check(IslandState.panelMonitorName === "", method + " clears panel ownership");
             ipc[method]();
-            check(IslandState.mode === mode, method + " reopens on third press");
+            check(IslandState.mode === mode, method + " reopens after closing");
+            if (expandedHome) {
+                check(!IslandState.workspacePanelOpen, "Opening expanded home starts with workspace section closed");
+                ipc[method]();
+                check(IslandState.mode === IslandState.expandedMode && IslandState.workspacePanelOpen,
+                    "Expanded home cycle opens workspace section on second press");
+                ipc[method]();
+                check(IslandState.mode === IslandState.defaultMode && !IslandState.workspacePanelOpen,
+                    "Expanded home cycle returns to compact clock on third press");
+                IslandController.openNavigation();
+                ipc[method]();
+                check(IslandState.mode === IslandState.expandedMode && !IslandState.workspacePanelOpen,
+                    "Expanded home opens from another panel with workspace section closed");
+            }
             IslandController.reset();
             IslandController.toggleMode(mode, [], "HDMI-A-1");
             IslandState.islandPinned = true;
@@ -63,6 +84,24 @@ ShellRoot {
             IslandController.toggleMode(mode, [], "DP-1");
             check(IslandState.mode === IslandState.defaultMode, method + " closes on the new monitor");
         }
+        IslandController.reset();
+        ipc.toggleExpandedIsland();
+        check(IslandState.mode === IslandState.expandedMode && !IslandState.workspacePanelOpen,
+            "Toggle Island opens the expanded panel with workspace section closed");
+        ipc.toggleExpandedIsland();
+        check(IslandState.mode === IslandState.defaultMode && !IslandState.workspacePanelOpen,
+            "Toggle Island closes the expanded panel on its second press");
+        ipc.openExpandedHome();
+        ipc.openExpandedHome();
+        check(IslandState.mode === IslandState.expandedMode && IslandState.workspacePanelOpen,
+            "Cycle Island views opens the workspace section");
+        ipc.toggleExpandedIsland();
+        check(IslandState.mode === IslandState.defaultMode && !IslandState.workspacePanelOpen,
+            "Toggle Island closes the Island while workspace section is open");
+        IslandController.openNavigation();
+        ipc.toggleExpandedIsland();
+        check(IslandState.mode === IslandState.expandedMode && !IslandState.workspacePanelOpen,
+            "Toggle Island opens from another panel with workspace section closed");
         // Lyrics keybind: with no player it must not leave a request behind; otherwise it flips
         // the island's clock, and showing them takes the floating card and any panel away.
         IslandController.reset();
@@ -157,6 +196,7 @@ ShellRoot {
                     root.checkPanelToggles();
                     ThemeService.settings = {hoverDelay: 80, collapseDelay: 80};
                     interaction.handleHoverChanged(true);
+                    ipc.openExpandedHome();
                     ipc.openExpandedHome();
                     ipc.openExpandedHome();
                     root.phase++;

@@ -1,4 +1,5 @@
 import QtQuick
+import "../components"
 import "../styles"
 import "../services"
 import "../core"
@@ -8,6 +9,13 @@ Text {
 
     // Set by the expanded island: clicking the date opens the Calendar.
     property bool interactive: false
+
+    // Keyboard: Enter or Space opens the Calendar, like a click.
+    activeFocusOnTab: interactive
+    Keys.onReturnPressed: { IslandController.ignoreNextIslandTap(); IslandController.openCalendar() }
+    Keys.onEnterPressed: { IslandController.ignoreNextIslandTap(); IslandController.openCalendar() }
+    Keys.onSpacePressed: { IslandController.ignoreNextIslandTap(); IslandController.openCalendar() }
+    FocusRing { anchors.margins: -4; radius: 8 }
 
     color: interactive && mouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
 

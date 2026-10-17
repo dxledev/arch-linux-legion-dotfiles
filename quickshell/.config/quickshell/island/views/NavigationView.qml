@@ -52,6 +52,7 @@ FocusScope {
     readonly property bool reordering: reorderFrom >= 0
 
     function beginReorder(index) {
+        wheelScroll.stop();
         reorderFrom = index;
         reorderTarget = index;
     }
@@ -139,7 +140,8 @@ FocusScope {
                 cellHeight: 144
                 // GridView includes the last cell's gutter in its native scroll extent.
                 bottomMargin: -12
-                interactive: count > MenuService.cardLimit && !root.reordering
+                // Pointer dragging belongs to pinned cards; SmoothScroll keeps wheel scrolling available.
+                interactive: false
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 keyNavigationEnabled: true
@@ -147,7 +149,13 @@ FocusScope {
                 highlightMoveDuration: Theme.animationFast
                 model: root.entries
                 // Each wheel notch moves one full row of search results.
-                SmoothScroll { id: wheelScroll; scrollTarget: menuGrid; wheelStep: menuGrid.cellHeight }
+                SmoothScroll {
+                    id: wheelScroll
+                    scrollTarget: menuGrid
+                    wheelStep: menuGrid.cellHeight
+                    wheelEnabled: !root.reordering
+                    allowWhenNonInteractive: true
+                }
                 delegate: NavigationCard {
                     required property var modelData
                     required property int index
@@ -188,7 +196,11 @@ FocusScope {
     }
     Keys.onPressed: function(event) {
         if (handleSearchToggle(event)) return;
-        if (event.key === Qt.Key_F && (event.modifiers & Qt.ControlModifier)) {
+        const arrow = event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right;
+        if (arrow && Window.window?.activeFocusItem === root) {
+            focusCards();
+            event.accepted = true;
+        } else if (event.key === Qt.Key_F && (event.modifiers & Qt.ControlModifier)) {
             if (!searchVisible) toggleSearch();
             else searchField.forceActiveFocus();
             event.accepted = true;

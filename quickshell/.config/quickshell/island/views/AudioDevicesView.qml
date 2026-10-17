@@ -109,6 +109,6 @@ FocusScope {
         if (optionsVisible)
             optionsVisible = false
         else
-            IslandController.openControlCenter()
+            IslandController.reset()
     }
 }

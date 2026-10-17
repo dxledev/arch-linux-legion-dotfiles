@@ -101,9 +101,19 @@ QtObject {
         if (mode !== IslandState.defaultMode && mode !== IslandState.expandedMode
                 && IslandState.lyricsClockMonitor === IslandState.panelMonitorName)
             IslandState.lyricsClockMonitor = ""
+        // A panel opened from one that already had the keyboard (a Back, a card inside the control center) keeps it.
+        IslandState.keyboardOwned = mode !== IslandState.defaultMode
+            && (IslandState.keyboardOwned || IslandState.modal)
         IslandState.mode = mode
         if (mode === IslandState.workspaceAxisMode)
             workspaceAxisModeAuthorized = false
+    }
+
+    // Key bindings open panels through the toggles below; those panels take the keyboard even when they
+    // are hover-driven. Opening by hover or click never does.
+    function claimKeyboard() {
+        if (IslandState.mode !== IslandState.defaultMode)
+            IslandState.keyboardOwned = true
     }
 
     function preparePanelToggle(monitorName) {
@@ -117,6 +127,19 @@ QtObject {
             reset()
         } else {
             setMode(mode, monitorName)
+            claimKeyboard()
+        }
+    }
+
+    function toggleExpandedHome(monitorName = focusedPanelMonitorName()) {
+        preparePanelToggle(monitorName)
+        if (IslandState.mode !== IslandState.expandedMode) {
+            setMode(IslandState.expandedMode, monitorName)
+            claimKeyboard()
+        } else if (!IslandState.workspacePanelOpen) {
+            IslandState.workspacePanelOpen = true
+        } else {
+            reset()
         }
     }
 
@@ -132,6 +155,7 @@ QtObject {
         } else {
             IslandState.settingsSection = section
             setMode(IslandState.settingsSectionMode, monitorName)
+            claimKeyboard()
         }
     }
 
@@ -199,6 +223,61 @@ QtObject {
             return
         }
         openWorkspaceAxis(monitorName)
+    }
+
+    // Steps up one level, the way the panel's own Back button does, so Shift+Tab walks the same breadcrumbs.
+    // Returns false for a panel with nothing above it.
+    function goBack() {
+        switch (IslandState.mode) {
+        case IslandState.navigationMode:
+        case IslandState.controlCenterMode:
+            openExpanded()
+            return true
+        case IslandState.settingsMode:
+        case IslandState.shellSwitcherMode:
+        case IslandState.layoutSwitcherMode:
+        case IslandState.workspaceAxisMode:
+        case IslandState.themeSelectorMode:
+        case IslandState.wallpaperSelectorMode:
+        case IslandState.launcherMode:
+        case IslandState.aiUsageMode:
+        case IslandState.keybindsMode:
+        case IslandState.clipboardMode:
+        case IslandState.chromackMode:
+        case IslandState.wallhavenMode:
+        case IslandState.powerProfileMode:
+        case IslandState.protonVpnMode:
+        case IslandState.timerMode:
+            openNavigation()
+            return true
+        case IslandState.settingsSectionMode:
+        case IslandState.clockSettingsMode:
+        case IslandState.osdSettingsMode:
+            openSettings()
+            return true
+        case IslandState.notificationsMode:
+        case IslandState.audioDevicesMode:
+        case IslandState.wifiMode:
+        case IslandState.bluetoothMode:
+            openControlCenter()
+            return true
+        case IslandState.libreOfficeMode:
+            openLauncher()
+            return true
+        case IslandState.systemMode:
+            backFromSystem()
+            return true
+        case IslandState.calendarMode:
+            backFromCalendar()
+            return true
+        case IslandState.forecastMode:
+            backFromForecast()
+            return true
+        case IslandState.recordOptionsMode:
+            closeRecordOptions()
+            return true
+        }
+        return false
     }
 
     function openDefault() {

@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
+import "../services/FocusNavigation.js" as FocusNavigation
 import "../core"
 import "../services"
 import "../styles"
@@ -38,7 +39,7 @@ FocusScope {
     Component.onCompleted: ProtonVpnService.acquirePanel()
     Component.onDestruction: ProtonVpnService.releasePanel()
 
-    Keys.onEscapePressed: IslandController.openNavigation()
+    Keys.onEscapePressed: IslandController.reset()
 
     ColumnLayout {
         id: content
@@ -171,6 +172,7 @@ FocusScope {
 
             SearchField {
                 id: username
+                onNavigateDown: stepDown()
                 Layout.fillWidth: true
                 placeholderText: "Proton username or email"
                 inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhEmailCharactersOnly
@@ -209,7 +211,7 @@ FocusScope {
                     objectName: "protonvpn-country-filter"
                     Layout.fillWidth: true
                     placeholderText: "Search countries"
-                    onNavigateDown: countryList.forceActiveFocus()
+                    onNavigateDown: FocusNavigation.move(root, countryFilter, 0, 1)
                 }
 
                 TextActionButton {
@@ -295,6 +297,9 @@ FocusScope {
                 padding: 0
                 enabled: !root.busy
                 checked: root.killSwitchOn
+                focusPolicy: Qt.TabFocus
+                Keys.onReturnPressed: toggle()
+                Keys.onEnterPressed: toggle()
                 Accessible.name: "Kill switch"
                 onToggled: ProtonVpnService.setConfig("kill-switch", checked ? "standard" : "off")
 
@@ -325,6 +330,8 @@ FocusScope {
                     height: 30
                     radius: 15
                     color: killSwitch.checked ? Theme.accent : Theme.surfaceVariant
+                    border.width: killSwitch.activeFocus ? 2 : 0
+                    border.color: Theme.textPrimary
                     Behavior on color { ColorAnimation { duration: Theme.animationFast } }
 
                     Rectangle {

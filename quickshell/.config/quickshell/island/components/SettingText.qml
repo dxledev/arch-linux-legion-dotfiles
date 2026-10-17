@@ -15,6 +15,7 @@ Column {
     onStoredChanged: if (!field.activeFocus) field.text = stored
     UiText { text: root.label; color: Theme.textPrimary; font.pixelSize: 14 }
     SearchField {
+        onNavigateDown: stepDown()
         id: field
         objectName: "setting-text-" + root.setting
         width: root.width

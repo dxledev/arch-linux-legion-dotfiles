@@ -72,6 +72,9 @@ QtObject {
     }
     property bool returnToExpanded: false
     property bool ignoreNextIslandTap: false
+    // The hover-driven panels (expanded island, control center, media) only take the keyboard when a
+    // key binding or a keyboard-owned panel opened them; hovering or clicking the island never does.
+    property bool keyboardOwned: false
     // Media opened from a click: stay open until the cursor has entered the panel once.
     property bool awaitingMediaHover: false
     // Item of an open dropdown list, which can reach past the panel. The window's input mask includes
@@ -133,4 +136,9 @@ QtObject {
         mode === libreOfficeMode ||
         mode === recordOptionsMode ||
         mode === timerMode
+
+    // Panels that own the keyboard while open: every modal panel, plus the hover-driven ones when
+    // opened from the keyboard.
+    readonly property bool keyboardPanel: modal || (keyboardOwned
+        && (mode === expandedMode || mode === controlCenterMode || mode === mediaControlsMode))
 }

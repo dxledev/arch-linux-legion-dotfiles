@@ -9,6 +9,8 @@ Item {
     property bool horizontal: false
     // Lets a view take over wheel input while keeping the smoothed programmatic scrolling.
     property bool wheelEnabled: true
+    // Some views disable pointer dragging but still use this handler for wheel input.
+    property bool allowWhenNonInteractive: false
     property int animationDuration: ThemeService.settings.scrollAnimationDuration ?? 180
     property real wheelStep: ThemeService.settings.scrollWheelStep ?? 64
     property real destination: 0
@@ -45,7 +47,7 @@ Item {
     }
 
     function scrollBy(distance, precise = false) {
-        if (!scrollTarget.interactive || scrollTarget.dragging || !distance) return false;
+        if ((!scrollTarget.interactive && !allowWhenNonInteractive) || scrollTarget.dragging || !distance) return false;
         const current = animating && !precise ? destination : contentPosition();
         const next = boundedPosition(current + distance);
         if (Math.abs(next - current) < 0.01) return false;
@@ -60,6 +62,12 @@ Item {
             scrollPosition = next;
         }
         return true;
+    }
+
+    // Halts a running wheel animation where it is, so a drag starts from a still view.
+    function stop() {
+        animation.stop();
+        synchronize();
     }
 
     // Scrolls to an absolute position, measured from where any running animation will land.
@@ -98,7 +106,7 @@ Item {
     WheelHandler {
         parent: root.scrollTarget
         target: null
-        enabled: root.wheelEnabled && root.scrollTarget.interactive
+        enabled: root.wheelEnabled && (root.scrollTarget.interactive || root.allowWhenNonInteractive)
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
             // Horizontal targets also accept sideways wheels and touchpad swipes.

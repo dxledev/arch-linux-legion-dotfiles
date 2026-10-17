@@ -14,7 +14,8 @@ binds {
     Mod+Alt+M hotkey-overlay-title="Island Media Controls" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openMediaControls"; }
     Mod+Alt+P hotkey-overlay-title="Power Menu" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openPowerMenu"; }
     Mod+Shift+B hotkey-overlay-title="Power Menu" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openPowerMenu"; }
-    Mod+Shift+D hotkey-overlay-title="Expand Island" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openExpandedHome"; }
+    Mod+D hotkey-overlay-title="Toggle Island" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island toggleExpandedIsland"; }
+    Mod+Shift+D hotkey-overlay-title="Cycle Island views" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openExpandedHome"; }
     Mod+Alt+V hotkey-overlay-title="Island Audio" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openAudioDevices"; }
     Mod+Alt+A hotkey-overlay-title="Island Controls" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openControlCenter"; }
     Mod+Shift+N hotkey-overlay-title="Island Notifications" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openNotifications"; }

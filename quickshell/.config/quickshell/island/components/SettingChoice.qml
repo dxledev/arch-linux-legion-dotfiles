@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import "../island"
 import "../services"
+import "../services/FocusNavigation.js" as FocusNavigation
 import "../styles"
 
 Column {
@@ -61,6 +62,11 @@ Column {
         leftPadding: 14
         rightPadding: 38
         onActivated: root.chosen(currentText)
+        // Closed, Up and Down walk the panel's rows instead of silently picking the neighbouring option.
+        Keys.onPressed: event => {
+            if (choice.popup.visible || (event.key !== Qt.Key_Up && event.key !== Qt.Key_Down)) return
+            event.accepted = FocusNavigation.move(choice.Window.window.contentItem, choice, 0, event.key === Qt.Key_Up ? -1 : 1)
+        }
         contentItem: UiText {
             text: choice.displayText
             color: Theme.textSecondary

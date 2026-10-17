@@ -16,6 +16,25 @@ Item {
 
     implicitWidth: 184
     implicitHeight: 184
+
+    // Keyboard: Left and Right turn the dial a minute at a time; the ring shows only for keyboard focus.
+    activeFocusOnTab: true
+    Keys.onLeftPressed: event => {
+        root.minutesPicked(Math.max(0, Math.round(root.seconds / 60) - 1))
+        event.accepted = true
+    }
+    Keys.onRightPressed: event => {
+        root.minutesPicked(Math.min(TimerLogic.dialMinutes, Math.round(root.seconds / 60) + 1))
+        event.accepted = true
+    }
+    Rectangle {
+        anchors.fill: parent
+        radius: width / 2
+        color: "transparent"
+        border.width: root.activeFocus ? 2 : 0
+        border.color: Theme.accent
+        opacity: 0.6
+    }
     Accessible.role: Accessible.Slider
     Accessible.name: "Timer length"
     Accessible.description: TimerLogic.describe(seconds)

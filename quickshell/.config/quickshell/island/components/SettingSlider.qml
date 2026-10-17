@@ -50,6 +50,7 @@ Column {
         from: root.minimum
         to: root.maximum
         stepSize: root.step
+        focusPolicy: Qt.TabFocus
         value: ThemeService.settings[root.setting] ?? root.minimum
         enabled: !ThemeService.busy
         onMoved: { root.dirty = true; saveDelay.restart(); }
@@ -77,8 +78,8 @@ Column {
             height: width
             radius: width / 2
             color: Theme.textPrimary
-            border.width: 1
-            border.color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.15)
+            border.width: slider.activeFocus ? 2 : 1
+            border.color: slider.activeFocus ? Theme.accent : Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.15)
             Behavior on width { NumberAnimation { duration: 120 } }
         }
     }

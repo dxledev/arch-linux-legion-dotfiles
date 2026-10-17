@@ -26,7 +26,8 @@ IpcHandler {
     function openAIUsage(): void { IslandController.toggleMode(IslandState.aiUsageMode); }
     function openKeybinds(): void { IslandController.toggleMode(IslandState.keybindsMode); }
     function openMediaControls(): void { IslandController.toggleMode(IslandState.mediaControlsMode); }
-    function openExpandedHome(): void { IslandController.toggleMode(IslandState.expandedMode); }
+    function openExpandedHome(): void { IslandController.toggleExpandedHome(); }
+    function toggleExpandedIsland(): void { IslandController.toggleMode(IslandState.expandedMode); }
     function reset(): void { IslandController.reset(); }
     function openWallpaperSelector(): void { IslandController.toggleMode(IslandState.wallpaperSelectorMode); }
     function openThemeSelector(): void { IslandController.toggleMode(IslandState.themeSelectorMode); }
