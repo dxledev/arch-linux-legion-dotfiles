@@ -14,7 +14,11 @@ Singleton {
     readonly property int columns: MenuEntries.gridSize(ThemeService.settings.menuColumns)
     readonly property int cardLimit: rows * columns
     readonly property var pinnedIds: pendingPinnedIds ?? MenuEntries.sanitizePinnedIds(ThemeService.settings.menuPinnedEntries)
-    readonly property var availableEntries: WorkspacePresentation.availableMenuEntries(MenuEntries.menuEntries,
+    // Layout, workspace axis and the keybind list are Hyprland features and stay out of the menu under niri.
+    readonly property var compositorEntries: Compositor.niri
+        ? MenuEntries.menuEntries.filter(entry => !MenuEntries.hyprlandOnlyIds.includes(entry.id))
+        : MenuEntries.menuEntries
+    readonly property var availableEntries: WorkspacePresentation.availableMenuEntries(compositorEntries,
         workspaceAxisVisibilityValidated, WorkspacePresentationService.canOpenAxis
             && !WorkspacePresentationService.actionPending)
     readonly property var availableIds: availableEntries.map(entry => entry.id)

@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# The Full palette option: the ROYGBIV transform, and the engine keeping the generated palette untouched.
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$(/usr/bin/readlink -f -- "$script_dir/..")"
+shell_theme="$integration_dir/shell-theme"
+test_root="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/full-palette-test.XXXXXX")"
+trap '/usr/bin/rm -rf -- "$test_root"' EXIT
+
+fail() {
+    printf 'full-palette test: %s\n' "$*" >&2
+    exit 1
+}
+
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -I - "$integration_dir" <<'PYTHON' || fail 'The transform checks failed.'
+import importlib.util
+import json
+import math
+import sys
+
+directory = sys.argv[1]
+sys.path.insert(0, directory)
+spec = importlib.util.spec_from_file_location("full_palette", f"{directory}/full-palette.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+import itertools
+from palette_colour import contrast_ratio, lab, oklab_chroma, oklab_distance
+
+SURFACES = ("background", "onBackground", "surface", "primary", "secondary", "tertiary", "error", "outline")
+
+
+def material(mode, background, primary, secondary, tertiary):
+    return {"mode": mode, "variant": "tonalspot", "source": "dynamic", "provider": "caelestia",
+            "colours": {"background": background, "onBackground": "e6e1e5", "surface": background,
+                        "primary": primary, "secondary": secondary, "tertiary": tertiary, "error": "fa746f",
+                        "outline": "938f99", "success": "b5ccba", "red": "aa0000", "peach": "aa5500",
+                        "yellow": "aaaa00", "green": "00aa00", "blue": "0000aa", "mauve": "aa00aa",
+                        "lavender": "8888ff", "teal": "00aaaa", "pink": "ff88cc",
+                        **{f"term{i}": "808080" for i in range(16)}}}
+
+
+def hue(colour):
+    _, a, b = lab(colour)
+    return math.degrees(math.atan2(b, a)) % 360
+
+
+palettes = {
+    "dark tonal": material("dark", "141218", "d0bcff", "ccc2dc", "efb8c8"),
+    "dark vibrant": material("dark", "14121c", "ffb157", "e0c2a0", "9ee07b"),
+    "light tonal": material("light", "fef7ff", "6750a4", "625b71", "7d5260"),
+    "monochrome": material("dark", "131313", "ffffff", "c6c6c6", "c6c6c6"),
+}
+# A Wallhaven palette has no Material accents and no peach, lavender or mauve.
+palettes["aether"] = {"mode": "dark", "variant": "tonalspot", "source": "dynamic", "provider": "aether",
+                      "colours": {"background": "101418", "foreground": "e0e0e0", "accent": "81a1c1", "red": "bf616a",
+                                  "green": "a3be8c", "yellow": "ebcb8b", "blue": "81a1c1", "magenta": "b48ead",
+                                  "cyan": "88c0d0", **{f"term{i}": "808080" for i in range(16)}}}
+
+for name, palette in palettes.items():
+    full = module.transform(palette)
+    assert module.transform(full) == full, f"{name}: applying Full twice changes the palette"
+    before, after = palette["colours"], full["colours"]
+    for key in SURFACES + ("foreground", "accent"):
+        assert before.get(key) == after.get(key), f"{name}: {key} must not change"
+    wheel = [after[key] for key in ("red", "peach", "yellow", "green", "blue", "lavender", "mauve")]
+    hues = [hue(colour) for colour in wheel]
+    assert hues == sorted(hues), f"{name}: the wheel is out of order: {[round(h) for h in hues]}"
+    assert hues[-1] - hues[0] > 240, f"{name}: the wheel is too narrow"
+    assert all(b - a > 12 for a, b in zip(hues, hues[1:])), f"{name}: neighbouring hues are too close"
+    background = after["background"]
+    assert all(contrast_ratio(colour, background) >= 3 for colour in wheel), f"{name}: a colour is unreadable"
+    # theme-render swaps ANSI colours closer than 0.06 (OKLab), which would break the wheel.
+    ansi = [after[f"term{index}"] for index in (1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14)]
+    assert min(oklab_distance(a, b) for a, b in itertools.combinations(ansi, 2)) >= 0.065, f"{name}: ANSI colours are too close"
+    assert all(contrast_ratio(colour, background) >= 3 for colour in ansi), f"{name}: an ANSI colour is unreadable"
+    assert after["term0"] == before["term0"] and after["term7"] == before["term7"], f"{name}: greys must not change"
+    assert after["term1"] == after["red"] and after["term3"] == after["yellow"], f"{name}: ANSI colours follow the wheel"
+    if "success" in before:
+        assert after["success"] == after["green"], f"{name}: success follows green"
+    if "peach" not in before:
+        assert "peach" in after and "lavender" in after, f"{name}: the wheel is incomplete"
+
+tonal, vibrant = (module.transform(palettes[name])["colours"] for name in ("dark tonal", "dark vibrant"))
+chroma = lambda colours: sum(oklab_chroma(colours[key]) for key in ("red", "green", "blue")) / 3
+muted = module.transform(palettes["monochrome"])["colours"]
+assert chroma(muted) <= chroma(tonal) <= chroma(vibrant), "Full does not keep the variant's character"
+assert oklab_chroma(muted["green"]) > 0.04, "Monochrome keeps a hue to tell colours apart"
+PYTHON
+
+# The engine renders the Full palette but keeps the generated one saved, so Full off restores it exactly.
+state="$test_root/state"
+config="$test_root/config"
+/usr/bin/mkdir -p "$config/themes/everforest" "$state" "$test_root/cache" "$test_root/home"
+/usr/bin/ln -s everforest "$config/themes/current"
+: > "$test_root/wallpaper.png"
+printf 'pragma Singleton\nimport QtQuick\nQtObject {\n    readonly property color background: "#101418"\n}\n' > "$config/themes/everforest/Colors.qml"
+{
+    printf 'mode = "dark"\nbackground = "#101418"\nforeground = "#e0e0e0"\naccent = "#81a1c1"\nmuted = "#7c8490"\n'
+    printf 'red = "#bf616a"\ngreen = "#a3be8c"\nyellow = "#ebcb8b"\nblue = "#81a1c1"\nmagenta = "#b48ead"\ncyan = "#88c0d0"\n'
+    for index in {0..15}; do printf 'color%d = "#%02x%02x%02x"\n' "$index" $((index * 12 + 40)) $((index * 10 + 50)) $((index * 8 + 60)); done
+} > "$test_root/colors.toml"
+cat > "$test_root/renderer" <<'RENDERER'
+#!/usr/bin/env bash
+while (( $# )); do case "$1" in --provider) shift 2 ;; --dry-run|--force) shift ;; *) break ;; esac; done
+/usr/bin/cp -- "$1" "$RENDER_CAPTURE"
+printf 'changed\n'
+RENDERER
+printf '#!/usr/bin/env bash\nexit 0\n' > "$test_root/apply"
+/usr/bin/chmod +x "$test_root/renderer" "$test_root/apply"
+
+engine() {
+    XDG_CONFIG_HOME="$config" HOME="$test_root/home" THEMES_DIR="$config/themes" SHELL_THEME_STATE_DIR="$state" \
+        SHELL_THEME_CACHE_DIR="$test_root/cache" SHELL_DYNAMIC_WALLPAPER="$test_root/wallpaper.png" \
+        THEME_RENDERER="$test_root/renderer" THEME_APPLY="$test_root/apply" RENDER_CAPTURE="$test_root/captured.json" \
+        SHELL_THEME_PREWARM=0 SHELL_THEME_DESKTOP_PROVIDER=island DYNAMIC_THEME_DIR="$test_root/dynamic" \
+        APPLICATION_THEME_LINK="$config/themes/.use" NOTIFY_SEND_BIN=/bin/true "$shell_theme" "$@"
+}
+
+engine set-aether --style wh-test "$test_root/colors.toml" >/dev/null
+/usr/bin/cp -- "$test_root/captured.json" "$test_root/off.json"
+saved="$(/usr/bin/sha256sum < "$state/shell-theme-palette.json")"
+/usr/bin/jq -e 'has("full") | not' <<< "$(engine status)" >/dev/null || fail 'Status reports Full before it is switched on.'
+
+engine set-full on >/dev/null
+/usr/bin/jq -e '.full == true' <<< "$(engine status)" >/dev/null || fail 'Status does not report Full.'
+/usr/bin/jq -e '.colours.peach != null and .colours.red != "bf616a" and .colours.accent == "81a1c1"' "$test_root/captured.json" >/dev/null \
+    || fail 'The renderer did not receive the Full palette.'
+[[ "$(/usr/bin/sha256sum < "$state/shell-theme-palette.json")" == "$saved" ]] || fail 'Full changed the saved palette.'
+
+engine set-full off >/dev/null
+/usr/bin/cmp -s "$test_root/captured.json" "$test_root/off.json" || fail 'Full off did not restore the original palette.'
+/usr/bin/jq -e 'has("full") | not' <<< "$(engine status)" >/dev/null || fail 'Status still reports Full.'
+if engine set-full maybe >/dev/null 2>&1; then fail 'Accepted an invalid Full value.'; fi
+
+printf 'PASS: Full palette keeps the wheel ordered, readable and in the variant'"'"'s character, is idempotent, and leaves the saved palette untouched\n'

@@ -15,10 +15,15 @@ SettingsPanel {
         iconSource: "../assets/icons/folder.svg"
         SettingChoice {
             label: "Format"
-            choices: ["mp4", "mkv"]
+            choices: ["mp4", "mkv", "mov", "webm"]
             choiceLabel: value => value.toUpperCase()
             selected: ThemeService.settings.recordFormat || "mp4"
             onChosen: value => ThemeService.setSetting("recordFormat", value)
+        }
+        SettingText {
+            label: "File name (date codes: %Y %m %d %H %M %S)"
+            setting: "recordFilename"
+            placeholder: "recording_%Y%m%d_%H-%M-%S"
         }
         SettingText {
             label: "Save recordings to"

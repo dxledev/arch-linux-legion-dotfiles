@@ -2,7 +2,6 @@ pragma Singleton
 
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Notifications
 import "../island"
@@ -15,6 +14,10 @@ Singleton {
     property var entries: []
     property int unreadCount: 0
     property int storedSerial: 0
+    // Notifications whose action buttons stay usable from the notification center, by id. The popup
+    // timing out must not close them: the sender (a screen recording's Watch / Show in folder) is still
+    // waiting for the answer.
+    property var live: ({})
     // Do Not Disturb keeps notifications in the history but shows no popup, except critical ones.
     property bool doNotDisturb: false
     readonly property string countText: history.count > 99 ? "99+" : String(history.count)
@@ -74,7 +77,7 @@ Singleton {
 
     function popupMonitor() {
         const screens = ThemeService.islandScreens;
-        return screens.find(screen => screen.name === Hyprland.focusedMonitor?.name)?.name
+        return screens.find(screen => screen.name === Compositor.focusedMonitorName)?.name
             || screens[0]?.name || "";
     }
 
@@ -113,6 +116,45 @@ Singleton {
         while (history.count > 100) forget(history.count - 1, false);
     }
 
+    function actionable(notification) {
+        return !notification.transient && notification.appName !== timerApp
+            && notification.actions.some(action => action.identifier !== "default");
+    }
+
+    // Keeps an actionable notification answerable after its popup is gone; false when it has no buttons to keep.
+    function retain(notification) {
+        if (!actionable(notification)) return false;
+        const id = notification.id;
+        if (live[id] === notification) return true;
+        notification.tracked = true;
+        live = Object.assign({}, live, {[id]: notification});
+        notification.closed.connect(() => {
+            if (live[id] !== notification) return;
+            const rest = Object.assign({}, live);
+            delete rest[id];
+            live = rest;
+        });
+        return true;
+    }
+
+    // Buttons the center shows for a notification card: the live notification's actions, never "default".
+    function actionsFor(notificationId) {
+        return (live[notificationId]?.actions ?? []).filter(action => action.identifier !== "default");
+    }
+
+    function invokeAction(notificationId, identifier) {
+        const entry = entries.find(item => item.notificationId === notificationId);
+        const action = (entry ? entry.actions : live[notificationId]?.actions ?? [])
+            .find(item => item.identifier === identifier);
+        if (!action) return;
+        if (entry) { entry.invoke(action); return; }
+        const notification = live[notificationId];
+        const resident = notification.resident;
+        action.invoke();
+        // A sender usually closes its notification as soon as it is answered; only close what is still open.
+        if (!resident && live[notificationId] === notification) notification.dismiss();
+    }
+
     function release(entry) {
         for (let index = 0; index < popups.count; index++) {
             if (popups.get(index).entry === entry) {
@@ -140,6 +182,7 @@ Singleton {
 
     function receive(notification) {
         notification.tracked = true;
+        const retained = retain(notification);
         const existing = entries.find(entry => entry.notificationId === notification.id);
         if (existing) { promote(existing); return; }
         if (mediaNotificationCovered(notification)
@@ -150,7 +193,7 @@ Singleton {
                 summary: notification.summary, body: notification.body, icon: getAppIcon(notification),
                 image: imageSource(notification.image)
             });
-            notification.tracked = false;
+            notification.tracked = retained;
             return;
         }
         const entry = notificationComponent.createObject(root, {
@@ -179,7 +222,9 @@ Singleton {
     }
 
     function clear() {
+        const shown = entries.map(entry => entry.notificationId);
         for (const entry of entries.slice()) entry.dismiss();
+        for (const [id, notification] of Object.entries(live)) if (!shown.includes(Number(id))) notification.dismiss();
         history.clear();
         unreadCount = 0;
         storeCommand(["clear"]);
@@ -188,7 +233,9 @@ Singleton {
     function forget(index, removeStored) {
         if (index < 0 || index >= history.count) return;
         const snapshot = history.get(index);
-        entries.find(entry => entry.notificationId === snapshot.notificationId)?.dismiss();
+        const entry = entries.find(item => item.notificationId === snapshot.notificationId);
+        if (entry) entry.dismiss();
+        else live[snapshot.notificationId]?.dismiss();
         if (snapshot.unread) unreadCount = Math.max(0, unreadCount - 1);
         if (removeStored) storeCommand(["remove", storeMatch(snapshot)]);
         history.remove(index);
@@ -224,8 +271,11 @@ Singleton {
 
     NotificationReplacements {
         onReplaced: notificationId => Qt.callLater(() => {
-            const entry = root.entries.find(item => item.notificationId === Number(notificationId));
+            const id = Number(notificationId);
+            const entry = root.entries.find(item => item.notificationId === id);
             if (entry) root.promote(entry);
+            // A notification kept for its buttons has no entry left; its update shows again like a new one.
+            else if (root.live[id]) root.receive(root.live[id]);
         })
     }
 

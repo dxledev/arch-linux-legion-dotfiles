@@ -14,12 +14,27 @@ done
 /usr/bin/awk -v value="$progress" 'BEGIN {exit !(value >= 0 && value <= 1)}' || exit 2
 level="$(/usr/bin/awk -v value="$progress" 'BEGIN {printf "%.0f", value * 100}')"
 script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Whether Island runs under niri (see island/README.md, "Compositors"): ISLAND_COMPOSITOR, then the session's
+# desktop name, then the compositor socket variable. Anything else keeps the Hyprland behaviour.
+under_niri() {
+    case "${ISLAND_COMPOSITOR:-}" in niri) return 0 ;; hyprland) return 1 ;; esac
+    local desktop=":${XDG_CURRENT_DESKTOP,,}:"
+    [[ "$desktop" == *:niri:* ]] && return 0
+    [[ "$desktop" == *:hyprland:* ]] && return 1
+    [[ -n "${NIRI_SOCKET:-}" && -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]
+}
 connector_type="${ISLAND_BRIGHTNESS_CONNECTOR_TYPE:-}"
 if [[ -n "$connector_type" ]]; then
     [[ "$connector_type" == DP || "$connector_type" == HDMI-A ]] || exit 2
-    hyprctl_bin="${ISLAND_HYPRCTL_BIN:-/usr/bin/hyprctl}"
-    [[ "$hyprctl_bin" == /* && -x "$hyprctl_bin" ]] || exit 2
-    monitor="$("$hyprctl_bin" -j monitors | /usr/bin/jq -r --arg type "$connector_type" '[.[] | select(.name | startswith($type + "-"))][0].name // empty')"
+    if under_niri; then
+        niri_bin="${ISLAND_NIRI_BIN:-/usr/bin/niri}"
+        [[ "$niri_bin" == /* && -x "$niri_bin" ]] || exit 2
+        monitor="$("$niri_bin" msg --json outputs | /usr/bin/jq -r --arg type "$connector_type" '[keys[] | select(startswith($type + "-"))][0] // empty')"
+    else
+        hyprctl_bin="${ISLAND_HYPRCTL_BIN:-/usr/bin/hyprctl}"
+        [[ "$hyprctl_bin" == /* && -x "$hyprctl_bin" ]] || exit 2
+        monitor="$("$hyprctl_bin" -j monitors | /usr/bin/jq -r --arg type "$connector_type" '[.[] | select(.name | startswith($type + "-"))][0].name // empty')"
+    fi
 fi
 [[ "$monitor" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || exit 2
 exec /usr/bin/bash "$script_dir/../../scripts/publish-brightness-osd.sh" "$level" "$monitor"

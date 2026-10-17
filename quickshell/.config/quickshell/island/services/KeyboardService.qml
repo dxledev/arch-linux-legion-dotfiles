@@ -13,10 +13,62 @@ Item {
 
     property string lastLayout: ""
 
+    // Handles the active keymap's name; shared by the Hyprland poll and niri's event stream.
+    function applyKeymap(keymap) {
+
+        let newLayout = "EN"
+        let newName = "English"
+
+        if (keymap.startsWith("English")) {
+
+            newLayout = "EN"
+            newName = "English"
+
+        } else if (
+            keymap.startsWith("Persian") ||
+            keymap.startsWith("Iranian")
+        ) {
+
+            newLayout = "FA"
+            newName = "Persian"
+
+        } else {
+
+            newLayout = keymap.substring(0, 2).toUpperCase()
+            newName = keymap
+        }
+
+        if (root.lastLayout === "") {
+            root.lastLayout = newLayout
+            root.layout = newLayout
+            root.fullName = newName
+
+            return
+        }
+
+        if (newLayout === root.lastLayout)
+            return
+
+        root.lastLayout = newLayout
+
+        root.layout = newLayout
+        root.fullName = newName
+
+        StatusManager.show({
+            mode: "keyboard",
+            icon: root.icon,
+            title: root.fullName,
+            value: root.layout,
+
+            statusWidth: 220,
+            statusHeight: 33
+        })
+    }
+
     Process {
         id: layoutReader
 
-        running: true
+        running: !Compositor.niri
 
         command: [
             "bash",
@@ -26,58 +78,7 @@ Item {
 
         stdout: StdioCollector {
 
-            onStreamFinished: {
-
-                let keymap = text.trim()
-
-                let newLayout = "EN"
-                let newName = "English"
-
-                if (keymap.startsWith("English")) {
-
-                    newLayout = "EN"
-                    newName = "English"
-
-                } else if (
-                    keymap.startsWith("Persian") ||
-                    keymap.startsWith("Iranian")
-                ) {
-
-                    newLayout = "FA"
-                    newName = "Persian"
-
-                } else {
-
-                    newLayout = keymap.substring(0, 2).toUpperCase()
-                    newName = keymap
-                }
-
-                if (root.lastLayout === "") {
-                    root.lastLayout = newLayout
-                    root.layout = newLayout
-                    root.fullName = newName
-
-                    return
-                }
-
-                if (newLayout === root.lastLayout)
-                    return
-
-                root.lastLayout = newLayout
-
-                root.layout = newLayout
-                root.fullName = newName
-
-                StatusManager.show({
-                    mode: "keyboard",
-                    icon: root.icon,
-                    title: root.fullName,
-                    value: root.layout,
-
-                    statusWidth: 220,
-                    statusHeight: 33
-                })
-            }
+            onStreamFinished: root.applyKeymap(text.trim())
         }
     }
 
@@ -85,7 +86,7 @@ Item {
 
         interval: 300
 
-        running: true
+        running: !Compositor.niri
 
         repeat: true
 
@@ -93,6 +94,15 @@ Item {
 
             layoutReader.running = false
             layoutReader.running = true
+        }
+    }
+
+    // niri reports layout changes on its event stream, so nothing is polled there.
+    Connections {
+        target: NiriService
+        enabled: Compositor.niri
+        function onKeyboardLayoutNameChanged() {
+            if (NiriService.keyboardLayoutName !== "") root.applyKeymap(NiriService.keyboardLayoutName)
         }
     }
 }

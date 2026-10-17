@@ -119,8 +119,10 @@ QtObject {
     readonly property Timer timeout: Timer {
         onTriggered: {
             root.expired = true;
+            // A notification with buttons outlives its popup; the center keeps answering for it.
+            const retained = NotificationService.retain(root.notification);
             root.closePopup();
-            root.notification.expire();
+            if (!retained) root.notification.expire();
         }
     }
 

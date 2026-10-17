@@ -35,7 +35,7 @@ Singleton {
     Process {
         id: windowGaps
         command: ["/usr/bin/hyprctl", "-j", "getoption", "general:gaps_out"]
-        running: !!Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
+        running: !Compositor.niri && !!Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
         stdout: StdioCollector {}
         stderr: StdioCollector {}
         onExited: function(code) {
@@ -48,6 +48,7 @@ Singleton {
     }
     Connections {
         target: Hyprland
+        enabled: !Compositor.niri
         function onRawEvent(event) {
             if (event.name === "configreloaded") windowGaps.running = true;
         }

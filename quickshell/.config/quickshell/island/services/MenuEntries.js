@@ -50,6 +50,10 @@ var menuEntries = [
     { id: "media-controls", title: "Media controls", subtitle: "Playback and track controls", keywords: ["media", "music", "player", "playback", "song"], icon: "../assets/icons/music.svg", route: { type: "controller", action: "openMediaControls" } }
 ]
 
+// Entries that only make sense under Hyprland: they drive its layouts, its workspace animation, its binds or
+// the shell-mode switch that rewrites its config.
+var hyprlandOnlyIds = ["layout", "keybinds", "workspace-axis", "shell-mode"];
+
 // Menu search results show where a settings page lives: "Settings > Clock".
 var settingsPrefix = "Settings > "
 

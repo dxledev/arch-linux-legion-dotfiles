@@ -13,14 +13,18 @@ Singleton {
     property bool daemonReady: false
     readonly property bool ready: state.ready && daemonReady
     readonly property bool enabled: state.enabled && daemonRunning
-    readonly property string subtitle: enabled ? "On" : "Off"
+    // The toggle script drives hyprsunset, which needs Hyprland's colour-matrix protocol.
+    readonly property bool available: Compositor.hasNightLight
+    readonly property string subtitle: !available ? "Unavailable" : enabled ? "On" : "Off"
     readonly property url icon: Qt.resolvedUrl(enabled ? "../assets/icons/moon-stars.svg" : "../assets/icons/moon.svg")
 
     function update() {
+        if (!available) return;
         if (!daemonCheck.running) daemonCheck.running = true;
     }
 
     function toggle() {
+        if (!available) return;
         if (!toggleProcess.running) toggleProcess.running = true;
     }
 

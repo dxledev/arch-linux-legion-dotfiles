@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import "../core"
 import "../services"
 import "../styles"
@@ -12,17 +11,17 @@ Item {
 
     property string monitorName: ""
     readonly property var screen: (QsWindow.window as QsWindow)?.screen ?? Quickshell.screens.find(screen => screen.name === monitorName) ?? null
-    readonly property var monitor: screen ? Hyprland.monitorFor(screen) : null
-    readonly property var activeWorkspace: WorkspaceService.showAllMonitors ? Hyprland.focusedWorkspace : monitor?.activeWorkspace
+    readonly property var monitor: screen ? Compositor.monitorFor(screen) : null
+    readonly property var activeWorkspace: WorkspaceService.showAllMonitors ? Compositor.focusedWorkspace : monitor?.activeWorkspace
     readonly property var entries: WorkspaceService.workspaceEntries(
-        WorkspaceService.workspacesForMonitor(Hyprland.workspaces.values, monitor?.name, WorkspaceService.showAllMonitors),
+        WorkspaceService.workspacesForMonitor(Compositor.workspaces, monitor?.name, WorkspaceService.showAllMonitors),
         WorkspaceService.rules.length === 0 ? null
             : WorkspaceService.persistentForMonitor(WorkspaceService.rules, monitor, WorkspaceService.showAllMonitors),
         ThemeService.settings.workspacePersistent ?? true,
         ThemeService.settings.workspaceCount ?? 11,
         activeWorkspace?.id ?? 1)
     readonly property var specials: WorkspaceService.specialEntries(
-        Hyprland.workspaces.values, Hyprland.toplevels.values, WorkspaceService.rules,
+        Compositor.workspaces, Compositor.toplevels, WorkspaceService.rules,
         monitor?.lastIpcObject?.specialWorkspace?.name ?? "")
     readonly property string home: Quickshell.env("HOME")
     // Settings -> Workspaces: the expanded row inherits the switcher (OSD) style unless it has its own.
@@ -56,7 +55,7 @@ Item {
     }
 
     function focusWorkspace(id) {
-        Hyprland.dispatch(Hyprland.usingLua ? `hl.plugin.hymission.workspace("${id}")` : `workspace ${id}`);
+        Compositor.focusWorkspace(id, monitor?.name);
     }
 
     function toggleSpecial(name) {
@@ -64,7 +63,7 @@ Item {
     }
 
     function toggleOverview(script) {
-        Quickshell.execDetached([home + "/bin/" + script]);
+        Compositor.toggleOverview(script);
         IslandController.reset();
     }
 
@@ -94,7 +93,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     interactive: true
                     namePrefix: "workspace-panel-workspace-"
-                    workspaces: WorkspaceService.workspacesForMonitor(Hyprland.workspaces.values, root.monitor?.name, WorkspaceService.showAllMonitors)
+                    workspaces: WorkspaceService.workspacesForMonitor(Compositor.workspaces, root.monitor?.name, WorkspaceService.showAllMonitors)
                     activeWorkspace: root.activeWorkspace?.id ?? 1
                     persistentIds: WorkspaceService.rules.length === 0 ? null
                         : WorkspaceService.persistentForMonitor(WorkspaceService.rules, root.monitor, WorkspaceService.showAllMonitors)
@@ -157,6 +156,8 @@ Item {
             }
             WorkspaceChip {
                 objectName: "workspace-panel-mission-control"
+                // niri has a single overview, which the first button already opens.
+                visible: !Compositor.niri
                 iconSource: "../assets/icons/grid.svg"
                 description: "Mission control"
                 onClicked: root.toggleOverview("hypr-toggle-mission-control")

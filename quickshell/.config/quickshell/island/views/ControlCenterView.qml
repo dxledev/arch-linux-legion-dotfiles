@@ -90,6 +90,7 @@ Item {
                 Layout.fillWidth: true
 
                 objectName: "nightlight-button"
+                visible: NightLightService.available
                 iconSource: NightLightService.icon
 
                 title: "Night Light"

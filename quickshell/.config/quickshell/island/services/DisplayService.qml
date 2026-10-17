@@ -9,6 +9,8 @@ Singleton {
 
     Loader {
         id: host
+        // The editor drives the shared hyprmoncfg backend, which only speaks to Hyprland.
+        active: Compositor.hasDisplayEditor
         source: Qt.resolvedUrl("../modules/display/DisplayHost.qml")
     }
 }

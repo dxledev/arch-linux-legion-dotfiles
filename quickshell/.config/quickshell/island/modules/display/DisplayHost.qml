@@ -1,13 +1,13 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import "../../island"
+import "../../services"
 import "vendor" as Hyprmoncfg
 
 Item {
     function open(): void {
         if (!editor.opened) {
-            const monitorName = IslandState.panelMonitorName || Hyprland.focusedMonitor?.name;
+            const monitorName = IslandState.panelMonitorName || Compositor.focusedMonitorName;
             editor.windowScreen = Quickshell.screens.find(screen => screen.name === monitorName)
                 ?? Quickshell.screens[0] ?? null;
         }

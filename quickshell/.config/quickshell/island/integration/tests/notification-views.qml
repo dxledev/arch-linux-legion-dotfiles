@@ -27,6 +27,22 @@ ShellRoot {
         return result;
     }
 
+    function actionButtons(item) {
+        let result = [];
+        if ((item.objectName || "").startsWith("notification-action-")) result.push(item);
+        for (const child of item.children || []) result = result.concat(actionButtons(child));
+        return result;
+    }
+
+    function named(item, name) {
+        if (item.objectName === name) return item;
+        for (const child of item.children || []) {
+            const found = named(child, name);
+            if (found) return found;
+        }
+        return null;
+    }
+
     function rings(item) {
         let result = [];
         if (item.objectName === "notification-countdown-ring") result.push(item);
@@ -40,6 +56,19 @@ ShellRoot {
         islandTop: 10
         islandBottom: 43
         islandWidth: 160
+    }
+
+    // The newest history card, as the notification center draws it.
+    FloatingWindow {
+        visible: true
+        implicitWidth: 400
+        implicitHeight: 160
+        NotificationCard {
+            id: card
+            width: 400
+            notification: NotificationService.history.count > 0 ? NotificationService.history.get(0)
+                : {notificationId: 0, app: "", summary: "", body: "", icon: "", image: "", time: ""}
+        }
     }
 
     IslandTooltip {
@@ -58,6 +87,9 @@ ShellRoot {
                     .map(index => NotificationService.history.get(index).summary),
                 unread: NotificationService.unreadCount,
                 popups: NotificationService.popups.count,
+                live: Object.keys(NotificationService.live).map(Number),
+                cardFits: (() => { const column = root.named(card, "notification-card-text"); return column.implicitHeight > 60 && column.implicitHeight <= column.height; })(),
+                cardActions: root.actionButtons(card).map(button => button.text),
                 tooltip: {opened: tooltip.opened, background: tooltip.background.color.toString(),
                     foreground: tooltip.contentItem.color.toString(), radius: tooltip.background.radius,
                     height: tooltip.background.height},
@@ -95,6 +127,12 @@ ShellRoot {
         function invoke(): void {
             const entry = NotificationService.entries[0];
             entry.invoke(entry.actions.find(action => action.identifier === "test"));
+        }
+        function clickCardAction(identifier: string): void {
+            root.actionButtons(card).find(button => button.objectName === "notification-action-" + identifier)?.clicked();
+        }
+        function timeout(milliseconds: int): void {
+            ThemeService.settings = Object.assign({}, ThemeService.settings, {notificationTimeout: milliseconds});
         }
         function markRead(): void { NotificationService.markRead(); }
         function moveAway(): void { NotificationService.entries[0].monitorName = "other-monitor"; }

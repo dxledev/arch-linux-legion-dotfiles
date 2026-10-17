@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import Quickshell.Hyprland
 import "../core"
 import "../services"
 import "../styles"
@@ -8,8 +7,8 @@ import "../styles"
 Row {
     id: root
 
-    property var workspaces: Hyprland.workspaces.values
-    property int activeWorkspace: Hyprland.focusedWorkspace?.id ?? 1
+    property var workspaces: Compositor.workspaces
+    property int activeWorkspace: Compositor.focusedWorkspace?.id ?? 1
     property bool persistent: true
     property int persistentCount: 11
     property var persistentIds: null

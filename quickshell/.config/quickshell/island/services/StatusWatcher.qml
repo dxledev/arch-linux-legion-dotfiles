@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import Quickshell.Hyprland
 import "../core"
 import "../island"
 
@@ -17,7 +16,7 @@ Item {
 
     function showBrightness(parts, value) {
         const source = BrightnessService.getMonitor(parts[2]);
-        const monitorName = source?.connector || parts[2] || Hyprland.focusedMonitor?.name || ThemeService.islandScreens[0]?.name || "";
+        const monitorName = source?.connector || parts[2] || Compositor.focusedMonitorName || ThemeService.islandScreens[0]?.name || "";
         if (parts[3]) {
             if (brightnessStamps[monitorName] === parts[3]) return;
             brightnessStamps = Object.assign({}, brightnessStamps, {[monitorName]: parts[3]});

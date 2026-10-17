@@ -5,13 +5,14 @@ import "../styles"
 
 Switch {
     id: root
-    required property string setting
+    // A toggle that is not a saved setting leaves this empty and supplies its own checked and onToggled.
+    property string setting: ""
     width: parent.width
     height: 40
     padding: 0
-    checked: ThemeService.settings[setting] ?? false
+    checked: setting !== "" && (ThemeService.settings[setting] ?? false)
     enabled: !ThemeService.busy
-    onToggled: ThemeService.setSetting(setting, checked)
+    onToggled: if (setting !== "") ThemeService.setSetting(setting, checked)
     contentItem: UiText {
         text: root.text
         color: Theme.textPrimary

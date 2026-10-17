@@ -38,6 +38,9 @@ Item {
     property bool favoritesVisible: false
     property bool favoritesActive: false
     property string favoritesDescription: "Show favorites only"
+    // Optional folder button right of the star, for panels backed by a directory on disk.
+    property bool folderVisible: false
+    property string folderDescription: "Open folder"
     // A name edit reuses the confirm slot: the same check saves it.
     property bool editConfirmVisible: false
     property string editConfirmDescription: "Save name"
@@ -46,6 +49,7 @@ Item {
     signal back()
     signal sortToggled()
     signal favoritesToggled()
+    signal folderClicked()
     signal deleteToggled()
     signal deleteConfirmed()
     signal editConfirmed()
@@ -184,7 +188,7 @@ Item {
         anchors.rightMargin: 8
         anchors.verticalCenter: parent.verticalCenter
         spacing: 8
-        visible: root.deleteVisible || root.favoritesVisible || root.sortVisible
+        visible: root.deleteVisible || root.favoritesVisible || root.folderVisible || root.sortVisible
         width: visible ? implicitWidth : 0
         IconButton {
             objectName: "panel-delete-confirm"
@@ -219,6 +223,13 @@ Item {
             iconColor: root.favoritesActive ? Theme.accent : Theme.textPrimary
             description: root.favoritesDescription
             onClicked: root.favoritesToggled()
+        }
+        IconButton {
+            objectName: "panel-folder-button"
+            visible: root.folderVisible
+            iconSource: "../assets/icons/folder.svg"
+            description: root.folderDescription
+            onClicked: root.folderClicked()
         }
         IconButton {
             objectName: "panel-delete-toggle"

@@ -11,18 +11,14 @@ Singleton {
     id: root
     property var rules: []
     readonly property bool showAllMonitors: ThemeService.settings.workspaceShowAllMonitors ?? false
-    readonly property var screen: ThemeService.islandScreens.find(screen => screen.name === Hyprland.focusedMonitor?.name) ?? ThemeService.islandScreens[0]
-    readonly property var monitor: screen ? Hyprland.monitorFor(screen) : null
-    readonly property var visibleWorkspaces: workspacesForMonitor(Hyprland.workspaces.values, monitor?.name, showAllMonitors)
-    readonly property int activeWorkspace: (showAllMonitors ? Hyprland.focusedWorkspace : monitor?.activeWorkspace)?.id ?? 1
+    readonly property var screen: ThemeService.islandScreens.find(screen => screen.name === Compositor.focusedMonitorName) ?? ThemeService.islandScreens[0]
+    readonly property var monitor: screen ? Compositor.monitorFor(screen) : null
+    readonly property var visibleWorkspaces: workspacesForMonitor(Compositor.workspaces, monitor?.name, showAllMonitors)
+    readonly property int activeWorkspace: (showAllMonitors ? Compositor.focusedWorkspace : monitor?.activeWorkspace)?.id ?? 1
     readonly property var persistentIds: rules.length === 0 ? null : persistentForMonitor(rules, monitor, showAllMonitors)
 
     function hasFullscreen(screenMonitor) {
-        const specialName = screenMonitor?.lastIpcObject.specialWorkspace?.name;
-        const workspace = specialName
-            ? Hyprland.workspaces.values.find(workspace => workspace.name === specialName)
-            : screenMonitor?.activeWorkspace;
-        return workspace?.toplevels.values.some(window => window.lastIpcObject.fullscreen > 1) ?? false;
+        return Compositor.hasFullscreen(screenMonitor);
     }
 
     function workspacesForMonitor(workspaces, monitorName, allMonitors) {
@@ -54,7 +50,8 @@ Singleton {
     // Numbered workspaces to list: the persistent set plus anything occupied or active.
     function workspaceEntries(workspaces, persistentIds, persistent, persistentCount, activeWorkspace) {
         const states = new Map();
-        if (persistent) {
+        // niri creates and drops workspaces on its own, so only the ones that exist are listed.
+        if (persistent && !Compositor.niri) {
             const ids = persistentIds == null
                 ? Array.from({length: persistentCount}, (_, index) => index + 1)
                 : [...new Set(persistentIds)].sort((a, b) => a - b).slice(0, persistentCount);
@@ -64,7 +61,7 @@ Singleton {
             if (workspace.id <= 0) continue;
             const occupied = (workspace.toplevels?.values.length ?? workspace.lastIpcObject?.windows ?? 0) > 0;
             if (states.has(workspace.id) || occupied || workspace.id === activeWorkspace)
-                states.set(workspace.id, occupied);
+                states.set(workspace.id, occupied || states.get(workspace.id) === true);
         }
         if (activeWorkspace > 0 && !states.has(activeWorkspace))
             states.set(activeWorkspace, false);
@@ -78,6 +75,7 @@ Singleton {
     // Special workspaces to list: the four named ones always, then every other special
     // workspace that exists or is named by a rule. `occupied` is false when no window is in it.
     function specialEntries(workspaces, toplevels, workspaceRules, activeSpecialName) {
+        if (!Compositor.hasSpecialWorkspaces) return [];
         const extra = new Set();
         const bare = name => String(name ?? "").replace(/^special:/, "");
         for (const workspace of workspaces ?? [])
@@ -96,12 +94,12 @@ Singleton {
     }
 
     function showWorkspace() {
-        const workspace = Hyprland.focusedWorkspace;
+        const workspace = Compositor.focusedWorkspace;
         if (!workspace || (!showAllMonitors && !ThemeService.islandScreens.some(screen => screen.name === workspace.monitor?.name))) return;
-        if (workspacePanelCovers(workspace.monitor?.name ?? Hyprland.focusedMonitor?.name ?? "")) return;
+        if (workspacePanelCovers(workspace.monitor?.name ?? Compositor.focusedMonitorName ?? "")) return;
         StatusManager.show({
             mode: "workspace", icon: "", title: workspace.name, value: workspace.id,
-            monitorName: workspace.monitor?.name ?? Hyprland.focusedMonitor?.name ?? "",
+            monitorName: workspace.monitor?.name ?? Compositor.focusedMonitorName ?? "",
             statusWidth: 200, statusHeight: 33
         });
     }
@@ -109,7 +107,7 @@ Singleton {
     Process {
         id: ruleReader
         command: ["/usr/bin/hyprctl", "-j", "workspacerules"]
-        running: !!Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
+        running: !Compositor.niri && !!Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
         stdout: StdioCollector {}
         onExited: function(code) {
             if (code !== 0) return;
@@ -119,7 +117,14 @@ Singleton {
     }
 
     Connections {
+        target: NiriService
+        enabled: Compositor.niri
+        function onWorkspaceFocused() { Qt.callLater(root.showWorkspace); }
+    }
+
+    Connections {
         target: Hyprland
+        enabled: !Compositor.niri
 
         function onRawEvent(event) {
 

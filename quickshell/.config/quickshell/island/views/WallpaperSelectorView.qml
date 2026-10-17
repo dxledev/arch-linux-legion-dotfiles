@@ -513,6 +513,9 @@ FocusScope {
             favoritesActive: WallpaperService.favoritesOnly
             favoritesDescription: WallpaperService.favoritesOnly ? "Showing favorites only" : "Show favorites only"
             onFavoritesToggled: root.toggleFavoritesOnly()
+            folderVisible: WallpaperService.directory !== ""
+            folderDescription: "Open wallpaper folder"
+            onFolderClicked: WallpaperService.openDirectory()
             sortVisible: true
             sortActive: WallpaperService.sortMode !== "name-asc" || root.sortMenuOpen
             sortIcon: WallpaperService.sortMode.endsWith("desc") ? "../assets/icons/sort-desc.svg" : "../assets/icons/sort-asc.svg"

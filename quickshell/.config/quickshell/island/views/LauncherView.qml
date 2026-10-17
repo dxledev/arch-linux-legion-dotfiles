@@ -60,13 +60,14 @@ FocusScope {
             id: apps
             objectName: "launcher-results"
             width: parent.width
-            height: 340
+            // Six whole rows: 6 * 54 + 5 * 4 spacing, so no entry is clipped at rest.
+            height: 344
             clip: true
             model: root.results
             currentIndex: root.results.length ? 0 : -1
             spacing: 4
             boundsBehavior: Flickable.StopAtBounds
-            SmoothScroll { scrollTarget: apps }
+            SmoothScroll { scrollTarget: apps; wheelStep: 58 }
             ScrollBar.vertical: ScrollBar {}
             delegate: ItemDelegate {
                 id: row
@@ -119,6 +120,5 @@ FocusScope {
                 font.pixelSize: 13
             }
         }
-        UiText { text: "↑ ↓ Select    Enter Launch    Esc Close"; color: Theme.textMuted; font.pixelSize: 11 }
     }
 }

@@ -5,6 +5,15 @@ script_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 hyprctl_bin="${ISLAND_KEYBINDS_HYPRCTL:-/usr/bin/hyprctl}"
 mode_config="${ISLAND_KEYBINDS_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/island-mode-keybindings.lua}"
 
+# Whether Island runs under niri (see island/README.md, "Compositors").
+under_niri() {
+    case "${ISLAND_COMPOSITOR:-}" in niri) return 0 ;; hyprland) return 1 ;; esac
+    local desktop=":${XDG_CURRENT_DESKTOP,,}:"
+    [[ "$desktop" == *:niri:* ]] && return 0
+    [[ "$desktop" == *:hyprland:* ]] && return 1
+    [[ -n "${NIRI_SOCKET:-}" && -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]
+}
+
 usage() {
     printf 'Usage: keybinds {list|run ID [--dry-run]}\n'
 }
@@ -66,6 +75,8 @@ run_binding() {
 }
 
 main() {
+    # niri cannot list or fire its binds from outside; the shortcuts live in niri's config.kdl.
+    if under_niri && [[ "${1:-}" != --help && "${1:-}" != -h ]]; then fail 'The keybind list is only available on Hyprland.'; fi
     [[ "$hyprctl_bin" == /* && -x "$hyprctl_bin" ]] || fail 'Hyprland command must be an executable absolute path.'
     case "${1:-}" in
         list) [[ $# -eq 1 ]] || fail 'list does not accept arguments.'; list_bindings ;;

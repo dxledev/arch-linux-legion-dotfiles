@@ -20,7 +20,7 @@ dry_run=0
 source "$script_dir/theme-functions"
 
 usage() {
-    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|delete-wallpapers PATH...|rename-wallpaper PATH STEM|next|previous|mode light|dark|variant NAME|aether-list [PATH]|aether-select wh-SCHEME light|dark|wallpaper-palette PATH aether|material SCHEME light|dark|setting KEY VALUE\n'
+    printf 'Usage: island-theme [--dry-run] status|ui|themes|wallpapers|wallpaper-directory|restore|theme NAME|wallpaper PATH|delete-wallpapers PATH...|rename-wallpaper PATH STEM|next|previous|mode light|dark|variant NAME|full on|off|aether-list [PATH]|aether-select wh-SCHEME light|dark|wallpaper-palette PATH aether|material SCHEME light|dark|setting KEY VALUE\n'
 }
 
 fail() {
@@ -390,6 +390,12 @@ main() {
             (( $# == 1 )) || fail 'One value required.'
             [[ "$theme_key" == dynamic ]] || fail 'Mode and variant apply to Dynamic themes.'
             engine "set-$action" "$1"
+            reload_applications
+            ;;
+        full)
+            (( $# == 1 )) || fail 'full requires on or off.'
+            [[ "$theme_key" == dynamic ]] || fail 'The Full palette applies to Dynamic themes.'
+            engine set-full "$1"
             reload_applications
             ;;
         aether-list) aether_list "$@" ;;

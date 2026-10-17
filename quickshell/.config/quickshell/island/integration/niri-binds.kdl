@@ -1,0 +1,51 @@
+// Island's global shortcuts for niri, the counterpart of hyprland.lua. Paste the binds block into niri's
+// config.kdl (or `include` this file if your niri supports it); needs `spawn-sh` (niri 25.08 or newer).
+// Nothing installs it automatically. Keep it in step with
+// hyprland.lua: a shortcut added to one belongs in the other, except the Hyprland-only panels (layout,
+// workspace axis, shell mode, keybind list, displays), which niri does not have.
+binds {
+    // Panels
+    Mod+A hotkey-overlay-title="Island System" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openSystem"; }
+    Mod+Space hotkey-overlay-title="Island App Launcher" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openLauncher"; }
+    Mod+Alt+Space hotkey-overlay-title="Island Menu" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openNavigation"; }
+    Mod+Shift+Ctrl+C hotkey-overlay-title="Island Settings" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openSettings"; }
+    Mod+Alt+T hotkey-overlay-title="Theme Selector" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openThemeSelector"; }
+    Mod+Ctrl+Alt+Space hotkey-overlay-title="Wallpaper Selector" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openWallpaperSelector"; }
+    Mod+Alt+M hotkey-overlay-title="Island Media Controls" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openMediaControls"; }
+    Mod+Alt+P hotkey-overlay-title="Power Menu" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openPowerMenu"; }
+    Mod+Shift+B hotkey-overlay-title="Power Menu" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openPowerMenu"; }
+    Mod+Shift+D hotkey-overlay-title="Expand Island" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openExpandedHome"; }
+    Mod+Alt+V hotkey-overlay-title="Island Audio" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openAudioDevices"; }
+    Mod+Alt+A hotkey-overlay-title="Island Controls" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openControlCenter"; }
+    Mod+Shift+N hotkey-overlay-title="Island Notifications" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openNotifications"; }
+    Mod+Alt+N hotkey-overlay-title="Island Notifications" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openNotifications"; }
+    Mod+Shift+Alt+Space hotkey-overlay-title="Browse Wallpapers (Wallhaven)" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openWallhaven"; }
+    Mod+Alt+C hotkey-overlay-title="Island Clipboard" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openClipboard"; }
+    Mod+Shift+C hotkey-overlay-title="Island Chromack" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openChromack"; }
+    Mod+Ctrl+L hotkey-overlay-title="Project Lyrics to Island" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island toggleLyrics"; }
+    Ctrl+Alt+Space hotkey-overlay-title="Next Wallpaper" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island nextWallpaper"; }
+    Ctrl+Alt+Shift+Space hotkey-overlay-title="Previous Wallpaper" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island previousWallpaper"; }
+
+    // Desktop actions
+    // system-lock finds the shell mode in Hyprland's config, so niri calls Island's lock directly.
+    Mod+Shift+L hotkey-overlay-title="Island Lock Screen" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call lock lock"; }
+    Mod+Shift+Alt+V hotkey-overlay-title="Proton VPN" { spawn-sh "$HOME/bin/launch-vpn"; }
+    Mod+Shift+F1 hotkey-overlay-title="Minimum DP Brightness" { spawn-sh "$HOME/.config/quickshell/island/scripts/ddc-brightness.sh dp min"; }
+    Mod+F1 hotkey-overlay-title="Decrease DP Brightness" { spawn-sh "$HOME/.config/quickshell/island/scripts/ddc-brightness.sh dp down"; }
+    Mod+F2 hotkey-overlay-title="Increase DP Brightness" { spawn-sh "$HOME/.config/quickshell/island/scripts/ddc-brightness.sh dp up"; }
+    Mod+Shift+F3 hotkey-overlay-title="Minimum HDMI Brightness" { spawn-sh "$HOME/.config/quickshell/island/scripts/ddc-brightness.sh hdmi min"; }
+    Mod+F3 hotkey-overlay-title="Decrease HDMI Brightness" { spawn-sh "$HOME/.config/quickshell/island/scripts/ddc-brightness.sh hdmi down"; }
+    Mod+F4 hotkey-overlay-title="Increase HDMI Brightness" { spawn-sh "$HOME/.config/quickshell/island/scripts/ddc-brightness.sh hdmi up"; }
+    Mod+S hotkey-overlay-title="Region Screenshot" { screenshot; }
+    Mod+Shift+S hotkey-overlay-title="Monitor Screenshot" { screenshot-screen; }
+    Print hotkey-overlay-title="Monitor Screenshot" { screenshot-screen; }
+
+    // Volume and brightness (also while locked)
+    XF86AudioRaiseVolume allow-when-locked=true hotkey-overlay-title="Island Volume" { spawn-sh "$HOME/.config/quickshell/island/scripts/volume.sh up 1"; }
+    XF86AudioLowerVolume allow-when-locked=true hotkey-overlay-title="Island Volume" { spawn-sh "$HOME/.config/quickshell/island/scripts/volume.sh down 1"; }
+    Mod+XF86AudioRaiseVolume allow-when-locked=true hotkey-overlay-title="Island Volume" { spawn-sh "$HOME/.config/quickshell/island/scripts/volume.sh up 5"; }
+    Mod+XF86AudioLowerVolume allow-when-locked=true hotkey-overlay-title="Island Volume" { spawn-sh "$HOME/.config/quickshell/island/scripts/volume.sh down 5"; }
+    XF86AudioMute allow-when-locked=true hotkey-overlay-title="Island Audio" { spawn-sh "$HOME/.config/quickshell/scripts/quickshell -p $HOME/.config/quickshell/island/shell.qml ipc call island openAudioDevices"; }
+    XF86MonBrightnessUp allow-when-locked=true hotkey-overlay-title="Brightness Up" { spawn-sh "$HOME/.config/quickshell/island/scripts/brightness.sh +5%"; }
+    XF86MonBrightnessDown allow-when-locked=true hotkey-overlay-title="Brightness Down" { spawn-sh "$HOME/.config/quickshell/island/scripts/brightness.sh 5%-"; }
+}

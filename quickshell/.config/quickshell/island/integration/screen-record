@@ -12,9 +12,11 @@ log_file="$state_dir/recorder.log"
 work_dir="${ISLAND_RECORD_WORK_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island/record}"
 settings_file="${ISLAND_SETTINGS_FILE:-${ISLAND_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/island}/settings.json}"
 recorder_bin="${ISLAND_RECORD_BIN:-/usr/bin/gpu-screen-recorder}"
+ffmpeg_bin="${ISLAND_FFMPEG_BIN:-/usr/bin/ffmpeg}"
 recorder_comm="${ISLAND_RECORD_COMM:-gpu-screen-reco}"
 slurp_bin="${ISLAND_RECORD_SLURP:-/usr/bin/slurp}"
 hyprctl_bin="${ISLAND_RECORD_HYPRCTL:-/usr/bin/hyprctl}"
+niri_bin="${ISLAND_RECORD_NIRI:-niri}"
 notify_bin="${ISLAND_RECORD_NOTIFY:-notify-send}"
 opener_bin="${ISLAND_RECORD_OPEN:-/usr/bin/xdg-open}"
 picker_bin="${ISLAND_RECORD_PICKER:-/usr/bin/zenity}"
@@ -88,6 +90,33 @@ open_lock() {
     /usr/bin/flock -x 9
 }
 
+# Containers gpu-screen-recorder writes itself; every other format is converted from mkv afterwards.
+native_container() {
+    case "$1" in mp4|mkv) printf '%s' "$1" ;; *) printf mkv ;; esac
+}
+
+convert_recording() {
+    local source="$1" destination="$2" format="$3"
+    case "$format" in
+        mov) "$ffmpeg_bin" -nostdin -loglevel error -y -i "$source" -map 0 -c:v copy -c:a aac "$destination" ;;
+        webm) "$ffmpeg_bin" -nostdin -loglevel error -y -i "$source" -map 0 -c:v libvpx-vp9 -b:v 0 -crf 32 -row-mt 1 -deadline realtime -cpu-used 8 -c:a libopus "$destination" ;;
+        *) return 1 ;;
+    esac </dev/null >/dev/null 2>&1
+}
+
+# The saved file name, without its extension: the recordFilename setting read as a date format (%Y, %m,
+# %d, %H, %M, %S...), or the default when it is empty or unusable.
+recording_name() {
+    local pattern name
+    pattern="$(setting recordFilename '')"
+    [[ -n "$pattern" ]] || pattern='recording_%Y%m%d_%H-%M-%S'
+    name="$(/usr/bin/date +"$pattern" 2>/dev/null)"
+    if [[ -z "$name" || "$name" == */* || "$name" == .* || ${#name} -gt 200 ]]; then
+        name="$(/usr/bin/date +recording_%Y%m%d_%H-%M-%S)"
+    fi
+    printf '%s' "$name"
+}
+
 # Moves the finished file into the recordings folder and tells the user where it went.
 finish_recording() {
     local temporary="$1" format="$2" directory destination action
@@ -97,11 +126,25 @@ finish_recording() {
         fail_notify 'The recorder did not write a video file.'
     fi
     /usr/bin/mkdir -p -- "$directory"
-    destination="$directory/recording_$(/usr/bin/date +%Y%m%d_%H-%M-%S).$format"
+    # mov and webm are made from the container the recorder wrote. If the conversion fails the recording
+    # is kept as it was written instead of being lost.
+    if [[ "${temporary##*.}" != "$format" ]]; then
+        local converted="${temporary%.*}.converted.$format"
+        if convert_recording "$temporary" "$converted" "$format"; then
+            /usr/bin/rm -f -- "$temporary"
+            temporary="$converted"
+        else
+            /usr/bin/rm -f -- "$converted"
+            format="${temporary##*.}"
+        fi
+    fi
+    local name
+    name="$(recording_name)"
+    destination="$directory/$name.$format"
     # Never replace an earlier recording, even one saved in the same second.
     local suffix=1
     while [[ -e "$destination" ]]; do
-        destination="$directory/recording_$(/usr/bin/date +%Y%m%d_%H-%M-%S)_$suffix.$format"
+        destination="$directory/${name}_$suffix.$format"
         suffix=$(( suffix + 1 ))
     done
     /usr/bin/mv -n -- "$temporary" "$destination"
@@ -118,7 +161,31 @@ finish_recording() {
     printf '%s\n' "$destination"
 }
 
-monitors_json() { "$hyprctl_bin" monitors -j; }
+# The compositor Island runs under (see island/README.md, "Compositors"): ISLAND_COMPOSITOR, then the
+# session's desktop name, then whichever compositor socket variable is set.
+compositor() {
+    case "${ISLAND_COMPOSITOR:-}" in niri|hyprland) printf '%s' "$ISLAND_COMPOSITOR"; return ;; esac
+    local desktop=":${XDG_CURRENT_DESKTOP,,}:"
+    if [[ "$desktop" == *:niri:* ]]; then printf niri
+    elif [[ "$desktop" == *:hyprland:* ]]; then printf hyprland
+    elif [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then printf hyprland
+    elif [[ -n "${NIRI_SOCKET:-}" ]]; then printf niri
+    else printf none
+    fi
+}
+
+# Monitors as `hyprctl monitors -j` lists them. niri's logical size is already scaled and rotated, so the
+# pixel size is that times the scale and the transform is reported as unrotated.
+monitors_json() {
+    if [[ "$(compositor)" == niri ]]; then
+        "$niri_bin" msg --json outputs | /usr/bin/jq '[to_entries[].value | select(.logical != null) | {
+            name, x: .logical.x, y: .logical.y, scale: .logical.scale, transform: 0,
+            width: (.logical.width * .logical.scale | round), height: (.logical.height * .logical.scale | round),
+            refreshRate: ((.modes[.current_mode].refresh_rate // 60000) / 1000)}]'
+    else
+        "$hyprctl_bin" monitors -j
+    fi
+}
 
 # Highest refresh rate (rounded) among the monitors a logical rectangle touches.
 refresh_for_rect() {
@@ -183,7 +250,7 @@ start_recording() {
     quality="$(setting recordQuality very_high)"
     framerate="$(setting recordFramerate 60)"
     cursor="$(setting recordCursor true)"
-    [[ "$format" == mp4 || "$format" == mkv ]] || fail_notify "Unsupported recording format: $format"
+    [[ "$format" == mp4 || "$format" == mkv || "$format" == mov || "$format" == webm ]] || fail_notify "Unsupported recording format: $format"
 
     case "$mode" in
         screen)
@@ -199,14 +266,28 @@ start_recording() {
             region="$("$slurp_bin" -f '%wx%h+%x+%y' 2>/dev/null)" || exit 0
             ;;
         window)
-            [[ "$window" =~ ^0x[0-9a-f]+$ ]] || fail 'Window mode needs --window ADDRESS.'
+            if [[ "$(compositor)" == niri ]]; then
+                [[ "$window" =~ ^[0-9]+$ ]] || fail 'Window mode needs --window ID.'
+            else
+                [[ "$window" =~ ^0x[0-9a-f]+$ ]] || fail 'Window mode needs --window ADDRESS.'
+            fi
             # gpu-screen-recorder only captures a window by id on X11, so a Wayland window is recorded as
             # the screen rectangle it occupies right now. Only a window on a visible workspace can be.
-            geometry="$("$hyprctl_bin" clients -j | /usr/bin/jq -r --arg address "$window" --argjson monitors "$(monitors_json)" '
-                .[] | select(.address == $address and .mapped and (.hidden | not)) as $client
-                | ($monitors[] | select(.id == $client.monitor)) as $monitor
-                | select($client.workspace.id == $monitor.activeWorkspace.id or $client.workspace.id == $monitor.specialWorkspace.id)
-                | "\($client.size[0])x\($client.size[1])+\($client.at[0])+\($client.at[1])"')"
+            if [[ "$(compositor)" == niri ]]; then
+                # niri only reports a window's place inside its workspace view: add the output's origin and the
+                # window's offset in its tile. A window with no view position is scrolled out of sight.
+                geometry="$("$niri_bin" msg --json windows | /usr/bin/jq -r --arg id "$window" --argjson monitors "$(monitors_json)" --argjson workspaces "$("$niri_bin" msg --json workspaces)" '
+                    .[] | select((.id | tostring) == $id and .layout.tile_pos_in_workspace_view != null) as $window
+                    | ($workspaces[] | select(.id == $window.workspace_id and .is_active)) as $workspace
+                    | ($monitors[] | select(.name == $workspace.output)) as $monitor
+                    | "\($window.layout.window_size[0])x\($window.layout.window_size[1])+\($monitor.x + $window.layout.tile_pos_in_workspace_view[0] + $window.layout.window_offset_in_tile[0] | round)+\($monitor.y + $window.layout.tile_pos_in_workspace_view[1] + $window.layout.window_offset_in_tile[1] | round)"')"
+            else
+                geometry="$("$hyprctl_bin" clients -j | /usr/bin/jq -r --arg address "$window" --argjson monitors "$(monitors_json)" '
+                    .[] | select(.address == $address and .mapped and (.hidden | not)) as $client
+                    | ($monitors[] | select(.id == $client.monitor)) as $monitor
+                    | select($client.workspace.id == $monitor.activeWorkspace.id or $client.workspace.id == $monitor.specialWorkspace.id)
+                    | "\($client.size[0])x\($client.size[1])+\($client.at[0])+\($client.at[1])"')"
+            fi
             [[ -n "$geometry" ]] || fail_notify 'That window is not visible, so it cannot be recorded.'
             region="$geometry"
             ;;
@@ -240,11 +321,11 @@ start_recording() {
         source="$source|$camera;halign=start;valign=start;x=${webcam_x}%;y=${webcam_y}%;width=25%;height=25%"
     fi
 
-    local -a args=(-w "$source" -f "$rate" -c "$format" -q "$quality" -cursor "$([[ "$cursor" == false ]] && printf no || printf yes)")
+    local -a args=(-w "$source" -f "$rate" -c "$(native_container "$format")" -q "$quality" -cursor "$([[ "$cursor" == false ]] && printf no || printf yes)")
     [[ -z "$region" ]] || args+=(-region "$region")
     (( ! audio )) || args+=(-a default_output)
 
-    local temporary="$work_dir/recording.$format"
+    local temporary="$work_dir/recording.$(native_container "$format")"
     /usr/bin/mkdir -p -- "$work_dir"
     /usr/bin/rm -f -- "$temporary"
     args+=(-o "$temporary")

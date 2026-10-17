@@ -86,7 +86,7 @@ IpcHandler {
             id: timer.id, label: timer.label, remaining: TimerService.remainingSeconds(timer), paused: timer.paused, keepAlert: timer.indefinite, sound: timer.sound, snooze: timer.snooze
         })));
     }
-    function openShellSwitcher(): void { IslandController.toggleMode(IslandState.shellSwitcherMode); }
+    function openShellSwitcher(): void { if (Compositor.hasShellModes) IslandController.toggleMode(IslandState.shellSwitcherMode); }
     function openLayoutSwitcher(): void { IslandController.toggleMode(IslandState.layoutSwitcherMode); }
     function openWorkspaceAxis(): void { IslandController.toggleWorkspaceAxis(); }
     function nextWallpaper(): void { ThemeService.execute(["next"]); }

@@ -3,7 +3,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Wayland
 
 import "../core"
@@ -17,7 +16,7 @@ Scope {
     required property ShellScreen screen
     readonly property real cornerRadius: ThemeService.settings.screenCornerRadius ?? 24
     readonly property bool wanted: ThemeService.ready && (ThemeService.settings.screenCorners ?? false)
-        && !WorkspaceService.hasFullscreen(Hyprland.monitorFor(root.screen))
+        && !WorkspaceService.hasFullscreen(Compositor.monitorFor(root.screen))
 
     Variants {
         model: [

@@ -66,6 +66,13 @@ ShellRoot {
                     root.phase = 3; root.elapsed = 0;
                 } else if (root.phase === 3) {
                     if (!root.idle()) return;
+                    const full = root.named(view, "full-palette-toggle");
+                    root.check(full && full.text === "Full", "The Full toggle renders");
+                    root.check(!full.checked, "Full starts off");
+                    full.click();
+                    root.phase = 4; root.elapsed = 0;
+                } else if (root.phase === 4) {
+                    if (!root.idle()) return;
                     console.log("PASS: dynamic palette view");
                     Qt.quit();
                 }

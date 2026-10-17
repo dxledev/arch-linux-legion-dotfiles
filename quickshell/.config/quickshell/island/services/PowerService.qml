@@ -21,6 +21,10 @@ Singleton {
     }
 
     function logout() {
+        if (Compositor.niri) {
+            run([NiriService.binary, "msg", "action", "quit", "--skip-confirmation"])
+            return
+        }
         run([
             "hyprctl",
             "dispatch",

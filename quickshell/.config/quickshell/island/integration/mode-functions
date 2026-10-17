@@ -19,7 +19,7 @@ stop_island() {
 
 start_island() {
     local quickshell_config="$island_config" attempt lock_flag="${1:-0}"
-    "$systemctl_bin" --user import-environment WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP || return 1
+    "$systemctl_bin" --user import-environment WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE NIRI_SOCKET XDG_CURRENT_DESKTOP || return 1
     "$systemctl_bin" --user start "$island_polkit_service" || return 1
     if ! ISLAND_START_LOCKED="$lock_flag" start_quickshell 0; then
         "$systemctl_bin" --user stop "$island_polkit_service" || true

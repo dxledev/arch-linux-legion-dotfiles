@@ -15,6 +15,8 @@ desktop_provider="${SHELL_THEME_DESKTOP_PROVIDER:-caelestia}"
 state_dir="${SHELL_THEME_STATE_DIR:-$state_home/caelestia}"
 settings_file="$state_dir/shell-theme.json"
 palette_file="$state_dir/shell-theme-palette.json"
+full_flag_file="$state_dir/full-palette"
+full_helper="${SHELL_THEME_FULL_PALETTE:-$script_dir/full-palette.py}"
 dynamic_wallpaper_file="${SHELL_DYNAMIC_WALLPAPER:-$state_dir/dynamic-wallpaper}"
 cache_dir="${SHELL_THEME_CACHE_DIR:-$cache_home/caelestia/shell-theme}"
 engine_dir="$cache_dir/engine"
@@ -34,7 +36,7 @@ variants=(tonalspot vibrant expressive fidelity fruitsalad monochrome neutral ra
 style_name=""
 
 usage() {
-    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [--style STYLE] [COLORS]|list-aether [WALLPAPER]|set-aether-variant STYLE light|dark|set-mode light|dark|toggle-mode|set-variant VARIANT|preview PATH\n'
+    printf 'Usage: shell-theme [--dry-run] status|cache-ready|refresh|refresh-wallpaper|restore [--cached]|set-static-theme NAME|set-source system|dynamic|set-aether [--style STYLE] [COLORS]|list-aether [WALLPAPER]|set-aether-variant STYLE light|dark|set-mode light|dark|toggle-mode|set-variant VARIANT|set-full on|off|preview PATH\n'
 }
 
 fail() {
@@ -439,6 +441,19 @@ selector_source() {
     fi
 }
 
+# The Full option: the palette with a complete ROYGBIV wheel in the variant's own character. It is a rendering
+# step only; the palette that is cached, snapshotted and saved stays as generated, so switching Full off
+# returns the original colours.
+full_enabled() {
+    [[ -e "$full_flag_file" ]]
+}
+
+full_palette() {
+    [[ -x /usr/bin/python3 ]] || fail 'Python 3 is required for the Full palette.'
+    [[ -r "$full_helper" && -f "$full_helper" ]] || fail "Full palette helper not found: $full_helper"
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$full_helper" <<< "$1" || fail 'Could not build the Full palette.'
+}
+
 render_dynamic() {
     local palette="$1" wallpaper="$2" force_render="$3" temporary result
     require_executable "$theme_renderer"
@@ -704,7 +719,7 @@ show_dry_run() {
 apply_settings() {
     local source="$1" mode="$2" variant="$3" provider="$4" requested="${5:-}" force_apply="${6:-0}"
     local palette_override="${7:-}" requested_style="${8:-}" palette wallpaper changed=unchanged hash selection selection_type
-    local selection_action="" style="$requested_style" dry_engine previous_engine palette_ready=0
+    local selection_action="" style="$requested_style" dry_engine previous_engine palette_ready=0 rendered
 
     if [[ "$source" == dynamic ]]; then
         wallpaper="$(dynamic_seed "$requested")"
@@ -778,7 +793,9 @@ apply_settings() {
             printf 'Source: dynamic\nProvider: %s\nMode: %s\nVariant: %s\nWallpaper: %s\n' "$provider" "$mode" "$variant" "$wallpaper"
             [[ -z "$style" ]] || printf 'Aether style: %s\n' "$style"
         fi
-        changed="$(render_dynamic "$palette" "$wallpaper" "$force_apply")"
+        rendered="$palette"
+        if full_enabled; then rendered="$(full_palette "$palette")"; fi
+        changed="$(render_dynamic "$rendered" "$wallpaper" "$force_apply")"
     fi
     apply_desktop "$source" "$changed" "$force_apply"
     (( dry_run )) && return 0
@@ -867,7 +884,11 @@ case "$command_name" in
         ;;
     status)
         (( $# == 0 )) || { usage >&2; exit 2; }
-        settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name" "$static_theme_name"
+        if full_enabled; then
+            settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name" "$static_theme_name" | /usr/bin/jq -c '.full = true'
+        else
+            settings_json "$source_name" "$mode_name" "$variant_name" "$provider_name" "$static_theme_name"
+        fi
         ;;
     cache-ready)
         (( $# == 0 )) || { usage >&2; exit 2; }
@@ -952,6 +973,16 @@ case "$command_name" in
         [[ $# == 1 ]] && is_variant "$1" || { usage >&2; exit 2; }
         [[ "$source_name" == dynamic ]] || fail 'Variants are only available for Dynamic.'
         apply_settings dynamic "$mode_name" "$1" caelestia
+        ;;
+    set-full)
+        [[ $# == 1 && ( "$1" == on || "$1" == off ) ]] || { usage >&2; exit 2; }
+        [[ "$source_name" == dynamic ]] || fail 'The Full palette is only available for Dynamic.'
+        if (( dry_run )); then
+            printf 'Full palette: %s\n' "$1"
+        else
+            if [[ "$1" == on ]]; then : > "$full_flag_file"; else /usr/bin/rm -f -- "$full_flag_file"; fi
+            apply_settings dynamic "$mode_name" "$variant_name" auto "" 1
+        fi
         ;;
     preview)
         [[ $# == 1 ]] || { usage >&2; exit 2; }

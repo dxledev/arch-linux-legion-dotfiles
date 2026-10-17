@@ -53,6 +53,8 @@ Singleton {
     }
 
     function refresh() {
+        // The helper reads Hyprland's layout and animation settings; there is nothing to read under niri.
+        if (Compositor.niri) return
         if (reader.running) {
             refreshPending = true
             return

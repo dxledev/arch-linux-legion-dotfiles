@@ -2,7 +2,6 @@ pragma Singleton
 
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 
 // Screen recording through gpu-screen-recorder, driven by integration/screen-record. The script keeps the
@@ -108,10 +107,10 @@ Singleton {
     function quickStart() {
         if (!available) return false;
         if (mode === "screen") {
-            const names = Hyprland.monitors.values.map(monitor => monitor.name);
-            if (!names.includes(monitorName)) monitorName = Hyprland.focusedMonitor?.name ?? names[0] ?? "";
+            const names = Compositor.recordMonitors().map(monitor => monitor.name);
+            if (!names.includes(monitorName)) monitorName = Compositor.focusedMonitorName ?? names[0] ?? "";
         }
-        if (mode === "window" && !Hyprland.toplevels.values.some(toplevel => toplevel.lastIpcObject?.address === windowAddress))
+        if (mode === "window" && !Compositor.recordClients().some(client => client?.address === windowAddress))
             return false;
         if (!canStart) return false;
         start();

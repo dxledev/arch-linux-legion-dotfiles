@@ -79,6 +79,7 @@ Singleton {
 
     Connections {
         target: Hyprland
+        enabled: !Compositor.niri
         function onRawEvent(event) {
             if (event.name === "monitoradded" || event.name === "monitorremoved") root.detect();
         }

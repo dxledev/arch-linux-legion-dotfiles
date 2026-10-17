@@ -1,4 +1,6 @@
 singleton AudioService 1.0 AudioService.qml
+singleton Compositor 1.0 Compositor.qml
+singleton NiriService 1.0 NiriService.qml
 singleton AIUsageService 1.0 AIUsageService.qml
 BatteryService 1.0 BatteryService.qml
 singleton BluetoothService 1.0 BluetoothService.qml

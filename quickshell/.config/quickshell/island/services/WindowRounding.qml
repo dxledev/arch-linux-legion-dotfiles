@@ -5,7 +5,8 @@ import Quickshell.Io
 
 // Keeps Hyprland's window rounding equal to the screen corner radius, the way Caelestia's
 // WindowRounding does, so windows follow the rounded screen. Only acts while Island is the active
-// shell mode. With radius < 0 it hands rounding back to the Hyprland config.
+// shell mode. With radius < 0 it hands rounding back to the Hyprland config. niri sets its corner
+// radius in its own config file and offers no way to change it at runtime, so nothing happens there.
 Scope {
     id: root
 
@@ -26,6 +27,10 @@ Scope {
     }
 
     function synchronize(): void {
+        if (!Compositor.hasWindowRounding) {
+            root.syncPending = false
+            return
+        }
         if (!root.syncPending || modeQuery.running || update.running) return
         root.syncPending = false
         if (root.radius < 0 && !root.applied) return
@@ -47,6 +52,7 @@ Scope {
 
     Connections {
         target: Hyprland
+        enabled: !Compositor.niri
         function onRawEvent(event) {
             if (event.name === "configreloaded") root.requestSync()
         }

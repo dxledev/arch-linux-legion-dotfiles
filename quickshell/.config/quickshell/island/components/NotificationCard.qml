@@ -12,6 +12,8 @@ Rectangle {
     clip: true
     readonly property var formattedSummary: NotificationFormat.format(notification.summary)
     readonly property var formattedBody: NotificationFormat.formatLines(notification.body)
+    // Buttons of a notification whose sender is still waiting; stored records and answered ones have none.
+    readonly property var actions: NotificationService.actionsFor(notification.notificationId)
 
     RowLayout {
         anchors.fill: parent
@@ -44,6 +46,7 @@ Rectangle {
         }
 
         ColumnLayout {
+            objectName: "notification-card-text"
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 3
@@ -88,13 +91,31 @@ Rectangle {
                 font.pixelSize: 12
                 wrapMode: Text.Wrap
                 textFormat: Text.StyledText
-                maximumLineCount: 2
+                maximumLineCount: root.actions.length > 0 ? 1 : 2
                 elide: Text.ElideRight
             }
-            UiText {
-                text: root.notification.time
-                color: Theme.textMuted
-                font.pixelSize: 11
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                UiText {
+                    text: root.notification.time
+                    color: Theme.textMuted
+                    font.pixelSize: 11
+                }
+                Item { Layout.fillWidth: true }
+                Repeater {
+                    objectName: "notification-actions"
+                    model: root.actions
+                    TextActionButton {
+                        required property var modelData
+                        objectName: "notification-action-" + modelData.identifier
+                        Layout.maximumWidth: 140
+                        implicitHeight: 24
+                        padding: 8
+                        text: modelData.text
+                        onClicked: NotificationService.invokeAction(root.notification.notificationId, modelData.identifier)
+                    }
+                }
             }
         }
     }

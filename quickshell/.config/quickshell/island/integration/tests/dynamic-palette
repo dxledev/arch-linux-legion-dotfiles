@@ -20,7 +20,7 @@ case "${1:-}" in
     ui) /usr/bin/jq -cn --argjson settings "$(read_settings)" '{theme:{source:"dynamic",mode:"dark",variant:"tonalspot",provider:"aether"},label:"dynamic",settings:$settings,wallpaper:"",colors:{background:"#101010",backgroundAlt:"#181818",foreground:"#eeeeee",foregroundInactive:"#aaaaaa",muted:"#777777",primary:"#ffab91",danger:"#ee5555",warning:"#eebb55",success:"#66bb66"}}' ;;
     themes) printf '[]\n' ;;
     aether-list) printf '%s\n' '[{"style":"wh-pastel","mode":"dark","active":true},{"style":"wh-pastel","mode":"light","active":false},{"style":"other-style","mode":"dark","active":false}]' ;;
-    aether-select|variant|mode) printf '%s\n' "$*" >> "$TEST_ROOT/commands.log" ;;
+    aether-select|variant|mode|full) printf '%s\n' "$*" >> "$TEST_ROOT/commands.log" ;;
     setting) save_setting "$2" "$3" ;;
     wallpaper-directory) exit 0 ;;
     *) exit 2 ;;
@@ -37,6 +37,6 @@ fi
 if ! /usr/bin/rg -q 'PASS: dynamic palette view' "$test_root/views.log" || /usr/bin/rg -q 'FAIL:|ReferenceError|TypeError|Binding loop' "$test_root/views.log"; then
     fail 'Dynamic palette view test failed.'
 fi
-expected=$'aether-select wh-pastel light\nvariant vibrant\naether-select wh-pastel dark'
+expected=$'aether-select wh-pastel light\nvariant vibrant\naether-select wh-pastel dark\nfull on'
 [[ "$(< "$test_root/commands.log")" == "$expected" ]] || fail 'Unexpected controller commands.'
-printf 'PASS: dynamic palette lists only Wallhaven palettes and routes mode and palette changes\n'
+printf 'PASS: dynamic palette lists only Wallhaven palettes and routes mode, palette and Full changes\n'

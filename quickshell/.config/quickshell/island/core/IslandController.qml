@@ -1,7 +1,6 @@
 pragma Singleton
 
 import QtQuick
-import Quickshell.Hyprland
 
 import "../island"
 import "../services"
@@ -74,7 +73,7 @@ QtObject {
     }
 
     function focusedPanelMonitorName() {
-        const screen = ThemeService.islandScreens.find(screen => screen.name === Hyprland.focusedMonitor?.name)
+        const screen = ThemeService.islandScreens.find(screen => screen.name === Compositor.focusedMonitorName)
             ?? ThemeService.islandScreens[0]
         return screen?.name || ""
     }
@@ -159,6 +158,7 @@ QtObject {
     function openLauncher() { setMode(IslandState.launcherMode) }
 
     function openDisplays() {
+        if (!Compositor.hasDisplayEditor) return
         DisplayService.open()
         reset()
     }
@@ -167,8 +167,8 @@ QtObject {
     function openClockSettings() { setMode(IslandState.clockSettingsMode) }
     function openOsdSettings() { setMode(IslandState.osdSettingsMode) }
 
-    function openShellSwitcher() { setMode(IslandState.shellSwitcherMode) }
-    function openLayoutSwitcher() { setMode(IslandState.layoutSwitcherMode) }
+    function openShellSwitcher() { if (Compositor.hasShellModes) setMode(IslandState.shellSwitcherMode) }
+    function openLayoutSwitcher() { if (Compositor.hasLayoutControls) setMode(IslandState.layoutSwitcherMode) }
 
     function cancelWorkspaceAxisRequest() {
         workspaceAxisRequestGeneration += 1
@@ -177,6 +177,7 @@ QtObject {
     }
 
     function openWorkspaceAxis(monitorName = IslandState.panelMonitorName || focusedPanelMonitorName()) {
+        if (!Compositor.hasLayoutControls) return
         if (workspaceAxisOpenPending || IslandState.mode === IslandState.workspaceAxisMode)
             return
         workspaceAxisRequestGeneration += 1
@@ -218,7 +219,7 @@ QtObject {
 
     function openAIUsage() { setMode(IslandState.aiUsageMode) }
 
-    function openKeybinds() { setMode(IslandState.keybindsMode) }
+    function openKeybinds() { if (Compositor.hasKeybindList) setMode(IslandState.keybindsMode) }
 
     function openControlCenter() {
         setMode(IslandState.controlCenterMode)

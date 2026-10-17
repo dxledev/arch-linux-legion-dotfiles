@@ -1,7 +1,6 @@
 pragma Singleton
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import "../services"
 import "../services/MonitorSelection.js" as MonitorSelection
 
@@ -45,7 +44,7 @@ Singleton {
     }
 
     function confirm(data) {
-        confirmMonitorName = data.monitorName || Hyprland.focusedMonitor?.name || ThemeService.islandScreens[0]?.name || "";
+        confirmMonitorName = data.monitorName || Compositor.focusedMonitorName || ThemeService.islandScreens[0]?.name || "";
         confirmIcon = data.icon ?? "";
         confirmTitle = data.title;
         confirmDetail = data.detail ?? "";
@@ -83,7 +82,7 @@ Singleton {
         if (data.mode === "brightness") showBrightness(data);
         else brightnessEvent = null;
         mode = data.mode;
-        monitorName = data.monitorName || Hyprland.focusedMonitor?.name || ThemeService.islandScreens[0]?.name || "";
+        monitorName = data.monitorName || Compositor.focusedMonitorName || ThemeService.islandScreens[0]?.name || "";
         icon = data.icon;
         title = data.title;
         value = data.value;

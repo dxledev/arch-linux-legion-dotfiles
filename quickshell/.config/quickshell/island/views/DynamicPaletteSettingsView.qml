@@ -53,6 +53,19 @@ SettingsPanel {
                 ? ThemeService.execute(["aether-select", value.slice(root.generatedPrefix.length), ThemeService.state.mode])
                 : ThemeService.execute(["variant", value])
         }
+        SettingToggle {
+            objectName: "full-palette-toggle"
+            text: "Full"
+            checked: ThemeService.state.full === true
+            onToggled: ThemeService.execute(["full", checked ? "on" : "off"])
+        }
+        UiText {
+            width: parent.width
+            text: "Full builds a complete red-to-violet palette that follows the theme's character."
+            color: Theme.textMuted
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+        }
         UiText {
             width: parent.width
             visible: root.generatedStyles.length > 0

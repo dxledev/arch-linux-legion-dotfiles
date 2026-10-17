@@ -11,9 +11,9 @@ PanelWindow {
     id: root
 
     readonly property bool monitorActive: ThemeService.islandScreens.length === 1
-        || root.screen?.name === Hyprland.focusedMonitor?.name
+        || root.screen?.name === Compositor.focusedMonitorName
     readonly property bool panelActive: capsule.panelActive
-    readonly property HyprlandMonitor monitor: Hyprland.monitorFor(root.screen)
+    readonly property var monitor: Compositor.monitorFor(root.screen)
     readonly property bool hasFullscreen: WorkspaceService.hasFullscreen(root.monitor)
 
     WlrLayershell.namespace: "island"
@@ -22,10 +22,14 @@ PanelWindow {
     exclusiveZone: 0
     visible: ThemeService.ready && !root.hasFullscreen
 
+    // niri has no focus-grab protocol: the panel takes the keyboard outright and the pointer through a
+    // full-screen catcher (below) that closes it, which is what the grab's `cleared` does on Hyprland.
+    readonly property bool modalPanel: root.visible && IslandState.modal && root.panelActive && root.monitorActive
+
     HyprlandFocusGrab {
         id: focusGrab
 
-        active: root.visible && IslandState.modal && root.panelActive && root.monitorActive
+        active: !Compositor.niri && root.modalPanel
 
         windows: [ root ]
 
@@ -34,7 +38,9 @@ PanelWindow {
         }
     }
 
-    focusable: focusGrab.active
+    WlrLayershell.keyboardFocus: Compositor.niri
+        ? (root.modalPanel ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None)
+        : (focusGrab.active ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None)
 
     anchors {
         top: true
@@ -48,6 +54,15 @@ PanelWindow {
     IslandReservation {
         screen: root.screen
         visible: root.visible
+    }
+
+    MouseArea {
+        id: outsideCatcher
+
+        anchors.fill: parent
+        enabled: Compositor.niri && root.modalPanel
+        acceptedButtons: Qt.AllButtons
+        onPressed: IslandController.reset()
     }
 
     Island {
@@ -69,7 +84,12 @@ PanelWindow {
         Region { item: root.panelActive && root.monitorActive ? IslandState.dropdownArea : null; radius: 18 }
     }
 
-    mask: capsuleMask
+    Region {
+        id: catcherMask
+        item: outsideCatcher
+    }
+
+    mask: Compositor.niri && root.modalPanel ? catcherMask : capsuleMask
 
     NotificationWindow {
         screen: root.screen

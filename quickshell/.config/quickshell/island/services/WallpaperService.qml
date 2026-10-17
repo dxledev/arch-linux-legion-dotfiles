@@ -108,6 +108,13 @@ Singleton {
         }
     }
 
+    function openDirectory() {
+        if (!directory) return;
+        // A separate omafiles window (--new-window) keeps the folder out of the user's existing window,
+        // and only this instance floats: Hyprland gets the rules with the spawn, niri floats the new window.
+        Compositor.spawnFloating([Quickshell.env("HOME") + "/.local/bin/omafiles", "--new-window", directory],
+            1200, 800, "omafiles");
+    }
     function setFilter(theme) { reload(); }
     function apply(path) { ThemeService.execute(["wallpaper", path]); }
     function rename(path, stem) { ThemeService.execute(["rename-wallpaper", path, stem]); }

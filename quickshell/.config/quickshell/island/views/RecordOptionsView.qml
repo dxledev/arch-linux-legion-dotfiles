@@ -28,8 +28,8 @@ FocusScope {
     implicitHeight: body.y + body.implicitHeight + 24
 
     function reload() {
-        const monitors = Hyprland.monitors.values.map(monitor => monitor.lastIpcObject);
-        const clients = Hyprland.toplevels.values.map(toplevel => toplevel.lastIpcObject);
+        const monitors = Compositor.recordMonitors();
+        const clients = Compositor.recordClients();
         // Assigning an equal list would still rebuild every delegate, resetting scrolling, hover and focus.
         const nextScreens = RecordTargets.screens(monitors), nextWindows = RecordTargets.windows(clients, monitors);
         if (JSON.stringify(nextScreens) !== JSON.stringify(screens)) screens = nextScreens;
@@ -45,8 +45,8 @@ FocusScope {
     }
 
     function refresh() {
-        Hyprland.refreshMonitors();
-        Hyprland.refreshToplevels();
+        Compositor.refreshMonitors();
+        Compositor.refreshToplevels();
         reload();
     }
 
@@ -66,7 +66,7 @@ FocusScope {
     Keys.onEnterPressed: start()
 
     Connections {
-        target: Hyprland.toplevels
+        target: Compositor.niri ? null : Hyprland.toplevels
         function onValuesChanged() { root.reload(); }
     }
     Timer {

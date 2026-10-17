@@ -37,7 +37,7 @@ check_settings() {
     [[ "$before" == "$(/usr/bin/sha256sum "$settings_file")" ]]
     dry_run=0
     local invalid
-    for invalid in 'recordFormat webm' 'recordFormat MP4' 'recordDirectory relative/path' 'recordDirectory ~other/x' 'recordFramerate 120' 'recordFramerate fast' 'recordQuality best' 'recordCursor yes' 'recordCameraDevice /dev/sda' 'recordCameraDevice video0'; do
+    for invalid in 'recordFormat avi' 'recordFormat MP4' 'recordFilename a/b' 'recordFilename .hidden' 'recordDirectory relative/path' 'recordDirectory ~other/x' 'recordFramerate 120' 'recordFramerate fast' 'recordQuality best' 'recordCursor yes' 'recordCameraDevice /dev/sda' 'recordCameraDevice video0'; do
         if (save_setting "${invalid%% *}" "${invalid#* }") >/dev/null 2>&1; then fail "Accepted invalid setting: $invalid"; fi
     done
     if (save_setting recordDirectory "$(printf '/a\nb')") >/dev/null 2>&1; then fail 'Accepted a folder with a newline.'; fi
@@ -84,6 +84,15 @@ while (( $# )); do [[ "$1" == -o ]] && output="$2"; shift; done
 trap 'printf x >> "$FAKE_DIR/pauses"' USR2
 trap 'printf video > "$output"; exit 0' INT TERM
 while :; do /usr/bin/sleep 0.05; done
+FAKE
+    # A converter that logs its arguments and "converts" by copying the input to the last argument.
+    /usr/bin/cat > "$test_root/bin/ffmpeg-fake" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$FAKE_DIR/ffmpeg-argv"
+[[ -z "${FAKE_FFMPEG_FAIL:-}" ]] || exit 1
+input=''
+while (( $# > 1 )); do [[ "$1" == -i ]] && input="$2"; shift; done
+printf 'converted:%s' "$(< "$input")" > "$1"
 FAKE
     /usr/bin/cat > "$test_root/bin/slurp-fake" <<'FAKE'
 #!/usr/bin/env bash
@@ -141,7 +150,7 @@ record() {
     FAKE_DIR="$test_root" ISLAND_RECORD_STATE_DIR="$test_root/runtime/record" ISLAND_RECORD_WORK_DIR="$test_root/work" \
         ISLAND_SETTINGS_FILE="$settings_file" ISLAND_RECORD_BIN="$test_root/bin/gsr-fake" ISLAND_RECORD_COMM=gsr-fake \
         ISLAND_RECORD_SLURP="$test_root/bin/slurp-fake" ISLAND_RECORD_HYPRCTL="$test_root/bin/hyprctl-fake" \
-        ISLAND_RECORD_PICKER="$test_root/bin/picker-fake" \
+        ISLAND_RECORD_PICKER="$test_root/bin/picker-fake" ISLAND_FFMPEG_BIN="$test_root/bin/ffmpeg-fake" \
         ISLAND_RECORD_NOTIFY="$test_root/bin/notify-fake" ISLAND_RECORD_OPEN=/usr/bin/true ISLAND_RECORD_SETTLE_MS=300 ISLAND_RECORD_STOP_TIMEOUT=1 \
         "$script" "$@"
 }
@@ -201,6 +210,37 @@ check_script() {
     argv_has '-a default_output'
     record stop
     [[ -n "$(last_video mkv)" ]] || fail 'No mkv was saved.'
+    # The file name is a date pattern; an empty or unusable one falls back to the default.
+    save_setting recordFilename 'clip_%Y'
+    record start --mode screen --monitor DP-1
+    record stop
+    [[ "$(/usr/bin/ls -t "$test_root/out" | /usr/bin/head -n 1)" == "clip_$(/usr/bin/date +%Y).mkv" ]] || fail 'The file name setting was not used.'
+    save_setting recordFilename 'fixed'
+    record start --mode screen --monitor DP-1
+    record stop
+    record start --mode screen --monitor DP-1
+    record stop
+    [[ -e "$test_root/out/fixed.mkv" && -e "$test_root/out/fixed_1.mkv" ]] || fail 'A repeated file name replaced an earlier recording.'
+    save_setting recordFilename ''
+    # mov and webm are recorded as mkv and converted when the recording stops; a failed conversion keeps the mkv.
+    save_setting recordFormat mov
+    record start --mode screen --monitor DP-1
+    argv_has '-c mkv'
+    record stop
+    [[ "$(< "$(last_video mov)")" == converted:video ]] || fail 'The mov was not converted from the recording.'
+    [[ ! -e "$test_root/work/recording.mkv" ]] || fail 'The unconverted recording was left behind.'
+    save_setting recordFormat webm
+    record start --mode screen --monitor DP-1
+    argv_has '-c mkv'
+    record stop
+    [[ "$(< "$(last_video webm)")" == converted:video ]] || fail 'The webm was not converted from the recording.'
+    /usr/bin/grep -q 'libvpx-vp9' "$test_root/ffmpeg-argv" || fail 'The webm was not encoded as VP9.'
+    local mkv_count
+    mkv_count="$(/usr/bin/ls "$test_root/out"/*.mkv | /usr/bin/wc -l)"
+    record start --mode screen --monitor DP-1
+    FAKE_FFMPEG_FAIL=1 record stop
+    [[ "$(/usr/bin/ls "$test_root/out"/*.mkv | /usr/bin/wc -l)" -eq $(( mkv_count + 1 )) ]] || fail 'A failed conversion lost the recording.'
+    save_setting recordFormat mkv
     save_setting recordCameraDevice auto
     FAKE_CANCEL=1 record start --mode region
     state_is '.running == false' || fail 'A cancelled selection started a recording.'

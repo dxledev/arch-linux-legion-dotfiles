@@ -17,6 +17,11 @@ Singleton {
     signal actionFinished(bool succeeded, string message)
 
     function refresh() {
+        if (!Compositor.hasKeybindList) {
+            entries = []
+            error = "The keybind list is only available on Hyprland."
+            return
+        }
         if (loading || busy)
             return
         error = ""

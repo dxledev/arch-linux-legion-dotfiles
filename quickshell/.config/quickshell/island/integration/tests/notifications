@@ -98,6 +98,43 @@ wait_store() {
     fail 'Shared notification history check failed.'
 }
 
+# A notification with buttons outlives its popup: the sender keeps waiting and the center card answers for it.
+check_center_actions() {
+    local output="$test_root/notify-send.out" sender
+    [[ -x /usr/bin/notify-send ]] || fail 'notify-send is required for the action button check.'
+    ipc timeout 1000
+    : > "$output"
+    /usr/bin/notify-send -a 'Screen recording' --action=watch=Watch --action=folder='Show in folder' \
+        'Recording saved' '/tmp/recording.mp4' > "$output" 2>/dev/null &
+    sender=$!
+    wait_for '.history == 1 and .popups == 1 and (.live | length) == 1'
+    /usr/bin/sleep 1.5
+    wait_for '.popups == 0 and .history == 1 and (.live | length) == 1 and .cardActions == ["Watch", "Show in folder"] and .cardFits'
+    kill -0 "$sender" || fail 'The sender stopped waiting when the popup expired.'
+    ipc clickCardAction folder
+    wait_for '(.live | length) == 0 and .cardActions == [] and .history == 1'
+    wait "$sender" || true
+    [[ "$(< "$output")" == folder ]] || fail "The sender received '$(< "$output")' instead of the clicked action."
+    # Removing the card closes a notification nobody answered, so its sender stops waiting.
+    : > "$output"
+    /usr/bin/notify-send -a 'Screen recording' --action=watch=Watch 'Second' 'Body' > "$output" 2>/dev/null &
+    sender=$!
+    wait_for '.history == 2 and (.live | length) == 1'
+    /usr/bin/sleep 1.5
+    kill -0 "$sender" || fail 'The second sender stopped waiting when the popup expired.'
+    # An update to a notification kept for its buttons shows again and replaces its history row.
+    local kept
+    kept="$(snapshot | /usr/bin/jq '.live[0]')"
+    notify "$kept" Replaced 'New body' 2 watch Watch 0 0 >/dev/null
+    wait_for '.popups == 1 and .history == 2 and .historySummaries[0] == "Replaced"'
+    ipc removeFirst
+    wait_for '.history == 1 and (.live | length) == 0'
+    wait "$sender" || true
+    ipc clear
+    wait_for '.history == 0'
+    ipc timeout 5000
+}
+
 start_fixture() {
     /usr/bin/quickshell -p "$test_root/views.qml" >> "$test_root/views.log" 2>&1 &
     fixture_pid=$!
@@ -269,6 +306,7 @@ run_session() {
     wait_store 'length == 0'
     check_markup
     check_media
+    check_center_actions
     check_restart
 }
 
@@ -291,5 +329,5 @@ else
         /usr/bin/cat "$test_root/views.log" >&2
         fail 'Notification fixture logged errors.'
     fi
-    printf 'PASS: notification settings, dry-run, private D-Bus delivery, Pango markup, animation, monitor routing, Spotify announcements hidden behind the media panel and lyrics card, stacking, replacements, hover pause, expiry, dismissal, actions, history, and shared history persistence\n'
+    printf 'PASS: notification settings, dry-run, private D-Bus delivery, Pango markup, animation, monitor routing, Spotify announcements hidden behind the media panel and lyrics card, stacking, replacements, hover pause, expiry, dismissal, actions, buttons kept in the notification center, history, and shared history persistence\n'
 fi
